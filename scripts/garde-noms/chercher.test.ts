@@ -113,6 +113,31 @@ describe("garde des noms : crochets sur un dépôt temporaire", () => {
     expect(r.stderr.toLowerCase()).not.toContain("ostrowska");
     expect(r.stderr.toLowerCase()).not.toContain("quincaillerie");
   });
+  const masquePour = (chemin: string, contenu: string) => {
+    git("reset", "-q");
+    writeFileSync(join(depot, chemin), contenu);
+    git("add", "--", chemin);
+    const r = lancer("pre-commit");
+    const sortie = `${r.stdout}${r.stderr}`.toLowerCase();
+    expect(r.status).toBe(1);
+    for (const morceau of ["quincaillerie", "zephyrine", "zéphyrine", "ostrowska"]) expect(sortie).not.toContain(morceau);
+    return r.stderr;
+  };
+  it("[C-531] chemin avec guillemet : jamais écrit, nom dans le chemin ET le contenu", () => {
+    expect(masquePour('quincaillerie-zephyrine-ostrowska "v2".md', `propre\n${NOM}\n`)).toContain("fichier masqué (n° 1), ligne 2");
+  });
+  it("[C-531] chemin avec barre oblique inverse : jamais écrit", () => {
+    expect(masquePour("quincaillerie-zephyrine-ostrowska\\v2.md", `propre\n${NOM}\n`)).toContain("fichier masqué (n° 1), ligne 2");
+  });
+  it("[C-531] chemin avec caractère de contrôle : jamais écrit", () => {
+    expect(masquePour("quincaillerie\tzephyrine-ostrowska.md", `propre\n${NOM}\n`)).toContain("fichier masqué (n° 1), ligne 2");
+  });
+  it("[C-531] nom dans le contenu seulement, chemin à caractères spéciaux : chemin affiché sans le nom", () => {
+    expect(masquePour('notes "v2" é.md', `${NOM}\n`)).toContain("ligne 1 (n° 1)");
+  });
+  it("[C-531] nom accentué ou en ligature dans le chemin : jamais écrit", () => {
+    expect(masquePour("QUINCAILLERIE-Zéphyrine-Ostrowska-é.md", `${NOM}\n`)).toContain("fichier masqué (n° 1), ligne 1");
+  });
   it("[C-611] pre-commit refuse une ligne ajoutée qui commence par « ++ » (fausse ligne d'en-tête)", () => {
     git("reset", "-q");
     writeFileSync(join(depot, "c.md"), `++ ${NOM}\n`);

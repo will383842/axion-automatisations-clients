@@ -1,4 +1,4 @@
-# 0009 · `sharp` exclu des applications Next.js
+# 0010 · `sharp` exclu des applications Next.js
 
 Date : 24/10/2026 · Statut : accepté
 

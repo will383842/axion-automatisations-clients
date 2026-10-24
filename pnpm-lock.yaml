@@ -47,6 +47,8 @@ importers:
 
   packages/design: {}
 
+  packages/donnees-fictives: {}
+
   packages/harnais:
     dependencies:
       fastify:

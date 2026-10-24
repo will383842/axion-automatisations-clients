@@ -38,7 +38,8 @@ export function chercher(texte: string, noms: Liste | string[]): Trouvaille[] {
 }
 
 export function chercherNomDeFichier(chemin: string, noms: Liste | string[]): number[] {
-  return chercher(chemin.replace(/[/\\]/g, "\n"), noms).map((t) => t.numero);
+  const entiers = chercher(chemin.replace(/[\r\n]+/g, " "), noms); // un nom coupé par un séparateur
+  return [...new Set([...chercher(chemin.replace(/[/\\]/g, "\n"), noms), ...entiers].map((t) => t.numero))];
 }
 
 export const formaterTrouvailles = (lieu: string, trouvailles: Trouvaille[]): string[] =>

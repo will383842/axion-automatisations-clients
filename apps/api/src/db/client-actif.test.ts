@@ -5,7 +5,7 @@ import { avecClient, avecEquipe } from "./client-actif.js";
 
 const CLIENT_A = "6f1c3a52-8d1e-4b7a-9c20-3e5d7a1b0c11";
 
-type Appel = [string, unknown[]?];
+type Appel = [string, (unknown[] | undefined)?];
 // Faux pool : enregistre les requêtes ; `echecSur` fait échouer la requête dont le texte commence ainsi.
 function fauxPool(echecSur?: string) {
   const appels: Appel[] = [];

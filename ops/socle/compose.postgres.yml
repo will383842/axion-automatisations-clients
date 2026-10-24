@@ -1,0 +1,41 @@
+# PostgreSQL 16 (avec pg_partman) et PgBouncer en mode transaction. Réseau interne seulement, aucun port publié.
+# Le mot de passe de test vient de lancer.sh. PgBouncer n'ouvre que les quatre rôles « app » et « équipe » : ni le superutilisateur, ni le propriétaire, ni la migration.
+services:
+  postgres:
+    build:
+      context: ../images/postgres
+    restart: "no"
+    environment:
+      POSTGRES_PASSWORD: ${SOCLE_PG_MOT_DE_PASSE:?mot de passe de test absent}
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    volumes:
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    networks: [interne]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d console"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+  pgbouncer:
+    image: edoburu/pgbouncer:v1.24.1-p1@sha256:3db3d7223e93af52b4116f642951a1a5fa44702a88c2a59cf7562cac19320c9e
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Variables courtes : « docker compose config » replie les lignes de plus de 80 colonnes, ce que la garde ne lit pas.
+    # R : rôles admis · L : format d'une ligne de la liste (\042 = guillemet) · M : mot de passe de test · G : génération de la liste · B : configuration sans extension
+    environment:
+      R: console_app console_equipe moteur_app moteur_equipe
+      L: '\042%s\042 \042%s\042\n'
+      M: ${SOCLE_PG_MOT_DE_PASSE:?mot de passe de test absent}
+      G: 'for u in $$R; do printf "$$L" $$u $$M; done >/tmp/u.txt'
+      B: /etc/pgbouncer/conf/pgbouncer
+    entrypoint: ['sh', '-c', 'eval "$$G"; exec pgbouncer $${B}.ini']
+    volumes:
+      - ./pgbouncer:/etc/pgbouncer/conf:ro
+    networks: [interne]
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 6432"]
+      interval: 2s
+      timeout: 3s
+      retries: 30

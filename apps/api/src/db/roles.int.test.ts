@@ -137,7 +137,10 @@ describe("rôles", () => {
       expect(await codeRefus(app, "ALTER TABLE essai_roles.t ADD COLUMN x int")).toBe("42501");
       expect(await codeRefus(app, "DROP TABLE essai_roles.t")).toBe("42501");
       expect(await codeRefus(app, "ALTER TABLE essai_roles.t DISABLE ROW LEVEL SECURITY")).toBe("42501");
-      expect(await codeRefus(app, "GRANT ALL ON essai_roles.t TO PUBLIC")).toBe("42501");
+      // Un GRANT sans option de transmission ne fait qu'un avertissement : on vérifie qu'il n'a rien ouvert.
+      await app.query("GRANT ALL ON essai_roles.t TO PUBLIC");
+      const ouvert = await lignes(app, "SELECT 1 FROM pg_class c, aclexplode(c.relacl) a WHERE c.oid = 'essai_roles.t'::regclass AND a.grantee = 0");
+      expect(ouvert).toEqual([]);
     } finally {
       await migration.query("DROP SCHEMA IF EXISTS essai_roles CASCADE");
     }

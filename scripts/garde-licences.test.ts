@@ -1,0 +1,25 @@
+import { describe, expect, it } from "vitest";
+import { verifierLicences } from "./garde-licences.js";
+
+const paquet = (name: string) => [{ name, versions: ["1.0.0"] }];
+
+describe("garde-licences", () => {
+  it("accepte les licences permises", () => {
+    const data = { MIT: paquet("a"), "Apache-2.0": paquet("b"), "BSD-3-Clause": paquet("c"), ISC: paquet("d"), "0BSD": paquet("e"), "OFL-1.1": paquet("f") };
+    expect(verifierLicences(data, new Set())).toEqual([]);
+  });
+  it("refuse une licence hors liste", () => {
+    expect(verifierLicences({ "GPL-3.0": paquet("x") }, new Set()).join("\n")).toContain("x");
+  });
+  it("refuse une licence inconnue", () => {
+    expect(verifierLicences({ Unknown: paquet("y") }, new Set()).join("\n")).toContain("y");
+  });
+  it("MPL-2.0 seulement pour les paquets de apps/api et apps/executeur", () => {
+    expect(verifierLicences({ "MPL-2.0": paquet("m") }, new Set(["m"]))).toEqual([]);
+    expect(verifierLicences({ "MPL-2.0": paquet("m") }, new Set(["autre"]))).not.toEqual([]);
+  });
+  it("lit une expression OR : une branche permise suffit", () => {
+    expect(verifierLicences({ "(MIT OR GPL-3.0)": paquet("z") }, new Set())).toEqual([]);
+    expect(verifierLicences({ "(MIT AND GPL-3.0)": paquet("z") }, new Set())).not.toEqual([]);
+  });
+});

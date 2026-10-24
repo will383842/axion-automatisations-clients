@@ -26,7 +26,7 @@ describe("garde des noms : recherche", () => {
   });
   it("[C-611] les ligatures œ et æ valent oe et ae", () => {
     expect(normaliser("Cœur Æsop")).toBe("coeur aesop");
-    expect(chercher("Atelier Cœur", parserListe("atelier coeur"))).toHaveLength(1);
+    expect(chercher("Atelier Bertin Cœur", parserListe("bertin coeur"))).toHaveLength(1);
   });
   it("[C-611] trouve « QUINCAILLERIE-zephyrine_ostrowska »", () => {
     expect(chercher("une phrase\nQUINCAILLERIE-zephyrine_ostrowska ici", liste)).toEqual([{ ligne: 2, numero: 1 }]);
@@ -96,6 +96,16 @@ describe("garde des noms : crochets sur un dépôt temporaire", () => {
   it("[C-531] pre-commit masque le chemin quand le nom de fichier contient déjà le nom", () => {
     git("reset", "-q");
     writeFileSync(join(depot, "d/quincaillerie-zephyrine-ostrowska.md"), `propre\n${NOM}\n`);
+    git("add", "d");
+    const r = lancer("pre-commit");
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain("fichier masqué (n° 1), ligne 2");
+    expect(r.stderr.toLowerCase()).not.toContain("ostrowska");
+    expect(r.stderr.toLowerCase()).not.toContain("quincaillerie");
+  });
+  it("[C-531] pre-commit masque aussi le chemin quand il contient une espace", () => {
+    git("reset", "-q");
+    writeFileSync(join(depot, "d/quincaillerie zephyrine ostrowska notes.md"), `propre\n${NOM}\n`);
     git("add", "d");
     const r = lancer("pre-commit");
     expect(r.status).toBe(1);

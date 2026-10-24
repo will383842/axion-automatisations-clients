@@ -77,7 +77,7 @@ export function verifierIndex(liste: Liste): string[] {
   let ligne = 0;
   for (const l of git("diff", "--cached", "--unified=0", "--no-color", "--diff-filter=ACMR").split("\n")) {
     if (l.startsWith("diff --git ")) entete = true;
-    else if (entete && l.startsWith("+++ ")) fichier = l.slice(6);
+    else if (entete && l.startsWith("+++ ")) fichier = l.slice(6).replace(/\t.*$/, ""); // git ajoute une tabulation après un chemin contenant une espace
     else if (l.startsWith("@@")) {
       entete = false;
       ligne = Number(/\+(\d+)/.exec(l)?.[1] ?? 1) - 1;

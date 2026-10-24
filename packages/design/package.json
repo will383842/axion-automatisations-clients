@@ -6,6 +6,11 @@
   "type": "module",
   "main": "src/index.ts",
   "scripts": {
+    "generer-css": "node scripts/generer-css.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@fontsource/fraunces": "^5.0.0",
+    "@fontsource/manrope": "^5.0.0"
   }
 }

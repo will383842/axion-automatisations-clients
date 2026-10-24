@@ -1,7 +1,25 @@
+import { existsSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
+
+// retry: 0 — aucune relance automatique (C-538), pour chaque projet.
+const retry = 0;
+// Vitest 4 a retiré **/dist/** de ses exclusions par défaut : on le remet.
+const exclude = [...configDefaults.exclude, "**/dist/**", "**/__fixtures__/**"];
+const dossiers = (racine: string) =>
+  readdirSync(racine, { withFileTypes: true })
+    .filter((d) => d.isDirectory() && existsSync(`${racine}/${d.name}/package.json`))
+    .map((d) => `${racine}/${d.name}`)
+    .sort();
 
 // Racine du dépôt figée : Vitest ne remonte jamais chercher une configuration dans un dossier parent.
+// Vitest 4 ne lit plus vitest.workspace.ts : les projets sont déclarés ici, dans test.projects.
 export default defineConfig({
   root: fileURLToPath(new URL("./", import.meta.url)),
+  test: {
+    projects: [
+      { test: { name: "scripts", root: "./scripts", retry, exclude } },
+      ...[...dossiers("apps"), ...dossiers("packages")].map((d) => ({ test: { name: d, root: `./${d}`, retry, exclude } })),
+    ],
+  },
 });

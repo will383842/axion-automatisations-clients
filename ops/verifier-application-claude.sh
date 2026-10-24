@@ -13,7 +13,7 @@ verdict() { # $1 = libellé, $2 = 0 si OK
 
 # 1. Droits de l'application installée, lus avec le jeton de l'utilisateur (user/installations), pas avec un JWT d'application.
 # Filtre sur l'application de Claude ; si elle n'est pas trouvée, on ne sait pas, donc on échoue.
-if droits=$(gh api user/installations --paginate --jq '.installations[] | select(.app_slug | test("claude")) | .permissions | to_entries[] | "\(.key)=\(.value)"' 2>/dev/null) && [ -n "$droits" ]; then
+if droits=$(gh api user/installations --paginate --jq '.installations[] | select(.app_slug | test("^claude$")) | .permissions | to_entries[] | "\(.key)=\(.value)"' 2>/dev/null) && [ -n "$droits" ]; then
   echo "Droits de l'application installée :"
   printf '  %s\n' "$droits"
   printf '%s\n' "$droits" | grep -qx 'statuses=write' ; [ $? -ne 0 ] ; verdict "l'application n'a pas statuses: write (sinon : contrôle d'auteur de ops/fusionner-pr.sh)" $?

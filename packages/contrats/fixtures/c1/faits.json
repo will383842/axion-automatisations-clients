@@ -1,0 +1,27 @@
+{
+  "route": "faits",
+  "cas": [
+    {
+      "nom": "valide",
+      "valide": true,
+      "cle": "cle-test-c1-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c1-console-a",
+      "horodatage": "1792800000",
+      "methode": "GET",
+      "chemin": "/api/console/v1/faits?apres=42",
+      "corps": "",
+      "signature": "v1=3356b036af93ba7d79762eb6e49110b5a1f4000af161bd417947b62ce34d7413"
+    },
+    {
+      "nom": "séquence non numérique",
+      "valide": false,
+      "cle": "cle-test-c1-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c1-console-a",
+      "horodatage": "1792800000",
+      "methode": "GET",
+      "chemin": "/api/console/v1/faits?apres=abc",
+      "corps": "",
+      "signature": "v1=c8d29a01fc79c082c8dcbd3e38855dbc764b26a8b7caff0a1958ad87ac26e747"
+    }
+  ]
+}

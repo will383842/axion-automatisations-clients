@@ -112,4 +112,45 @@ describe("garde-workflows", () => {
       expect(verifierWorkflow("ok.yml", enTete("permissions:\n  contents: read\n  statuses: read\n  checks: read"))).toEqual([]);
     });
   });
+  describe("analyse YAML des permissions (relecture de la correction)", () => {
+    const enTete = (perms: string) => `name: P\non:\n  push:\n${perms}\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ok\n`;
+    const duJob = (perms: string) => `name: P\non:\n  push:\npermissions:\n  contents: read\njobs:\n  a:\n    runs-on: ubuntu-latest\n${perms}\n    steps:\n      - run: echo ok\n`;
+    it("[C-529] garde-workflows refuse write-all derrière une clé permissions entre guillemets simples ou doubles", () => {
+      expect(verifierWorkflow("a.yml", duJob("    'permissions': write-all"))).not.toEqual([]);
+      expect(verifierWorkflow("b.yml", duJob("    \"permissions\": write-all"))).not.toEqual([]);
+    });
+    it("[C-529] garde-workflows refuse write-all avec une espace avant les deux-points", () => {
+      expect(verifierWorkflow("a.yml", duJob("    permissions : write-all"))).not.toEqual([]);
+    });
+    it("[C-529] garde-workflows refuse write-all dans un job écrit en flux", () => {
+      const texte = "name: P\non:\n  push:\npermissions:\n  contents: read\njobs:\n  a: { runs-on: ubuntu-latest, permissions: write-all, steps: [ { run: echo ok } ] }\n";
+      expect(verifierWorkflow("a.yml", texte)).not.toEqual([]);
+    });
+    it("[C-529] garde-workflows ne coupe pas sur # à l'intérieur d'une chaîne entre guillemets", () => {
+      const flux = (corps: string) => `name: P\non:\n  push:\npermissions:\n  contents: read\njobs:\n  a: { name: "x #", ${corps}, runs-on: ubuntu-latest, steps: [ { run: echo ok } ] }\n`;
+      expect(verifierWorkflow("a.yml", flux("permissions: { statuses: write }"))).not.toEqual([]);
+      expect(verifierWorkflow("b.yml", flux("permissions: write-all"))).not.toEqual([]);
+      const action = "name: P\non:\n  push:\npermissions:\n  contents: read\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - { name: \"x #\", uses: evil/act@v1 }\n";
+      expect(verifierWorkflow("c.yml", action).join("\n")).toContain("evil/act@v1");
+    });
+    it("[C-529] garde-workflows garde un vrai commentaire coupé après les guillemets", () => {
+      expect(verifierWorkflow("a.yml", enTete("permissions:\n  contents: read # statuses: write"))).toEqual([]);
+      expect(verifierWorkflow("b.yml", enTete("permissions:\n  contents: \"read\" # note"))).toEqual([]);
+    });
+    it("[C-529] garde-workflows refuse une clé statuses écrite avec une séquence d'échappement", () => {
+      expect(verifierWorkflow("a.yml", enTete("permissions:\n  contents: read\n  \"\\x73tatuses\": write"))).not.toEqual([]);
+      expect(verifierWorkflow("b.yml", enTete("permissions:\n  contents: read\n  \"\\u0063hecks\": write"))).not.toEqual([]);
+    });
+    it("[C-529] garde-workflows refuse une clé explicite ? en flux sur deux lignes", () => {
+      expect(verifierWorkflow("a.yml", enTete("permissions: { ? statuses\n  : write }"))).not.toEqual([]);
+    });
+    it("[C-529] garde-workflows refuse un YAML illisible ou une ancre au niveau d'un job", () => {
+      expect(verifierWorkflow("a.yml", enTete("permissions: {").replace("steps:", "steps: ["))).not.toEqual([]);
+      expect(verifierWorkflow("b.yml", duJob("    env: &e { A: b }"))).not.toEqual([]);
+    });
+    it("[C-529] garde-workflows accepte des permissions légitimes écrites entre guillemets ou en flux", () => {
+      expect(verifierWorkflow("a.yml", duJob("    \"permissions\": { contents: read, statuses: read }"))).toEqual([]);
+      expect(verifierWorkflow("b.yml", duJob("    permissions: read-all"))).toEqual([]);
+    });
+  });
 });

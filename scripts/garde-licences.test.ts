@@ -23,3 +23,19 @@ describe("garde-licences", () => {
     expect(verifierLicences({ "(MIT AND GPL-3.0)": paquet("z") }, new Set())).not.toEqual([]);
   });
 });
+
+describe("garde-licences : exceptions nommées (dépendances de développement)", () => {
+  const dev = { "Python-2.0": paquet("argparse"), "BlueOak-1.0.0": paquet("minimatch") };
+  it("accepte argparse (Python-2.0) et minimatch (BlueOak-1.0.0) quand ce sont des dépendances de développement", () => {
+    expect(verifierLicences(dev, new Set(), new Set(["eslint"]))).toEqual([]);
+  });
+  it("refuse un paquet non listé, même en développement", () => {
+    expect(verifierLicences({ "Python-2.0": paquet("autre") }, new Set(), new Set())).not.toEqual([]);
+  });
+  it("refuse la même licence sur un autre paquet que celui nommé", () => {
+    expect(verifierLicences({ "BlueOak-1.0.0": paquet("argparse") }, new Set(), new Set())).not.toEqual([]);
+  });
+  it("refuse argparse ou minimatch quand ils sont une dépendance de production", () => {
+    expect(verifierLicences(dev, new Set(), new Set(["argparse", "minimatch"]))).toHaveLength(2);
+  });
+});

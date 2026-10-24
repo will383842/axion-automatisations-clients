@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -52,8 +52,22 @@ describe("verifierDiff", () => {
   });
   it("[C-611] verifierDiff refuse un chemin échappé \\303\\251", () => {
     const diff = 'diff --git "a/docs/z\\303\\251.md" "b/docs/z\\303\\251.md"\nnew file mode 100644\n';
-    const e = verifierDiff(diff, liste);
-    expect(e.join("\n")).toContain("chemin échappé, relancer avec core.quotePath=false");
+    expect(() => verifierDiff(diff, liste)).toThrow(/chemin échappé, relancer avec core.quotePath=false/);
+  });
+  it("[C-611] le mode diff sort 1 (refus) sur un chemin échappé sans nom, 2 si un nom est aussi présent", () => {
+    const sansNom = 'diff --git "a/docs/z\\303\\251.md" "b/docs/z\\303\\251.md"\nnew file mode 100644\n';
+    expect(lancer(["diff", "d"], sansNom).status).toBe(1);
+    expect(lancer(["diff", "d"], 'diff --git "a/docs/\\001.md" "b/docs/\\001.md"\nnew file mode 100644\n').status).toBe(1);
+    expect(lancer(["diff", "d"], sansNom + fichier("a.md", NOM)).status).toBe(2);
+  });
+  it("[C-611] verifierDiff refuse un \\3xx dans rename, --- ou +++ et dans un seul côté entre guillemets", () => {
+    const rename = 'diff --git a/p1.md "b/z\\303\\251.md"\nsimilarity index 100%\nrename from p1.md\nrename to "z\\303\\251.md"\n';
+    expect(() => verifierDiff(rename, liste)).toThrow(/chemin échappé/);
+    const entetes = 'diff --git a/p1.md b/p1.md\nindex 1..2 100644\n--- "a/z\\303\\251.md"\n+++ b/p1.md\n';
+    expect(() => verifierDiff(entetes, liste)).toThrow(/chemin échappé/);
+  });
+  it("[C-611] pre-commit contrôle aussi les changements de type (T)", () => {
+    expect(readFileSync(chercherTs, "utf8")).toContain("--diff-filter=ACMRT");
   });
   it("[C-531] la sortie du mode diff ne contient jamais le nom", () => {
     const diff = fichier("docs/Quincaillerie-Zéphyrine-Ostrowska.md", NOM, "Quincaillerie Zéphyrine", "Ostrowska");

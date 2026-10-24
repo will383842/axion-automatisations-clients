@@ -81,6 +81,20 @@ describe("metadonnees : liste fermée de blocs", () => {
     expect(metadonneesInterdites(Buffer.from("%PDF-1.4"), "png")).not.toBeNull();
     expect(metadonneesInterdites(png(), "pdf")).not.toBeNull();
   });
+  it("[C-611] metadonnees refuse un APP0 JFIF dont la longueur ne correspond pas à la vignette", () => {
+    const base = "JFIF\0\x01\x01\0\0\x01\0\x01";
+    const avec = (fin: string, extra = "") => Buffer.from(`${base}${fin}${extra}`, "latin1");
+    const j = (app0: Buffer) => Buffer.concat([Buffer.from([0xff, 0xd8]), seg(0xe0, app0), seg(0xda, Buffer.from([1, 1, 0, 0, 63, 0])), Buffer.from([0xff, 0xd9])]);
+    expect(metadonneesInterdites(j(avec("\0\0")), "jpg")).toBeNull();
+    expect(metadonneesInterdites(j(avec("\0\0", NOM)), "jpg")).not.toBeNull();
+    expect(metadonneesInterdites(j(avec("\x01\x01", "\0\0\0")), "jpg")).toBeNull();
+    expect(metadonneesInterdites(j(avec("\x01\x01", `\0\0\0${NOM}`)), "jpg")).not.toBeNull();
+  });
+  it("[C-611] metadonnees refuse un BMP V5 (profil ICC possible) dans un ico", () => {
+    const bmp = Buffer.concat([Buffer.from([124, 0, 0, 0]), Buffer.alloc(120)]);
+    const ent = Buffer.concat([Buffer.from([0, 0, 1, 0, 1, 0, 1, 1, 0, 0, 1, 0, 32, 0]), le32(bmp.length), le32(22)]);
+    expect(metadonneesInterdites(Buffer.concat([ent, bmp]), "ico")).not.toBeNull();
+  });
   it("[C-611] metadonnees contrôle chaque image d'un ico", () => {
     const image1 = png();
     const entete = (n: number, ...tailles: Buffer[]) => {

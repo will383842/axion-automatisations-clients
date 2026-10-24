@@ -44,13 +44,13 @@ importers:
       fastify:
         specifier: ^5.12.7
         version: 5.12.7
-      nodemailer:
-        specifier: 10.2.1
-        version: 10.2.1
     devDependencies:
       '@types/nodemailer':
         specifier: ^6.4.24
         version: 6.4.24
+      nodemailer:
+        specifier: 10.2.1
+        version: 10.2.1
 
   packages/sdk-module: {}
 

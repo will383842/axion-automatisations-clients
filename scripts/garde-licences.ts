@@ -6,8 +6,8 @@ import { fileURLToPath } from "node:url";
 const PERMISES = new Set(["MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "0BSD", "OFL-1.1"]);
 const MPL = "MPL-2.0";
 
-// Exceptions NOMMÉES (paquet + licence), réservées aux dépendances de développement (ADR 0007).
-const EXCEPTIONS_DEV: Record<string, string> = { argparse: "Python-2.0", minimatch: "BlueOak-1.0.0" };
+// Exceptions NOMMÉES (paquet + licence), réservées aux dépendances de développement (ADR 0007, ADR 0008).
+const EXCEPTIONS_DEV: Record<string, string> = { argparse: "Python-2.0", minimatch: "BlueOak-1.0.0", nodemailer: "MIT-0" };
 
 type Paquets = Record<string, { name: string }[]>;
 

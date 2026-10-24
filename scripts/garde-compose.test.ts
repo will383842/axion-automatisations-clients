@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import config from "../vitest.config.js";
-import { analyserArguments } from "./compter-tests.js";
+import { analyserArguments, verifierConsigne } from "./compter-tests.js";
 import { verifierCompose } from "./garde-compose.js";
 
 const lire = (chemin: string) => readFileSync(fileURLToPath(new URL(`../${chemin}`, import.meta.url)), "utf8");
@@ -66,6 +66,39 @@ describe("garde-compose", () => {
     const erreurs = verifierCompose("assemble-port-interne.yml", fixture("assemble-port-interne.yml"));
     expect(erreurs.join("\n")).toMatch(/postgres.*ports/);
   });
+  it("[A-086] garde-compose refuse un service interne sans réseau déclaré ou avec un autre réseau", () => {
+    const sans = `services:\n  postgres:\n    image: exemple/x:1${EMPREINTE}\nnetworks:\n  interne:\n    internal: true\n`;
+    expect(verifierCompose("sans.yml", sans).join("\n")).toMatch(/postgres.*réseau/);
+    const defaut = `services:\n  postgres:\n    image: exemple/x:1${EMPREINTE}\n    networks:\n      default: null\n`;
+    expect(verifierCompose("defaut.yml", defaut).join("\n")).toMatch(/postgres.*réseau/);
+    const bon = `services:\n  postgres:\n    image: exemple/x:1${EMPREINTE}\n    networks: [interne]\n`;
+    expect(verifierCompose("bon.yml", bon).join("\n")).not.toMatch(/réseau/);
+  });
+  it("[A-066] garde-compose refuse un port du proxy autre que 127.0.0.1:8443, formes courte et longue", () => {
+    const proxy = (ports: string) => `services:\n  traefik:\n    image: exemple/x:1${EMPREINTE}\n    networks: [entree]\n    ports:\n${ports}\n`;
+    const mauvais = [
+      '      - "8080:8080"',
+      '      - "0.0.0.0:443:8443"',
+      '      - "127.0.0.1:8443:8443"\n      - "127.0.0.1:8080:8080"',
+      "      - mode: ingress\n        host_ip: 0.0.0.0\n        target: 8443\n        published: \"8443\"",
+      "      - mode: ingress\n        target: 8443\n        published: \"8443\"",
+      "      - mode: ingress\n        host_ip: 127.0.0.1\n        target: 8080\n        published: \"8080\"",
+    ];
+    for (const p of mauvais) expect(verifierCompose("p.yml", proxy(p)).join("\n")).toMatch(/traefik.*ports/);
+    expect(verifierCompose("p.yml", proxy('      - "127.0.0.1:8443:8443"'))).toEqual([]);
+    expect(verifierCompose("assemble-proxy-ouvert.yml", fixture("assemble-proxy-ouvert.yml")).join("\n")).toMatch(/traefik.*ports/);
+  });
+  it("[A-086] garde-compose refuse cap_add, pid host, ipc host, userns_mode host et devices", () => {
+    const base = `    image: exemple/x:1${EMPREINTE}\n    networks: [interne]\n`;
+    for (const extra of ["cap_add: [SYS_ADMIN]", "pid: host", "ipc: host", "userns_mode: host", "devices: [/dev/mem]"]) {
+      expect(verifierCompose("c.yml", interne(`  x:\n${base}    ${extra}`)).join("\n")).toMatch(/interdit/);
+    }
+  });
+  it("[A-084] garde-compose détecte les domaines en .sh, .md et .log", () => {
+    const base = `    image: exemple/x:1${EMPREINTE}\n    networks: [interne]\n`;
+    const avec = (v: string) => interne(`  x:\n${base}    environment:\n      DOMAINE: ${v}`);
+    for (const d of ["exemple.sh", "exemple.md", "exemple.log"]) expect(verifierCompose("d.yml", avec(d)).join("\n")).toMatch(/domaine/);
+  });
   it("[A-066] le compose de base publie seulement 127.0.0.1:8443 et garde un réseau interne sans sortie", () => {
     const t = lire("ops/socle/compose.base.yml");
     expect(verifierCompose("compose.base.yml", t)).toEqual([]);
@@ -90,6 +123,10 @@ describe("options de compter-tests", () => {
       rapport: "r.json",
       reference: "spec/compte-tests-integration.json",
     });
+  });
+  it("[C-538] le message de consigne cite le fichier de référence passé", () => {
+    expect(verifierConsigne(1, 2, "spec/compte-tests-integration.json")[0]).toContain("spec/compte-tests-integration.json");
+    expect(verifierConsigne(1, 2)[0]).toContain("spec/compte-tests.json");
   });
   it("[C-538] une option sans valeur est refusée", () => {
     expect(() => analyserArguments(["--rapport"])).toThrow();

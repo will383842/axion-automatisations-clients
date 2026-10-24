@@ -18,8 +18,13 @@ export async function demarrerRecepteurs(options: { port?: number } = {}): Promi
     }
   });
 
+  // Comme le vrai, Telegram lit aussi le formulaire (corps) et les paramètres d'URL.
+  app.addContentTypeParser("application/x-www-form-urlencoded", { parseAs: "string" }, (_req, corps, fin) => {
+    fin(null, Object.fromEntries(new URLSearchParams(corps as string)));
+  });
+
   app.post("/bot:jeton/sendMessage", async (req, rep) => {
-    const corps = (req.body ?? {}) as { text?: string };
+    const corps = { ...(req.query as Record<string, string>), ...((req.body ?? {}) as Record<string, unknown>) } as { text?: string };
     if (typeof corps.text !== "string" || corps.text === "") return rep.code(400).send({ ok: false, description: "message text is empty" });
     recus.push({ canal: "telegram", chemin: req.url, corps });
     return { ok: true, result: { message_id: recus.length } };
@@ -38,7 +43,8 @@ export async function demarrerRecepteurs(options: { port?: number } = {}): Promi
     const canal = (req.query as Record<string, string>)["canal"];
     return canal ? recus.filter((r) => r.canal === canal) : recus;
   });
-  app.delete("/__recus", async () => {
+  app.delete("/__recus", async (_req, rep) => {
+    if (process.env["NODE_ENV"] !== "test") return rep.code(403).send({ error: "controle_refuse" });
     recus.length = 0;
     return { ok: true };
   });

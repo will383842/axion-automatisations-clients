@@ -5,7 +5,7 @@ Outils de test communs. Aucun test ne peut envoyer un vrai message : tout e-mail
 ## Piège Mailpit et faux Microsoft 365 (lot 4)
 1. Lancer Mailpit (`ops/compose.test.yml`, ou le service du job `harnais`), puis `NODE_ENV=test` et `MAILPIT_API=http://127.0.0.1:8025`.
 2. `const mailpit = creerClientMailpit();` puis `await mailpit.attendrePret();` avant le premier test.
-3. `beforeEach` : `await mailpit.vider();` (le piège est vide entre deux tests).
+3. Les fichiers de test partagent un seul Mailpit : écrire à une adresse unique par test (`<uuid>@exemple.fr`) et ne lire que les messages de cette adresse, sans tout vider.
 4. `const graph = await demarrerFauxGraph({ mailpit });` : `graph.url` est l'adresse du faux Graph (127.0.0.1 seulement).
 5. Le moteur parle à `graph.url` : jeton `POST /oauth2/v2.0/token`, brouillon `POST /v1.0/me/messages`, envoi `POST /v1.0/me/messages/{id}/send`.
 6. Retrouver un envoi : `GET /v1.0/me/mailFolders/SentItems/messages?$filter=internetMessageId eq '<id>'`.
@@ -23,8 +23,9 @@ Les tests qui déposent dans Mailpit ne tournent que si `MAILPIT_API` est défin
 4. Pannes : `POST {gmail.url}/__controle` avec `{ "mode": "quota" | "reponse_perdue" | "panne_generale" | "acces_refuse" | "normal" }`.
 5. Consentement Graph : `POST {graph.url}/__controle` avec `{ "mode": "normal", "consentement_requis": true }` ; le jeton `POST /<locataire>/oauth2/v2.0/token` répond alors `AADSTS65001`.
 6. Accord de l'administrateur : `GET {graph.url}/adminconsent?client_id=…&tenant=<locataire>` ; le jeton est ensuite délivré, pour ce locataire seulement.
-7. Mauvais compte Microsoft : jeton demandé avec `tenant_attendu` différent du locataire de l'URL → `AADSTS50020`.
+7. Mauvais compte Microsoft : `POST {graph.url}/__controle` avec `{ "mode": "mauvais_compte" }` → `AADSTS50020`. Les locataires se comparent sans tenir compte de la casse.
 8. Récepteurs : `const r = await demarrerRecepteurs();` puis Telegram `POST /bot<jeton>/sendMessage`, MailWizz `POST /api/campaigns`, webhook `/webhook/…`.
-9. Lire ce qui est arrivé : `GET {r.url}/__recus[?canal=telegram|mailwizz|webhook]` ; vider : `DELETE {r.url}/__recus`.
-10. Garde : `exigerDestinationsDeTest()` au démarrage de l'API en test ; elle refuse tout hôte hors socle et n'affiche que le NOM de la variable.
+9. Lire ce qui est arrivé : `GET {r.url}/__recus[?canal=telegram|mailwizz|webhook]` ; vider : `DELETE {r.url}/__recus` (refusé hors `NODE_ENV=test`, comme `/adminconsent`). Telegram lit aussi formulaire et paramètres d'URL.
+10. Garde : `exigerDestinationsDeTest(process.env, <services du compose assemblé>)` ; elle refuse tout hôte hors socle et n'affiche que le NOM de la variable. Pas encore appelée au démarrage de l'API (tâche suivante).
 Destinataires en `@exemple.fr` ou `*.test` seulement ; tous les serveurs écoutent sur 127.0.0.1.
+Le faux Gmail remet le message tel quel (pièces jointes, fil, Cc) sans la ligne Bcc ; `mailparser` sert à l'exécution : l'image du harnais devra installer les dépendances de développement.

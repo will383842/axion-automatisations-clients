@@ -61,11 +61,16 @@ async function demarrerPuitsSmtp(): Promise<{ client: ClientMailpit; depots: Dep
         tampon = tampon.slice(saut + 2);
         const commande = ligne.slice(0, 4).toUpperCase();
         if (commande === "EHLO" || commande === "HELO") socket.write("250 puits.test\r\n");
-        else if (commande === "MAIL") (depot.de = ligne.slice(ligne.indexOf("<") + 1, ligne.indexOf(">")), socket.write("250 ok\r\n"));
-        else if (commande === "RCPT") (depot.pour.push(ligne.slice(ligne.indexOf("<") + 1, ligne.indexOf(">"))), socket.write("250 ok\r\n"));
-        else if (commande === "DATA") (enDonnees = true, socket.write("354 go\r\n"));
         else if (commande === "QUIT") socket.end("221 bye\r\n");
-        else socket.write("250 ok\r\n");
+        else if (commande === "DATA") {
+          enDonnees = true;
+          socket.write("354 go\r\n");
+        } else {
+          const adresse = ligne.slice(ligne.indexOf("<") + 1, ligne.indexOf(">"));
+          if (commande === "MAIL") depot.de = adresse;
+          if (commande === "RCPT") depot.pour.push(adresse);
+          socket.write("250 ok\r\n");
+        }
       }
     });
   });

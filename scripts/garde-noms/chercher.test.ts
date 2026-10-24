@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
 import { verifierTextePr } from "../verifier-texte-pr.js";
-import { chargerListe, chercher, chercherNomDeFichier, formaterNomDeFichier, formaterTrouvailles, parserListe } from "./chercher.js";
+import { chargerListe, chercher, chercherNomDeFichier, dequoter, formaterNomDeFichier, formaterTrouvailles, parserListe } from "./chercher.js";
 import { normaliser, normaliserEntree } from "./normaliser.js";
 
 // Nom inventé DES TESTS : il n'est dans aucune vraie liste.
@@ -137,6 +137,9 @@ describe("garde des noms : crochets sur un dépôt temporaire", () => {
   });
   it("[C-531] nom accentué ou en ligature dans le chemin : jamais écrit", () => {
     expect(masquePour("QUINCAILLERIE-Zéphyrine-Ostrowska-é.md", `${NOM}\n`)).toContain("fichier masqué (n° 1), ligne 1");
+  });
+  it("[C-531] dequoter défait le quoting de git", () => {
+    expect(dequoter('"a\\"b\\\\c\\td\\303\\251"')).toBe('a"b\\c\td\u00e9');
   });
   it("[C-611] pre-commit refuse une ligne ajoutée qui commence par « ++ » (fausse ligne d'en-tête)", () => {
     git("reset", "-q");

@@ -11,3 +11,5 @@ GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA partman TO console_proprietaire;
 GRANT EXECUTE ON ALL PROCEDURES IN SCHEMA partman TO console_proprietaire;
 -- Une fonction créée par la migration n'est exécutable par personne d'autre tant qu'on ne l'accorde pas.
 ALTER DEFAULT PRIVILEGES FOR ROLE console_proprietaire REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+-- La migration, hors SET ROLE, n'ouvre pas non plus ses fonctions : même défaut pour ses propres objets.
+ALTER DEFAULT PRIVILEGES FOR ROLE console_migration REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;

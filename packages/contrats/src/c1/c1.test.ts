@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { Centimes } from "../commun/argent.js";
-import { STATUT_PAR_CODE } from "../commun/erreurs.js";
-import { ROUTES_C1 } from "./routes.js";
-import { verifierLigneDevis } from "./regles.js";
-import { DevisRequete } from "./schemas.js";
+import { Centimes } from "../commun/argent.ts";
+import { STATUT_PAR_CODE } from "../commun/erreurs.ts";
+import { ROUTES_C1 } from "./routes.ts";
+import { verifierLigneDevis } from "./regles.ts";
+import { DevisRequete } from "./schemas.ts";
 
 const ligne = { libelle: "Ligne d'essai", quantite: 1, prixUnitaireHtCentimes: 12345, activite: "automatisation", tauxTvaBps: 2000 } as const;
 

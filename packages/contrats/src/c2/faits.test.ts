@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { TYPES_DE_FAITS, Fait } from "./faits.js";
+import { TYPES_DE_FAITS, Fait } from "./faits.ts";
 
 const base = {
   event_id: "11111111-1111-4111-8111-111111111111",
@@ -34,7 +34,8 @@ describe("contrat C2", () => {
   it("[C-589] facture.emise d'abonnement sans debutPeriode refusée", () => {
     const ok = Fait.safeParse({ ...base, event_type: "facture.emise", payload: facture });
     expect(ok.success).toBe(true);
-    const { debutPeriode: _d, ...sans } = facture;
+    const sans: Record<string, unknown> = { ...facture };
+    delete sans.debutPeriode;
     expect(Fait.safeParse({ ...base, event_type: "facture.emise", payload: sans }).success).toBe(false);
   });
 

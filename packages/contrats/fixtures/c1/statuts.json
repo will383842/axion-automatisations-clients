@@ -1,0 +1,27 @@
+{
+  "route": "statuts",
+  "cas": [
+    {
+      "nom": "valide",
+      "valide": true,
+      "cle": "cle-test-c1-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c1-console-a",
+      "horodatage": "1792800000",
+      "methode": "GET",
+      "chemin": "/api/console/v1/statuts?depuis=0",
+      "corps": "",
+      "signature": "v1=feb533de3fbe2c50bc57f86e2ae9d904a2ccc211392a68467ebae9c8840dd978"
+    },
+    {
+      "nom": "curseur absent",
+      "valide": false,
+      "cle": "cle-test-c1-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c1-console-a",
+      "horodatage": "1792800000",
+      "methode": "GET",
+      "chemin": "/api/console/v1/statuts",
+      "corps": "",
+      "signature": "v1=a84735198b9ae6e4451e66c6f4e7150fbb39fd215de4e525e9de7fbc408d0cfc"
+    }
+  ]
+}

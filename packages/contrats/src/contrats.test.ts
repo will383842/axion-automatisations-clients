@@ -1,10 +1,10 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { calculerEmpreinte } from "../scripts/empreinte.js";
-import { schemasJson } from "../scripts/signer-fixtures.js";
-import { Fait } from "./c2/faits.js";
-import { ROUTES_C1 } from "./c1/routes.js";
-import { verifier } from "./commun/signature.js";
+import { calculerEmpreinte } from "../scripts/empreinte.ts";
+import { schemasJson } from "../scripts/signer-fixtures.ts";
+import { Fait } from "./c2/faits.ts";
+import { PREFIXE_C1, ROUTES_C1, type RouteC1 } from "./c1/routes.ts";
+import { verifier } from "./commun/signature.ts";
 
 const racine = new URL("../", import.meta.url);
 const lire = (p: string) => readFileSync(new URL(p, racine), "utf8");
@@ -30,14 +30,16 @@ describe("fixtures signées", () => {
     const fichiers = cas("c1");
     expect(fichiers.map((x) => x.f.replace(".json", "")).sort()).toEqual(Object.keys(ROUTES_C1).sort());
     for (const { f, cas: liste } of fichiers) {
-      const route = ROUTES_C1[f.replace(".json", "") as keyof typeof ROUTES_C1];
+      const route: RouteC1 = ROUTES_C1[f.replace(".json", "") as keyof typeof ROUTES_C1];
       expect(liste.some((c) => c.valide) && liste.some((c) => !c.valide)).toBe(true);
       for (const c of liste) {
         expect(c.secret.startsWith("TEST-NE-PAS-UTILISER-")).toBe(true);
         expect(verifier(c.secret, c.horodatage, c.methode, c.chemin, Buffer.from(c.corps), c.signature, Number(c.horodatage))).toEqual({ ok: true });
-        if (route.requete && c.corps !== "") {
-          expect(route.requete.safeParse(JSON.parse(c.corps)).success, `${f} / ${c.nom}`).toBe(c.valide);
-        }
+        const [chemin, requete = ""] = c.chemin.slice(PREFIXE_C1.length).split("?");
+        const modele = new RegExp(`^${route.chemin.replace(/\{[^}]+\}/g, "[^/]+")}$`);
+        const donnees = c.corps !== "" ? JSON.parse(c.corps) : Object.fromEntries(new URLSearchParams(requete));
+        const conforme = modele.test(chemin ?? "") && (!route.requete || route.requete.safeParse(donnees).success);
+        expect(conforme, `${f} / ${c.nom}`).toBe(c.valide);
       }
     }
   });

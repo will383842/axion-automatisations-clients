@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { chaineASigner, signer, verifier } from "./signature.js";
+import { chaineASigner, signer, verifier } from "./signature.ts";
 
 const SECRET = "TEST-NE-PAS-UTILISER-cle-c1-console-a";
 const T = 1792800000;

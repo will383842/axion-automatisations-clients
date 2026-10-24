@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { analyserSource, comparerCompte, compterRapport } from "./compter-tests.js";
+import { analyserConfig, analyserSource, comparerCompte, compterRapport } from "./compter-tests.js";
 
 const source = (nom: string) => readFileSync(fileURLToPath(new URL(`./__fixtures__/sources/${nom}`, import.meta.url)), "utf8");
 
@@ -29,5 +29,12 @@ describe("compter-tests", () => {
   it("[C-538] compter-tests refuse test.fails sans étiquette @lot-<n>", () => {
     expect(analyserSource("a.test.ts", source("fails-sans-lot.txt"))).not.toEqual([]);
     expect(analyserSource("a.test.ts", source("fails-avec-lot.txt"))).toEqual([]);
+  });
+  it.each(["skip-concurrent.txt", "skip-option.txt", "skip-if.txt"])("[C-538] compter-tests refuse la forme de saut %s", (f) => {
+    expect(analyserSource("a.test.ts", source(f))).not.toEqual([]);
+  });
+  it("[C-538] compter-tests refuse un retry supérieur à 0 dans une configuration Vitest", () => {
+    expect(analyserConfig("vitest.config.ts", source("config-retry.txt"))).not.toEqual([]);
+    expect(analyserConfig("vitest.config.ts", source("config-retry-zero.txt"))).toEqual([]);
   });
 });

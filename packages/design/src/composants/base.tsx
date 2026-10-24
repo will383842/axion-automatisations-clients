@@ -14,24 +14,23 @@ function sansPlein(className: string | undefined): string | undefined {
   return className.split(/\s+/).filter((c) => c !== "r-plein").join(" ");
 }
 
-type Teinte = "blanche" | "peche" | "sauge" | "miel" | "rose";
-const TEINTES: Record<Teinte, { fond: string; titre: string }> = {
-  blanche: { fond: v("couleur-fond-carte"), titre: v("couleur-texte-principal") },
-  peche: { fond: v("couleur-peche-fond"), titre: v("couleur-peche-titre") },
-  sauge: { fond: v("couleur-sauge-fond"), titre: v("couleur-sauge-titre") },
-  miel: { fond: v("couleur-miel-fond"), titre: v("couleur-miel-titre") },
-  rose: { fond: v("couleur-rose-fond"), titre: v("couleur-rose-titre") },
-};
+type Teinte = "terracotta" | "vert" | "ambre" | "violet" | "gris";
 
-export function Carte({ teinte = "blanche", children }: { teinte?: Teinte; children: ReactNode }) {
+/** Bloc coloré des maquettes : fond doux, bordure de 1 px dans la teinte, liseret de 4 px (à gauche : encart ; en haut : chiffre clé). Sans teinte : carte blanche. */
+export function Carte({ teinte, liseret, children }: { teinte?: Teinte; liseret?: "gauche" | "haut"; children: ReactNode }) {
+  const t = (partie: string) => v(`couleur-teinte-${teinte}-${partie}`);
+  const cote = (nom: string) => (teinte && liseret === nom ? `4px solid ${t("liseret")}` : `1px solid ${teinte ? t("bordure") : v("couleur-bordure-carte")}`);
   return (
     <section
       style={{
-        background: TEINTES[teinte].fond,
-        color: TEINTES[teinte].titre,
-        border: `1px solid ${v("couleur-bordure-carte")}`,
-        borderRadius: v("rayon-22"),
-        boxShadow: v("ombre-carte"),
+        background: teinte ? t("fond") : v("couleur-fond-carte"),
+        color: teinte ? t("titre") : v("couleur-texte-principal"),
+        borderTop: cote("haut"),
+        borderRight: cote("droite"),
+        borderBottom: cote("bas"),
+        borderLeft: cote("gauche"),
+        borderRadius: v("rayon-12"),
+        boxShadow: teinte ? "none" : v("ombre-carte"),
         padding: v("espacement-24"),
         minWidth: 0,
       }}
@@ -80,17 +79,20 @@ export function Lien({ href, children }: { href: string; children: ReactNode }) 
 }
 
 export type Etat = "urgent" | "averifier" | "fait" | "pause";
+const TEINTE_ETAT: Record<Etat, string> = { urgent: "terracotta", averifier: "ambre", fait: "vert", pause: "gris" };
 const MOTS: Record<Etat, string> = { urgent: "Urgent", averifier: "À vérifier", fait: "Fait", pause: "En pause" };
 
-/** Toujours un mot : la couleur ne porte jamais seule l'état. */
+/** Pastille pleine, libellé blanc (contraste testé). Toujours un mot : la couleur ne porte jamais seule l'état. */
 export function BadgeEtat({ etat, texte }: { etat: Etat; texte?: string }) {
   const mot = texte?.trim() ? texte : MOTS[etat];
   return (
     <span
       style={{
-        background: v(`couleur-etat-${etat}-fond`),
-        color: v(`couleur-etat-${etat}-texte`),
-        borderRadius: v("rayon-999"),
+        background: v(`couleur-teinte-${TEINTE_ETAT[etat]}-liseret`),
+        color: v("couleur-menu-texte"),
+        borderRadius: `calc(${v("rayon-12")} / 2)`,
+        flex: "none",
+        alignSelf: "flex-start",
         padding: `${v("espacement-4")} ${v("espacement-12")}`,
         fontSize: v("taille-precision"),
         fontWeight: 800,

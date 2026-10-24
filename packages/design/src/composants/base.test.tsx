@@ -4,6 +4,7 @@ import { cleanup, render } from "@testing-library/react";
 import { violations } from "./accessibilite.tsx";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BadgeEtat, Bandeau, Bouton, Carte, CaseACocher, BoutonOption, Champ, Lien, LienEvitement, PastilleInitiales, TuileAutomatisation } from "./base.tsx";
+import { renderToStaticMarkup } from "react-dom/server";
 import { contraste, valeur } from "../jetons.ts";
 
 afterEach(cleanup);
@@ -40,34 +41,6 @@ describe("composants de base", () => {
     expect((container.textContent ?? "").trim()).not.toBe("");
   });
 
-  it("[C-586] BadgeEtat : pastille pleine, texte blanc, teinte de liseret, flex: none (blocs colorés)", () => {
-    const attendu = { urgent: "terracotta", averifier: "ambre", fait: "vert", pause: "gris" } as const;
-    for (const [etat, teinte] of Object.entries(attendu)) {
-      const { container, unmount } = render(<BadgeEtat etat={etat as keyof typeof attendu} />);
-      const style = container.firstElementChild?.getAttribute("style") ?? "";
-      expect(style, etat).toContain(`--couleur-teinte-${teinte}-liseret`);
-      expect(style, etat).toContain("--couleur-menu-texte");
-      expect(style, etat).toContain("--rayon-8");
-      expect(style, etat).toMatch(/flex:\s*none|flex:\s*0 0 auto/);
-      unmount();
-    }
-  });
-
-  it("[C-586] Carte en bloc coloré : bordure de 1 px, liseret de 4 px à gauche ou en haut, rayon de 12 px", () => {
-    for (const teinte of ["terracotta", "vert", "ambre", "violet", "gris"] as const) {
-      const g = render(<Carte teinte={teinte} liseret="gauche">Contenu</Carte>);
-      const sg = g.container.firstElementChild?.getAttribute("style") ?? "";
-      expect(sg, teinte).toContain(`--couleur-teinte-${teinte}-fond`);
-      expect(sg, teinte).toContain(`--couleur-teinte-${teinte}-bordure`);
-      expect(sg, teinte).toMatch(new RegExp(`border-left:\\s*4px solid var\\(--couleur-teinte-${teinte}-liseret\\)`));
-      expect(sg, teinte).toContain("--rayon-12");
-      g.unmount();
-      const h = render(<Carte teinte={teinte} liseret="haut">Contenu</Carte>);
-      expect(h.container.firstElementChild?.getAttribute("style") ?? "", teinte).toMatch(new RegExp(`border-top:\\s*4px solid var\\(--couleur-teinte-${teinte}-liseret\\)`));
-      h.unmount();
-    }
-  });
-
   it("[C-597] Bouton fait 48 px de haut au moins (style) et se déclare principal ou secondaire", () => {
     const { getByRole } = render(<Bouton variante="principal">Valider</Bouton>);
     expect(getByRole("button").style.minHeight).toBe("48px");
@@ -85,28 +58,26 @@ describe("composants de base", () => {
     expect(getByLabelText("Adresse e-mail")).toBeTruthy();
   });
 
+  // Rendu serveur : happy-dom déforme les raccourcis border-* contenant var(), le HTML de React reste exact.
   it("[C-586] Carte teintée : fond doux, bordure 1 px dans la teinte, liseret 4 px à gauche, rayon 12", () => {
     for (const teinte of ["terracotta", "vert", "ambre", "violet", "gris"] as const) {
-      const { container, unmount } = render(<Carte teinte={teinte} liseret="gauche">Contenu</Carte>);
-      const style = container.querySelector("section")?.getAttribute("style") ?? "";
-      expect(container.textContent).toBe("Contenu");
-      expect(style).toContain(`background: var(--couleur-teinte-${teinte}-fond)`);
-      expect(style).toContain(`color: var(--couleur-teinte-${teinte}-titre)`);
-      expect(style).toContain(`border: 1px solid var(--couleur-teinte-${teinte}-bordure)`);
-      expect(style).toContain(`border-left: 4px solid var(--couleur-teinte-${teinte}-liseret)`);
-      expect(style).toContain("border-radius: var(--rayon-12)");
-      unmount();
+      const html = renderToStaticMarkup(<Carte teinte={teinte} liseret="gauche">Contenu</Carte>);
+      expect(html).toContain(`background:var(--couleur-teinte-${teinte}-fond)`);
+      expect(html).toContain(`color:var(--couleur-teinte-${teinte}-titre)`);
+      expect(html).toContain(`border-top:1px solid var(--couleur-teinte-${teinte}-bordure)`);
+      expect(html).toContain(`border-bottom:1px solid var(--couleur-teinte-${teinte}-bordure)`);
+      expect(html).toContain(`border-left:4px solid var(--couleur-teinte-${teinte}-liseret)`);
+      expect(html).toContain("border-radius:var(--rayon-12)");
     }
   });
 
   it("[C-586] Carte teintée : le liseret peut être en haut (chiffre clé) et la carte reste blanche par défaut", () => {
-    const haut = render(<Carte teinte="vert" liseret="haut">Chiffre</Carte>);
-    expect(haut.container.querySelector("section")?.getAttribute("style")).toContain("border-top: 4px solid var(--couleur-teinte-vert-liseret)");
-    haut.unmount();
-    const { container } = render(<Carte>Neutre</Carte>);
-    const style = container.querySelector("section")?.getAttribute("style") ?? "";
-    expect(style).toContain("background: var(--couleur-fond-carte)");
-    expect(style).not.toContain("4px solid");
+    const haut = renderToStaticMarkup(<Carte teinte="vert" liseret="haut">Chiffre</Carte>);
+    expect(haut).toContain("border-top:4px solid var(--couleur-teinte-vert-liseret)");
+    expect(haut).toContain("border-left:1px solid var(--couleur-teinte-vert-bordure)");
+    const neutre = renderToStaticMarkup(<Carte>Neutre</Carte>);
+    expect(neutre).toContain("background:var(--couleur-fond-carte)");
+    expect(neutre).not.toContain("4px solid");
   });
 
   it("[C-586] BadgeEtat : pastille pleine, libellé blanc, rayon 6 px, fonds = liserets de teinte, flex: none", () => {

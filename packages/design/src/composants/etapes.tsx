@@ -17,6 +17,7 @@ export function Frise({ etapes, courante }: PropsEtapes) {
             style={{ flex: "1 1 0", minWidth: 0, padding: v("espacement-12"), borderRadius: v("rayon-12"), fontWeight: 700, background: fait ? v("couleur-peche-fond") : v("couleur-fond-carte"), color: v("couleur-texte-principal"), border: `1px solid ${v("couleur-bordure-carte")}` }}
           >
             {nom}
+            {fait ? <span style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)" }}>{" (faite)"}</span> : null}
           </li>
         );
       })}

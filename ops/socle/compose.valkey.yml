@@ -1,0 +1,30 @@
+# Valkey 8 : file de tâches de l'API (BullMQ). Réseau interne seulement, aucun port publié.
+# Journal sur disque (AOF) et noeviction : une tâche déposée survit à un redémarrage et n'est jamais évincée.
+services:
+  valkey:
+    image: valkey/valkey:8.0.11@sha256:4436c94fc34ce4af0354b9379d433a1f258998fb955f995c89822f98c14a8cab
+    restart: "no"
+    environment:
+      VALKEY_MOT_DE_PASSE: ${SOCLE_VALKEY_MOT_DE_PASSE:?mot de passe de test absent}
+    # Les réglages passent en arguments du shell ($@) pour que chaque ligne reste courte ; le mot de passe vient de l'environnement.
+    command:
+      - sh
+      - -c
+      - exec valkey-server "$$@" --requirepass "$$VALKEY_MOT_DE_PASSE"
+      - sh
+      - --appendonly
+      - "yes"
+      - --appendfsync
+      - everysec
+      - --maxmemory-policy
+      - noeviction
+    volumes:
+      - valkey-donnees:/data
+    networks: [interne]
+    healthcheck:
+      test: ["CMD-SHELL", 'valkey-cli --no-auth-warning -a "$$VALKEY_MOT_DE_PASSE" ping | grep -q PONG']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+volumes:
+  valkey-donnees: {}

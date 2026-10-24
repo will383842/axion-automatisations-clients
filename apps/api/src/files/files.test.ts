@@ -10,7 +10,7 @@ function fausseFile() {
   const file: FileMinimale = {
     name: "essai",
     add: (nom, donnees, opts) => {
-      ajouts.push({ nom, donnees, opts });
+      ajouts.push({ nom, donnees, opts: opts ?? {} });
       return Promise.resolve({ id: opts?.jobId });
     },
   };

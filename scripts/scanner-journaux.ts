@@ -12,7 +12,7 @@ const BLOCS_DOCUMENTATION = ["192.0.2.", "198.51.100.", "203.0.113."];
 
 export type Trouvaille = { type: "e-mail" | "IBAN" | "téléphone" | "IPv4" | "lien symbolique"; fichier: string; ligne: number };
 
-const COURRIEL = /[A-Za-z0-9._%+-]+@([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+)/g;
+const COURRIEL = /[A-Za-z0-9._%+-]+@([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,})/g;
 const IBAN = /\b[A-Z]{2}\d{2}(?:\s?[A-Z0-9]{4}){2,7}(?:\s?[A-Z0-9]{1,3})?\b/g;
 const TELEPHONE = /(?<![\d+])(?:(?:\+|00)33[\s.-]?|0)[1-9](?:[\s.-]?\d{2}){4}(?!\d)/g;
 const IPV4 = /(?<![\d.])(?:\d{1,3}\.){3}\d{1,3}(?![\d.])/g;
@@ -47,6 +47,8 @@ export function scannerTexte(fichier: string, texte: string): Trouvaille[] {
     }
     for (const m of l.matchAll(IPV4)) {
       const ip = m[0];
+      // Un numéro de version à quatre morceaux (v1.2.3.4, paquet@1.2.3.4, version 1.2.3.4) n'est pas une adresse.
+      if (/(?:[vV@]|version\s*[:=]?\s*)$/i.test(l.slice(0, m.index))) continue;
       const valide = ip.split(".").every((o) => Number(o) <= 255);
       if (valide && !IP_PERMISES.includes(ip) && !BLOCS_DOCUMENTATION.some((b) => ip.startsWith(b))) ajouter("IPv4");
     }

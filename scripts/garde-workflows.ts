@@ -55,12 +55,15 @@ export function verifierWorkflow(nom: string, texte: string): string[] {
         else echec(n, `secrets${m[1] ?? ""} interdit dans un workflow pull_request (seul secrets.GITHUB_TOKEN est permis)`);
       }
     }
-    const u = /^\s*(?:-\s*)?uses:\s*["']?([^\s"']+)/.exec(l);
-    if (u?.[1] && !u[1].startsWith("./")) {
-      const ref = u[1].split("@")[1] ?? "";
-      if (!SHA.test(ref) && !IMAGE.test(u[1])) echec(n, `action non épinglée par SHA : ${u[1]}`);
+    // Toute forme de « uses: » est lue : en bloc, entre accolades, valeur sur la ligne suivante ou scalaire multiligne.
+    if (/\buses\s*:\s*$/.test(l) || /\buses\s*:\s*[>|]/.test(l)) echec(n, "uses: sur plusieurs lignes interdit");
+    for (const u of l.matchAll(/\buses\s*:\s*["']?([^\s"'},>|]+)/g)) {
+      const valeur = u[1] ?? "";
+      if (valeur.startsWith("./")) continue;
+      const ref = valeur.split("@")[1] ?? "";
+      if (!SHA.test(ref) && !IMAGE.test(valeur)) echec(n, `action non épinglée par SHA : ${valeur}`);
     }
-    if (/uses:\s*["']?actions\/checkout@/.test(l)) {
+    if (/\buses\s*:\s*["']?actions\/checkout@/.test(l)) {
       let suite = idx + 1;
       while (suite < lignes.length && !/^\s*-\s/.test(lignes[suite] ?? "") && !/^\S/.test(lignes[suite] ?? "")) suite++;
       if (!lignes.slice(idx, suite).some((x) => /persist-credentials:\s*false/.test(x))) {

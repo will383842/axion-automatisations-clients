@@ -14,6 +14,10 @@ export function compterRapport(rapport: { numTotalTests?: number }): number {
   return rapport.numTotalTests ?? 0;
 }
 
+export function verifierConsigne(consigne: number, actuel: number): string[] {
+  return consigne === actuel ? [] : [`spec/compte-tests.json (${consigne}) doit égaler le compte réel (${actuel})`];
+}
+
 export function comparerCompte(actuel: number, reference: number): string[] {
   return actuel < reference ? [`le nombre de tests baisse : ${actuel} < ${reference}`] : [];
 }
@@ -61,7 +65,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   erreurs.push(...comparerCompte(actuel, reference));
   const consigne = (JSON.parse(readFileSync("spec/compte-tests.json", "utf8")) as { total: number }).total;
   erreurs.push(...comparerCompte(consigne, reference).map((e) => `spec/compte-tests.json : ${e}`));
-  if (consigne > actuel) erreurs.push(`spec/compte-tests.json (${consigne}) dépasse le compte réel (${actuel})`);
+  erreurs.push(...verifierConsigne(consigne, actuel));
   const fichiers = git("ls-files", "*.test.ts", "*.test.tsx").split("\n").filter((f) => f && !f.includes("__fixtures__"));
   for (const f of fichiers) erreurs.push(...analyserSource(f, readFileSync(f, "utf8")));
   const configs = git("ls-files", "vitest.config.*", "**/vitest.config.*", "vitest.workspace.*", "**/vitest.workspace.*", "**/vitest.setup.*");

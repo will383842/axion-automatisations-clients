@@ -18,7 +18,9 @@ sa=$(api "" --jq '.security_and_analysis')
 echo "$sa" | grep -q '"secret_scanning":{"status":"enabled"' ; verdict "analyse des secrets active" $?
 echo "$sa" | grep -q '"secret_scanning_push_protection":{"status":"enabled"' ; verdict "protection des poussées active" $?
 
-api "/actions/permissions/fork-pr-contributor-approval" --jq '.approval_policy' | grep -qE 'all_external_contributors|first_time_contributors' ; verdict "accord exigé pour la CI des contributeurs extérieurs" $?
+api "/actions/permissions/fork-pr-contributor-approval" --jq '.approval_policy' | grep -qxE 'all_external_contributors|first_time_contributors' ; verdict "accord exigé pour la CI des contributeurs extérieurs" $?
+echo "$sa" | grep -q '"dependabot_security_updates":{"status":"enabled"' ; verdict "mises à jour de sécurité de Dependabot actives" $?
+
 api "/actions/permissions/workflow" --jq '.default_workflow_permissions' | grep -qx read ; verdict "droits par défaut du GITHUB_TOKEN en lecture" $?
 api "/private-vulnerability-reporting" --jq '.enabled' | grep -qx true ; verdict "signalement privé des failles actif" $?
 api "" --jq '.has_issues' | grep -qx false ; verdict "tickets vierges désactivés" $?

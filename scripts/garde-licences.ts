@@ -11,17 +11,53 @@ const EXCEPTIONS_DEV: Record<string, string> = { argparse: "Python-2.0", minimat
 
 type Paquets = Record<string, { name: string }[]>;
 
+// Expression SPDX : AND lie plus fort que OR, parenthèses récursives. Toute expression illisible est refusée.
+function expressionPermise(expression: string, ok: (id: string) => boolean): boolean {
+  const jetons = expression.match(/\(|\)|[^\s()]+/g) ?? [];
+  let i = 0;
+  const ou = (): boolean => {
+    let v = et();
+    while (jetons[i] === "OR") {
+      i++;
+      const w = et();
+      v = v || w;
+    }
+    return v;
+  };
+  const et = (): boolean => {
+    let v = atome();
+    while (jetons[i] === "AND") {
+      i++;
+      const w = atome();
+      v = v && w;
+    }
+    return v;
+  };
+  const atome = (): boolean => {
+    const j = jetons[i++];
+    if (j === "(") {
+      const v = ou();
+      if (jetons[i++] !== ")") throw new Error("parenthèse non fermée");
+      return v;
+    }
+    if (j === undefined || j === ")" || j === "AND" || j === "OR") throw new Error("expression illisible");
+    return ok(j);
+  };
+  try {
+    const v = ou();
+    return i === jetons.length && v;
+  } catch {
+    return false;
+  }
+}
+
 export function verifierLicences(parLicence: Paquets, nomsMpl: Set<string>, nomsProduction: Set<string> = new Set()): string[] {
   const erreurs: string[] = [];
   for (const [licence, paquets] of Object.entries(parLicence)) {
     const ok = (id: string, nom: string) =>
       PERMISES.has(id) || (id === MPL && nomsMpl.has(nom)) || (EXCEPTIONS_DEV[nom] === id && !nomsProduction.has(nom));
     for (const p of paquets) {
-      const permis = licence
-        .replace(/[()]/g, "")
-        .split(/\s+OR\s+/)
-        .some((branche) => branche.split(/\s+AND\s+/).every((id) => ok(id.trim(), p.name)));
-      if (!permis) erreurs.push(`${p.name} : licence « ${licence} » non permise`);
+      if (!expressionPermise(licence, (id) => ok(id, p.name))) erreurs.push(`${p.name} : licence « ${licence} » non permise`);
     }
   }
   return erreurs;

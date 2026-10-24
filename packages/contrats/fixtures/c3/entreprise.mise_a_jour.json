@@ -1,0 +1,27 @@
+{
+  "type": "entreprise.mise_a_jour",
+  "cas": [
+    {
+      "nom": "valide",
+      "valide": true,
+      "cle": "cle-test-c3-crm-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c3-crm-a",
+      "horodatage": "1792800000",
+      "methode": "POST",
+      "chemin": "/api/crm/v1/evenements",
+      "corps": "{\"event_id\":\"11111111-1111-4111-8111-111111111111\",\"schema_version\":1,\"occurred_at\":\"2026-10-24T10:00:00Z\",\"emitted_at\":\"2026-10-24T10:00:01Z\",\"sequence\":1,\"producer\":\"axion-crm\",\"subject_ref\":{\"crmCompanyId\":\"crm-0001\"},\"event_type\":\"entreprise.mise_a_jour\",\"payload\":{\"crmCompanyId\":\"crm-0001\",\"raisonSociale\":\"Lemoine Rénovation\"}}",
+      "signature": "v1=d51ae2d3daa4ec35bbb7d839d81e9aaa9aeac768ec557b7e16508d4f41259c1f"
+    },
+    {
+      "nom": "identifiant absent",
+      "valide": false,
+      "cle": "cle-test-c3-crm-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c3-crm-a",
+      "horodatage": "1792800000",
+      "methode": "POST",
+      "chemin": "/api/crm/v1/evenements",
+      "corps": "{\"event_id\":\"11111111-1111-4111-8111-111111111111\",\"schema_version\":1,\"occurred_at\":\"2026-10-24T10:00:00Z\",\"emitted_at\":\"2026-10-24T10:00:01Z\",\"sequence\":1,\"producer\":\"axion-crm\",\"subject_ref\":{\"crmCompanyId\":\"crm-0001\"},\"event_type\":\"entreprise.mise_a_jour\",\"payload\":{\"raisonSociale\":\"Lemoine Rénovation\"}}",
+      "signature": "v1=93a60173913e829ba87d5a811a5d2158562803a878e3f0be70fb5798907f92fe"
+    }
+  ]
+}

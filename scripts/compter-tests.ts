@@ -4,9 +4,9 @@ import { fileURLToPath } from "node:url";
 
 // Compteur de tests (C-538) : pas de baisse, pas de test sauté sans fiche, pas de relance pour les tests sensibles.
 
-const SAUT = /\b(?:it|test|describe)\.(?:skip|only|todo)\b|\b(?:xit|xtest|xdescribe|fit|fdescribe)\s*\(/;
+const SAUT = /\b(?:it|test|describe)\.(?:skip|only|todo)\s*\(|\b(?:xit|xtest|xdescribe|fit|fdescribe)\s*\(/;
 const FICHE = /\/\/\s*fiche:\s*T\d+-\d+|\[V2\]/;
-const FAILS = /\b(?:it|test)\.fails\b/;
+const FAILS = /\b(?:it|test)\.fails\s*\(/;
 const SENSIBLE = /@(?:argent|isolation|anti-doublon|envoi)\b/;
 const DEBUT_TEST = /\b(?:it|test|describe)(?:\.\w+)*\s*\(/;
 

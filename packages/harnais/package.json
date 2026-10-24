@@ -9,10 +9,10 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "fastify": "^5.12.7",
-    "nodemailer": "6.9.1"
+    "fastify": "^5.12.7"
   },
   "devDependencies": {
-    "@types/nodemailer": "^6.4.24"
+    "@types/nodemailer": "^6.4.24",
+    "nodemailer": "10.2.1"
   }
 }

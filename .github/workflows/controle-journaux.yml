@@ -3,7 +3,7 @@ name: Contrôle des journaux
 # Il n'utilise AUCUN secret et n'exécute JAMAIS de code venu de la PR : le script vient de la branche par défaut.
 on:
   workflow_run:
-    workflows: [CI]
+    workflows: [CI, nuit]
     types: [completed]
 permissions:
   actions: write

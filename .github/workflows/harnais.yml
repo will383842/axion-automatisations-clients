@@ -34,4 +34,4 @@ jobs:
           node-version-file: .nvmrc
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
-      - run: pnpm test -- packages/harnais
+      - run: pnpm test --project packages/harnais

@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { lstatSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -6,11 +6,11 @@ import { fileURLToPath } from "node:url";
 
 // À reconfirmer par le chef d'orchestre avant la fusion : plages ARCEP réservées à la fiction (national, sans le 0 final de 4 chiffres).
 export const PLAGES_TELEPHONE_FICTION = ["0199 00", "0261 91", "0353 01", "0465 71", "0536 49", "0639 98"].map((p) => p.replace(" ", ""));
-const DOMAINES_PERMIS = ["exemple.fr", "exemple.com"];
+const DOMAINES_PERMIS = ["exemple.fr", "exemple.com", "users.noreply.github.com"];
 const IP_PERMISES = ["127.0.0.1", "0.0.0.0"];
 const BLOCS_DOCUMENTATION = ["192.0.2.", "198.51.100.", "203.0.113."];
 
-export type Trouvaille = { type: "e-mail" | "IBAN" | "téléphone" | "IPv4"; fichier: string; ligne: number };
+export type Trouvaille = { type: "e-mail" | "IBAN" | "téléphone" | "IPv4" | "lien symbolique"; fichier: string; ligne: number };
 
 const COURRIEL = /[A-Za-z0-9._%+-]+@([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+)/g;
 const IBAN = /\b[A-Z]{2}\d{2}(?:\s?[A-Z0-9]{4}){2,7}(?:\s?[A-Z0-9]{1,3})?\b/g;
@@ -58,17 +58,21 @@ export function formaterTrouvailles(t: Trouvaille[]): string[] {
   return t.map((x) => `${x.type}, ${x.fichier}, ligne ${x.ligne}`);
 }
 
-function fichiersDe(dossier: string): string[] {
+// Un lien symbolique (recréé par unzip) n'est jamais suivi : il compte comme une trouvaille.
+export function scannerDossier(dossier: string, base = dossier): Trouvaille[] {
   return readdirSync(dossier).flatMap((nom) => {
     const chemin = join(dossier, nom);
-    return statSync(chemin).isDirectory() ? fichiersDe(chemin) : [chemin];
+    const relatif = chemin.slice(base.length + 1);
+    const info = lstatSync(chemin);
+    if (info.isSymbolicLink()) return [{ type: "lien symbolique" as const, fichier: relatif, ligne: 0 }];
+    if (info.isDirectory()) return scannerDossier(chemin, base);
+    return scannerTexte(relatif, readFileSync(chemin, "latin1"));
   });
 }
 
 // Usage : node scripts/scanner-journaux.ts <dossier des journaux>
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const dossier = process.argv[2] ?? ".";
-  const trouvailles = fichiersDe(dossier).flatMap((f) => scannerTexte(f.slice(dossier.length + 1), readFileSync(f, "latin1")));
+  const trouvailles = scannerDossier(process.argv[2] ?? ".");
   for (const l of formaterTrouvailles(trouvailles)) console.error(l);
   process.exit(trouvailles.length ? 1 : 0);
 }

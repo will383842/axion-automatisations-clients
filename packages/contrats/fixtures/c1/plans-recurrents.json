@@ -1,0 +1,27 @@
+{
+  "route": "plans-recurrents",
+  "cas": [
+    {
+      "nom": "valide",
+      "valide": true,
+      "cle": "cle-test-c1-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c1-console-a",
+      "horodatage": "1792800000",
+      "methode": "POST",
+      "chemin": "/api/console/v1/plans-recurrents",
+      "corps": "{\"referenceContratConsole\":\"contrat-0001\",\"montantHtCentimesParPeriode\":12345,\"periodeMois\":6,\"premiereEcheance\":\"2026-11-01\",\"engagementMois\":12}",
+      "signature": "v1=5f9a0e56831412cbd26738bae406fd6079605eff5e63e194b54e7b481aa5795a"
+    },
+    {
+      "nom": "période de 3 mois",
+      "valide": false,
+      "cle": "cle-test-c1-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c1-console-a",
+      "horodatage": "1792800000",
+      "methode": "POST",
+      "chemin": "/api/console/v1/plans-recurrents",
+      "corps": "{\"referenceContratConsole\":\"contrat-0001\",\"montantHtCentimesParPeriode\":12345,\"periodeMois\":3,\"premiereEcheance\":\"2026-11-01\",\"engagementMois\":12}",
+      "signature": "v1=66c5290162bd0d32317b9d2bc526eaeb24fc9caa8a2caf1cda5ed785d9170485"
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "route": "clients-apporteurs",
+  "cas": [
+    {
+      "nom": "valide",
+      "valide": true,
+      "cle": "cle-test-c1-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c1-console-a",
+      "horodatage": "1792800000",
+      "methode": "GET",
+      "chemin": "/api/console/v1/clients/AXI-CLI-000001/apporteurs",
+      "corps": "",
+      "signature": "v1=8d24b7999f140bb8c944231aafdc29a905f9be636d8f44341349b3371350f035"
+    },
+    {
+      "nom": "identifiant de client vide",
+      "valide": false,
+      "cle": "cle-test-c1-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c1-console-a",
+      "horodatage": "1792800000",
+      "methode": "GET",
+      "chemin": "/api/console/v1/clients//apporteurs",
+      "corps": "",
+      "signature": "v1=91ed930e0aa3d9e85325954817572daddfd1ecf7a5d13f6f63b299163347155a"
+    }
+  ]
+}

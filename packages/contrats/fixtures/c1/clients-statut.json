@@ -1,0 +1,27 @@
+{
+  "route": "clients-statut",
+  "cas": [
+    {
+      "nom": "valide",
+      "valide": true,
+      "cle": "cle-test-c1-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c1-console-a",
+      "horodatage": "1792800000",
+      "methode": "POST",
+      "chemin": "/api/console/v1/clients/AXI-CLI-000001/statut",
+      "corps": "{\"statut\":\"client_actif\",\"consoleClientId\":\"console-cli-0001\"}",
+      "signature": "v1=1f1534a4dbcaf1c95ea28e940e1b5e58ddd02e0b2fbb42831839bfb2ae74a0bc"
+    },
+    {
+      "nom": "statut inconnu",
+      "valide": false,
+      "cle": "cle-test-c1-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c1-console-a",
+      "horodatage": "1792800000",
+      "methode": "POST",
+      "chemin": "/api/console/v1/clients/AXI-CLI-000001/statut",
+      "corps": "{\"statut\":\"dormant\",\"consoleClientId\":\"console-cli-0001\"}",
+      "signature": "v1=52b130eef440d5eb604bf84798b54d4c8da1a4751d8f908034eab31698f2fea4"
+    }
+  ]
+}

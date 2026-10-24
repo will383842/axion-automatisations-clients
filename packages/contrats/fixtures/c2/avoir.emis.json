@@ -1,0 +1,27 @@
+{
+  "type": "avoir.emis",
+  "cas": [
+    {
+      "nom": "valide",
+      "valide": true,
+      "cle": "cle-test-c1-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c1-console-a",
+      "horodatage": "1792800000",
+      "methode": "POST",
+      "chemin": "/api/hub/v1/faits",
+      "corps": "{\"event_id\":\"11111111-1111-4111-8111-111111111111\",\"schema_version\":1,\"occurred_at\":\"2026-10-24T10:00:00Z\",\"emitted_at\":\"2026-10-24T10:00:01Z\",\"producer\":\"axion-ia-hub\",\"subject_ref\":{\"axiCli\":\"AXI-CLI-000001\",\"consoleClientId\":\"console-cli-0001\"},\"sequence\":1,\"event_type\":\"avoir.emis\",\"payload\":{\"numeroAvoir\":\"AXI-AVOIR-000001\",\"numeroFactureOrigine\":\"AXI-FACT-000001\",\"montantHtCentimes\":100}}",
+      "signature": "v1=3316c9682152bfb6264cacfbd17517d0a23fbdc7722dd6a52066a32e9eafd7eb"
+    },
+    {
+      "nom": "event_id invalide",
+      "valide": false,
+      "cle": "cle-test-c1-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c1-console-a",
+      "horodatage": "1792800000",
+      "methode": "POST",
+      "chemin": "/api/hub/v1/faits",
+      "corps": "{\"event_id\":\"pas-un-uuid\",\"schema_version\":1,\"occurred_at\":\"2026-10-24T10:00:00Z\",\"emitted_at\":\"2026-10-24T10:00:01Z\",\"producer\":\"axion-ia-hub\",\"subject_ref\":{\"axiCli\":\"AXI-CLI-000001\",\"consoleClientId\":\"console-cli-0001\"},\"sequence\":1,\"event_type\":\"avoir.emis\",\"payload\":{\"numeroAvoir\":\"AXI-AVOIR-000001\",\"numeroFactureOrigine\":\"AXI-FACT-000001\",\"montantHtCentimes\":100}}",
+      "signature": "v1=705da68524e31b03d732ee42463503a814177015592bfa9754ae396b7928c59f"
+    }
+  ]
+}

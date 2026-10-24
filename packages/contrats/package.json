@@ -6,6 +6,11 @@
   "type": "module",
   "main": "src/index.ts",
   "scripts": {
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json --allowImportingTsExtensions",
+    "test": "cd ../.. && vitest run --project packages/contrats",
+    "fixtures": "node scripts/signer-fixtures.ts && node scripts/empreinte.ts"
+  },
+  "dependencies": {
+    "zod": "^4.6.7"
   }
 }

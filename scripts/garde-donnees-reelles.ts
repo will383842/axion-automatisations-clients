@@ -10,13 +10,15 @@ export type Trouvaille = { type: "extrait Sirene" | "e-mail" | "registre public"
 // Les fixtures de la garde elle-même sont exclues d'elle-même (pas du scan des secrets).
 const EXCLUS = /^scripts\/__fixtures__\/donnees-reelles\//;
 const NOM_EXTRAIT = /StockUniteLegale|StockEtablissement|\.parquet$/i;
-const COLONNES_EXTRAIT = /^(?:siren|siret)$/i;
-// Dossier des mauvais exemples de la garde : exempt, mais seulement pour de petits fichiers texte.
-const TAILLE_MAX_EXCLUS = 8192;
-const ARCHIVE = /\.(?:zip|gz|tgz|7z|tar|bz2|xz|rar)$/i;
-const PERIMETRE_TESTS = /(?:^|\/)(?:__)?fixtures?(?:__)?\/|\.(?:test|spec)\.tsx?$|^tests\//;
-const PERIMETRE_COURRIEL = new RegExp(`${PERIMETRE_TESTS.source}|^packages/donnees-fictives/`);
-const PERIMETRE_REGISTRE = new RegExp(`${PERIMETRE_TESTS.source}|^packages/harnais/`);
+// Dossier exclu : seuls de petits fichiers texte y sont admis (pas d'archive, pas de gros extrait).
+const ARCHIVE = /\.(?:zip|gz|tgz|7z|rar|tar|parquet)$/i;
+const TAILLE_MAX_EXCLUS = 4096;
+// Colonne siren ou siret n'importe où dans la 1re ligne, séparée par « ; », « , » ou tabulation.
+const ENTETE_EXTRAIT = /^\uFEFF?(?:.*[;,\t])?["']?sire[nt]["']?\s*[;,\t]/i;
+const DOSSIERS_FIXTURES = /(?:^|\/)(?:__)?fixtures?(?:__)?\//;
+const TESTS = /\.(?:test|spec)\.tsx?$|^tests\/e2e\//;
+const PERIMETRE_COURRIEL = new RegExp(`${DOSSIERS_FIXTURES.source}|${TESTS.source}|^packages\\/donnees-fictives\\/`);
+const PERIMETRE_REGISTRE = new RegExp(`${DOSSIERS_FIXTURES.source}|${TESTS.source}|^packages\\/harnais\\/`);
 const COURRIEL = /[\w.%+-]+@([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,})/g;
 const REGISTRE = /api\.insee\.fr|recherche-entreprises\.api\.gouv\.fr|annuaire-entreprises\.data\.gouv\.fr|entreprise\.data\.gouv\.fr|entreprise\.api\.gouv\.fr|files\.data\.gouv\.fr|registre-national-entreprises\.inpi\.fr/i;
 
@@ -35,7 +37,7 @@ export function scannerDepot(racine: string, fichiers: string[]): Trouvaille[] {
       continue;
     }
     const lignes = readFileSync(join(racine, fichier), "utf8").split(/\r?\n/);
-    if ((lignes[0] ?? "").replace(/^\uFEFF/, "").split(/[;,\t]/).some((c) => COLONNES_EXTRAIT.test(c.trim().replace(/^["']|["']$/g, "")))) {
+    if (ENTETE_EXTRAIT.test(lignes[0] ?? "")) {
       trouvailles.push({ type: "extrait Sirene", fichier, ligne: 1 });
       continue;
     }

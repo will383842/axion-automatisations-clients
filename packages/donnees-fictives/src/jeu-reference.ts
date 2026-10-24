@@ -48,7 +48,6 @@ export type JeuReference = {
 };
 
 const STATUTS: StatutFacture[] = ["payee", "en-retard", "impayee"];
-const MONTANTS: Record<Formule, number> = { "abonnement-mensuel": 9900, "6-mois": 54000, "12-mois": 96000 };
 const id = (prefixe: string, n: number) => `${prefixe}-${String(n + 1).padStart(3, "0")}`;
 
 function entreprise(g: Generateur, n: number): Entreprise {
@@ -99,7 +98,7 @@ export function genererJeuReference(graine: number | string = 1): JeuReference {
   const factures: Facture[] = clients.map((c, n) => ({
     id: id("fac", n),
     clientId: c.id,
-    montantCentimes: MONTANTS[c.formule] + g.entier(0, 99) * 100,
+    montantCentimes: g.entier(1000, 150000),
     statut: STATUTS[n % 3] as StatutFacture,
   }));
   const cle = "generation-doc-0001";

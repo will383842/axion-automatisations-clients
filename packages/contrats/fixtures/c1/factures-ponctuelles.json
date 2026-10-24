@@ -1,0 +1,27 @@
+{
+  "route": "factures-ponctuelles",
+  "cas": [
+    {
+      "nom": "valide",
+      "valide": true,
+      "cle": "cle-test-c1-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c1-console-a",
+      "horodatage": "1792800000",
+      "methode": "POST",
+      "chemin": "/api/console/v1/factures-ponctuelles",
+      "corps": "{\"nature\":\"mise_en_place\",\"debutPeriode\":\"2026-11-01\",\"finPeriode\":\"2026-11-30\",\"referenceBonDeCommande\":\"bdc-0001\"}",
+      "signature": "v1=5f62e7d056cde1b2214202d80d3f600e7ef7bca8a495a3d16d3ac605cace2c8b"
+    },
+    {
+      "nom": "nature d'abonnement",
+      "valide": false,
+      "cle": "cle-test-c1-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c1-console-a",
+      "horodatage": "1792800000",
+      "methode": "POST",
+      "chemin": "/api/console/v1/factures-ponctuelles",
+      "corps": "{\"nature\":\"abonnement\",\"debutPeriode\":\"2026-11-01\",\"finPeriode\":\"2026-11-30\",\"referenceBonDeCommande\":\"bdc-0001\"}",
+      "signature": "v1=cc42eda8416e57a4680c1d5e03fc43097eda74b0f188bf3ec069e040c5f414fe"
+    }
+  ]
+}

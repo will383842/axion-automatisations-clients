@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { verifierDossier, verifierWorkflow } from "./garde-workflows.ts";
+import { verifierDossier, verifierWorkflow } from "./garde-workflows.js";
 
 const fixture = (nom: string) => readFileSync(fileURLToPath(new URL(`./__fixtures__/workflows/${nom}`, import.meta.url)), "utf8");
 const erreurs = (nom: string) => verifierWorkflow(nom, fixture(nom));

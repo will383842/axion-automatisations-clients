@@ -32,6 +32,12 @@ describe("garde-workflows", () => {
   it("[C-529] garde-workflows refuse un environment sur pull_request", () => {
     expect(erreurs("environment-pr.yml").join("\n")).toContain("environment");
   });
+  it("[C-529] garde-workflows refuse pull_request_target écrit entre accolades", () => {
+    expect(erreurs("pr-target-accolades.yml").join("\n")).toContain("pull_request_target");
+  });
+  it("[C-529] garde-workflows refuse un checkout sans persist-credentials: false", () => {
+    expect(erreurs("checkout-sans-persist.yml").join("\n")).toContain("persist-credentials");
+  });
   it("[C-529] garde-workflows est vert sur les workflows réels du dépôt", () => {
     expect(verifierDossier(fileURLToPath(new URL("../.github/workflows", import.meta.url)))).toEqual([]);
   });

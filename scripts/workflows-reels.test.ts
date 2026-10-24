@@ -39,6 +39,21 @@ describe("workflows réels", () => {
     expect(t).not.toMatch(/head_sha|head_branch|pull_requests/);
   });
 
+  it("[C-531] controle-journaux.yml supprime aussi quand le téléchargement ou le scan n'a pas réussi", () => {
+    const t = lire(".github/workflows/controle-journaux.yml");
+    expect(t).toMatch(/id: telecharger\n(?:.*\n)*?\s+continue-on-error: true/);
+    expect(t).toMatch(/if: always\(\) && \(steps\.telecharger\.outcome != 'success' \|\| steps\.scan\.outcome != 'success'\)/);
+  });
+
+  it("[C-529] chaque actions/checkout désactive persist-credentials", () => {
+    for (const f of ["ci.yml", "controle-journaux.yml", "securite.yml"]) {
+      const t = lire(`.github/workflows/${f}`);
+      const checkouts = [...t.matchAll(/uses: actions\/checkout@/g)].length;
+      const proteges = [...t.matchAll(/persist-credentials: false/g)].length;
+      expect(proteges, f).toBe(checkouts);
+    }
+  });
+
   it("[C-529] dependabot.yml surveille les actions et les dépendances", () => {
     const t = lire(".github/dependabot.yml");
     expect(t).toContain("github-actions");

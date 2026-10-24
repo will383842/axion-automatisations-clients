@@ -16,8 +16,19 @@ describe("jeu de référence", () => {
     const courriels = [...texte.matchAll(/[\w.+-]+@([\w.-]+)/g)];
     expect(courriels.length).toBeGreaterThan(20);
     for (const m of courriels) expect(/^exemple\.fr$|\.test$/.test(m[1] ?? "")).toBe(true);
-    const telephones = [...texte.matchAll(/"(0\d{9})"/g)].map((m) => m[1] ?? "");
+    const telephones: string[] = [];
+    const parcourir = (v: unknown): void => {
+      if (Array.isArray(v)) v.forEach(parcourir);
+      else if (v && typeof v === "object") {
+        for (const [k, x] of Object.entries(v)) {
+          if (k === "telephone") telephones.push(String(x));
+          else parcourir(x);
+        }
+      }
+    };
+    parcourir(JSON.parse(texte));
     expect(telephones.length).toBeGreaterThan(20);
+    for (const t of telephones) expect(t).toMatch(/^0\d{9}$/);
     for (const t of telephones) expect(PLAGES_TELEPHONE_FICTION.some((p) => t.startsWith(p))).toBe(true);
   });
   it("[C-532] la structure du jeu respecte les effectifs du plan", () => {

@@ -42,4 +42,8 @@ describe("garde des destinations", () => {
   it("[C-533] @envoi ignore les variables absentes ou sans rapport", () => {
     expect(verifierDestinations({ AUTRE: "https://graph.microsoft.com", GRAPH_URL: "" })).toEqual([]);
   });
+
+  it("[C-533] @envoi contournement : hôte purement numérique (adresse IP en décimal ou en hexadécimal) refusé", () => {
+    expect(verifierDestinations({ SMTP_HOTE: "134744072", WEBHOOK_B: "0x08080808", GMAIL_URL: "http://8.8.8.8/" }).sort()).toEqual(["GMAIL_URL", "SMTP_HOTE", "WEBHOOK_B"]);
+  });
 });

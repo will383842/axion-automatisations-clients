@@ -1,0 +1,11 @@
+{
+  "nom": "openbao",
+  "image": "openbao/openbao",
+  "version": "2.0.1",
+  "empreinte": "sha256:4fe96e91e531ef2694916fb2a92d7f7efd4a172059378bf83e0eafd8160b4396",
+  "licence": "MPL-2.0",
+  "livree": false,
+  "lieu": "local",
+  "source": "https://github.com/openbao/openbao",
+  "verifie_le": "2026-10-24"
+}

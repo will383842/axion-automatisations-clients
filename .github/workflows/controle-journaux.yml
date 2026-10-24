@@ -1,0 +1,55 @@
+name: Contrôle des journaux
+# Second workflow : les journaux d'une exécution ne sont téléchargeables qu'après sa fin (C-531).
+# Il n'utilise AUCUN secret et n'exécute JAMAIS de code venu de la PR : le script vient de la branche par défaut.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+permissions:
+  actions: write
+  contents: read
+jobs:
+  controle-journaux:
+    name: controle-journaux
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.repository.default_branch }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - name: Télécharger les journaux et les pièces jointes (traités comme du texte)
+        id: telecharger
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEPOT: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/zips" "$RUNNER_TEMP/texte"
+          gh api "repos/$DEPOT/actions/runs/$RUN_ID/logs" > "$RUNNER_TEMP/zips/journaux.zip"
+          unzip -qq -o "$RUNNER_TEMP/zips/journaux.zip" -d "$RUNNER_TEMP/texte/journaux"
+          for id in $(gh api "repos/$DEPOT/actions/runs/$RUN_ID/artifacts" --jq '.artifacts[].id'); do
+            gh api "repos/$DEPOT/actions/artifacts/$id/zip" > "$RUNNER_TEMP/zips/$id.zip"
+            unzip -qq -o "$RUNNER_TEMP/zips/$id.zip" -d "$RUNNER_TEMP/texte/piece-$id"
+          done
+      - name: Chercher des données réelles (sortie sans valeur)
+        id: scan
+        if: steps.telecharger.outcome == 'success'
+        continue-on-error: true
+        run: node scripts/scanner-journaux.ts "$RUNNER_TEMP/texte"
+      - name: Supprimer les journaux et les pièces jointes si trouvaille
+        if: always() && (steps.telecharger.outcome != 'success' || steps.scan.outcome != 'success')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEPOT: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          gh api -X DELETE "repos/$DEPOT/actions/runs/$RUN_ID/logs"
+          for id in $(gh api "repos/$DEPOT/actions/runs/$RUN_ID/artifacts" --jq '.artifacts[].id'); do
+            gh api -X DELETE "repos/$DEPOT/actions/artifacts/$id"
+          done
+          echo "Journaux non lus ou données réelles trouvées : journaux et pièces jointes supprimés." >&2
+          exit 1

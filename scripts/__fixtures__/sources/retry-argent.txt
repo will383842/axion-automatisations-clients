@@ -1,0 +1,2 @@
+import { it } from "vitest";
+it("[C-2] paiement @argent", { retry: 2 }, () => {});

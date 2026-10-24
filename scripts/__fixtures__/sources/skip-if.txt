@@ -1,0 +1,2 @@
+import { it } from "vitest";
+it.skipIf(true)("[C-1] sauté", () => {});

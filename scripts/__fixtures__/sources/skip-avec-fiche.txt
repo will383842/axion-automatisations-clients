@@ -1,0 +1,3 @@
+import { it } from "vitest";
+it.skip("[C-1] sauté", () => {}); // fiche: T0-99
+it.todo("[V2] plus tard");

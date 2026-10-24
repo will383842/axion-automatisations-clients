@@ -1,0 +1,9 @@
+name: Mauvais
+on: {pull_request_target: {branches: [main]}}
+permissions:
+  contents: read
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo ok

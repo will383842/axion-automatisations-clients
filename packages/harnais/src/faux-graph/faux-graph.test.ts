@@ -1,8 +1,10 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { creerClientMailpit } from "../mailpit.ts";
-import { demarrerFauxGraph, type FauxGraph } from "./serveur.ts";
+import { creerClientMailpit } from "../mailpit.js";
+import { demarrerFauxGraph, type FauxGraph } from "./serveur.js";
 
 const mailpit = creerClientMailpit();
+// Les tests qui déposent dans Mailpit tournent dans le job « harnais » (service Mailpit) ; ailleurs ils sont sautés.
+const itMailpit = process.env["MAILPIT_API"] ? it : it.skip; // fiche: T0-20
 let graph: FauxGraph;
 
 const en = (chemin: string, init: RequestInit = {}, compte = "lemoine@exemple.fr") =>
@@ -10,26 +12,27 @@ const en = (chemin: string, init: RequestInit = {}, compte = "lemoine@exemple.fr
     ...init,
     headers: { authorization: `Bearer faux.${compte}`, "content-type": "application/json", ...init.headers },
   });
-const controle = (mode: string) => fetch(`${graph.url}/__controle`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode }) });
+const controle = (mode: string, reinitialiser = false) =>
+  fetch(`${graph.url}/__controle`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode, reinitialiser }) });
 const brouillon = async (compte?: string) => {
   const r = await en("/v1.0/me/messages", { method: "POST", body: JSON.stringify({ subject: "Devis", body: { contentType: "text", content: "Bonjour" }, toRecipients: [{ emailAddress: { address: "client@exemple.fr" } }] }) }, compte);
   return (await r.json()) as { id: string; internetMessageId: string };
 };
 
 beforeAll(async () => {
-  await mailpit.attendrePret();
+  if (process.env["MAILPIT_API"]) await mailpit.attendrePret();
   graph = await demarrerFauxGraph({ mailpit });
 });
 afterAll(async () => {
   await graph.arreter();
 });
 beforeEach(async () => {
-  await mailpit.vider();
-  await controle("normal");
+  if (process.env["MAILPIT_API"]) await mailpit.vider();
+  await controle("normal", true);
 });
 
 describe("faux Microsoft 365", () => {
-  it("[C-592] un envoi par le faux Graph arrive dans Mailpit", async () => {
+  itMailpit("[C-592] un envoi par le faux Graph arrive dans Mailpit", async () => {
     const b = await brouillon();
     const r = await en(`/v1.0/me/messages/${b.id}/send`, { method: "POST" });
     expect(r.status).toBe(202);
@@ -38,7 +41,7 @@ describe("faux Microsoft 365", () => {
     expect(messages[0]?.Subject).toBe("Devis");
   });
 
-  it("[C-534] mode reponse_perdue : le client reçoit une erreur réseau ET le message est dans Mailpit et dans Éléments envoyés", async () => {
+  itMailpit("[C-534] mode reponse_perdue : le client reçoit une erreur réseau ET le message est dans Mailpit et dans Éléments envoyés", async () => {
     await controle("reponse_perdue");
     const b = await brouillon();
     await expect(en(`/v1.0/me/messages/${b.id}/send`, { method: "POST" })).rejects.toThrow();
@@ -49,7 +52,7 @@ describe("faux Microsoft 365", () => {
     expect(envoyes.value).toHaveLength(1);
   });
 
-  it("[C-534] deux envois du même brouillon donnent deux messages (aucun anti-doublon côté Graph)", async () => {
+  itMailpit("[C-534] deux envois du même brouillon donnent deux messages (aucun anti-doublon côté Graph)", async () => {
     const b = await brouillon();
     await en(`/v1.0/me/messages/${b.id}/send`, { method: "POST", headers: { "client-request-id": "meme-cle" } });
     await en(`/v1.0/me/messages/${b.id}/send`, { method: "POST", headers: { "client-request-id": "meme-cle" } });

@@ -33,5 +33,7 @@ services:
     image: ghcr.io/berriai/litellm:main-v1.48.0
     ports: ["127.0.0.1:${SONDE_PORT_LITELLM:-4000}:4000"]
   mailpit:
-    image: axllent/mailpit:v1.20.4
-    ports: ["127.0.0.1:${SONDE_PORT_MAILPIT:-8025}:8025"]
+    image: axllent/mailpit:v1.20.4@sha256:ff82a613c735f4e8a3ddfdf7ee4e18cb934c721e72a340ecbbb7ec0ca7fbd057
+    ports:
+      - "127.0.0.1:${SONDE_PORT_MAILPIT:-8025}:8025"
+      - "127.0.0.1:${SONDE_PORT_MAILPIT_SMTP:-1025}:1025"

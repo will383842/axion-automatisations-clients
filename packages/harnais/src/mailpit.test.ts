@@ -3,18 +3,21 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import nodemailer from "nodemailer";
 import { beforeEach, describe, expect, it } from "vitest";
-import { creerClientMailpit, hotesSmtpDeclares } from "./mailpit.ts";
+import { creerClientMailpit, hotesSmtpDeclares } from "./mailpit.js";
 
 const mailpit = creerClientMailpit();
+// Voir faux-graph.test.ts : le service Mailpit n'existe que dans le job « harnais ».
+const itMailpit = process.env["MAILPIT_API"] ? it : it.skip; // fiche: T0-20
 const racine = fileURLToPath(new URL("../../..", import.meta.url));
 
 beforeEach(async () => {
+  if (!process.env["MAILPIT_API"]) return;
   await mailpit.attendrePret();
   await mailpit.vider();
 });
 
 describe("piège Mailpit", () => {
-  it("[C-533] Mailpit est vidé entre deux tests", async () => {
+  itMailpit("[C-533] Mailpit est vidé entre deux tests", async () => {
     await nodemailer
       .createTransport({ host: "127.0.0.1", port: 1025, secure: false })
       .sendMail({ from: "a@exemple.fr", to: "b@exemple.fr", subject: "essai", text: "x" });
@@ -41,6 +44,6 @@ describe("piège Mailpit", () => {
   });
 
   it("[C-533] hotesSmtpDeclares repère une adresse SMTP étrangère", () => {
-    expect(hotesSmtpDeclares('SMTP_HOST=smtp.autre.test\nurl: "smtp://relais.exemple.fr:25"')).toEqual(["smtp.autre.test", "relais.exemple.fr"]);
+    expect(hotesSmtpDeclares('SMTP_HOST=smtp.autre.test\nurl: "smtp://relais.exemple.fr:25"').sort()).toEqual(["relais.exemple.fr", "smtp.autre.test"]);
   });
 });

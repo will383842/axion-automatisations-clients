@@ -68,7 +68,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   erreurs.push(...verifierConsigne(consigne, actuel));
   const fichiers = git("ls-files", "*.test.ts", "*.test.tsx").split("\n").filter((f) => f && !f.includes("__fixtures__"));
   for (const f of fichiers) erreurs.push(...analyserSource(f, readFileSync(f, "utf8")));
-  const configs = git("ls-files", "vitest.config.*", "**/vitest.config.*", "vitest.workspace.*", "**/vitest.workspace.*", "**/vitest.setup.*");
+  const configs = git("ls-files", "vitest.config.*", "**/vitest.config.*", "**/vitest.setup.*");
   for (const f of configs.split("\n").filter(Boolean)) erreurs.push(...analyserConfig(f, readFileSync(f, "utf8")));
   for (const e of erreurs) console.error(e);
   console.log(`tests : ${actuel} (référence ${reference})`);

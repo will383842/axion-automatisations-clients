@@ -40,6 +40,18 @@ describe("garde-licences : exceptions nommées (dépendances de développement)"
   });
 });
 
+describe("garde-licences : exception MIT-0 nommée pour nodemailer (ADR 0008)", () => {
+  it("accepte nodemailer (MIT-0) quand c'est une dépendance de développement", () => {
+    expect(verifierLicences({ "MIT-0": paquet("nodemailer") }, new Set(), new Set(["eslint"]))).toEqual([]);
+  });
+  it("refuse toute autre dépendance en MIT-0", () => {
+    expect(verifierLicences({ "MIT-0": paquet("autre") }, new Set(), new Set())).toHaveLength(1);
+  });
+  it("refuse nodemailer quand c'est une dépendance de production", () => {
+    expect(verifierLicences({ "MIT-0": paquet("nodemailer") }, new Set(), new Set(["nodemailer"]))).toHaveLength(1);
+  });
+});
+
 describe("garde-licences : expressions composées", () => {
   const refuse = (expr: string) => verifierLicences({ [expr]: paquet("z") }, new Set()).length;
   it("refuse GPL-3.0-only AND (MIT OR Apache-2.0)", () => {

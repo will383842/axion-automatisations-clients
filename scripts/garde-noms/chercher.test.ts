@@ -138,6 +138,21 @@ describe("garde des noms : crochets sur un dépôt temporaire", () => {
   it("[C-531] nom accentué ou en ligature dans le chemin : jamais écrit", () => {
     expect(masquePour("QUINCAILLERIE-Zéphyrine-Ostrowska-é.md", `${NOM}\n`)).toContain("fichier masqué (n° 1), ligne 1");
   });
+  const coupes: [string, string][] = [
+    ["barre oblique inverse au milieu du nom", "quincaillerie-zephyrine\\ostrowska.md"],
+    ["barre oblique entre dossiers", "quincaillerie/zephyrine/ostrowska.md"],
+    ["saut de ligne dans le chemin", "quincaillerie-zephyrine\nostrowska.md"],
+  ];
+  for (const [titre, chemin] of coupes) {
+    it(`[C-531] nom coupé (${titre}) et dans le contenu : chemin jamais écrit`, () => {
+      mkdirSync(join(depot, "quincaillerie/zephyrine"), { recursive: true });
+      expect(masquePour(chemin, `propre\n${NOM}\n`)).toContain("fichier masqué (n° 1), ligne 2");
+    });
+    it(`[C-531] nom coupé (${titre}) sans contenu fautif : refusé, jamais écrit`, () => {
+      mkdirSync(join(depot, "quincaillerie/zephyrine"), { recursive: true });
+      expect(masquePour(chemin, "propre\n")).toContain("nom de fichier interdit (n° 1)");
+    });
+  }
   it("[C-531] dequoter défait le quoting de git", () => {
     expect(dequoter('"a\\"b\\\\c\\td\\303\\251"')).toBe('a"b\\c\td\u00e9');
   });

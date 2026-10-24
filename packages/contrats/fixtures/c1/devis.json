@@ -1,0 +1,27 @@
+{
+  "route": "devis",
+  "cas": [
+    {
+      "nom": "valide",
+      "valide": true,
+      "cle": "cle-test-c1-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c1-console-a",
+      "horodatage": "1792800000",
+      "methode": "POST",
+      "chemin": "/api/console/v1/devis",
+      "corps": "{\"referencePropositionConsole\":\"prop-0001\",\"lignes\":[{\"libelle\":\"Ligne d'essai\",\"quantite\":1,\"prixUnitaireHtCentimes\":12345,\"activite\":\"automatisation\",\"tauxTvaBps\":2000}]}",
+      "signature": "v1=b25240b93464bfd8d48356e3b078de100a34f0d179bf09bf954f571a63c93965"
+    },
+    {
+      "nom": "montant flottant",
+      "valide": false,
+      "cle": "cle-test-c1-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c1-console-a",
+      "horodatage": "1792800000",
+      "methode": "POST",
+      "chemin": "/api/console/v1/devis",
+      "corps": "{\"referencePropositionConsole\":\"prop-0001\",\"lignes\":[{\"libelle\":\"Ligne d'essai\",\"quantite\":1,\"prixUnitaireHtCentimes\":100.5,\"activite\":\"automatisation\",\"tauxTvaBps\":2000}]}",
+      "signature": "v1=79986d42baa70b14687d984ee0021d2100613587df72e6239423b5631db7b527"
+    }
+  ]
+}

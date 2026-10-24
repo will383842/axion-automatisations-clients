@@ -1,0 +1,27 @@
+{
+  "route": "clients-retrouver-ou-creer",
+  "cas": [
+    {
+      "nom": "valide",
+      "valide": true,
+      "cle": "cle-test-c1-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c1-console-a",
+      "horodatage": "1792800000",
+      "methode": "POST",
+      "chemin": "/api/console/v1/clients/retrouver-ou-creer",
+      "corps": "{\"consoleClientId\":\"console-cli-0001\",\"siren\":\"123456789\",\"raisonSociale\":\"Lemoine Rénovation\",\"adresse\":{\"ligne1\":\"1 rue d'essai\",\"codePostal\":\"75001\",\"ville\":\"Ville-Test\",\"pays\":\"FR\"},\"contactFacturation\":{\"nom\":\"Camille Test\",\"email\":\"contact@exemple.fr\"}}",
+      "signature": "v1=b0006084823b8a34740cfcfebf228b7fc77850b34007351064c1d4815c0c8618"
+    },
+    {
+      "nom": "pays hors France",
+      "valide": false,
+      "cle": "cle-test-c1-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c1-console-a",
+      "horodatage": "1792800000",
+      "methode": "POST",
+      "chemin": "/api/console/v1/clients/retrouver-ou-creer",
+      "corps": "{\"consoleClientId\":\"console-cli-0001\",\"siren\":\"123456789\",\"raisonSociale\":\"Lemoine Rénovation\",\"adresse\":{\"ligne1\":\"1 rue d'essai\",\"codePostal\":\"75001\",\"ville\":\"Ville-Test\",\"pays\":\"BE\"},\"contactFacturation\":{\"nom\":\"Camille Test\",\"email\":\"contact@exemple.fr\"}}",
+      "signature": "v1=6c5318992ec45c1df5d9bbf0aeb81f48e51de112fa14c51b6b1bd678cc60e836"
+    }
+  ]
+}

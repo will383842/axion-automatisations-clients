@@ -1,0 +1,1639 @@
+{
+  "version": "0.1.0",
+  "routes": {
+    "clients-retrouver-ou-creer": {
+      "methode": "POST",
+      "chemin": "/clients/retrouver-ou-creer",
+      "requete": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "consoleClientId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "siren": {
+            "type": "string",
+            "pattern": "^[0-9]{9}$"
+          },
+          "siret": {
+            "type": "string",
+            "pattern": "^[0-9]{14}$"
+          },
+          "raisonSociale": {
+            "type": "string",
+            "minLength": 1
+          },
+          "adresse": {
+            "type": "object",
+            "properties": {
+              "ligne1": {
+                "type": "string",
+                "minLength": 1
+              },
+              "codePostal": {
+                "type": "string",
+                "minLength": 1
+              },
+              "ville": {
+                "type": "string",
+                "minLength": 1
+              },
+              "pays": {
+                "type": "string",
+                "const": "FR"
+              }
+            },
+            "required": [
+              "ligne1",
+              "codePostal",
+              "ville",
+              "pays"
+            ],
+            "additionalProperties": false
+          },
+          "contactFacturation": {
+            "type": "object",
+            "properties": {
+              "nom": {
+                "type": "string",
+                "minLength": 1
+              },
+              "email": {
+                "type": "string",
+                "format": "email",
+                "pattern": "^(?:[A-Za-z0-9_'+\\-]+\\.)*[A-Za-z0-9_'+\\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+              }
+            },
+            "required": [
+              "nom",
+              "email"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "consoleClientId",
+          "raisonSociale",
+          "adresse",
+          "contactFacturation"
+        ],
+        "additionalProperties": false
+      },
+      "reponses": {
+        "200": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "resultat": {
+                  "type": "string",
+                  "enum": [
+                    "retrouve",
+                    "cree"
+                  ]
+                },
+                "axiCli": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "resultat",
+                "axiCli"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "resultat": {
+                  "type": "string",
+                  "const": "a_trancher"
+                },
+                "idDemande": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "resultat",
+                "idDemande"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "202": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "resultat": {
+                  "type": "string",
+                  "enum": [
+                    "retrouve",
+                    "cree"
+                  ]
+                },
+                "axiCli": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "resultat",
+                "axiCli"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "resultat": {
+                  "type": "string",
+                  "const": "a_trancher"
+                },
+                "idDemande": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "resultat",
+                "idDemande"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        }
+      }
+    },
+    "clients-statut": {
+      "methode": "POST",
+      "chemin": "/clients/{axiCli}/statut",
+      "requete": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "statut": {
+            "type": "string",
+            "enum": [
+              "prospect",
+              "client_actif",
+              "ancien_client"
+            ]
+          },
+          "consoleClientId": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "statut",
+          "consoleClientId"
+        ],
+        "additionalProperties": false
+      },
+      "reponses": {
+        "200": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "axiCli": {
+              "type": "string",
+              "minLength": 1
+            },
+            "statut": {
+              "type": "string",
+              "enum": [
+                "prospect",
+                "client_actif",
+                "ancien_client"
+              ]
+            }
+          },
+          "required": [
+            "axiCli",
+            "statut"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "devis": {
+      "methode": "POST",
+      "chemin": "/devis",
+      "requete": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "referencePropositionConsole": {
+            "type": "string",
+            "minLength": 1
+          },
+          "lignes": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "libelle": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "quantite": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "prixUnitaireHtCentimes": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "activite": {
+                  "type": "string",
+                  "const": "automatisation"
+                },
+                "tauxTvaBps": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "libelle",
+                "quantite",
+                "prixUnitaireHtCentimes",
+                "activite",
+                "tauxTvaBps"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "referencePropositionConsole",
+          "lignes"
+        ],
+        "additionalProperties": false
+      },
+      "reponses": {
+        "201": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "numeroDevis": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "numeroDevis"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "plans-recurrents": {
+      "methode": "POST",
+      "chemin": "/plans-recurrents",
+      "requete": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "referenceContratConsole": {
+            "type": "string",
+            "minLength": 1
+          },
+          "montantHtCentimesParPeriode": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "periodeMois": {
+            "anyOf": [
+              {
+                "type": "number",
+                "const": 1
+              },
+              {
+                "type": "number",
+                "const": 6
+              },
+              {
+                "type": "number",
+                "const": 12
+              }
+            ]
+          },
+          "premiereEcheance": {
+            "type": "string",
+            "format": "date",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+          },
+          "engagementMois": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "referenceContratConsole",
+          "montantHtCentimesParPeriode",
+          "periodeMois",
+          "premiereEcheance",
+          "engagementMois"
+        ],
+        "additionalProperties": false
+      },
+      "reponses": {
+        "201": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "idPlan": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "idPlan"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "plans-recurrents-clore": {
+      "methode": "POST",
+      "chemin": "/plans-recurrents/{idPlan}/clore",
+      "requete": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "dateFin": {
+            "type": "string",
+            "format": "date",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+          },
+          "motif": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "dateFin",
+          "motif"
+        ],
+        "additionalProperties": false
+      },
+      "reponses": {
+        "200": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "idPlan": {
+              "type": "string",
+              "minLength": 1
+            },
+            "brouillonsNonEmis": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "required": [
+            "idPlan",
+            "brouillonsNonEmis"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "factures-ponctuelles": {
+      "methode": "POST",
+      "chemin": "/factures-ponctuelles",
+      "requete": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "nature": {
+            "type": "string",
+            "enum": [
+              "mise_en_place",
+              "complement_prorata"
+            ]
+          },
+          "debutPeriode": {
+            "type": "string",
+            "format": "date",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+          },
+          "finPeriode": {
+            "type": "string",
+            "format": "date",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+          },
+          "referenceBonDeCommande": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "nature",
+          "debutPeriode",
+          "finPeriode",
+          "referenceBonDeCommande"
+        ],
+        "additionalProperties": false
+      },
+      "reponses": {
+        "201": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "idBrouillon": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "idBrouillon"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "statuts": {
+      "methode": "GET",
+      "chemin": "/statuts",
+      "requete": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "depuis": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "depuis"
+        ],
+        "additionalProperties": false
+      },
+      "reponses": {
+        "200": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "elements": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "devis",
+                      "facture",
+                      "paiement"
+                    ]
+                  },
+                  "reference": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "statut": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "type",
+                  "reference",
+                  "statut"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "curseur": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "elements",
+            "curseur"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "clients-apporteurs": {
+      "methode": "GET",
+      "chemin": "/clients/{axiCli}/apporteurs",
+      "reponses": {
+        "200": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "apporteurs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "idApporteur": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "nom": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "idApporteur",
+                  "nom"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "apporteurs"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "faits": {
+      "methode": "GET",
+      "chemin": "/faits",
+      "requete": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "apres": {
+            "type": "string",
+            "pattern": "^[0-9]+$"
+          }
+        },
+        "required": [
+          "apres"
+        ],
+        "additionalProperties": false
+      },
+      "reponses": {
+        "200": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "faits": {
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "event_id": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                      },
+                      "schema_version": {
+                        "type": "number",
+                        "const": 1
+                      },
+                      "occurred_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      },
+                      "emitted_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      },
+                      "producer": {
+                        "type": "string",
+                        "const": "axion-ia-hub"
+                      },
+                      "subject_ref": {
+                        "type": "object",
+                        "properties": {
+                          "axiCli": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "consoleClientId": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        },
+                        "required": [
+                          "axiCli"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "sequence": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "event_type": {
+                        "type": "string",
+                        "const": "devis.signe"
+                      },
+                      "payload": {
+                        "type": "object",
+                        "properties": {
+                          "numeroDevis": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "date": {
+                            "type": "string",
+                            "format": "date",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                          }
+                        },
+                        "required": [
+                          "numeroDevis",
+                          "date"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "event_id",
+                      "schema_version",
+                      "occurred_at",
+                      "emitted_at",
+                      "producer",
+                      "subject_ref",
+                      "sequence",
+                      "event_type",
+                      "payload"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "event_id": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                      },
+                      "schema_version": {
+                        "type": "number",
+                        "const": 1
+                      },
+                      "occurred_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      },
+                      "emitted_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      },
+                      "producer": {
+                        "type": "string",
+                        "const": "axion-ia-hub"
+                      },
+                      "subject_ref": {
+                        "type": "object",
+                        "properties": {
+                          "axiCli": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "consoleClientId": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        },
+                        "required": [
+                          "axiCli"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "sequence": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "event_type": {
+                        "type": "string",
+                        "const": "devis.refuse"
+                      },
+                      "payload": {
+                        "type": "object",
+                        "properties": {
+                          "numeroDevis": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "date": {
+                            "type": "string",
+                            "format": "date",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                          }
+                        },
+                        "required": [
+                          "numeroDevis",
+                          "date"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "event_id",
+                      "schema_version",
+                      "occurred_at",
+                      "emitted_at",
+                      "producer",
+                      "subject_ref",
+                      "sequence",
+                      "event_type",
+                      "payload"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "event_id": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                      },
+                      "schema_version": {
+                        "type": "number",
+                        "const": 1
+                      },
+                      "occurred_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      },
+                      "emitted_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      },
+                      "producer": {
+                        "type": "string",
+                        "const": "axion-ia-hub"
+                      },
+                      "subject_ref": {
+                        "type": "object",
+                        "properties": {
+                          "axiCli": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "consoleClientId": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        },
+                        "required": [
+                          "axiCli"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "sequence": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "event_type": {
+                        "type": "string",
+                        "const": "devis.expire"
+                      },
+                      "payload": {
+                        "type": "object",
+                        "properties": {
+                          "numeroDevis": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "date": {
+                            "type": "string",
+                            "format": "date",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                          }
+                        },
+                        "required": [
+                          "numeroDevis",
+                          "date"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "event_id",
+                      "schema_version",
+                      "occurred_at",
+                      "emitted_at",
+                      "producer",
+                      "subject_ref",
+                      "sequence",
+                      "event_type",
+                      "payload"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "event_id": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                      },
+                      "schema_version": {
+                        "type": "number",
+                        "const": 1
+                      },
+                      "occurred_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      },
+                      "emitted_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      },
+                      "producer": {
+                        "type": "string",
+                        "const": "axion-ia-hub"
+                      },
+                      "subject_ref": {
+                        "type": "object",
+                        "properties": {
+                          "axiCli": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "consoleClientId": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        },
+                        "required": [
+                          "axiCli"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "sequence": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "event_type": {
+                        "type": "string",
+                        "const": "facture.emise"
+                      },
+                      "payload": {
+                        "type": "object",
+                        "properties": {
+                          "numeroFacture": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "idPlan": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "nature": {
+                            "type": "string",
+                            "enum": [
+                              "abonnement",
+                              "mise_en_place",
+                              "complement_prorata"
+                            ]
+                          },
+                          "debutPeriode": {
+                            "type": "string",
+                            "format": "date",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                          },
+                          "finPeriode": {
+                            "type": "string",
+                            "format": "date",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                          },
+                          "montantHtCentimes": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "montantTvaCentimes": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "montantTtcCentimes": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "dateEmission": {
+                            "type": "string",
+                            "format": "date",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                          },
+                          "dateEcheance": {
+                            "type": "string",
+                            "format": "date",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                          },
+                          "pdf": {
+                            "type": "object",
+                            "properties": {
+                              "url": {
+                                "type": "string",
+                                "format": "uri"
+                              },
+                              "expireAt": {
+                                "type": "string",
+                                "format": "date-time",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                              },
+                              "sha256": {
+                                "type": "string",
+                                "pattern": "^[0-9a-f]{64}$"
+                              }
+                            },
+                            "required": [
+                              "url",
+                              "expireAt",
+                              "sha256"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "required": [
+                          "numeroFacture",
+                          "nature",
+                          "montantHtCentimes",
+                          "montantTvaCentimes",
+                          "montantTtcCentimes",
+                          "dateEmission",
+                          "dateEcheance",
+                          "pdf"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "event_id",
+                      "schema_version",
+                      "occurred_at",
+                      "emitted_at",
+                      "producer",
+                      "subject_ref",
+                      "sequence",
+                      "event_type",
+                      "payload"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "event_id": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                      },
+                      "schema_version": {
+                        "type": "number",
+                        "const": 1
+                      },
+                      "occurred_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      },
+                      "emitted_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      },
+                      "producer": {
+                        "type": "string",
+                        "const": "axion-ia-hub"
+                      },
+                      "subject_ref": {
+                        "type": "object",
+                        "properties": {
+                          "axiCli": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "consoleClientId": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        },
+                        "required": [
+                          "axiCli"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "sequence": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "event_type": {
+                        "type": "string",
+                        "const": "paiement.recu"
+                      },
+                      "payload": {
+                        "type": "object",
+                        "properties": {
+                          "numeroFacture": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "montantCentimes": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "dateReception": {
+                            "type": "string",
+                            "format": "date",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                          },
+                          "moyen": {
+                            "type": "string",
+                            "const": "virement"
+                          }
+                        },
+                        "required": [
+                          "numeroFacture",
+                          "montantCentimes",
+                          "dateReception",
+                          "moyen"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "event_id",
+                      "schema_version",
+                      "occurred_at",
+                      "emitted_at",
+                      "producer",
+                      "subject_ref",
+                      "sequence",
+                      "event_type",
+                      "payload"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "event_id": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                      },
+                      "schema_version": {
+                        "type": "number",
+                        "const": 1
+                      },
+                      "occurred_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      },
+                      "emitted_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      },
+                      "producer": {
+                        "type": "string",
+                        "const": "axion-ia-hub"
+                      },
+                      "subject_ref": {
+                        "type": "object",
+                        "properties": {
+                          "axiCli": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "consoleClientId": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        },
+                        "required": [
+                          "axiCli"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "sequence": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "event_type": {
+                        "type": "string",
+                        "const": "avoir.emis"
+                      },
+                      "payload": {
+                        "type": "object",
+                        "properties": {
+                          "numeroAvoir": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "numeroFactureOrigine": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "montantHtCentimes": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": [
+                          "numeroAvoir",
+                          "numeroFactureOrigine",
+                          "montantHtCentimes"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "event_id",
+                      "schema_version",
+                      "occurred_at",
+                      "emitted_at",
+                      "producer",
+                      "subject_ref",
+                      "sequence",
+                      "event_type",
+                      "payload"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "event_id": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                      },
+                      "schema_version": {
+                        "type": "number",
+                        "const": 1
+                      },
+                      "occurred_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      },
+                      "emitted_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      },
+                      "producer": {
+                        "type": "string",
+                        "const": "axion-ia-hub"
+                      },
+                      "subject_ref": {
+                        "type": "object",
+                        "properties": {
+                          "axiCli": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "consoleClientId": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        },
+                        "required": [
+                          "axiCli"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "sequence": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "event_type": {
+                        "type": "string",
+                        "const": "relance.proposee"
+                      },
+                      "payload": {
+                        "type": "object",
+                        "properties": {
+                          "numeroFacture": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "niveau": {
+                            "type": "integer",
+                            "exclusiveMinimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "joursRetard": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": [
+                          "numeroFacture",
+                          "niveau",
+                          "joursRetard"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "event_id",
+                      "schema_version",
+                      "occurred_at",
+                      "emitted_at",
+                      "producer",
+                      "subject_ref",
+                      "sequence",
+                      "event_type",
+                      "payload"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "event_id": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                      },
+                      "schema_version": {
+                        "type": "number",
+                        "const": 1
+                      },
+                      "occurred_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      },
+                      "emitted_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      },
+                      "producer": {
+                        "type": "string",
+                        "const": "axion-ia-hub"
+                      },
+                      "subject_ref": {
+                        "type": "object",
+                        "properties": {
+                          "axiCli": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "consoleClientId": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        },
+                        "required": [
+                          "axiCli"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "sequence": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "event_type": {
+                        "type": "string",
+                        "const": "fiche.fusionnee"
+                      },
+                      "payload": {
+                        "type": "object",
+                        "properties": {
+                          "axiCliAbsorbe": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "axiCliGarde": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "annulableJusquau": {
+                            "type": "string",
+                            "format": "date-time",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                          }
+                        },
+                        "required": [
+                          "axiCliAbsorbe",
+                          "axiCliGarde",
+                          "annulableJusquau"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "event_id",
+                      "schema_version",
+                      "occurred_at",
+                      "emitted_at",
+                      "producer",
+                      "subject_ref",
+                      "sequence",
+                      "event_type",
+                      "payload"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "event_id": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                      },
+                      "schema_version": {
+                        "type": "number",
+                        "const": 1
+                      },
+                      "occurred_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      },
+                      "emitted_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      },
+                      "producer": {
+                        "type": "string",
+                        "const": "axion-ia-hub"
+                      },
+                      "subject_ref": {
+                        "type": "object",
+                        "properties": {
+                          "axiCli": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "consoleClientId": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        },
+                        "required": [
+                          "axiCli"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "sequence": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "event_type": {
+                        "type": "string",
+                        "const": "fiche.fusion_annulee"
+                      },
+                      "payload": {
+                        "type": "object",
+                        "properties": {
+                          "axiCliAbsorbe": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "axiCliGarde": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "annulableJusquau": {
+                            "type": "string",
+                            "format": "date-time",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                          }
+                        },
+                        "required": [
+                          "axiCliAbsorbe",
+                          "axiCliGarde",
+                          "annulableJusquau"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "event_id",
+                      "schema_version",
+                      "occurred_at",
+                      "emitted_at",
+                      "producer",
+                      "subject_ref",
+                      "sequence",
+                      "event_type",
+                      "payload"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "event_id": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                      },
+                      "schema_version": {
+                        "type": "number",
+                        "const": 1
+                      },
+                      "occurred_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      },
+                      "emitted_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      },
+                      "producer": {
+                        "type": "string",
+                        "const": "axion-ia-hub"
+                      },
+                      "subject_ref": {
+                        "type": "object",
+                        "properties": {
+                          "axiCli": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "consoleClientId": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        },
+                        "required": [
+                          "axiCli"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "sequence": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "event_type": {
+                        "type": "string",
+                        "const": "audit.cloture"
+                      },
+                      "payload": {
+                        "type": "object",
+                        "properties": {
+                          "siren": {
+                            "type": "string",
+                            "pattern": "^[0-9]{9}$"
+                          },
+                          "siret": {
+                            "type": "string",
+                            "pattern": "^[0-9]{14}$"
+                          },
+                          "contact": {
+                            "type": "object",
+                            "properties": {
+                              "nom": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "email": {
+                                "type": "string",
+                                "format": "email",
+                                "pattern": "^(?:[A-Za-z0-9_'+\\-]+\\.)*[A-Za-z0-9_'+\\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+                              }
+                            },
+                            "required": [
+                              "nom",
+                              "email"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "typeAudit": {
+                            "type": "string",
+                            "enum": [
+                              "diagnostic_distance",
+                              "audit_sur_place"
+                            ]
+                          },
+                          "dateAudit": {
+                            "type": "string",
+                            "format": "date",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                          },
+                          "outils": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          },
+                          "besoins": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "description": {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                "priorite": {
+                                  "anyOf": [
+                                    {
+                                      "type": "number",
+                                      "const": 1
+                                    },
+                                    {
+                                      "type": "number",
+                                      "const": 2
+                                    },
+                                    {
+                                      "type": "number",
+                                      "const": 3
+                                    }
+                                  ]
+                                },
+                                "minutesPerduesParSemaineEstimees": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                }
+                              },
+                              "required": [
+                                "description",
+                                "priorite",
+                                "minutesPerduesParSemaineEstimees"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "lienCompteRendu": {
+                            "type": "string",
+                            "format": "uri"
+                          }
+                        },
+                        "required": [
+                          "siren",
+                          "contact",
+                          "typeAudit",
+                          "dateAudit",
+                          "outils",
+                          "besoins",
+                          "lienCompteRendu"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "event_id",
+                      "schema_version",
+                      "occurred_at",
+                      "emitted_at",
+                      "producer",
+                      "subject_ref",
+                      "sequence",
+                      "event_type",
+                      "payload"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              }
+            }
+          },
+          "required": [
+            "faits"
+          ],
+          "additionalProperties": false
+        }
+      }
+    }
+  }
+}

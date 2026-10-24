@@ -26,24 +26,24 @@ describe("squelette console", () => {
   });
 
   it("[A-047] la mise en page est en français et charge les jetons du paquet de design", () => {
-    const layout = lire("../layout.tsx");
+    const layout = lire("../../layout.tsx");
     expect(layout).toContain('lang="fr"');
     expect(layout).toContain("@axion-auto/design");
   });
 
   it("[LOT1-web] la configuration n'appelle aucune police distante", () => {
-    for (const fichier of ["../layout.tsx", "../page.tsx", "../../../next.config.ts"]) {
+    for (const fichier of ["../../layout.tsx", "../../page.tsx", "../../../../next.config.ts"]) {
       const texte = lire(fichier);
       expect(texte).not.toContain("fonts.googleapis.com");
       expect(texte).not.toContain("fonts.gstatic.com");
       expect(texte).not.toContain("next/font/google");
     }
-    const css = lire("../../../../../packages/design/src/polices.css");
+    const css = lire("../../../../../../packages/design/src/polices.css");
     expect(css).not.toMatch(/fonts\.(googleapis|gstatic)\.com/);
     expect(css).toContain("@fontsource/manrope");
   });
 
   it("[A-047] la page ne dit que le nom de l'application", () => {
-    expect(lire("../page.tsx")).toContain("console");
+    expect(lire("../../page.tsx")).toContain("console");
   });
 });

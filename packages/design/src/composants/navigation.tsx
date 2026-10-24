@@ -1,5 +1,5 @@
 /** @jsxRuntime automatic @jsxImportSource react */
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { PastilleInitiales } from "./base.tsx";
 
 // Navigation commune (C-597, C-586). Le menu latéral (ordinateur) et la barre d'onglets (téléphone) coexistent dans le DOM :
@@ -40,13 +40,14 @@ const ONGLETS = {
 
 const MASQUE_VISUEL = { position: "absolute", width: "1px", height: "1px", overflow: "hidden", clipPath: "inset(50%)" } as const;
 
-function Compteur({ n }: { n: number }) {
+function Compteur({ n, onglet = false }: { n: number; onglet?: boolean }) {
+  // Menu latéral : pastille blanche sur le terracotta. Barre d'onglets (fond blanc) : pastille terracotta à chiffre blanc, en haut à droite.
+  const style: CSSProperties = onglet
+    ? { position: "absolute", top: v("espacement-4"), right: v("espacement-4"), background: v("couleur-action"), color: v("couleur-menu-texte"), borderRadius: v("rayon-999"), padding: "0 6px", fontSize: v("taille-precision"), fontWeight: 800 }
+    : { background: v("couleur-menu-actif-fond"), color: v("couleur-menu-actif-texte"), borderRadius: v("rayon-999"), padding: "0 8px", fontSize: v("taille-precision"), fontWeight: 800 };
   return (
     <>
-      <span
-        aria-hidden="true"
-        style={{ background: v("couleur-menu-actif-fond"), color: v("couleur-menu-actif-texte"), borderRadius: v("rayon-999"), padding: "0 8px", fontSize: v("taille-precision"), fontWeight: 800 }}
-      >
+      <span aria-hidden="true" style={style}>
         {n}
       </span>
       <span style={MASQUE_VISUEL}>{`, ${n} en attente`}</span>
@@ -169,9 +170,12 @@ export function BarreOnglets({ variante, actif, compteurARelire, compteurAlertes
             href={hrefs[id] ?? `/${id}`}
             aria-current={courant ? "page" : undefined}
             style={{
-              flex: "1 1 0",
-              minWidth: "44px",
-              minHeight: "48px",
+              flex: "1 1 auto",
+              minWidth: 0,
+              minHeight: "56px",
+              padding: "0 4px",
+              position: "relative",
+              borderRadius: v("rayon-12"),
               display: "flex",
               flexDirection: "column",
               alignItems: "center",
@@ -180,11 +184,12 @@ export function BarreOnglets({ variante, actif, compteurARelire, compteurAlertes
               fontSize: v("taille-precision"),
               fontWeight: courant ? 800 : 700,
               textDecoration: "none",
-              color: courant ? v("couleur-actionTexte") : v("couleur-texte-secondaire"),
+              background: courant ? v("couleur-menu-fond") : "transparent",
+              color: courant ? v("couleur-menu-texte") : v("couleur-texte-secondaire"),
             }}
           >
-            {libelle}
-            {n ? <Compteur n={n} /> : null}
+            <span style={{ whiteSpace: "nowrap", letterSpacing: "-0.01em" }}>{libelle}</span>
+            {n ? <Compteur n={n} onglet /> : null}
           </a>
         );
       })}

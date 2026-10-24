@@ -10,6 +10,10 @@
   outline-offset: 2px;
 }
 
+.r-menu :focus-visible {
+  outline-color: var(--couleur-menu-texte);
+}
+
 .evitement {
   position: absolute;
   left: var(--espacement-8);

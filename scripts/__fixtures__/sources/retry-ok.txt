@@ -1,0 +1,3 @@
+import { it } from "vitest";
+it("[C-2] sans relance @argent", () => {});
+it("[C-3] ordinaire", { retry: 1 }, () => {});

@@ -1,0 +1,9 @@
+name: Mauvais
+on: [push]
+permissions:
+  contents: read
+jobs:
+  a:
+    runs-on: [self-hosted, linux]
+    steps:
+      - run: echo ok

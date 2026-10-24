@@ -1,0 +1,8 @@
+name: Mauvais
+on: [push]
+permissions: write-all
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo ok

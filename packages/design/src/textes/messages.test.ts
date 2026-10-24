@@ -59,9 +59,16 @@ describe("catalogue des messages", () => {
     }
   });
 
-  it("[C-578] chaque état vide a un titre, une phrase et un bouton, sans chiffre en dur", () => {
+  it("[C-578] chaque état vide a un titre, une phrase et un bouton", () => {
     for (const [cle, m] of entrees.filter(([c]) => c.startsWith("vide."))) {
       expect(m.titre && m.phrase && m.bouton, cle).toBeTruthy();
+    }
+  });
+
+  it("[C-578] aucun accord au masculin ou au féminin écrit en dur", () => {
+    const accord = /\bvous (êtes|serez)\s+(prévenu|connecté|inscrit|invité|déconnecté)\w*/i;
+    for (const [cle, m] of entrees) {
+      for (const t of textes(m)) expect(t, cle).not.toMatch(accord);
     }
   });
 

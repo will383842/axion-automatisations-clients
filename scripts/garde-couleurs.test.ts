@@ -64,6 +64,15 @@ describe("garde-couleurs", () => {
     }
   });
 
+  it("[C-597] verifierArbre refuse oklch(, lab(, lch(, hwb( et color( dans packages/design/src/jetons.ts", () => {
+    for (const f of ["oklch(0.5 0.2 260)", "lab(50% 40 59)", "lch(50% 80 260)", "hwb(220 10% 10%)", "color(display-p3 0 0 1)"]) {
+      const r = mkdtempSync(join(tmpdir(), "gc-"));
+      mkdirSync(join(r, "packages/design/src"), { recursive: true });
+      writeFileSync(join(r, "packages/design/src/jetons.ts"), `export const x = "${f}";`);
+      expect(verifierArbre(r), f).toHaveLength(1);
+    }
+  });
+
   it("[C-597] garde-couleurs refuse les classes Tailwind de la palette par défaut (bg-blue-500)", () => {
     expect(analyserFichier("a.tsx", `<div className="p-4 bg-blue-500">`)).toHaveLength(1);
     expect(analyserFichier("a.tsx", `<div className="text-slate-700">`)).toHaveLength(1);

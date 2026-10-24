@@ -1,7 +1,7 @@
 /** @jsxRuntime automatic @jsxImportSource react */
-// @vitest-environment jsdom
+// @vitest-environment happy-dom
 import { cleanup, render } from "@testing-library/react";
-import axe from "axe-core";
+import { violations } from "./accessibilite.tsx";
 import { afterEach, describe, expect, it } from "vitest";
 import { BarreOnglets, EnTeteTelephone, MenuLateral } from "./navigation.tsx";
 
@@ -93,7 +93,7 @@ describe("navigation", () => {
     expect(new Set(noms).size).toBe(2);
   });
 
-  it("[C-597] axe-core : aucune violation sur la navigation", async () => {
+  it("[C-597] accessibilité structurelle : aucune violation sur la navigation", () => {
     const { container } = render(
       <div>
         <EnTeteTelephone logo="/logo-lemoine.svg" nomLogo="Lemoine Rénovation" />
@@ -101,7 +101,6 @@ describe("navigation", () => {
         <BarreOnglets variante="portail" actif="accueil" compteurARelire={2} />
       </div>,
     );
-    const r = await axe.run(container, { rules: { "color-contrast": { enabled: false }, region: { enabled: false } } });
-    expect(r.violations.map((v) => v.id)).toEqual([]);
+    expect(violations(container)).toEqual([]);
   });
 });

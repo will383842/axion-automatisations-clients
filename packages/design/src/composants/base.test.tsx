@@ -1,18 +1,13 @@
 /** @jsxRuntime automatic @jsxImportSource react */
-// @vitest-environment jsdom
+// @vitest-environment happy-dom
 import { cleanup, render } from "@testing-library/react";
-import axe from "axe-core";
+import { violations } from "./accessibilite.tsx";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BadgeEtat, Bandeau, Bouton, Carte, CaseACocher, BoutonOption, Champ, Lien, LienEvitement, PastilleInitiales, TuileAutomatisation } from "./base.tsx";
 
 afterEach(cleanup);
 
 // jsdom ne calcule pas les couleurs : le contraste est couvert par jetons.test.ts et responsive.test.tsx.
-async function violations(conteneur: HTMLElement): Promise<string[]> {
-  const r = await axe.run(conteneur, { rules: { "color-contrast": { enabled: false }, region: { enabled: false } } });
-  return r.violations.map((v) => v.id);
-}
-
 describe("composants de base", () => {
   it("[C-597] CaseACocher refuse la classe r-plein (ignorée, avertissement en développement)", () => {
     const avertir = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -96,7 +91,7 @@ describe("composants de base", () => {
     expect(getByRole("link").className).toContain("evitement");
   });
 
-  it("[C-597] axe-core : aucune violation sur chaque composant de base", async () => {
+  it("[C-597] accessibilité structurelle : aucune violation sur chaque composant de base", () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const { container } = render(
       <main>
@@ -114,6 +109,6 @@ describe("composants de base", () => {
         <BoutonOption libelle="Chaque jour" name="rythme" />
       </main>,
     );
-    expect(await violations(container)).toEqual([]);
+    expect(violations(container)).toEqual([]);
   });
 });

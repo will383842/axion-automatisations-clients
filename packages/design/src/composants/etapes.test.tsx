@@ -1,7 +1,7 @@
 /** @jsxRuntime automatic @jsxImportSource react */
-// @vitest-environment jsdom
+// @vitest-environment happy-dom
 import { cleanup, render } from "@testing-library/react";
-import axe from "axe-core";
+import { violations } from "./accessibilite.tsx";
 import { afterEach, describe, expect, it } from "vitest";
 import { EtapeSurTotal, Frise, TableauCartes } from "./etapes.tsx";
 
@@ -35,7 +35,7 @@ describe("étapes et tableaux", () => {
     expect(container.querySelector("caption")?.textContent).toBe("Clients");
   });
 
-  it("[C-597] axe-core : aucune violation sur Frise, EtapeSurTotal et TableauCartes", async () => {
+  it("[C-597] accessibilité structurelle : aucune violation sur Frise, EtapeSurTotal et TableauCartes", () => {
     const { container } = render(
       <main>
         <Frise etapes={etapes} courante={1} />
@@ -43,7 +43,6 @@ describe("étapes et tableaux", () => {
         <TableauCartes legende="Clients" colonnes={["Nom", "État"]} lignes={[["Boulangerie Rivoire", "Actif"]]} />
       </main>,
     );
-    const r = await axe.run(container, { rules: { "color-contrast": { enabled: false }, region: { enabled: false } } });
-    expect(r.violations.map((v) => v.id)).toEqual([]);
+    expect(violations(container)).toEqual([]);
   });
 });

@@ -65,4 +65,23 @@ describe("garde-workflows", () => {
     const texte = `name: D\non:\n  push:\npermissions:\n  contents: read\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: docker://alpine@sha256:${sha}\n`;
     expect(verifierWorkflow("d.yml", texte)).toEqual([]);
   });
+  describe("permissions statuses et checks en écriture", () => {
+    const enTete = (perms: string) => `name: P\non:\n  push:\n${perms}\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ok\n`;
+    const duJob = (perms: string) => `name: P\non:\n  push:\npermissions:\n  contents: read\njobs:\n  a:\n    runs-on: ubuntu-latest\n${perms}\n    steps:\n      - run: echo ok\n`;
+    it("[C-529] garde-workflows refuse statuses: write au niveau du fichier", () => {
+      expect(verifierWorkflow("s.yml", enTete("permissions:\n  contents: read\n  statuses: write")).join("\n")).toContain("statuses: write");
+    });
+    it("[C-529] garde-workflows refuse checks: write au niveau d'un job", () => {
+      expect(verifierWorkflow("c.yml", duJob("    permissions:\n      checks: write")).join("\n")).toContain("checks: write");
+    });
+    it("[C-529] garde-workflows refuse les écritures abrégées, entre accolades ou entre guillemets", () => {
+      expect(verifierWorkflow("a.yml", enTete("permissions: { contents: read, statuses: write }"))).not.toEqual([]);
+      expect(verifierWorkflow("b.yml", duJob("    permissions: {checks: write}"))).not.toEqual([]);
+      expect(verifierWorkflow("d.yml", enTete("permissions:\n  \"statuses\": \"write\""))).not.toEqual([]);
+      expect(verifierWorkflow("e.yml", enTete("permissions: 'write-all'"))).not.toEqual([]);
+    });
+    it("[C-529] garde-workflows accepte contents: read et statuses: read", () => {
+      expect(verifierWorkflow("ok.yml", enTete("permissions:\n  contents: read\n  statuses: read\n  checks: read"))).toEqual([]);
+    });
+  });
 });

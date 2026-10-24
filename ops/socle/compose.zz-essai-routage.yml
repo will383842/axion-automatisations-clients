@@ -1,0 +1,39 @@
+# Fragment d'essai, lancé seulement sur la CI : quatre services d'écho derrière les noms de console, portail, API et Keycloak.
+# Une brique réelle remplace l'écho correspondant en reprenant son nom de réseau.
+services:
+  essai-console:
+    image: traefik/whoami:v1.10.3@sha256:43a68d10b9dfcfc3ffbfe4dd42100dc9aeaf29b3a5636c856337a5940f1b4f1c
+    restart: "no"
+    environment:
+      WHOAMI_NAME: console
+      WHOAMI_PORT_NUMBER: "3000"
+    networks:
+      entree:
+        aliases: [console]
+  essai-portail:
+    image: traefik/whoami:v1.10.3@sha256:43a68d10b9dfcfc3ffbfe4dd42100dc9aeaf29b3a5636c856337a5940f1b4f1c
+    restart: "no"
+    environment:
+      WHOAMI_NAME: portail
+      WHOAMI_PORT_NUMBER: "3000"
+    networks:
+      entree:
+        aliases: [portail]
+  essai-api:
+    image: traefik/whoami:v1.10.3@sha256:43a68d10b9dfcfc3ffbfe4dd42100dc9aeaf29b3a5636c856337a5940f1b4f1c
+    restart: "no"
+    environment:
+      WHOAMI_NAME: api
+      WHOAMI_PORT_NUMBER: "3001"
+    networks:
+      entree:
+        aliases: [api]
+  essai-keycloak:
+    image: traefik/whoami:v1.10.3@sha256:43a68d10b9dfcfc3ffbfe4dd42100dc9aeaf29b3a5636c856337a5940f1b4f1c
+    restart: "no"
+    environment:
+      WHOAMI_NAME: keycloak
+      WHOAMI_PORT_NUMBER: "8080"
+    networks:
+      entree:
+        aliases: [keycloak]

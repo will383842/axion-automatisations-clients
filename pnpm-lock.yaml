@@ -27,7 +27,11 @@ importers:
         specifier: ^4.1.12
         version: 4.1.12(@types/node@22.20.5)(vite@7.3.7(@types/node@22.20.5))
 
-  apps/api: {}
+  apps/api:
+    dependencies:
+      fastify:
+        specifier: ^5.12.7
+        version: 5.12.7
 
   apps/console: {}
 

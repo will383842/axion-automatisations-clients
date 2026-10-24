@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import pg from "pg";
 import { afterAll, describe, expect, it } from "vitest";
 import { controlerInvariants, type Requete } from "../../../../packages/contrats/src/c5/invariants.js";
@@ -17,22 +18,24 @@ function cible(service: string, port: number, surcharge: string | undefined): { 
 function motDePasse(): string {
   if (process.env["SOCLE_PG_MOT_DE_PASSE"]) return process.env["SOCLE_PG_MOT_DE_PASSE"];
   const variables = docker("inspect", "-f", "{{range .Config.Env}}{{println .}}{{end}}", conteneur("postgres")).split("\n");
-  const ligne = variables.find((l) => l.startsWith("POSTGRES_PASSWORD="));
+  const ligne = variables.find((l) => l.startsWith("SOCLE_PG_MOT_DE_PASSE="));
   if (!ligne) throw new Error("mot de passe de test introuvable");
-  return ligne.slice("POSTGRES_PASSWORD=".length);
+  return ligne.slice("SOCLE_PG_MOT_DE_PASSE=".length);
 }
 
 const DIRECT = cible("postgres", 5432, process.env["SOCLE_PG_DIRECT"]);
 const PGBOUNCER = cible("pgbouncer", 6432, process.env["SOCLE_PG_PGBOUNCER"]);
-const MOT_DE_PASSE = motDePasse();
+const SECRET = motDePasse();
+// Un mot de passe par rôle : empreinte du secret du socle et du nom du rôle (même calcul que 02-roles.sql et PgBouncer). Le secret lui-même n'ouvre rien.
+const motDePasseDe = (role: string) => createHash("sha256").update(`${SECRET}/${role}`).digest("hex");
 const ouverts: { end(): Promise<void> }[] = [];
 afterAll(async () => {
   await Promise.all(ouverts.map((o) => o.end().catch(() => undefined)));
 });
 
 type Voie = "direct" | "pgbouncer";
-const options = (voie: Voie, user: string, database: string) => ({
-  ...(voie === "direct" ? DIRECT : PGBOUNCER), user, database, password: MOT_DE_PASSE, connectionTimeoutMillis: 10_000,
+const options = (voie: Voie, user: string, database: string, empruntDe = user) => ({
+  ...(voie === "direct" ? DIRECT : PGBOUNCER), user, database, password: motDePasseDe(empruntDe), connectionTimeoutMillis: 10_000,
 });
 function pool(voie: Voie, user: string, database: string, max = 4): pg.Pool {
   const p = new pg.Pool({ ...options(voie, user, database), max });
@@ -57,8 +60,8 @@ async function codeRefus(p: pg.Pool | pg.Client, sql: string): Promise<string> {
   }
   throw new Error(`la requête aurait dû être refusée : ${sql}`);
 }
-async function connexionRefusee(voie: Voie, user: string, database: string): Promise<boolean> {
-  const c = new pg.Client(options(voie, user, database));
+async function connexionRefusee(voie: Voie, user: string, database: string, empruntDe = user): Promise<boolean> {
+  const c = new pg.Client(options(voie, user, database, empruntDe));
   c.on("error", () => undefined);
   try {
     await c.connect();
@@ -232,6 +235,34 @@ describe("rôles", () => {
   it("[A-165] ni le superutilisateur, ni le propriétaire, ni le rôle de migration ne se connectent à travers PgBouncer", async () => {
     for (const user of ["postgres", "console_proprietaire", "console_migration", "moteur_migration"]) {
       expect(await connexionRefusee("pgbouncer", user, user.startsWith("moteur") ? "moteur" : "console"), user).toBe(true);
+    }
+  });
+});
+
+describe("secrets et propriétaire (audit B2, B3)", () => {
+  it("[A-165] le mot de passe de console_app n'ouvre ni le superutilisateur ni la migration, en direct ; chaque rôle a son mot de passe", async () => {
+    for (const b of BASES) {
+      for (const cible of ["postgres", `${b}_migration`, `${b}_equipe`, `${b}_proprietaire`]) {
+        expect(await connexionRefusee("direct", cible, b, `${b}_app`), `${cible} avec le secret de ${b}_app`).toBe(true);
+      }
+      expect(await connexionRefusee("direct", `${b}_app`, b, `${b}_migration`)).toBe(true);
+    }
+    const mots = ["postgres", ...BASES.flatMap((b) => Object.values(ROLES(b)))].map(motDePasseDe);
+    expect(new Set(mots).size).toBe(mots.length);
+    expect(await connexionRefusee("direct", "postgres", "console", "")).toBe(true);
+  });
+
+  it("[A-165] la migration n'hérite d'aucun droit du propriétaire : SET ROLE NONE ne permet de créer ni table ni fonction SECURITY DEFINER", async () => {
+    for (const b of BASES) {
+      const equipe = await client("direct", `${b}_equipe`, b);
+      const [r] = await lignes(equipe, "SELECT rolinherit FROM pg_roles WHERE rolname = $1", [`${b}_migration`]);
+      expect(r?.["rolinherit"], `${b}_migration`).toBe(false);
+      const m = await client("direct", `${b}_migration`, b);
+      await m.query("SET ROLE NONE");
+      expect(await codeRefus(m, "CREATE TABLE public.orpheline (id int)"), "table").toBe("42501");
+      expect(await codeRefus(m, "CREATE FUNCTION public.f_orph() RETURNS int LANGUAGE sql SECURITY DEFINER AS 'SELECT 1'"), "fonction").toBe("42501");
+      const exec = await lignes(equipe, "SELECT p.oid::regprocedure::text AS f FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND has_function_privilege($1, p.oid, 'EXECUTE')", [`${b}_app`]);
+      expect(exec).toEqual([]);
     }
   });
 });

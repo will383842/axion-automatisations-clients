@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -19,14 +20,16 @@ function cible(service: string, port: number, surcharge: string | undefined): { 
 function motDePasse(): string {
   if (process.env["SOCLE_PG_MOT_DE_PASSE"]) return process.env["SOCLE_PG_MOT_DE_PASSE"];
   const variables = docker("inspect", "-f", "{{range .Config.Env}}{{println .}}{{end}}", conteneur("postgres")).split("\n");
-  const ligne = variables.find((l) => l.startsWith("POSTGRES_PASSWORD="));
+  const ligne = variables.find((l) => l.startsWith("SOCLE_PG_MOT_DE_PASSE="));
   if (!ligne) throw new Error("mot de passe de test introuvable");
-  return ligne.slice("POSTGRES_PASSWORD=".length);
+  return ligne.slice("SOCLE_PG_MOT_DE_PASSE=".length);
 }
 
 const DIRECT = cible("postgres", 5432, process.env["SOCLE_PG_DIRECT"]);
 const PGBOUNCER = cible("pgbouncer", 6432, process.env["SOCLE_PG_PGBOUNCER"]);
-const MOT_DE_PASSE = motDePasse();
+const SECRET = motDePasse();
+// Un mot de passe par rôle : empreinte du secret du socle et du nom du rôle (même calcul que 02-roles.sql et PgBouncer). Le secret lui-même n'ouvre rien.
+const motDePasseDe = (role: string) => createHash("sha256").update(`${SECRET}/${role}`).digest("hex");
 const ouverts: { end(): Promise<void> }[] = [];
 afterAll(async () => {
   await Promise.all(ouverts.map((o) => o.end().catch(() => undefined)));
@@ -34,7 +37,7 @@ afterAll(async () => {
 
 type Voie = "direct" | "pgbouncer";
 const options = (voie: Voie, user: string, database: string) => ({
-  ...(voie === "direct" ? DIRECT : PGBOUNCER), user, database, password: MOT_DE_PASSE, connectionTimeoutMillis: 10_000,
+  ...(voie === "direct" ? DIRECT : PGBOUNCER), user, database, password: motDePasseDe(user), connectionTimeoutMillis: 10_000,
 });
 function pool(voie: Voie, user: string, database: string, max = 4): pg.Pool {
   const p = new pg.Pool({ ...options(voie, user, database), max });
@@ -214,4 +217,37 @@ describe.each(BASES)("isolation entre clients sur la base %s", (b) => {
     expect(await droitsDe(`${b}_app`)).toEqual(["SELECT", "INSERT", "UPDATE", "DELETE"]);
     expect(await droitsDe(`${b}_equipe`)).toEqual(["SELECT"]);
   });
+
+  // Politiques de chaque table du schéma d'essai, lues dans le catalogue (rôles visés, commande, permissive) : aucune lecture de texte d'expression.
+  const politiquesParTable = async () =>
+    lignes(migration, `SELECT c.relname AS "table", p.polname AS nom, p.polcmd AS commande, p.polpermissive AS permissive,
+      CASE WHEN 0 = ANY (p.polroles) THEN 'PUBLIC' ELSE (SELECT string_agg(r.rolname, ',' ORDER BY r.rolname) FROM pg_roles r WHERE r.oid = ANY (p.polroles)) END AS roles
+      FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'essai_isolation' ORDER BY c.relname, p.polname`);
+  const attendues = (table: string) => [
+    { table, nom: "isolation_client", commande: "*", permissive: true, roles: `${b}_app` },
+    { table, nom: "lecture_equipe", commande: "r", permissive: true, roles: `${b}_equipe` },
+  ];
+
+  it(`[${id("A-163")}] @isolation chaque table a exactement les politiques isolation_client (${b}_app) et lecture_equipe (${b}_equipe), lues dans le catalogue`, async () => {
+    await migration.query(`CREATE TABLE essai_isolation.factures (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, tenant_id uuid NOT NULL)`);
+    try {
+      await appliquerModele(migration, b, "factures");
+      expect(await politiquesParTable()).toEqual([...attendues("dossiers"), ...attendues("factures")]);
+    } finally {
+      await migration.query("DROP TABLE essai_isolation.factures");
+    }
+  });
+
+  it(`[${id("A-163")}] @isolation une politique en trop (TO PUBLIC, ou permissive pour ${b}_app) est retirée au rejeu du modèle et ${b}_app sans client actif lit 0 ligne`, async () => {
+    await migration.query(`CREATE POLICY ouverte ON essai_isolation.dossiers FOR SELECT TO PUBLIC USING (tenant_id IS NOT NULL);
+      CREATE POLICY ouverte_app ON essai_isolation.dossiers AS PERMISSIVE FOR SELECT TO ${b}_app USING (tenant_id IS NOT NULL)`);
+    // Preuve que l'attaque fuit avant le rejeu : le modèle seul, tel qu'avant la correction, laissait ces deux politiques.
+    expect((await lignes(app, "SELECT * FROM essai_isolation.dossiers")).length).toBe(4);
+    await appliquerModele(migration, b, "dossiers");
+    expect(await politiquesParTable()).toEqual(attendues("dossiers"));
+    expect(await lignes(app, "SELECT * FROM essai_isolation.dossiers")).toEqual([]);
+    expect(await lignes(equipe, "SELECT * FROM essai_isolation.dossiers")).toHaveLength(4);
+  });
 });
+

@@ -15,16 +15,30 @@ type CorpsMessage = { subject?: string; body?: { contentType?: string; content?:
 export function routesGraph(app: FastifyInstance, etat: EtatGraph, mailpit: ClientMailpit): void {
   const transport = nodemailer.createTransport({ host: mailpit.smtp.host, port: mailpit.smtp.port, secure: false, ignoreTLS: true });
 
-  app.post("/oauth2/v2.0/token", async (req, rep) => {
+  const jeton = async (req: FastifyRequest<{ Params: { tenant?: string } }>, rep: FastifyReply) => {
     if (etat.mode === "panne_generale") return rep.code(503).send({ error: { code: "ServiceUnavailable" } });
-    if (etat.mode === "consentement_admin_requis") {
-      return rep.code(400).send({
-        error: "invalid_grant",
-        error_description: "AADSTS65001: L'administrateur n'a pas donné son consentement à l'application.",
-      });
-    }
     const corps = (req.body ?? {}) as Record<string, string>;
-    return { token_type: "Bearer", expires_in: 3599, access_token: `faux.${corps["client_id"] ?? "inconnu@exemple.fr"}` };
+    const client = corps["client_id"] ?? "inconnu@exemple.fr";
+    const locataire = req.params.tenant ?? "common";
+    // « Mauvais compte Microsoft » : le locataire de la demande n'est pas celui que l'appelant attendait.
+    if (corps["tenant_attendu"] && corps["tenant_attendu"] !== locataire) {
+      return rep.code(400).send({ error: "invalid_request", error_description: "AADSTS50020: Le compte utilisateur appartient à un autre locataire." });
+    }
+    const exige = etat.mode === "consentement_admin_requis" || (etat.consentementRequis && !etat.consentements.has(`${client}|${locataire}`));
+    if (exige) {
+      return rep.code(400).send({ error: "invalid_grant", error_description: "AADSTS65001: L'administrateur n'a pas donné son consentement à l'application." });
+    }
+    return { token_type: "Bearer", expires_in: 3599, access_token: `faux.${client}` };
+  };
+  app.post("/oauth2/v2.0/token", jeton);
+  app.post("/:tenant/oauth2/v2.0/token", jeton);
+
+  // Simulation de l'accord de l'administrateur du client.
+  app.get("/adminconsent", async (req, rep) => {
+    const { client_id, tenant } = req.query as Record<string, string | undefined>;
+    if (!client_id || !tenant) return rep.code(400).send({ error: "invalid_request" });
+    etat.consentements.add(`${client_id}|${tenant}`);
+    return { admin_consent: true, tenant };
   });
 
   // Pannes communes à toutes les routes /v1.0, pour tous les comptes.

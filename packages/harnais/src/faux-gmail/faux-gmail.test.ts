@@ -3,7 +3,7 @@ import { creerClientMailpit } from "../mailpit.js";
 import { demarrerFauxGmail, type FauxGmail } from "./serveur.js";
 
 const mailpit = creerClientMailpit();
-const itMailpit = process.env["MAILPIT_API"] ? it : it.skip; // fiche: T1A-12
+const itMailpit = process.env["MAILPIT_API"] ? it : it.skip; // fiche: T0-20
 let gmail: FauxGmail;
 
 const rfc822 = (id: string) =>

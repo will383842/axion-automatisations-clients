@@ -2,8 +2,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { demarrerRecepteurs, type Recepteurs } from "./serveur.js";
 
 let r: Recepteurs;
-const json = (chemin: string, corps: unknown, methode = "POST") =>
-  fetch(`${r.url}${chemin}`, { method: methode, headers: { "content-type": "application/json" }, body: methode === "GET" ? undefined : JSON.stringify(corps) });
+const json = (chemin: string, corps: unknown) =>
+  fetch(`${r.url}${chemin}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(corps) });
 
 beforeAll(async () => {
   r = await demarrerRecepteurs();

@@ -5,10 +5,11 @@ import { MODES, nouvelEtat, type EtatGraph, type Mode } from "./etat.js";
 export function routesControle(app: FastifyInstance, etat: EtatGraph): void {
   app.post("/__controle", async (req, rep) => {
     if (process.env["NODE_ENV"] !== "test") return rep.code(403).send({ error: "controle_refuse" });
-    const { mode, reinitialiser } = (req.body ?? {}) as { mode?: string; reinitialiser?: boolean };
+    const { mode, reinitialiser, consentement_requis } = (req.body ?? {}) as { mode?: string; reinitialiser?: boolean; consentement_requis?: boolean };
     if (!MODES.includes(mode as Mode)) return rep.code(400).send({ error: "mode_inconnu", modes: MODES });
     if (reinitialiser) Object.assign(etat, nouvelEtat());
     etat.mode = mode as Mode;
+    if (consentement_requis !== undefined) etat.consentementRequis = consentement_requis === true;
     return { mode: etat.mode };
   });
 }

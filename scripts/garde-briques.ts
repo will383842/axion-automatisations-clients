@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { load } from "js-yaml";
-import { expressionPermise, LIVRE } from "./garde-licences.js";
+import { expressionPermise, LIVRE } from "./garde-licences.ts";
 
 // Garde des briques (A-375, A-378, A-379, A-381, A-326, C-493). Lecture des fichiers par de vrais analyseurs (JSON.parse, js-yaml) : aucune expression régulière pour lire un format.
 

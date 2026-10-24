@@ -1,0 +1,11 @@
+{
+  "nom": "valkey",
+  "image": "valkey/valkey",
+  "version": "8.0.1",
+  "empreinte": "sha256:c5d4f082b76d433a38274ebb38a43cff19829a062928bdcc45611135ef54e608",
+  "licence": "BSD-3-Clause",
+  "livree": false,
+  "lieu": "local",
+  "source": "https://github.com/valkey-io/valkey",
+  "verifie_le": "2026-10-24"
+}

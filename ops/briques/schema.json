@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Brique inscrite (A-375, A-381)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "nom",
+    "image",
+    "version",
+    "empreinte",
+    "licence",
+    "livree",
+    "lieu",
+    "source",
+    "verifie_le"
+  ],
+  "properties": {
+    "nom": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$",
+      "description": "Égal au nom du fichier, sans .json."
+    },
+    "image": {
+      "type": "string",
+      "description": "Dépôt de l'image, sans version ni empreinte."
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1,
+      "not": {
+        "const": "latest"
+      }
+    },
+    "empreinte": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "licence": {
+      "type": "string",
+      "description": "Expression SPDX, lue sur le projet (pas sur les métadonnées de l'image)."
+    },
+    "livree": {
+      "type": "boolean",
+      "description": "Livrée chez un client (licences du livre seulement) ou restée chez AXION IA."
+    },
+    "lieu": {
+      "enum": [
+        "UE",
+        "hors UE",
+        "local"
+      ]
+    },
+    "source": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://"
+    },
+    "verifie_le": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+    },
+    "note": {
+      "type": "string"
+    }
+  }
+}

@@ -244,12 +244,12 @@ describe("garde-licences : licences du livre", () => {
 describe("garde-licences : lecture des workflows", () => {
   const sha = "3d3c42e5aac5ba805825da76410c181273ba90b1";
   const wf = (corps: string, declencheur = "on:\n  pull_request:\n") => `name: x\n${declencheur}permissions:\n  contents: read\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@${sha}\n${corps}`;
-  const dossier = (nom: string) => {
+  const dossier = () => {
     const base = fileURLToPath(new URL("../.github/workflows", import.meta.url));
     return readdirSync(base).filter((f) => f.endsWith(".yml")).map((f) => ({ nom: f, texte: readFileSync(`${base}/${f}`, "utf8") }));
   };
   it("[C-019] garde-licences tourne sur chaque PR", () => {
-    expect(verifierWorkflowsLicences(dossier("workflows"))).toEqual([]);
+    expect(verifierWorkflowsLicences(dossier())).toEqual([]);
   });
   it("[C-019] la garde refuse l'absence de job, un déclencheur limité, un job conditionnel et une étape tolérée", () => {
     const etape = "      - run: node scripts/garde-licences.ts\n";
@@ -267,7 +267,7 @@ describe("garde-licences : lecture des workflows", () => {
     expect(run(wf("      - run: node scripts/garde-licences.ts || true\n"))).not.toEqual([]);
   });
   it("[C-020] chaque installation de la CI utilise --frozen-lockfile", () => {
-    expect(verifierInstallationsFigees(dossier("workflows"))).toEqual([]);
+    expect(verifierInstallationsFigees(dossier())).toEqual([]);
   });
   it("[C-020] la garde des installations refuse les écritures qui contournent le verrou", () => {
     const run = (cmd: string) => verifierInstallationsFigees([{ nom: "w.yml", texte: wf(`      - run: ${cmd}\n`) }]);

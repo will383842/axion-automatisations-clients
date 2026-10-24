@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { load } from "js-yaml";
 
 // Garde des licences : liste fermée. MPL-2.0 seulement dans ce qui n'est jamais livré (apps/api, apps/console, apps/portail) ;
-// ce qui est livré chez un client n'a droit qu'aux six licences du livre (A-375, ADR 0009).
+// ce qui est livré chez un client n'a droit qu'aux six licences du livre (A-375, ADR 0010).
 
 export const LIVRE = new Set(["MIT", "BSD-2-Clause", "BSD-3-Clause", "ISC", "Apache-2.0", "PostgreSQL"]);
 const PERMISES = new Set([...LIVRE, "0BSD", "OFL-1.1"]);

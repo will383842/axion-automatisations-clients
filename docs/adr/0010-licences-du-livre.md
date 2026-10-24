@@ -1,6 +1,6 @@
-# ADR 0009 — Licences du livre et inventaire des briques
+# ADR 0010 — Licences du livre et inventaire des briques
 
-Numéro 0009 : 0007 et 0008 sont déjà pris (la fiche T1A-02 prévoyait 0007).
+Numéro 0010 : 0007 à 0009 sont déjà pris (la fiche T1A-02 prévoyait 0007).
 
 ## Contexte
 Il faut savoir à tout moment quelle brique tourne, en quelle version exacte, sous quelle licence, si elle est livrée chez un client, et où sont ses données (A-375, A-381).

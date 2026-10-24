@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { creerClientMailpit } from "../mailpit.js";
+import { prendreVerrouMailpit } from "../verrou-mailpit.js";
 import { demarrerFauxGmail, type FauxGmail } from "./serveur.js";
 
 const mailpit = creerClientMailpit();
@@ -17,11 +18,16 @@ const envoyer = (id: string, jeton = "faux.lemoine@exemple.fr") =>
 const controle = (mode: string, reinitialiser = false) =>
   fetch(`${gmail.url}/__controle`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode, reinitialiser }) });
 
+let liberer: (() => void) | undefined;
 beforeAll(async () => {
-  if (process.env["MAILPIT_API"]) await mailpit.attendrePret();
+  if (process.env["MAILPIT_API"]) {
+    liberer = await prendreVerrouMailpit();
+    await mailpit.attendrePret();
+  }
   gmail = await demarrerFauxGmail({ mailpit });
 });
 afterAll(async () => {
+  liberer?.();
   await gmail.arreter();
 });
 beforeEach(async () => {

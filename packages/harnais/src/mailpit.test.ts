@@ -2,13 +2,20 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import nodemailer from "nodemailer";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { creerClientMailpit, hotesSmtpDeclares } from "./mailpit.js";
+import { prendreVerrouMailpit } from "./verrou-mailpit.js";
 
 const mailpit = creerClientMailpit();
 // Voir faux-graph.test.ts : le service Mailpit n'existe que dans le job « harnais ».
 const itMailpit = process.env["MAILPIT_API"] ? it : it.skip; // fiche: T0-20
 const racine = fileURLToPath(new URL("../../..", import.meta.url));
+
+let liberer: (() => void) | undefined;
+beforeAll(async () => {
+  if (process.env["MAILPIT_API"]) liberer = await prendreVerrouMailpit();
+});
+afterAll(() => liberer?.());
 
 beforeEach(async () => {
   if (!process.env["MAILPIT_API"]) return;

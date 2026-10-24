@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { creerClientMailpit } from "../mailpit.js";
+import { prendreVerrouMailpit } from "../verrou-mailpit.js";
 import { demarrerFauxGraph, type FauxGraph } from "./serveur.js";
 
 const mailpit = creerClientMailpit();
@@ -19,11 +20,16 @@ const brouillon = async (compte?: string) => {
   return (await r.json()) as { id: string; internetMessageId: string };
 };
 
+let liberer: (() => void) | undefined;
 beforeAll(async () => {
-  if (process.env["MAILPIT_API"]) await mailpit.attendrePret();
+  if (process.env["MAILPIT_API"]) {
+    liberer = await prendreVerrouMailpit();
+    await mailpit.attendrePret();
+  }
   graph = await demarrerFauxGraph({ mailpit });
 });
 afterAll(async () => {
+  liberer?.();
   await graph.arreter();
 });
 beforeEach(async () => {

@@ -9,6 +9,7 @@
     "verifier": "pnpm -r typecheck && pnpm lint && pnpm test",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "eslint .",
+    "prepare": "git config core.hooksPath .githooks",
     "test": "vitest run",
     "test:compter": "vitest run --reporter=json --outputFile=rapport-tests.json"
   },

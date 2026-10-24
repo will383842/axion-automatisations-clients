@@ -23,9 +23,9 @@ export interface Verdict {
 
 export function evaluerAudit(rapport: { advisories?: Record<string, Avis>; metadata?: unknown }, maintenant: Date): Verdict {
   const verdict: Verdict = { echecs: [], avertissements: [] };
-  // Échec fermé : un audit en erreur (réseau, registre) ne donne ni avis ni métadonnées.
+  // Échec fermé : sans « advisories » ni « metadata », pnpm audit n'a pas répondu (réseau, registre).
   if (rapport.advisories === undefined && rapport.metadata === undefined) {
-    verdict.echecs.push("rapport-invalide audit-en-erreur");
+    verdict.echecs.push("rapport d'audit invalide (pnpm audit sans réponse)");
     return verdict;
   }
   for (const avis of Object.values(rapport.advisories ?? {})) {
@@ -51,6 +51,6 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   }
   const v = evaluerAudit(rapport, new Date());
   for (const a of v.avertissements) console.warn(`AVERTISSEMENT ${a} (dans le délai)`);
-  for (const e of v.echecs) console.error(`ÉCHEC ${e}`);
+  for (const e of v.echecs) console.error(`ÉCHEC ${e} (délai dépassé)`);
   process.exit(v.echecs.length ? 1 : 0);
 }

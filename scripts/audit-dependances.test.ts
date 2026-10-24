@@ -32,8 +32,8 @@ describe("audit-dependances", () => {
     const r = { advisories: { "1": { github_advisory_id: "GHSA-x", module_name: "p", severity: "critical" } } };
     expect(evaluerAudit(r, MAINTENANT).echecs).toHaveLength(1);
   });
-  it("[LOT0-audit] un rapport sans avis ni métadonnées (audit en erreur) fait échouer", () => {
-    expect(evaluerAudit({ error: { code: "ERR" } } as never, MAINTENANT).echecs).toHaveLength(1);
+  it("[LOT0-audit] un rapport sans advisories ni metadata (pnpm audit en panne) fait échouer", () => {
+    expect(evaluerAudit({ error: { code: "ENOTFOUND" } } as never, MAINTENANT).echecs).toHaveLength(1);
     expect(evaluerAudit({ advisories: {}, metadata: {} } as never, MAINTENANT).echecs).toEqual([]);
   });
   it("[C-529] garde-workflows (T0-08) accepte nuit.yml : aucun secret, déclencheurs schedule et workflow_dispatch seulement", () => {

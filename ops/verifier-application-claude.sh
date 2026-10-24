@@ -11,13 +11,14 @@ verdict() { # $1 = libellé, $2 = 0 si OK
   if [ "$2" -eq 0 ]; then echo "OK         $1"; else echo "À CORRIGER $1"; mauvais=1; fi
 }
 
-# 1. Droits de l'application installée, lus avec le jeton de l'utilisateur (gh api user/installations). Illisible : on échoue.
-if droits=$(gh api user/installations --paginate --jq '.installations[] | select(.app_slug == "claude") | .permissions | to_entries[] | "\(.key)=\(.value)"' 2>/dev/null) && [ -n "$droits" ]; then
+# 1. Droits de l'application installée, lus avec le jeton de l'utilisateur (user/installations), pas avec un JWT d'application.
+# Filtre sur l'application de Claude ; si elle n'est pas trouvée, on ne sait pas, donc on échoue.
+if droits=$(gh api user/installations --paginate --jq '.installations[] | select(.app_slug | test("claude")) | .permissions | to_entries[] | "\(.key)=\(.value)"' 2>/dev/null) && [ -n "$droits" ]; then
   echo "Droits de l'application installée :"
   printf '  %s\n' "$droits"
   printf '%s\n' "$droits" | grep -qx 'statuses=write' ; [ $? -ne 0 ] ; verdict "l'application n'a pas statuses: write (sinon : contrôle d'auteur de ops/fusionner-pr.sh)" $?
 else
-  echo "À CORRIGER droits de l'application : non vérifiables ici (installation introuvable ou jeton sans droit de lecture), à relever à la main"
+  echo "À CORRIGER droits de l'application : application Claude introuvable parmi les installations de l'utilisateur, à relever à la main"
   mauvais=1
 fi
 
@@ -32,16 +33,14 @@ for f in $fichiers; do
   texte=$(gh api -H "Accept: application/vnd.github.raw" "repos/$DEPOT/contents/$f" 2>/dev/null) || continue
   printf '%s' "$texte" | grep -q 'anthropics/claude-code-action' || continue
   lancent=1
-  # Refus de allowed_non_write_users (il élargit l'accès) et de toute ligne avec « * » ; allowed_actors ou allowed_bots doit être présent.
-  if printf '%s' "$texte" | grep -q 'allowed_non_write_users' || printf '%s' "$texte" | grep -E 'allowed_actors|allowed_bots' | grep -q '\*'; then
-    limitent=0; break
-  fi
-  if printf '%s' "$texte" | grep -qE 'allowed_actors|allowed_bots'; then limitent=1; else limitent=0; break; fi
+  # allowed_non_write_users élargit l'accès, et toute valeur « * » ouvre à tous : l'un ou l'autre fait échouer.
+  if printf '%s' "$texte" | grep -q 'allowed_non_write_users' || printf '%s' "$texte" | grep -E 'allowed_actors|allowed_bots' | grep -q '\*'; then limitent=0; break; fi
+  if printf '%s' "$texte" | grep -q 'allowed_actors'; then limitent=1; else limitent=0; break; fi
 done
 if [ "$lancent" -eq 0 ]; then
   echo "OK         aucun workflow ne lance l'action Claude (l'application seule reste à régler côté GitHub)"
 else
-  [ "$limitent" -eq 1 ] ; verdict "le workflow qui lance l'action Claude limite les acteurs (allowed_actors ou allowed_bots, sans « * », sans allowed_non_write_users)" $?
+  [ "$limitent" -eq 1 ] ; verdict "le workflow qui lance l'action Claude limite les acteurs (allowed_actors sans « * », sans allowed_non_write_users)" $?
 fi
 
 echo "Date : $(date -u +%Y-%m-%dT%H:%MZ)"

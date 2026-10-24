@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Vérifie les réglages du dépôt (C-529, C-530, C-554). Lecture seule : ne modifie rien.
-# Lancé par le chef d'orchestre (droits d'administration). Usage : ops/verifier-reglages-depot.sh [proprietaire/depot]
+# Lancé par le chef d'orchestre (droits d'administration). Usage : ops/verifier-reglages-depot.sh [proprietaire/depot] [dossier-workflows]
 set -u
 command -v gh >/dev/null 2>&1 || { echo "À CORRIGER gh introuvable : rien n'a pu être vérifié"; exit 1; }
 DEPOT="${1:-will383842/axion-automatisations-clients}"
@@ -40,6 +40,12 @@ else
   echo "À CORRIGER statuses de l'application Claude : non vérifiable ici, à vérifier à la main (réglages de l'application installée)"
   mauvais=1
 fi
+
+# Aucun workflow du dépôt ne doit pouvoir poser un statut ou un contrôle : on relance la garde sur les fichiers présents (2e argument : dossier à lire).
+RACINE="$(cd "$(dirname "$0")/.." && pwd)"
+garde=$(node "$RACINE/scripts/garde-workflows.ts" "${2:-$RACINE/.github/workflows}" 2>&1 | grep -E 'statuses|checks')
+[ -z "$garde" ] ; verdict "aucun workflow ne demande statuses: write ni checks: write" $?
+[ -z "$garde" ] || printf '%s\n' "$garde"
 
 echo "Date : $(date -u +%Y-%m-%dT%H:%MZ)"
 exit "$mauvais"

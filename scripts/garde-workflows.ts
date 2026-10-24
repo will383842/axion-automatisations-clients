@@ -47,7 +47,11 @@ export function verifierWorkflow(nom: string, texte: string): string[] {
     } else if (/^\s*runs-on:/.test(l) && !RUNS_ON.test(l)) {
       echec(n, "runs-on doit être un exécuteur hébergé par GitHub (ubuntu-latest ou ubuntu-NN.NN)");
     }
-    if (/^\s*permissions:\s*write-all/.test(l)) echec(n, "permissions: write-all est interdit");
+    if (/^\s*permissions:\s*["']?write-all/.test(l)) echec(n, "permissions: write-all est interdit");
+    // statuses/checks en écriture : un workflow pourrait poser un faux statut « garde-fusion » (fichier, job, accolades ou guillemets).
+    for (const m of l.matchAll(/["']?\b(statuses|checks)["']?\s*:\s*["']?write\b/g)) {
+      echec(n, `permission ${m[1] ?? ""}: write interdite`);
+    }
     if (surPr) {
       // Un identifiant de job « secrets: » seul sur sa ligne n'expose rien.
       for (const m of /^\s*secrets:\s*$/.test(l) ? [] : l.matchAll(/\bsecrets\b(?!\.GITHUB_TOKEN\b)(\.\w+)?/g)) {

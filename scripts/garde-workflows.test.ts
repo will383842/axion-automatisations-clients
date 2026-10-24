@@ -41,4 +41,18 @@ describe("garde-workflows", () => {
   it("[C-529] garde-workflows est vert sur les workflows réels du dépôt", () => {
     expect(verifierDossier(fileURLToPath(new URL("../.github/workflows", import.meta.url)))).toEqual([]);
   });
+  it("[C-529] garde-workflows refuse toJSON(secrets) dans un workflow pull_request", () => {
+    expect(erreurs("secret-tojson.yml").join("\n")).toContain("secrets");
+  });
+  it("[C-529] garde-workflows refuse secrets['AUTRE'] dans un workflow pull_request", () => {
+    expect(erreurs("secret-crochets.yml").join("\n")).toContain("secrets");
+  });
+  it("[C-528] garde-workflows refuse une étiquette runs-on maison", () => {
+    expect(erreurs("etiquette-maison.yml").join("\n")).toContain("runs-on");
+  });
+  it("[C-529] garde-workflows accepte une image docker épinglée par empreinte", () => {
+    const sha = "a".repeat(64);
+    const texte = `name: D\non:\n  push:\npermissions:\n  contents: read\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: docker://alpine@sha256:${sha}\n`;
+    expect(verifierWorkflow("d.yml", texte)).toEqual([]);
+  });
 });

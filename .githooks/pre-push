@@ -1,0 +1,4 @@
+#!/bin/sh
+# Garde des noms de clients, avant la poussée : nom de branche et messages des commits (C-611).
+racine="$(git rev-parse --show-toplevel)"
+exec node "$racine/scripts/garde-noms/chercher.ts" pre-push

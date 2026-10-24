@@ -1,0 +1,4 @@
+#!/bin/sh
+# Garde des noms de clients, avant le commit (C-611). La liste vient de NOMS_CLIENTS.
+racine="$(git rev-parse --show-toplevel)"
+exec node "$racine/scripts/garde-noms/chercher.ts" pre-commit

@@ -7,6 +7,7 @@ services:
     restart: "no"
     environment:
       POSTGRES_PASSWORD: ${SOCLE_PG_MOT_DE_PASSE:?mot de passe de test absent}
+      SOCLE_PG_MOT_DE_PASSE: ${SOCLE_PG_MOT_DE_PASSE:?mot de passe de test absent}
       POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
     volumes:
       - ./postgres/init:/docker-entrypoint-initdb.d:ro
@@ -23,12 +24,13 @@ services:
       postgres:
         condition: service_healthy
     # Variables courtes : « docker compose config » replie les lignes de plus de 80 colonnes, ce que la garde ne lit pas.
-    # R : rôles admis · L : format d'une ligne de la liste (\042 = guillemet) · M : mot de passe de test · G : génération de la liste · B : configuration sans extension
+    # P : mot de passe du rôle $u (sha256 du secret et du nom, comme 02-roles.sql) · R : rôles admis · L : format d'une ligne de la liste (\042 = guillemet) · M : mot de passe de test · G : génération de la liste · B : configuration sans extension
     environment:
       R: console_app console_equipe moteur_app moteur_equipe
       L: '\042%s\042 \042%s\042\n'
       M: ${SOCLE_PG_MOT_DE_PASSE:?mot de passe de test absent}
-      G: 'for u in $$R; do printf "$$L" $$u $$M; done >/tmp/u.txt'
+      P: 'printf %s/%s "$$M" $$u | sha256sum | cut -c1-64'
+      G: 'for u in $$R; do printf "$$L" $$u $$(eval "$$P"); done >/tmp/u.txt'
       B: /etc/pgbouncer/conf/pgbouncer
     entrypoint: ['sh', '-c', 'eval "$$G"; exec pgbouncer $${B}.ini']
     volumes:

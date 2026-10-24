@@ -56,27 +56,35 @@ export function chargerListe(env: Record<string, string | undefined>): Chargemen
   return { liste, avertissement: "NOMS_CLIENTS absente : garde des noms non appliquée sur ce poste." };
 }
 
-const git = (...args: string[]): string => execFileSync("git", args, { encoding: "utf8", maxBuffer: 256 * 1024 * 1024 });
+const git = (...args: string[]): string => execFileSync("git", ["-c", "core.quotePath=false", ...args], { encoding: "utf8", maxBuffer: 256 * 1024 * 1024 });
 
 export function verifierIndex(liste: Liste): string[] {
   const erreurs: string[] = [];
-  const fichiers = git("-c", "core.quotePath=false", "diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z").split("\0").filter(Boolean);
+  const fichiers = git("diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z").split("\0").filter(Boolean);
+  // Un chemin qui contient déjà un nom n'est jamais écrit : « fichier masqué (n° k) ».
+  const masques = new Map<string, number>();
   for (const f of fichiers) {
     const numeros = chercherNomDeFichier(f, liste);
-    erreurs.push(...formaterNomDeFichier(numeros));
-    // Le chemin contient déjà un nom : il n'est jamais affiché, on le remplace par le numéro de l'entrée.
-    const lieu = numeros.length > 0 ? `fichier masqué (n° ${numeros[0]})` : `fichier ${f}`;
-    // Lignes ajoutées seulement, avec leur numéro dans le fichier. Un fichier à la fois : aucun en-tête à deviner.
-    let ligne = 0;
-    let entete = true;
-    for (const l of git("-c", "core.quotePath=false", "diff", "--cached", "--unified=0", "--no-color", "--", f).split("\n")) {
-      if (l.startsWith("@@")) {
-        entete = false;
-        ligne = Number(/\+(\d+)/.exec(l)?.[1] ?? 1) - 1;
-      } else if (!entete && l.startsWith("+")) {
-        ligne++;
-        for (const t of chercher(l.slice(1), liste)) erreurs.push(`nom interdit, ${lieu}, ligne ${ligne} (n° ${t.numero})`);
-      }
+    if (numeros.length > 0) {
+      masques.set(f, numeros[0] ?? 0);
+      erreurs.push(...formaterNomDeFichier(numeros));
+    }
+  }
+  // Lignes ajoutées seulement. « +++ » n'est un en-tête qu'avant le premier « @@ » du fichier :
+  // une ligne ajoutée « ++ x » s'écrit aussi « +++ x ».
+  let fichier = "";
+  let entete = false;
+  let ligne = 0;
+  for (const l of git("diff", "--cached", "--unified=0", "--no-color", "--diff-filter=ACMR").split("\n")) {
+    if (l.startsWith("diff --git ")) entete = true;
+    else if (entete && l.startsWith("+++ ")) fichier = l.slice(6);
+    else if (l.startsWith("@@")) {
+      entete = false;
+      ligne = Number(/\+(\d+)/.exec(l)?.[1] ?? 1) - 1;
+    } else if (!entete && l.startsWith("+")) {
+      ligne++;
+      const lieu = masques.has(fichier) ? `fichier masqué (n° ${masques.get(fichier)})` : `fichier ${fichier}`;
+      for (const t of chercher(l.slice(1), liste)) erreurs.push(`nom interdit, ${lieu}, ligne ${ligne} (n° ${t.numero})`);
     }
   }
   return erreurs;

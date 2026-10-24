@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Vérifie les réglages du dépôt (C-529, C-530, C-554). Lecture seule : ne modifie rien.
-# Lancé par le chef d'orchestre (droits d'administration). Usage : ops/verifier-reglages-depot.sh [proprietaire/depot]
+# Lancé par le chef d'orchestre (droits d'administration). Usage : ops/verifier-reglages-depot.sh [proprietaire/depot] [dossier-workflows]
 set -u
 command -v gh >/dev/null 2>&1 || { echo "À CORRIGER gh introuvable : rien n'a pu être vérifié"; exit 1; }
 DEPOT="${1:-will383842/axion-automatisations-clients}"
@@ -39,6 +39,29 @@ if perm=$(gh api "repos/$DEPOT/installation" --jq '.permissions.statuses' 2>/dev
 else
   echo "À CORRIGER statuses de l'application Claude : non vérifiable ici, à vérifier à la main (réglages de l'application installée)"
   mauvais=1
+fi
+
+# Aucun workflow du dépôt ne doit pouvoir poser un statut ou un contrôle : on relance la garde sur les fichiers présents (2e argument : dossier à lire).
+RACINE="$(cd "$(dirname "$0")/.." && pwd)"
+DOSSIER_WF="${2:-$RACINE/.github/workflows}"
+sortie_garde=""
+if [ -d "$DOSSIER_WF" ]; then
+  sortie_garde=$(node "$RACINE/scripts/garde-workflows.ts" "$DOSSIER_WF" 2>&1)
+  code_garde=$?
+else
+  code_garde=2
+fi
+garde=$(printf '%s\n' "$sortie_garde" | grep -E 'permission (statuses|checks): write interdite')
+if [ -n "$garde" ]; then
+  verdict "aucun workflow ne demande statuses: write ni checks: write" 1
+  printf '%s\n' "$garde"
+elif [ "$code_garde" -eq 0 ]; then
+  verdict "aucun workflow ne demande statuses: write ni checks: write" 0
+elif [ "$code_garde" -eq 1 ]; then
+  # La garde refuse un autre point : ce n'est pas l'objet de cette ligne, mais ce n'est pas un OK non plus.
+  verdict "workflows non vérifiables pour statuses et checks : la garde a refusé d'autres points (lancer node scripts/garde-workflows.ts)" 1
+else
+  verdict "workflows non vérifiables pour statuses et checks : dossier absent ou garde en échec (code $code_garde)" 1
 fi
 
 echo "Date : $(date -u +%Y-%m-%dT%H:%MZ)"

@@ -39,6 +39,34 @@ describe("composants de base", () => {
     expect((container.textContent ?? "").trim()).not.toBe("");
   });
 
+  it("[C-586] BadgeEtat : pastille pleine, texte blanc, teinte de liseret, flex: none (blocs colorés)", () => {
+    const attendu = { urgent: "terracotta", averifier: "ambre", fait: "vert", pause: "gris" } as const;
+    for (const [etat, teinte] of Object.entries(attendu)) {
+      const { container, unmount } = render(<BadgeEtat etat={etat as keyof typeof attendu} />);
+      const style = container.firstElementChild?.getAttribute("style") ?? "";
+      expect(style, etat).toContain(`--couleur-teinte-${teinte}-liseret`);
+      expect(style, etat).toContain("--couleur-menu-texte");
+      expect(style, etat).toContain("--rayon-8");
+      expect(style, etat).toMatch(/flex:\s*none|flex:\s*0 0 auto/);
+      unmount();
+    }
+  });
+
+  it("[C-586] Carte en bloc coloré : bordure de 1 px, liseret de 4 px à gauche ou en haut, rayon de 12 px", () => {
+    for (const teinte of ["terracotta", "vert", "ambre", "violet", "gris"] as const) {
+      const g = render(<Carte teinte={teinte} liseret="gauche">Contenu</Carte>);
+      const sg = g.container.firstElementChild?.getAttribute("style") ?? "";
+      expect(sg, teinte).toContain(`--couleur-teinte-${teinte}-fond`);
+      expect(sg, teinte).toContain(`--couleur-teinte-${teinte}-bordure`);
+      expect(sg, teinte).toMatch(new RegExp(`border-left:\\s*4px solid var\\(--couleur-teinte-${teinte}-liseret\\)`));
+      expect(sg, teinte).toContain("--rayon-12");
+      g.unmount();
+      const h = render(<Carte teinte={teinte} liseret="haut">Contenu</Carte>);
+      expect(h.container.firstElementChild?.getAttribute("style") ?? "", teinte).toMatch(new RegExp(`border-top:\\s*4px solid var\\(--couleur-teinte-${teinte}-liseret\\)`));
+      h.unmount();
+    }
+  });
+
   it("[C-597] Bouton fait 48 px de haut au moins (style) et se déclare principal ou secondaire", () => {
     const { getByRole } = render(<Bouton variante="principal">Valider</Bouton>);
     expect(getByRole("button").style.minHeight).toBe("48px");

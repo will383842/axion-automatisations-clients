@@ -103,4 +103,29 @@ describe("navigation", () => {
     );
     expect(violations(container)).toEqual([]);
   });
+
+  it("[C-586] BarreOnglets : onglets souples, libellé sur une ligne, actif plein terracotta", () => {
+    const { container } = render(<BarreOnglets variante="portail" actif="accueil" />);
+    const liens = Array.from(container.querySelectorAll("a"));
+    for (const a of liens) {
+      expect(a.style.flex).toBe("1 1 auto");
+      expect(a.style.minWidth).toBe("0px");
+      expect(a.style.padding).toBe("0px 4px");
+      expect(a.style.position).toBe("relative");
+      expect(a.querySelector("span")?.style.whiteSpace).toBe("nowrap");
+    }
+    expect(liens[0]?.style.background).toContain("var(--couleur-menu-fond)");
+    expect(liens[0]?.style.color).toContain("var(--couleur-menu-texte)");
+  });
+
+  it("[C-586] BarreOnglets : pastille du compteur terracotta, chiffre blanc, en haut à droite", () => {
+    const { container } = render(<BarreOnglets variante="portail" actif="accueil" compteurARelire={4} />);
+    const pastille = container.querySelector('span[aria-hidden="true"]') as HTMLElement;
+    expect(pastille.textContent).toBe("4");
+    expect(pastille.style.position).toBe("absolute");
+    expect(pastille.style.top).not.toBe("");
+    expect(pastille.style.right).not.toBe("");
+    expect(pastille.style.background).toContain("var(--couleur-action)");
+    expect(pastille.style.color).toContain("var(--couleur-menu-texte)");
+  });
 });

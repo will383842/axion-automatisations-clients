@@ -55,7 +55,22 @@ describe("responsive.css", () => {
       ["couleur.lien", "couleur.fond.carte"],
       ["couleur.etat.urgent.texte", "couleur.etat.urgent.fond"],
       ["couleur.etat.fait.texte", "couleur.etat.fait.fond"],
+      ["couleur.etat.averifier.texte", "couleur.etat.averifier.fond"],
+      ["couleur.etat.pause.texte", "couleur.etat.pause.fond"],
+      ["couleur.peche.titre", "couleur.peche.fond"],
+      ["couleur.sauge.titre", "couleur.sauge.fond"],
+      ["couleur.miel.titre", "couleur.miel.fond"],
+      ["couleur.rose.titre", "couleur.rose.fond"],
+      ["couleur.menu.secondaire", "couleur.menu.fond"],
+      ["couleur.menu.texte", "couleur.action"],
     ];
     for (const [a, b] of couples) expect(contraste(valeur(a), valeur(b)), `${a}/${b}`).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it("[C-597] le focus visible du menu latéral reprend la couleur du texte du menu (contraste ≥ 3:1)", () => {
+    expect(css).toMatch(/\.r-menu\s+:focus-visible\s*\{[^}]*outline-color:\s*var\(--couleur-menu-texte\)/);
+    expect(contraste(valeur("couleur.menu.texte"), valeur("couleur.menu.fond"))).toBeGreaterThanOrEqual(3);
+    // Régression : le contour global (actionTexte) est invisible sur le fond du menu.
+    expect(contraste(valeur("couleur.actionTexte"), valeur("couleur.menu.fond"))).toBeLessThan(3);
   });
 });

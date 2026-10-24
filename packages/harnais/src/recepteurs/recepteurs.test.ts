@@ -38,4 +38,29 @@ describe("récepteurs de test", () => {
     expect(((await (await fetch(`${r.url}/__recus`)).json()) as unknown[]).length).toBe(0);
     expect(r.adresse).toBe("127.0.0.1");
   });
+
+  it("[C-592] Telegram accepte aussi le formulaire et les paramètres d'URL, comme le vrai", async () => {
+    const formulaire = await fetch(`${r.url}/botTEST-NE-PAS-UTILISER-1/sendMessage`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ chat_id: "1", text: "Alerte formulaire" }),
+    });
+    expect(formulaire.status).toBe(200);
+    const url = await fetch(`${r.url}/botTEST-NE-PAS-UTILISER-1/sendMessage?chat_id=1&text=Alerte%20url`, { method: "POST" });
+    expect(url.status).toBe(200);
+    const recus = (await (await fetch(`${r.url}/__recus?canal=telegram`)).json()) as { corps: { text: string } }[];
+    expect(recus.map((x) => x.corps.text)).toEqual(["Alerte formulaire", "Alerte url"]);
+  });
+
+  it("[C-592] attaque : vider les reçus est refusé hors NODE_ENV=test", async () => {
+    await json("/webhook/a", { n: 1 });
+    const avant = process.env["NODE_ENV"];
+    process.env["NODE_ENV"] = "production";
+    try {
+      expect((await fetch(`${r.url}/__recus`, { method: "DELETE" })).status).toBe(403);
+    } finally {
+      process.env["NODE_ENV"] = avant;
+    }
+    expect(((await (await fetch(`${r.url}/__recus`)).json()) as unknown[]).length).toBe(1);
+  });
 });

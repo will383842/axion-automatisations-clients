@@ -1,8 +1,9 @@
 import { execSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-const racine = new URL("../", import.meta.url).pathname;
+const racine = fileURLToPath(new URL("../", import.meta.url));
 const apps = ["console", "portail", "api", "executeur"].map((n) => `apps/${n}`);
 const paquets = ["contrats", "design", "sdk-module", "harnais"].map((n) => `packages/${n}`);
 const espaces = [...apps, ...paquets];

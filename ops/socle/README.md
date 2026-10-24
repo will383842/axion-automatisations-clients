@@ -24,3 +24,6 @@ Règles (vérifiées par `scripts/garde-compose.ts`) :
 
 ## Tests d'intégration
 Les tests `*.int.test.ts` demandent le socle lancé : `SOCLE_INTEGRATION=1 pnpm exec vitest run --project integration`. Le projet `integration` est vide sans cette variable, donc `pnpm test` ne les lance pas. Dans la session cloud il n'y a pas de conteneurs : lire le job `socle-integration` de la PR.
+
+## Preuve des exigences
+Les tests `[A-081]`, `[A-083]` et `[A-085]` sont des tests d'intégration : leur preuve est le job `socle-integration`. Le job `couverture-req` ne lit que les tests sans conteneur, donc la ligne `Exigences :` de la PR ne les nomme pas.

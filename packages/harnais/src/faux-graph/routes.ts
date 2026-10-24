@@ -19,9 +19,9 @@ export function routesGraph(app: FastifyInstance, etat: EtatGraph, mailpit: Clie
     if (etat.mode === "panne_generale") return rep.code(503).send({ error: { code: "ServiceUnavailable" } });
     const corps = (req.body ?? {}) as Record<string, string>;
     const client = corps["client_id"] ?? "inconnu@exemple.fr";
-    // Azure compare les locataires sans tenir compte de la casse.
+    // Azure ignore la casse du locataire.
     const locataire = (req.params.tenant ?? "common").toLowerCase();
-    // « Mauvais compte Microsoft » (mode de panne) : le locataire de la demande n'est pas celui de l'appelant.
+    // « Mauvais compte Microsoft » : mode de pilotage, le vrai connecteur n'envoie aucun paramètre de test.
     if (etat.mode === "mauvais_compte") {
       return rep.code(400).send({ error: "invalid_request", error_description: "AADSTS50020: Le compte utilisateur appartient à un autre locataire." });
     }
@@ -45,7 +45,7 @@ export function routesGraph(app: FastifyInstance, etat: EtatGraph, mailpit: Clie
 
   // Pannes communes à toutes les routes /v1.0, pour tous les comptes.
   app.addHook("preHandler", async (req, rep) => {
-    // Le motif de la route (et non l'URL brute) : un chemin encodé (« /%76%31.0/… ») ne contourne rien.
+    // La route reconnue par le routeur, pas l'URL brute : un chemin encodé atteint la même route.
     if (!req.routeOptions.url?.startsWith("/v1.0/")) return;
     if (etat.mode === "panne_generale") return rep.code(503).send({ error: { code: "ServiceUnavailable" } });
     if (etat.mode === "quota") return rep.code(429).header("Retry-After", "2").send({ error: { code: "TooManyRequests" } });

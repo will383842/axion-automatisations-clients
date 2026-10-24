@@ -10,10 +10,6 @@ export type Recepteurs = { url: string; adresse: string; recus: Recu[]; arreter(
 export async function demarrerRecepteurs(options: { port?: number } = {}): Promise<Recepteurs> {
   const app = Fastify({ logger: false });
   const recus: Recu[] = [];
-  // Comme le vrai Telegram, le formulaire est accepté en plus du JSON.
-  app.addContentTypeParser("application/x-www-form-urlencoded", { parseAs: "string" }, (_req, corps, fin) =>
-    fin(null, Object.fromEntries(new URLSearchParams(corps as string))),
-  );
   app.addContentTypeParser("*", { parseAs: "string" }, (_req, corps, fin) => {
     try {
       fin(null, corps === "" ? {} : JSON.parse(corps as string));
@@ -22,8 +18,13 @@ export async function demarrerRecepteurs(options: { port?: number } = {}): Promi
     }
   });
 
+  // Comme le vrai, Telegram lit aussi le formulaire (corps) et les paramètres d'URL.
+  app.addContentTypeParser("application/x-www-form-urlencoded", { parseAs: "string" }, (_req, corps, fin) => {
+    fin(null, Object.fromEntries(new URLSearchParams(corps as string)));
+  });
+
   app.post("/bot:jeton/sendMessage", async (req, rep) => {
-    const corps = { ...(req.query as object), ...((req.body ?? {}) as object) } as { text?: string };
+    const corps = { ...(req.query as Record<string, string>), ...((req.body ?? {}) as Record<string, unknown>) } as { text?: string };
     if (typeof corps.text !== "string" || corps.text === "") return rep.code(400).send({ ok: false, description: "message text is empty" });
     recus.push({ canal: "telegram", chemin: req.url, corps });
     return { ok: true, result: { message_id: recus.length } };

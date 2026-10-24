@@ -9,9 +9,10 @@ const SOCLE = new Set(["mailpit", "recepteurs"]);
 
 describe("garde des destinations", () => {
   it("[C-533] @envoi garde-destinations refuse graph.microsoft.com et n'affiche que le nom de la variable", () => {
-    const erreurs = verifierDestinations({ GRAPH_URL: "https://jeton-ne-pas-afficher@graph.microsoft.com/v1.0" }, SOCLE);
+    expect(verifierDestinations({ GRAPH_URL: "https://graph.microsoft.com/v1.0" }, SOCLE)).toEqual(["GRAPH_URL"]);
+    const erreurs = verifierDestinations({ GRAPH_URL: "https://jeton-ne-pas-afficher@exemple.com/v1.0" }, SOCLE);
     expect(erreurs).toEqual(["GRAPH_URL"]);
-    expect(JSON.stringify(erreurs)).not.toContain("microsoft");
+    expect(JSON.stringify(erreurs)).not.toContain("exemple.com");
     expect(JSON.stringify(erreurs)).not.toContain("jeton-ne-pas-afficher");
   });
 
@@ -75,7 +76,7 @@ describe("garde des destinations", () => {
   });
 
   it("[C-533] @envoi contournement : SMTP_HOTE avec schéma, identifiant ou espace est refusé", () => {
-    const erreurs = verifierDestinations({ SMTP_HOTE: "smtps://smtp.example.com:465", WEBHOOK_C: "mailpit@smtp.example.com", GRAPH_URL: "mailpit smtp.example.com" }, SOCLE);
+    const erreurs = verifierDestinations({ SMTP_HOTE: "smtps://smtp.example.com:465", WEBHOOK_C: "mailpit@exemple.com", GRAPH_URL: "mailpit smtp.example.com" }, SOCLE);
     expect(erreurs.sort()).toEqual(["GRAPH_URL", "SMTP_HOTE", "WEBHOOK_C"]);
   });
 });

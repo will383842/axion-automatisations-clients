@@ -1,3 +1,4 @@
+/** @jsxRuntime automatic @jsxImportSource react */
 // @vitest-environment jsdom
 import { cleanup, render } from "@testing-library/react";
 import axe from "axe-core";

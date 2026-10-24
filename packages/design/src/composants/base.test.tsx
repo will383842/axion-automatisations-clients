@@ -1,3 +1,4 @@
+/** @jsxRuntime automatic @jsxImportSource react */
 // @vitest-environment jsdom
 import { cleanup, render } from "@testing-library/react";
 import axe from "axe-core";
@@ -6,7 +7,7 @@ import { BadgeEtat, Bandeau, Bouton, Carte, CaseACocher, BoutonOption, Champ, Li
 
 afterEach(cleanup);
 
-// jsdom ne calcule pas les couleurs : le contraste est couvert par jetons.test.ts et contraste.test.tsx.
+// jsdom ne calcule pas les couleurs : le contraste est couvert par jetons.test.ts et responsive.test.tsx.
 async function violations(conteneur: HTMLElement): Promise<string[]> {
   const r = await axe.run(conteneur, { rules: { "color-contrast": { enabled: false }, region: { enabled: false } } });
   return r.violations.map((v) => v.id);

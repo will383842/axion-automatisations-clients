@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 // Garde des workflows (C-528, C-529). Lecture ligne à ligne : aucune dépendance, aucun code exécuté.
 
 const SHA = /^[0-9a-f]{40}$/;
+const IMAGE = /^docker:\/\/[^@]+@sha256:[0-9a-f]{64}$/;
+const RUNS_ON = /^\s*runs-on:\s*["']?ubuntu-(?:latest|\d{2}\.\d{2})["']?\s*$/;
 const DECLENCHEURS_RESERVES = new Set(["push", "schedule", "workflow_dispatch"]);
 
 const sansCommentaire = (ligne: string) => ligne.replace(/(^|\s)#.*$/, "");
@@ -42,18 +44,21 @@ export function verifierWorkflow(nom: string, texte: string): string[] {
     const n = idx + 1;
     if (/^\s*runs-on:.*self-hosted/.test(l) || (/self-hosted/.test(l) && /runs-on/.test(lignes[idx - 1] ?? ""))) {
       echec(n, "runs-on self-hosted est interdit");
+    } else if (/^\s*runs-on:/.test(l) && !RUNS_ON.test(l)) {
+      echec(n, "runs-on doit être un exécuteur hébergé par GitHub (ubuntu-latest ou ubuntu-NN.NN)");
     }
     if (/^\s*permissions:\s*write-all/.test(l)) echec(n, "permissions: write-all est interdit");
     if (surPr) {
-      for (const m of l.matchAll(/secrets\.([A-Za-z0-9_]+)/g)) {
-        if (m[1] !== "GITHUB_TOKEN") echec(n, `secrets.${m[1]} interdit dans un workflow pull_request`);
+      // Un identifiant de job « secrets: » seul sur sa ligne n'expose rien.
+      for (const m of /^\s*secrets:\s*$/.test(l) ? [] : l.matchAll(/\bsecrets\b(?!\.GITHUB_TOKEN\b)(\.\w+)?/g)) {
+        if (/^\s*secrets:\s*inherit/.test(l)) echec(n, "secrets: inherit interdit dans un workflow pull_request");
+        else echec(n, `secrets${m[1] ?? ""} interdit dans un workflow pull_request (seul secrets.GITHUB_TOKEN est permis)`);
       }
-      if (/^\s*secrets:\s*inherit/.test(l)) echec(n, "secrets: inherit interdit dans un workflow pull_request");
     }
     const u = /^\s*(?:-\s*)?uses:\s*["']?([^\s"']+)/.exec(l);
     if (u?.[1] && !u[1].startsWith("./")) {
       const ref = u[1].split("@")[1] ?? "";
-      if (!SHA.test(ref)) echec(n, `action non épinglée par SHA : ${u[1]}`);
+      if (!SHA.test(ref) && !IMAGE.test(u[1])) echec(n, `action non épinglée par SHA : ${u[1]}`);
     }
     if (/uses:\s*["']?actions\/checkout@/.test(l)) {
       let suite = idx + 1;

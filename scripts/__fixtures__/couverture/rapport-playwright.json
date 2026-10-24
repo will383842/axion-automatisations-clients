@@ -1,0 +1,5 @@
+{
+  "suites": [
+    { "title": "a", "suites": [ { "title": "b", "specs": [ { "title": "[C-555] parcours", "ok": true } ] } ], "specs": [] }
+  ]
+}

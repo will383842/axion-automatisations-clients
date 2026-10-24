@@ -24,6 +24,10 @@ describe("garde des noms : recherche", () => {
     expect(normaliser("Zéphyrine_OSTROWSKA")).toBe("zephyrine ostrowska");
     expect(normaliserEntree("Atelier Truc SARL")).toBe("atelier truc");
   });
+  it("[C-611] les ligatures œ et æ valent oe et ae", () => {
+    expect(normaliser("Cœur Æsop")).toBe("coeur aesop");
+    expect(chercher("Atelier Cœur", parserListe("atelier coeur"))).toHaveLength(1);
+  });
   it("[C-611] trouve « QUINCAILLERIE-zephyrine_ostrowska »", () => {
     expect(chercher("une phrase\nQUINCAILLERIE-zephyrine_ostrowska ici", liste)).toEqual([{ ligne: 2, numero: 1 }]);
   });
@@ -88,6 +92,30 @@ describe("garde des noms : crochets sur un dépôt temporaire", () => {
     const r = lancer("pre-commit");
     expect(r.status).toBe(1);
     expect(r.stderr).toContain("nom de fichier interdit (n° 1)");
+  });
+  it("[C-531] pre-commit masque le chemin quand le nom de fichier contient déjà le nom", () => {
+    git("reset", "-q");
+    writeFileSync(join(depot, "d/quincaillerie-zephyrine-ostrowska.md"), `propre\n${NOM}\n`);
+    git("add", "d");
+    const r = lancer("pre-commit");
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain("fichier masqué (n° 1), ligne 2");
+    expect(r.stderr.toLowerCase()).not.toContain("ostrowska");
+    expect(r.stderr.toLowerCase()).not.toContain("quincaillerie");
+  });
+  it("[C-611] pre-commit refuse une ligne ajoutée qui commence par « ++ » (fausse ligne d'en-tête)", () => {
+    git("reset", "-q");
+    writeFileSync(join(depot, "c.md"), `++ ${NOM}\n`);
+    git("add", "c.md");
+    const r = lancer("pre-commit");
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain("nom interdit, fichier c.md, ligne 1");
+  });
+  it("[C-611] pre-commit refuse aussi le nom dans un fichier au nom non ASCII", () => {
+    git("reset", "-q");
+    writeFileSync(join(depot, "énoncé.md"), `${NOM}\n`);
+    git("add", "énoncé.md");
+    expect(lancer("pre-commit").stderr).toContain("nom interdit, fichier énoncé.md, ligne 1");
   });
   it("[C-611] pre-commit laisse passer un contenu propre", () => {
     git("reset", "-q");

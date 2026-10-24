@@ -14,7 +14,8 @@ export function routesGmail(app: FastifyInstance, etat: EtatGmail, mailpit: Clie
   const transport = nodemailer.createTransport({ host: mailpit.smtp.host, port: mailpit.smtp.port, secure: false, ignoreTLS: true });
 
   app.addHook("preHandler", async (req, rep) => {
-    if (!req.url.startsWith("/gmail/v1/")) return;
+    // Le motif de la route (et non l'URL brute) : un chemin encodé (« /%67mail/… ») ne contourne rien.
+    if (!req.routeOptions.url?.startsWith("/gmail/v1/")) return;
     if (!JETON.test(req.headers.authorization ?? "")) return rep.code(401).send({ error: { code: 401, status: "UNAUTHENTICATED" } });
     if (etat.mode === "panne_generale") return rep.code(503).send({ error: { code: 503, status: "UNAVAILABLE" } });
     if (etat.mode === "acces_refuse") {
@@ -27,18 +28,26 @@ export function routesGmail(app: FastifyInstance, etat: EtatGmail, mailpit: Clie
     const raw = ((req.body ?? {}) as { raw?: string }).raw;
     if (typeof raw !== "string" || raw === "") return rep.code(400).send({ error: { code: 400, status: "INVALID_ARGUMENT" } });
     const mail = await simpleParser(Buffer.from(raw, "base64url"));
-    const destinataires = [mail.to, mail.cc, mail.bcc].flat().flatMap((g) => g?.value ?? []).map((a) => a.address ?? "");
-    if (destinataires.length === 0 || destinataires.some((a) => !ADRESSE_FICTIVE.test(a))) {
+    const adresses = (g: typeof mail.to) => [g].flat().flatMap((x) => x?.value ?? []).map((a) => a.address ?? "");
+    const [a, cc, cci] = [adresses(mail.to), adresses(mail.cc), adresses(mail.bcc)];
+    if (a.length + cc.length + cci.length === 0 || [...a, ...cc, ...cci].some((x) => !ADRESSE_FICTIVE.test(x))) {
       return rep.code(400).send({ error: { code: 400, status: "INVALID_ARGUMENT", message: "destinataire invalide" } });
     }
     const compte = JETON.exec(req.headers.authorization ?? "")?.[1] ?? "inconnu@exemple.fr";
     const rfc822msgid = (mail.messageId ?? `<${randomUUID()}@faux-gmail.test>`).replace(/^<|>$/g, "");
+    // Le message est recomposé : nodemailer met les Cci dans l'enveloppe et jamais dans les en-têtes.
     await transport.sendMail({
       messageId: `<${rfc822msgid}>`,
       from: compte,
-      to: destinataires,
+      to: a,
+      cc,
+      bcc: cci,
       subject: mail.subject ?? "",
+      ...(mail.inReplyTo ? { inReplyTo: mail.inReplyTo } : {}),
+      ...(mail.references ? { references: mail.references } : {}),
+      ...(mail.replyTo ? { replyTo: mail.replyTo.text } : {}),
       ...(mail.html ? { html: mail.html } : { text: mail.text ?? "" }),
+      attachments: mail.attachments.map((p) => ({ filename: p.filename ?? "piece", content: p.content, contentType: p.contentType, contentDisposition: "attachment" as const, ...(p.contentType.startsWith("text/") ? { contentTransferEncoding: "7bit" as const } : {}) })),
     });
     const message = { id: randomUUID().replaceAll("-", ""), compte, rfc822msgid, labelIds: ["SENT"] };
     etat.envoyes.push(message);

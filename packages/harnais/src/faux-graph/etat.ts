@@ -1,7 +1,7 @@
 // État en mémoire du faux Microsoft 365 : brouillons, Éléments envoyés, mode de panne.
 
-export type Mode = "normal" | "quota" | "reponse_perdue" | "panne_generale" | "consentement_admin_requis";
-export const MODES: readonly Mode[] = ["normal", "quota", "reponse_perdue", "panne_generale", "consentement_admin_requis"];
+export type Mode = "normal" | "quota" | "reponse_perdue" | "panne_generale" | "consentement_admin_requis" | "mauvais_compte";
+export const MODES: readonly Mode[] = ["normal", "quota", "reponse_perdue", "panne_generale", "consentement_admin_requis", "mauvais_compte"];
 
 export type Brouillon = {
   id: string;

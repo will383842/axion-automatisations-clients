@@ -33,3 +33,7 @@ Aucune clé de production dans l'environnement.
 - PostgreSQL et Valkey : binaires installés par le gestionnaire de paquets quand ils existent.
 - Les autres : imitations à contrat identique, écrites au lot 1. Rien n'est inventé ici.
 - Les versions d'images de `compose.test.yml` sont épinglées mais n'ont pas pu être téléchargées : à confirmer là où les conteneurs existent (CI, T0-12).
+
+### Écarts connus
+- LiteLLM : aucune configuration n'est montée, donc seule la vivacité du service est vérifiée ; le modèle factice (sans clé) reste à ajouter par la fiche qui touchera la configuration.
+- `ops/sonde-services.test.sh` n'est lancé par aucun contrôle : le job de CI (un job = un fichier `.github/workflows/<job>.yml`) reste à écrire par la fiche concernée.

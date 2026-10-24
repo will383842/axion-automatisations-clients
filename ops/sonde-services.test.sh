@@ -22,7 +22,7 @@ python3 - 26379 <<'PY' &
 import socketserver, sys
 class H(socketserver.StreamRequestHandler):
     def handle(self):
-        self.rfile.readline(); self.rfile.readline() if False else None
+        self.rfile.readline()
         self.wfile.write(b"+PONG\r\n")
 class S(socketserver.TCPServer): allow_reuse_address = True
 s = S(("127.0.0.1", int(sys.argv[1])), H); s.timeout = 5; s.handle_request(); s.handle_request()

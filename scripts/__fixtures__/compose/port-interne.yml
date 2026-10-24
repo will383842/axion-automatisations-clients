@@ -1,0 +1,9 @@
+services:
+  postgres:
+    image: postgres:16.4@sha256:1111111111111111111111111111111111111111111111111111111111111111
+    ports:
+      - "5432:5432"
+    networks: [interne]
+networks:
+  interne:
+    internal: true

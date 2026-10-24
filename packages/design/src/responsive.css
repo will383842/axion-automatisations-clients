@@ -1,0 +1,171 @@
+/* Classes r-* du guide de style final (C-597). Aucune couleur littérale : jetons de jetons.css seulement. */
+.r-entete,
+.r-onglets,
+.r-mobile-seul {
+  display: none;
+}
+
+:focus-visible {
+  outline: 3px solid var(--couleur-actionTexte);
+  outline-offset: 2px;
+}
+
+.r-menu :focus-visible {
+  outline-color: var(--couleur-menu-texte);
+}
+
+.evitement {
+  position: absolute;
+  left: var(--espacement-8);
+  top: -100px;
+  padding: var(--espacement-12) var(--espacement-16);
+  background: var(--couleur-fond-carte);
+  color: var(--couleur-lien);
+  font-weight: 800;
+}
+
+.evitement:focus {
+  top: var(--espacement-8);
+}
+
+.r-contenu,
+.r-contenu * {
+  overflow-wrap: break-word;
+}
+
+@media (max-width: 720px) {
+  select,
+  input,
+  textarea {
+    max-width: 100%;
+    min-width: 0;
+    font-size: 16px;
+  }
+
+  .r-racine {
+    flex-direction: column !important;
+    flex-wrap: nowrap !important;
+    min-height: 0 !important;
+    overflow-x: clip;
+  }
+
+  .r-racine > * {
+    max-width: none;
+    box-sizing: border-box;
+  }
+
+  /* Une seule navigation sur téléphone : le menu latéral est masqué (correctif du 24/10). */
+  .r-menu {
+    display: none !important;
+  }
+
+  .r-entete {
+    display: flex !important;
+    align-items: center;
+    gap: var(--espacement-12);
+    min-height: 64px;
+    padding: 0 var(--espacement-16);
+    background: var(--couleur-menu-fond);
+    color: var(--couleur-menu-texte);
+    box-sizing: border-box;
+  }
+
+  .r-entete :focus-visible {
+    outline-color: var(--couleur-menu-texte);
+  }
+
+  .r-onglets {
+    display: flex !important;
+    position: sticky;
+    bottom: 0;
+    z-index: 10;
+    justify-content: space-around;
+    min-height: 64px;
+    padding: var(--espacement-4) var(--espacement-4) calc(var(--espacement-8) + env(safe-area-inset-bottom));
+    background: var(--couleur-fond-carte);
+    border-top: 1px solid var(--couleur-bordure-carte);
+    box-sizing: border-box;
+  }
+
+  .r-mobile-seul {
+    display: flex !important;
+    flex-direction: column;
+    gap: var(--espacement-8);
+  }
+
+  .r-contenu {
+    flex: 1 1 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    padding: var(--espacement-16) !important;
+    /* Marge basse égale à la hauteur de la barre d'onglets : aucun bouton d'action ne passe dessous. */
+    padding-bottom: calc(64px + var(--espacement-24) + env(safe-area-inset-bottom)) !important;
+    box-sizing: border-box;
+  }
+
+  .r-grille {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .r-grille > * {
+    min-width: 0;
+  }
+
+  .r-span {
+    grid-column: auto !important;
+  }
+
+  .r-ligne {
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+
+  .r-plein {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  .r-cache-mobile {
+    display: none !important;
+  }
+
+  /* Titre à côté d'un badge : le badge passe sous le titre. */
+  .r-contenu [style*="flex-wrap: wrap"] > [style*="flex: 1"] {
+    flex: 1 1 200px;
+  }
+
+  h1 {
+    font-size: var(--taille-titreMobile) !important;
+  }
+
+  /* Tableau en cartes empilées, en-têtes masqués (libellé repris par data-libelle). */
+  .r-tableau,
+  .r-tableau tbody,
+  .r-tableau tr,
+  .r-tableau td {
+    display: block;
+  }
+
+  .r-tableau thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  .r-tableau tr {
+    margin-bottom: var(--espacement-12);
+    padding: var(--espacement-12) var(--espacement-16);
+    background: var(--couleur-fond-carte);
+    border: 1px solid var(--couleur-bordure-carte);
+    border-radius: var(--rayon-16);
+  }
+
+  .r-tableau td::before {
+    content: attr(data-libelle) " : ";
+    font-weight: 700;
+  }
+}

@@ -11,18 +11,19 @@ verdict() { # $1 = libellé, $2 = 0 si OK
   if [ "$2" -eq 0 ]; then echo "OK         $1"; else echo "À CORRIGER $1"; mauvais=1; fi
 }
 
-# 1. Droits de l'application installée. Sans jeton d'application l'appel échoue : on ne sait pas, donc on échoue.
-if droits=$(gh api "repos/$DEPOT/installation" --jq '.permissions | to_entries[] | "\(.key)=\(.value)"' 2>/dev/null) && [ -n "$droits" ]; then
+# 1. Droits de l'application installée, lus avec le jeton de l'utilisateur (user/installations), pas avec un JWT d'application.
+# Filtre sur l'application de Claude ; si elle n'est pas trouvée, on ne sait pas, donc on échoue.
+if droits=$(gh api user/installations --paginate --jq '.installations[] | select(.app_slug | test("claude")) | .permissions | to_entries[] | "\(.key)=\(.value)"' 2>/dev/null) && [ -n "$droits" ]; then
   echo "Droits de l'application installée :"
   printf '  %s\n' "$droits"
   printf '%s\n' "$droits" | grep -qx 'statuses=write' ; [ $? -ne 0 ] ; verdict "l'application n'a pas statuses: write (sinon : contrôle d'auteur de ops/fusionner-pr.sh)" $?
 else
-  echo "À CORRIGER droits de l'application : non vérifiables ici (jeton d'application requis), à relever à la main"
+  echo "À CORRIGER droits de l'application : application Claude introuvable parmi les installations de l'utilisateur, à relever à la main"
   mauvais=1
 fi
 
 # 2. Accord exigé pour la CI des contributeurs extérieurs.
-gh api "repos/$DEPOT/actions/permissions/fork-pr-contributor-approval" --jq '.approval_policy' 2>/dev/null | grep -qxE 'all_external_contributors|first_time_contributors' ; verdict "accord exigé pour la CI des contributeurs extérieurs" $?
+gh api "repos/$DEPOT/actions/permissions/fork-pr-contributor-approval" --jq '.approval_policy' 2>/dev/null | grep -qx 'all_external_contributors' ; verdict "accord exigé pour la CI des contributeurs extérieurs" $?
 
 # 3. Configuration qui limite le déclenchement aux comptes internes : lue dans les workflows du dépôt (branche par défaut).
 # Valeurs permises : will383842 et les comptes des routines (liste dans le réglage, jamais « * »).
@@ -32,12 +33,14 @@ for f in $fichiers; do
   texte=$(gh api -H "Accept: application/vnd.github.raw" "repos/$DEPOT/contents/$f" 2>/dev/null) || continue
   printf '%s' "$texte" | grep -q 'anthropics/claude-code-action' || continue
   lancent=1
-  if printf '%s' "$texte" | grep -E 'allowed_actors|allowed_non_write_users|allowed_bots' | grep -vq '\*'; then limitent=1; else limitent=0; break; fi
+  # allowed_non_write_users élargit l'accès, et toute valeur « * » ouvre à tous : l'un ou l'autre fait échouer.
+  if printf '%s' "$texte" | grep -q 'allowed_non_write_users' || printf '%s' "$texte" | grep -E 'allowed_actors|allowed_bots' | grep -q '\*'; then limitent=0; break; fi
+  if printf '%s' "$texte" | grep -q 'allowed_actors'; then limitent=1; else limitent=0; break; fi
 done
 if [ "$lancent" -eq 0 ]; then
   echo "OK         aucun workflow ne lance l'action Claude (l'application seule reste à régler côté GitHub)"
 else
-  [ "$limitent" -eq 1 ] ; verdict "le workflow qui lance l'action Claude limite les acteurs (allowed_actors ou équivalent, sans « * »)" $?
+  [ "$limitent" -eq 1 ] ; verdict "le workflow qui lance l'action Claude limite les acteurs (allowed_actors sans « * », sans allowed_non_write_users)" $?
 fi
 
 echo "Date : $(date -u +%Y-%m-%dT%H:%MZ)"

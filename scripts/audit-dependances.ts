@@ -21,8 +21,13 @@ export interface Verdict {
   avertissements: string[];
 }
 
-export function evaluerAudit(rapport: { advisories?: Record<string, Avis> }, maintenant: Date): Verdict {
+export function evaluerAudit(rapport: { advisories?: Record<string, Avis>; metadata?: unknown }, maintenant: Date): Verdict {
   const verdict: Verdict = { echecs: [], avertissements: [] };
+  // Échec fermé : sans « advisories » ni « metadata », pnpm audit n'a pas répondu (réseau, registre).
+  if (rapport.advisories === undefined && rapport.metadata === undefined) {
+    verdict.echecs.push("rapport d'audit invalide (pnpm audit sans réponse)");
+    return verdict;
+  }
   for (const avis of Object.values(rapport.advisories ?? {})) {
     const delai = DELAIS_JOURS[avis.severity ?? ""];
     if (delai === undefined) continue;
@@ -37,7 +42,7 @@ export function evaluerAudit(rapport: { advisories?: Record<string, Avis> }, mai
 
 // Usage : node scripts/audit-dependances.ts <audit.json>
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  let rapport: { advisories?: Record<string, Avis> };
+  let rapport: { advisories?: Record<string, Avis>; metadata?: unknown };
   try {
     rapport = JSON.parse(readFileSync(process.argv[2] ?? "audit.json", "utf8"));
   } catch {

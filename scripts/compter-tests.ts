@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 // Compteur de tests (C-538) : pas de baisse, pas de test sauté sans fiche, pas de relance pour les tests sensibles.
 
-const SAUT = /\b(?:it|test|describe)\.(?:skip|only|todo)\s*\(|\b(?:xit|xtest|xdescribe|fit|fdescribe)\s*\(/;
+const SAUT = /\b(?:it|test|describe|bench)(?:\.\w+)*\.(?:skip|only|todo|skipIf|runIf)\b|\b(?:xit|xtest|xdescribe|fit|fdescribe)\s*\(|\bskip\s*:\s*true|\bctx\.skip\s*\(/;
 const FICHE = /\/\/\s*fiche:\s*T\d+-\d+|\[V2\]/;
 const FAILS = /\b(?:it|test)\.fails\s*\(/;
 const SENSIBLE = /@(?:argent|isolation|anti-doublon|envoi)\b/;
@@ -36,6 +36,13 @@ export function analyserSource(nom: string, texte: string): string[] {
   return erreurs;
 }
 
+// Aucune configuration Vitest ne doit fixer un retry supérieur à 0.
+export function analyserConfig(nom: string, texte: string): string[] {
+  return texte
+    .split("\n")
+    .flatMap((l, i) => ((/\bretry\s*:\s*([^\s,}]+)/.exec(l)?.[1] ?? "0") !== "0" ? [`${nom}:${i + 1}: retry supérieur à 0 interdit`] : []));
+}
+
 function git(...args: string[]): string {
   return execFileSync("git", args, { encoding: "utf8" });
 }
@@ -57,6 +64,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   if (consigne > actuel) erreurs.push(`spec/compte-tests.json (${consigne}) dépasse le compte réel (${actuel})`);
   const fichiers = git("ls-files", "*.test.ts", "*.test.tsx").split("\n").filter((f) => f && !f.includes("__fixtures__"));
   for (const f of fichiers) erreurs.push(...analyserSource(f, readFileSync(f, "utf8")));
+  const configs = git("ls-files", "vitest.config.*", "**/vitest.config.*", "vitest.workspace.*", "**/vitest.workspace.*", "**/vitest.setup.*");
+  for (const f of configs.split("\n").filter(Boolean)) erreurs.push(...analyserConfig(f, readFileSync(f, "utf8")));
   for (const e of erreurs) console.error(e);
   console.log(`tests : ${actuel} (référence ${reference})`);
   process.exit(erreurs.length ? 1 : 0);

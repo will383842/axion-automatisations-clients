@@ -16,9 +16,10 @@ describe("workflows réels", () => {
     for (const a of actions) expect(a).toMatch(/@[0-9a-f]{40}$/);
   });
 
-  it("[C-554] SECURITY.md existe et contient un canal de contact", () => {
+  it("[C-554] SECURITY.md existe et indique le canal privé de GitHub (onglet Security, Report a vulnerability)", () => {
+    // La fiche demande une adresse de contact ; en attendant l'accord écrit du chef d'orchestre, seul ce canal exact est accepté.
     const t = lire("SECURITY.md");
-    expect(t).toMatch(/[\w.+-]+@[\w-]+\.[\w.-]+|https:\/\/\S+|Report a vulnerability/);
+    expect(t).toMatch(/\*\*Security\*\*\s*→\s*\*\*Report a vulnerability\*\*/);
   });
 
   it("[C-528] ci.yml déclare les six contrôles exigés, lit seulement le dépôt, sur ubuntu-latest", () => {

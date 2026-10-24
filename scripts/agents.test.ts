@@ -64,9 +64,11 @@ describe("[LOT0-agents] agents du dépôt", () => {
 
     it(`[LOT0-agents] ${nom} : phrase sur les comptes extérieurs et interdits`, () => {
       const bas = texte.toLowerCase();
-      expect(bas).toContain(phraseComptes);
-      expect(bas.split(phraseComptes).length - 1).toBe(1);
-      expect(bas).toContain(phraseStatut);
+      const comptes = phraseComptes.toLowerCase();
+      const statut = phraseStatut.toLowerCase();
+      expect(bas).toContain(comptes);
+      expect(bas.split(comptes).length - 1).toBe(1);
+      expect(bas).toContain(statut);
       expect(bas.split("ne pose jamais de statut de commit").length - 1).toBe(1);
       expect(texte).toContain("Aucune couleur hors jetons de design, aucun bleu.");
       expect(texte).toContain("téléphones dans les plages réservées à la fiction");

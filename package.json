@@ -7,7 +7,7 @@
   "engines": { "node": ">=22" },
   "scripts": {
     "verifier": "pnpm -r typecheck && pnpm lint && pnpm test",
-    "typecheck": "pnpm -r typecheck",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "eslint .",
     "test": "vitest run",
     "test:compter": "vitest run --reporter=json --outputFile=rapport-tests.json"

@@ -27,6 +27,22 @@ importers:
         specifier: ^3.0.0
         version: 3.2.7(@types/node@22.20.5)
 
+  apps/api: {}
+
+  apps/console: {}
+
+  apps/executeur: {}
+
+  apps/portail: {}
+
+  packages/contrats: {}
+
+  packages/design: {}
+
+  packages/harnais: {}
+
+  packages/sdk-module: {}
+
 packages:
 
   '@esbuild/aix-ppc64@0.28.2':

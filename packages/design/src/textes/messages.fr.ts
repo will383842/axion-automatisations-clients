@@ -24,7 +24,7 @@ export const messages = {
   },
   "vide.console.alertes": {
     titre: "Tout est traité.",
-    phrase: "Aucune alerte : tout fonctionne chez vos {nbClients} clients. Vous êtes prévenu dès qu'il se passe quelque chose.",
+    phrase: "Aucune alerte : tout fonctionne chez vos {nbClients} clients. Nous vous prévenons dès qu'il se passe quelque chose.",
     bouton: "Voir ce qui a été réglé cette semaine",
     variables: ["nbClients"],
   },
@@ -40,7 +40,7 @@ export const messages = {
   },
   "vide.portail.accueilAvantLancement": {
     titre: "Lancement en cours",
-    phrase: "Nous finissons de tout préparer. Vous serez prévenu dès que c'est prêt, vous n'avez rien à faire.",
+    phrase: "Nous finissons de tout préparer. Nous vous prévenons dès que c'est prêt ; vous n'avez rien à faire.",
     bouton: "Voir mes automatisations",
   },
   "vide.portail.accueilPremierMois": {
@@ -79,7 +79,7 @@ export const messages = {
   "erreur.comptePause": {
     titre: `Après ${CODES_FAUX_MAX} codes faux, l'accès est en pause`,
     phrase: `Pour protéger votre compte, l'accès se met en pause ${PAUSE_MINUTES} minutes. Votre compte et vos données sont intacts. Réessayez à la fin de la pause.`,
-    bouton: "Choisir un nouveau mot de passe",
+    bouton: "Revenir à la connexion",
   },
   "erreur.codeVerificationFaux": {
     titre: "Ce code n'a pas été accepté",

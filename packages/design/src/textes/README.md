@@ -20,7 +20,7 @@ Les maquettes F-Etats-Vides (empreinte 6124a0361a3e) et F-Messages-Erreur (empre
 
 ### `vide.console.alertes`
 - Titre : Tout est traité.
-- Phrase : Aucune alerte : tout fonctionne chez vos {nbClients} clients. Vous êtes prévenu dès qu'il se passe quelque chose.
+- Phrase : Aucune alerte : tout fonctionne chez vos {nbClients} clients. Nous vous prévenons dès qu'il se passe quelque chose.
 - Bouton : Voir ce qui a été réglé cette semaine
 - Variables : nbClients
 
@@ -36,7 +36,7 @@ Les maquettes F-Etats-Vides (empreinte 6124a0361a3e) et F-Messages-Erreur (empre
 
 ### `vide.portail.accueilAvantLancement`
 - Titre : Lancement en cours
-- Phrase : Nous finissons de tout préparer. Vous serez prévenu dès que c'est prêt, vous n'avez rien à faire.
+- Phrase : Nous finissons de tout préparer. Nous vous prévenons dès que c'est prêt ; vous n'avez rien à faire.
 - Bouton : Voir mes automatisations
 
 ### `vide.portail.accueilPremierMois`
@@ -75,7 +75,7 @@ Les maquettes F-Etats-Vides (empreinte 6124a0361a3e) et F-Messages-Erreur (empre
 ### `erreur.comptePause`
 - Titre : Après 5 codes faux, l'accès est en pause
 - Phrase : Pour protéger votre compte, l'accès se met en pause 15 minutes. Votre compte et vos données sont intacts. Réessayez à la fin de la pause.
-- Bouton : Choisir un nouveau mot de passe
+- Bouton : Revenir à la connexion
 
 ### `erreur.codeVerificationFaux`
 - Titre : Ce code n'a pas été accepté

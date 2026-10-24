@@ -16,6 +16,14 @@ describe("étapes et tableaux", () => {
     expect(container.firstElementChild?.className).toContain("r-cache-mobile");
   });
 
+  it("[C-586] Frise : une étape faite se reconnaît à un mot masqué, pas seulement à sa couleur", () => {
+    const { container } = render(<Frise etapes={etapes} courante={2} />);
+    const items = container.querySelectorAll("li");
+    expect(items[0]?.textContent).toContain("faite");
+    expect(items[1]?.textContent).toContain("faite");
+    expect(items[2]?.textContent).not.toContain("faite");
+  });
+
   it("[C-586] EtapeSurTotal (téléphone) écrit « Étape 4 sur 5 : … » avec une barre de progression", () => {
     const { container, getByRole } = render(<EtapeSurTotal etapes={etapes} courante={4} />);
     expect(container.textContent).toContain("Étape 4 sur 5 : Essai");

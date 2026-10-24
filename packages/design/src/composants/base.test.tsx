@@ -4,6 +4,7 @@ import { cleanup, render } from "@testing-library/react";
 import { violations } from "./accessibilite.tsx";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BadgeEtat, Bandeau, Bouton, Carte, CaseACocher, BoutonOption, Champ, Lien, LienEvitement, PastilleInitiales, TuileAutomatisation } from "./base.tsx";
+import { contraste, valeur } from "../jetons.ts";
 
 afterEach(cleanup);
 
@@ -56,11 +57,47 @@ describe("composants de base", () => {
     expect(getByLabelText("Adresse e-mail")).toBeTruthy();
   });
 
-  it("[C-597] Carte accepte les 5 teintes sans donnée en dur", () => {
-    for (const teinte of ["blanche", "peche", "sauge", "miel", "rose"] as const) {
-      const { container, unmount } = render(<Carte teinte={teinte}>Contenu</Carte>);
+  it("[C-586] Carte teintée : fond doux, bordure 1 px dans la teinte, liseret 4 px à gauche, rayon 12", () => {
+    for (const teinte of ["terracotta", "vert", "ambre", "violet", "gris"] as const) {
+      const { container, unmount } = render(<Carte teinte={teinte} liseret="gauche">Contenu</Carte>);
+      const style = container.querySelector("section")?.getAttribute("style") ?? "";
       expect(container.textContent).toBe("Contenu");
+      expect(style).toContain(`background: var(--couleur-teinte-${teinte}-fond)`);
+      expect(style).toContain(`color: var(--couleur-teinte-${teinte}-titre)`);
+      expect(style).toContain(`border: 1px solid var(--couleur-teinte-${teinte}-bordure)`);
+      expect(style).toContain(`border-left: 4px solid var(--couleur-teinte-${teinte}-liseret)`);
+      expect(style).toContain("border-radius: var(--rayon-12)");
       unmount();
+    }
+  });
+
+  it("[C-586] Carte teintée : le liseret peut être en haut (chiffre clé) et la carte reste blanche par défaut", () => {
+    const haut = render(<Carte teinte="vert" liseret="haut">Chiffre</Carte>);
+    expect(haut.container.querySelector("section")?.getAttribute("style")).toContain("border-top: 4px solid var(--couleur-teinte-vert-liseret)");
+    haut.unmount();
+    const { container } = render(<Carte>Neutre</Carte>);
+    const style = container.querySelector("section")?.getAttribute("style") ?? "";
+    expect(style).toContain("background: var(--couleur-fond-carte)");
+    expect(style).not.toContain("4px solid");
+  });
+
+  it("[C-586] BadgeEtat : pastille pleine, libellé blanc, rayon 6 px, fonds = liserets de teinte, flex: none", () => {
+    const teintes = { urgent: "terracotta", averifier: "ambre", fait: "vert", pause: "gris" } as const;
+    for (const [etat, teinte] of Object.entries(teintes)) {
+      const { container, unmount } = render(<BadgeEtat etat={etat as keyof typeof teintes} />);
+      const span = container.querySelector("span");
+      expect(span?.style.background).toBe(`var(--couleur-teinte-${teinte}-liseret)`);
+      expect(span?.style.color).toBe("var(--couleur-menu-texte)");
+      expect(span?.style.borderRadius).toBe("calc(var(--rayon-12) / 2)");
+      expect(span?.style.flex).toMatch(/none|0 0 auto/);
+      expect(span?.style.alignSelf).toBe("flex-start");
+      unmount();
+    }
+  });
+
+  it("[C-586] contraste du blanc sur les 4 fonds de pastille ≥ 4,5:1", () => {
+    for (const teinte of ["terracotta", "ambre", "vert", "gris"]) {
+      expect(contraste(valeur("couleur.menu.texte"), valeur(`couleur.teinte.${teinte}.liseret`)), teinte).toBeGreaterThanOrEqual(4.5);
     }
   });
 
@@ -97,7 +134,7 @@ describe("composants de base", () => {
       <main>
         <LienEvitement cible="contenu" />
         <Bandeau type="incident">Incident en cours</Bandeau>
-        <Carte teinte="sauge">Bonjour</Carte>
+        <Carte teinte="vert" liseret="gauche">Bonjour</Carte>
         <Bouton variante="principal">Valider</Bouton>
         <Bouton variante="secondaire">Plus tard</Bouton>
         <Lien href="/aide">Aide</Lien>

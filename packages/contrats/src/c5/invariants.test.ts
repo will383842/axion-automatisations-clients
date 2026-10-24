@@ -16,7 +16,8 @@ const requeteSur = (base: string): Requete => async (sql) => {
 };
 
 const CONFORME = `
-  CREATE TABLE dossiers (id bigint PRIMARY KEY, tenant_id uuid NOT NULL, montant_centimes bigint NOT NULL, statut text);
+  CREATE TYPE statut_dossier AS ENUM ('ouvert', 'clos');
+  CREATE TABLE dossiers (id bigint PRIMARY KEY, tenant_id uuid NOT NULL, montant_centimes bigint NOT NULL, statut statut_dossier);
   CREATE INDEX dossiers_tenant ON dossiers (tenant_id, id);
   ALTER TABLE dossiers ENABLE ROW LEVEL SECURITY;
   ALTER TABLE dossiers FORCE ROW LEVEL SECURITY;
@@ -68,7 +69,7 @@ describe.skipIf(!URL_PG)("C5 invariants du schéma", () => { // fiche: T0-16
   });
 
   it("[C-536] une base cli_ ouverte à PUBLIC est signalée", async () => {
-    await avec("pub", "", (e) => expect(e).toContainEqual({ regle: "base_cli_ouverte", objet: base("pub") }), `cli_${base("pub")}`);
+    await avec("pub", "", (e) => expect(e).toContainEqual({ regle: "base_cli_ouverte", objet: `cli_${base("pub")}` }), `cli_${base("pub")}`);
   });
 
   it("[C-536] une base cli_ fermée à PUBLIC n'est pas signalée", async () => {
@@ -110,7 +111,9 @@ describe.skipIf(!URL_PG)("C5 invariants du schéma", () => { // fiche: T0-16
 
   it("[LOT0-c5] une colonne de vocabulaire en text est signalée, en énumération elle est acceptée", async () => {
     expect(VOCABULAIRE).toContain("statut");
-    await avec("vocab", `CREATE TYPE etat AS ENUM ('a','b'); CREATE TABLE etats (id bigint PRIMARY KEY, tenant_id uuid NOT NULL, statut etat);`,
-      (e) => expect(e.filter((x) => x.regle === "vocabulaire_en_texte")).toEqual([{ regle: "vocabulaire_en_texte", objet: "dossiers.statut" }]));
+    await avec("vocab", `CREATE TABLE etats (id bigint PRIMARY KEY, tenant_id uuid NOT NULL, statut text);`, (e) => {
+      expect(e).toContainEqual({ regle: "vocabulaire_en_texte", objet: "etats.statut" });
+      expect(e.filter((x) => x.regle === "vocabulaire_en_texte")).toHaveLength(1);
+    });
   });
 });

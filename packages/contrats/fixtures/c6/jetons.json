@@ -1,0 +1,41 @@
+{
+  "cles": [
+    {
+      "kid": "c6-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c6-a"
+    }
+  ],
+  "maintenant": 1792800010,
+  "cas": [
+    {
+      "nom": "valide",
+      "valide": true,
+      "jeton": "eyJ2IjoxLCJraWQiOiJjNi1hIiwianRpIjoiMjIyMjIyMjItMjIyMi00MjIyLTgyMjItMjIyMjIyMjIyMjIyIiwiZW1haWwiOiJlcXVpcGVAZXhlbXBsZS5mciIsImlhdCI6MTc5MjgwMDAwMCwiZXhwIjoxNzkyODAwMDYwfQ.pmpU6QAY586ecAV6E8F9f7G34P5EyIz7zFbvnaYzPoc"
+    },
+    {
+      "nom": "signature d'un autre kid",
+      "valide": false,
+      "jeton": "eyJ2IjoxLCJraWQiOiJjNi1hIiwianRpIjoiMjIyMjIyMjItMjIyMi00MjIyLTgyMjItMjIyMjIyMjIyMjIyIiwiZW1haWwiOiJlcXVpcGVAZXhlbXBsZS5mciIsImlhdCI6MTc5MjgwMDAwMCwiZXhwIjoxNzkyODAwMDYwfQ.Rg7EA5fveF3Kc03a1QupZ_BQLsSVuX4gcn0EhvoSoZQ"
+    },
+    {
+      "nom": "charge falsifiée",
+      "valide": false,
+      "jeton": "eyJ2IjoxLCJraWQiOiJjNi1hIiwianRpIjoiMjIyMjIyMjItMjIyMi00MjIyLTgyMjItMjIyMjIyMjIyMjIyIiwiZW1haWwiOiJhdXRyZUBleGVtcGxlLmZyIiwiaWF0IjoxNzkyODAwMDAwLCJleHAiOjE3OTI4MDAwNjB9.pmpU6QAY586ecAV6E8F9f7G34P5EyIz7zFbvnaYzPoc"
+    },
+    {
+      "nom": "durée de 3600 s",
+      "valide": false,
+      "jeton": "eyJ2IjoxLCJraWQiOiJjNi1hIiwianRpIjoiMjIyMjIyMjItMjIyMi00MjIyLTgyMjItMjIyMjIyMjIyMjIyIiwiZW1haWwiOiJlcXVpcGVAZXhlbXBsZS5mciIsImlhdCI6MTc5MjgwMDAwMCwiZXhwIjoxNzkyODAzNjAwfQ.Q7ksdmO9J2b1yQEgthoL9xMcLrH6FjSQX2MSMifxILI"
+    },
+    {
+      "nom": "version inconnue",
+      "valide": false,
+      "jeton": "eyJ2IjoyLCJraWQiOiJjNi1hIiwianRpIjoiMjIyMjIyMjItMjIyMi00MjIyLTgyMjItMjIyMjIyMjIyMjIyIiwiZW1haWwiOiJlcXVpcGVAZXhlbXBsZS5mciIsImlhdCI6MTc5MjgwMDAwMCwiZXhwIjoxNzkyODAwMDYwfQ._4okxPOtJ7kuAPL-75PhPPE284YVeRslf3-09sV_6Rk"
+    },
+    {
+      "nom": "sans signature",
+      "valide": false,
+      "jeton": "eyJ2IjoxLCJraWQiOiJjNi1hIiwianRpIjoiMjIyMjIyMjItMjIyMi00MjIyLTgyMjItMjIyMjIyMjIyMjIyIiwiZW1haWwiOiJlcXVpcGVAZXhlbXBsZS5mciIsImlhdCI6MTc5MjgwMDAwMCwiZXhwIjoxNzkyODAwMDYwfQ."
+    }
+  ]
+}

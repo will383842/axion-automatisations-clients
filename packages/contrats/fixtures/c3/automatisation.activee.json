@@ -1,0 +1,27 @@
+{
+  "type": "automatisation.activee",
+  "cas": [
+    {
+      "nom": "valide",
+      "valide": true,
+      "cle": "cle-test-c3-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c3-console-a",
+      "horodatage": "1792800000",
+      "methode": "POST",
+      "chemin": "/api/console/v1/evenements",
+      "corps": "{\"event_id\":\"11111111-1111-4111-8111-111111111111\",\"schema_version\":1,\"occurred_at\":\"2026-10-24T10:00:00Z\",\"emitted_at\":\"2026-10-24T10:00:01Z\",\"sequence\":1,\"producer\":\"axion-console\",\"subject_ref\":{\"consoleClientId\":\"console-cli-0001\"},\"event_type\":\"automatisation.activee\",\"payload\":{\"consoleClientId\":\"console-cli-0001\",\"codeAutomatisation\":\"tri-courriels\",\"dateActivation\":\"2026-11-01\"}}",
+      "signature": "v1=d467393dba4cf16d1de0fe6efb695890836b9ea621f96cecf45894bf546d9867"
+    },
+    {
+      "nom": "code vide",
+      "valide": false,
+      "cle": "cle-test-c3-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c3-console-a",
+      "horodatage": "1792800000",
+      "methode": "POST",
+      "chemin": "/api/console/v1/evenements",
+      "corps": "{\"event_id\":\"11111111-1111-4111-8111-111111111111\",\"schema_version\":1,\"occurred_at\":\"2026-10-24T10:00:00Z\",\"emitted_at\":\"2026-10-24T10:00:01Z\",\"sequence\":1,\"producer\":\"axion-console\",\"subject_ref\":{\"consoleClientId\":\"console-cli-0001\"},\"event_type\":\"automatisation.activee\",\"payload\":{\"consoleClientId\":\"console-cli-0001\",\"codeAutomatisation\":\"\",\"dateActivation\":\"2026-11-01\"}}",
+      "signature": "v1=36d90dc036c3a4bfcd249b8383069054798972e34fd5ba8c95bf376b3fef106a"
+    }
+  ]
+}

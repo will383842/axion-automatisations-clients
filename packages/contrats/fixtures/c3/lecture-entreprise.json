@@ -1,0 +1,94 @@
+{
+  "route": "lecture-entreprise",
+  "cas": [
+    {
+      "nom": "par SIREN",
+      "valide": true,
+      "cle": "cle-test-c3-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c3-console-a",
+      "horodatage": "1792800000",
+      "methode": "GET",
+      "chemin": "/api/console/v1/entreprises?siren=812345676",
+      "corps": "",
+      "signature": "v1=e7721ac4c10fa30c4504243a621ed51b6a5838aa5d5ed46326659bc615f52072"
+    },
+    {
+      "nom": "par SIRET",
+      "valide": true,
+      "cle": "cle-test-c3-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c3-console-a",
+      "horodatage": "1792800000",
+      "methode": "GET",
+      "chemin": "/api/console/v1/entreprises?siret=81234567600011",
+      "corps": "",
+      "signature": "v1=e9a19b6e2b883de4a20f43cce11b2163f62b26f5b6f3279dcc9acf3bfe8742ed"
+    },
+    {
+      "nom": "SIREN de 8 chiffres",
+      "valide": false,
+      "cle": "cle-test-c3-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c3-console-a",
+      "horodatage": "1792800000",
+      "methode": "GET",
+      "chemin": "/api/console/v1/entreprises?siren=81234567",
+      "corps": "",
+      "signature": "v1=42fe4db2025052f081d994d982650994add6168613b19e350d11d82f25fe9f1f"
+    },
+    {
+      "nom": "SIREN et SIRET ensemble",
+      "valide": false,
+      "cle": "cle-test-c3-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c3-console-a",
+      "horodatage": "1792800000",
+      "methode": "GET",
+      "chemin": "/api/console/v1/entreprises?siren=812345676&siret=81234567600011",
+      "corps": "",
+      "signature": "v1=5a29acbf37e056190082cfb7efec9c52fe5486481535a2fd6e8fd61c3bd757e6"
+    }
+  ],
+  "reponses": [
+    {
+      "nom": "fiche active",
+      "valide": true,
+      "corps": {
+        "crmCompanyId": "crm-0001",
+        "raisonSociale": "Lemoine Rénovation",
+        "adresse": {
+          "ligne1": "1 rue d'essai",
+          "codePostal": "75001",
+          "ville": "Ville-Test",
+          "pays": "FR"
+        },
+        "siretEtablissement": "81234567600011"
+      }
+    },
+    {
+      "nom": "fiche absorbée",
+      "valide": true,
+      "corps": {
+        "crmCompanyId": "crm-0002",
+        "raisonSociale": "Lemoine Rénovation",
+        "adresse": {
+          "ligne1": "1 rue d'essai",
+          "codePostal": "75001",
+          "ville": "Ville-Test",
+          "pays": "FR"
+        },
+        "siretEtablissement": "81234567600011",
+        "absorbeePar": "crm-0001"
+      }
+    },
+    {
+      "nom": "fiche absente",
+      "valide": true,
+      "statut": 404,
+      "corps": {
+        "erreur": {
+          "code": "introuvable",
+          "message": "Entreprise introuvable.",
+          "id_trace": "trace-0001"
+        }
+      }
+    }
+  ]
+}

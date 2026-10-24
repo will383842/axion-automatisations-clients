@@ -1,0 +1,17 @@
+{
+  "cas": [
+    { "nom": "debut puis fin", "valide": true, "corps": { "evenements": [
+      { "type": "debut", "instanceId": "inst-0001", "executionId": "exec-0001", "a": "2026-10-24T10:00:00Z" },
+      { "type": "fin", "instanceId": "inst-0001", "executionId": "exec-0001", "dureeMs": 1200, "elements": 3, "minutesGagnees": 15, "jetons": 800, "coutIaMicroCentimes": 4200 }
+    ] } },
+    { "nom": "signal de vie seul", "valide": true, "corps": { "evenements": [
+      { "type": "signal_de_vie", "instanceId": "inst-0001", "a": "2026-10-24T10:00:30Z" }
+    ] } },
+    { "nom": "erreur avec message libre", "valide": false, "corps": { "evenements": [
+      { "type": "erreur", "instanceId": "inst-0001", "executionId": "exec-0001", "classe": "definitive", "code": "refus_outil", "message": "texte libre" }
+    ] } },
+    { "nom": "coût IA flottant", "valide": false, "corps": { "evenements": [
+      { "type": "fin", "instanceId": "inst-0001", "executionId": "exec-0001", "dureeMs": 1, "elements": 1, "minutesGagnees": 1, "jetons": 1, "coutIaMicroCentimes": 0.5 }
+    ] } }
+  ]
+}

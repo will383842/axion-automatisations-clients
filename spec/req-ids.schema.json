@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Liste des numéros d’exigences (sans texte)",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "id",
+      "lot",
+      "version",
+      "preuve"
+    ],
+    "properties": {
+      "id": {
+        "type": "string",
+        "pattern": "^[ABC]-\\d{3}$"
+      },
+      "lot": {
+        "type": "string",
+        "enum": [
+          "0",
+          "1",
+          "2",
+          "2-bis",
+          "2-ter",
+          "2b",
+          "3",
+          "4",
+          "5",
+          "6",
+          "7",
+          "8a",
+          "8b",
+          "hors lot"
+        ]
+      },
+      "version": {
+        "type": "string",
+        "enum": [
+          "V1",
+          "V2",
+          "V1-partiel"
+        ]
+      },
+      "preuve": {
+        "type": "string",
+        "enum": [
+          "test",
+          "test+maquette",
+          "mesure",
+          "document",
+          "document+test",
+          "exercice",
+          "e2e"
+        ]
+      }
+    }
+  }
+}

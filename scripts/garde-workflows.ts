@@ -13,7 +13,7 @@ function declencheurs(lignes: string[]): string[] {
   const i = lignes.findIndex((l) => /^["']?on["']?:/.test(l));
   if (i < 0) return [];
   const reste = (lignes[i] ?? "").replace(/^["']?on["']?:/, "").trim();
-  if (reste) return reste.split(/[[\],\s]+/).filter(Boolean);
+  if (reste) return reste.split(/[[\]{},:\s]+/).filter(Boolean);
   const noms: string[] = [];
   let indent = -1;
   for (const l of lignes.slice(i + 1)) {
@@ -33,9 +33,9 @@ export function verifierWorkflow(nom: string, texte: string): string[] {
   const erreurs: string[] = [];
   const echec = (n: number, msg: string) => erreurs.push(`${nom}:${n}: ${msg}`);
   const trigs = declencheurs(lignes);
-  const surPr = trigs.includes("pull_request");
+  const surPr = trigs.includes("pull_request") || lignes.some((l) => /\bpull_request\b(?!_target)/.test(l));
 
-  if (trigs.includes("pull_request_target")) echec(1, "pull_request_target est interdit");
+  if (lignes.some((l) => /\bpull_request_target\b/.test(l))) echec(1, "pull_request_target est interdit");
   if (!lignes.some((l) => /^permissions:/.test(l))) echec(1, "bloc permissions absent en tête du fichier");
 
   lignes.forEach((l, idx) => {
@@ -54,6 +54,13 @@ export function verifierWorkflow(nom: string, texte: string): string[] {
     if (u?.[1] && !u[1].startsWith("./")) {
       const ref = u[1].split("@")[1] ?? "";
       if (!SHA.test(ref)) echec(n, `action non épinglée par SHA : ${u[1]}`);
+    }
+    if (/uses:\s*["']?actions\/checkout@/.test(l)) {
+      let suite = idx + 1;
+      while (suite < lignes.length && !/^\s*-\s/.test(lignes[suite] ?? "") && !/^\S/.test(lignes[suite] ?? "")) suite++;
+      if (!lignes.slice(idx, suite).some((x) => /persist-credentials:\s*false/.test(x))) {
+        echec(n, "actions/checkout sans persist-credentials: false");
+      }
     }
     if (/^\s*environment:/.test(l)) {
       const hors = trigs.filter((t) => !DECLENCHEURS_RESERVES.has(t));

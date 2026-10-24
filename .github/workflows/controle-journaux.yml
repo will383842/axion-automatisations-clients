@@ -15,11 +15,14 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           ref: ${{ github.event.repository.default_branch }}
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
       - name: Télécharger les journaux et les pièces jointes (traités comme du texte)
+        id: telecharger
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DEPOT: ${{ github.repository }}
@@ -34,10 +37,11 @@ jobs:
           done
       - name: Chercher des données réelles (sortie sans valeur)
         id: scan
+        if: steps.telecharger.outcome == 'success'
         continue-on-error: true
         run: node scripts/scanner-journaux.ts "$RUNNER_TEMP/texte"
       - name: Supprimer les journaux et les pièces jointes si trouvaille
-        if: steps.scan.outcome == 'failure'
+        if: always() && (steps.telecharger.outcome != 'success' || steps.scan.outcome != 'success')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DEPOT: ${{ github.repository }}
@@ -47,5 +51,5 @@ jobs:
           for id in $(gh api "repos/$DEPOT/actions/runs/$RUN_ID/artifacts" --jq '.artifacts[].id'); do
             gh api -X DELETE "repos/$DEPOT/actions/artifacts/$id"
           done
-          echo "Données réelles trouvées : journaux et pièces jointes supprimés." >&2
+          echo "Journaux non lus ou données réelles trouvées : journaux et pièces jointes supprimés." >&2
           exit 1

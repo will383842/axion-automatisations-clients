@@ -1,0 +1,7 @@
+{
+  "erreurs": [
+    "ligne Exigences absente (écrire « Exigences : C-123 » ou « Exigences : aucune (outillage) »)"
+  ],
+  "avertissements": [],
+  "couverture": []
+}

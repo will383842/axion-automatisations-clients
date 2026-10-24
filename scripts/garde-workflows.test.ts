@@ -80,6 +80,34 @@ describe("garde-workflows", () => {
       expect(verifierWorkflow("d.yml", enTete("permissions:\n  \"statuses\": \"write\""))).not.toEqual([]);
       expect(verifierWorkflow("e.yml", enTete("permissions: 'write-all'"))).not.toEqual([]);
     });
+    it("[C-529] garde-workflows refuse une valeur de statuses ou checks absente ou à la ligne suivante", () => {
+      expect(verifierWorkflow("a.yml", enTete("permissions:\n  contents: read\n  statuses:\n    write"))).not.toEqual([]);
+      expect(verifierWorkflow("b.yml", enTete("permissions: {\n  contents: read,\n  checks:\n  write }"))).not.toEqual([]);
+      expect(verifierWorkflow("c.yml", enTete("permissions:\n  contents: read\n  statuses:"))).not.toEqual([]);
+    });
+    it("[C-529] garde-workflows refuse un scalaire bloc, une étiquette, une clé explicite ou une casse différente", () => {
+      expect(verifierWorkflow("a.yml", enTete("permissions:\n  statuses: >-\n    write"))).not.toEqual([]);
+      expect(verifierWorkflow("b.yml", enTete("permissions:\n  statuses: !!str write"))).not.toEqual([]);
+      expect(verifierWorkflow("c.yml", enTete("permissions:\n  ? statuses\n  : write"))).not.toEqual([]);
+      expect(verifierWorkflow("d.yml", enTete("permissions:\n  statuses: WRITE"))).not.toEqual([]);
+    });
+    it("[C-529] garde-workflows refuse ancre, alias et fusion dans tout workflow", () => {
+      const ancre = verifierWorkflow("a.yml", `x-w: &w write\n${enTete("permissions:\n  statuses: *w")}`);
+      expect(ancre.join("\n")).toContain("ancre");
+      expect(verifierWorkflow("b.yml", enTete("permissions: &p\n  contents: read\n  <<: *m"))).not.toEqual([]);
+      expect(verifierWorkflow("c.yml", enTete("permissions:\n  contents: read\n  <<: *m"))).not.toEqual([]);
+    });
+    it("[C-529] garde-workflows refuse une valeur permissions qui n'est ni un bloc, ni read-all, ni {}", () => {
+      expect(verifierWorkflow("a.yml", enTete("permissions:\n  write-all"))).not.toEqual([]);
+      expect(verifierWorkflow("b.yml", enTete("permissions: &p write-all"))).not.toEqual([]);
+      expect(verifierWorkflow("c.yml", enTete("permissions: !!str write-all"))).not.toEqual([]);
+      expect(verifierWorkflow("d.yml", enTete("permissions: write"))).not.toEqual([]);
+    });
+    it("[C-529] garde-workflows accepte permissions: read-all, {} et des clés avec read ou none", () => {
+      expect(verifierWorkflow("a.yml", enTete("permissions: read-all"))).toEqual([]);
+      expect(verifierWorkflow("b.yml", enTete("permissions: {}"))).toEqual([]);
+      expect(verifierWorkflow("c.yml", enTete("permissions:\n  contents: read\n  statuses: none\n  checks: read"))).toEqual([]);
+    });
     it("[C-529] garde-workflows accepte contents: read et statuses: read", () => {
       expect(verifierWorkflow("ok.yml", enTete("permissions:\n  contents: read\n  statuses: read\n  checks: read"))).toEqual([]);
     });

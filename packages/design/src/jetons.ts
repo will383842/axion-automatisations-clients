@@ -35,8 +35,8 @@ export const jetons = {
       fait: { fond: "#e3efdc", texte: "#1a4720", trait: "#2f7d3a" },
       pause: { fond: "#e3d9c6", texte: "#3a332b" },
     },
-    // Réservés au composant d'illustration (soleil, collines, feuilles du bandeau d'accueil).
-    illustration: { soleil: "#f2b48f", colline: "#cfe0d2", feuille: "#9fc3ad" },
+    // Réservés au composant d'illustration du bandeau d'accueil (couleurs relevées dans la maquette F-Portail-Accueil).
+    illustration: { soleil: "#f6c3a8", colline: "#a9cfbb", feuille: "#7fb59a", feuilleClaire: "#9cc8b0", brume: "#cfe5d8" },
   },
   rayon: { 8: "8px", 12: "12px", 14: "14px", 16: "16px", 22: "22px", 28: "28px", 999: "999px" },
   espacement: { 4: "4px", 8: "8px", 12: "12px", 16: "16px", 24: "24px", 28: "28px", 32: "32px", 48: "48px" },
@@ -79,6 +79,10 @@ export const couplesContraste: ReadonlyArray<readonly [string, string]> = [
   ["couleur.menu.secondaire", "couleur.menu.fond"],
   ["couleur.menu.actif.texte", "couleur.menu.actif.fond"],
   ["couleur.lien", "couleur.fond.carte"],
+  ["couleur.lien", "couleur.fond.portail"],
+  ["couleur.lien", "couleur.fond.console"],
+  ["couleur.lien", "couleur.peche.fond"],
+  ["couleur.menu.texte", "couleur.action"],
   ["couleur.actionTexte", "couleur.peche.fond"],
   ["couleur.initiales.texte", "couleur.initiales.fond"],
   ["couleur.peche.titre", "couleur.peche.fond"],
@@ -100,20 +104,35 @@ export const couplesContraste: ReadonlyArray<readonly [string, string]> = [
 
 // --- Calculs de couleur (WCAG 2.x, teinte) ---
 
-const HEX = /#[0-9a-fA-F]{6}\b/g;
+const HEX = /#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{4}|[0-9a-fA-F]{3})(?![\w-])/g;
 const RGBA = /rgba?\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*(?:,\s*[\d.]+\s*)?\)/g;
+const HSLA = /hsla?\(\s*[\d.]+(?:deg)?\s*[, ]\s*[\d.]+%\s*[, ]\s*[\d.]+%\s*(?:[,/]\s*[\d.]+%?\s*)?\)/g;
 
-/** Les couleurs littérales (hex à 6 chiffres, rgb/rgba) d'un texte. */
+/** Les couleurs littérales (hex à 3, 4, 6 ou 8 chiffres, rgb/rgba, hsl/hsla) d'un texte. */
 export function couleursDe(texte: string): string[] {
-  return [...(texte.match(HEX) ?? []), ...(texte.match(RGBA) ?? [])];
+  return [...(texte.match(HEX) ?? []), ...(texte.match(RGBA) ?? []), ...(texte.match(HSLA) ?? [])];
 }
 
 function rvb(couleur: string): [number, number, number] {
   if (couleur.startsWith("#")) {
-    const n = parseInt(couleur.slice(1), 16);
+    let h = couleur.slice(1);
+    if (h.length <= 4) h = [...h].map((c) => c + c).join("");
+    const n = parseInt(h.slice(0, 6), 16);
     return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
   }
-  const [r = 0, v = 0, b = 0] = (couleur.match(/\d+(?:\.\d+)?/g) ?? []).map(Number);
+  const nombres = (couleur.match(/\d+(?:\.\d+)?/g) ?? []).map(Number);
+  if (couleur.startsWith("hsl")) {
+    const [t = 0, sat = 0, lum = 0] = nombres;
+    const s = sat / 100;
+    const l = lum / 100;
+    const a = s * Math.min(l, 1 - l);
+    const f = (n: number) => {
+      const k = (n + t / 30) % 12;
+      return Math.round(255 * (l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1))));
+    };
+    return [f(0), f(8), f(4)];
+  }
+  const [r = 0, v = 0, b = 0] = nombres;
   return [r, v, b];
 }
 

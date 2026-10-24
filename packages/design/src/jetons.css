@@ -70,9 +70,11 @@
   --couleur-etat-fait-trait: #2f7d3a;
   --couleur-etat-pause-fond: #e3d9c6;
   --couleur-etat-pause-texte: #3a332b;
-  --couleur-illustration-soleil: #f2b48f;
-  --couleur-illustration-colline: #cfe0d2;
-  --couleur-illustration-feuille: #9fc3ad;
+  --couleur-illustration-soleil: #f6c3a8;
+  --couleur-illustration-colline: #a9cfbb;
+  --couleur-illustration-feuille: #7fb59a;
+  --couleur-illustration-feuilleClaire: #9cc8b0;
+  --couleur-illustration-brume: #cfe5d8;
   --rayon-8: 8px;
   --rayon-12: 12px;
   --rayon-14: 14px;
@@ -101,6 +103,7 @@
 }
 
 @theme {
+  --color-*: initial;
   --color-menu-fond: var(--couleur-menu-fond);
   --color-menu-texte: var(--couleur-menu-texte);
   --color-menu-secondaire: var(--couleur-menu-secondaire);
@@ -174,6 +177,8 @@
   --color-illustration-soleil: var(--couleur-illustration-soleil);
   --color-illustration-colline: var(--couleur-illustration-colline);
   --color-illustration-feuille: var(--couleur-illustration-feuille);
+  --color-illustration-feuilleClaire: var(--couleur-illustration-feuilleClaire);
+  --color-illustration-brume: var(--couleur-illustration-brume);
   --radius-8: var(--rayon-8);
   --radius-12: var(--rayon-12);
   --radius-14: var(--rayon-14);

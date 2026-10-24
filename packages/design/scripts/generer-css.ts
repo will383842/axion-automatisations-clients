@@ -27,6 +27,7 @@ export function genererCss(arbre: Arbre = jetons): string {
     "}",
     "",
     "@theme {",
+    "  --color-*: initial;",
     ...theme,
     "}",
     "",

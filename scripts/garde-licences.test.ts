@@ -14,7 +14,7 @@ describe("garde-licences", () => {
   it("refuse une licence inconnue", () => {
     expect(verifierLicences({ Unknown: paquet("y") }, new Set()).join("\n")).toContain("y");
   });
-  it("MPL-2.0 seulement pour les paquets de apps/api et apps/executeur", () => {
+  it("MPL-2.0 seulement pour les paquets de apps/api, apps/console et apps/portail", () => {
     expect(verifierLicences({ "MPL-2.0": paquet("m") }, new Set(["m"]))).toEqual([]);
     expect(verifierLicences({ "MPL-2.0": paquet("m") }, new Set(["autre"]))).not.toEqual([]);
   });

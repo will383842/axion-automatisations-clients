@@ -21,7 +21,7 @@ const brique = (surcharge: Record<string, unknown> = {}) => ({
   ...surcharge,
 });
 const verifier = (surcharge: Record<string, unknown> = {}, compose = "") =>
-  verifierBriques([{ fichier: `ops/briques/${String(surcharge.nom ?? "exemple")}.json`, contenu: brique(surcharge) }], compose ? [{ nom: "c.yml", texte: compose }] : [], "");
+  verifierBriques([{ fichier: `ops/briques/${String(surcharge.nom ?? "exemple")}.json`, contenu: brique(surcharge) }], compose ? [{ nom: "c.yml", texte: compose }] : []);
 const composeDe = (image: string) => `services:\n  x:\n    image: ${image}\n`;
 
 describe("garde-briques : licences et lieu de livraison", () => {
@@ -57,7 +57,7 @@ describe("garde-briques : licences et lieu de livraison", () => {
     expect(verifier({ nom: "openbao-2", licence: "AGPL-3.0-only", livree: false })).not.toEqual([]);
   });
   it("[A-375] garde-briques refuse un nom qui ne correspond pas au nom du fichier", () => {
-    const r = verifierBriques([{ fichier: "ops/briques/openbao.json", contenu: brique({ nom: "stockage-objet", licence: "AGPL-3.0-only", livree: false }) }], [], "");
+    const r = verifierBriques([{ fichier: "ops/briques/openbao.json", contenu: brique({ nom: "stockage-objet", licence: "AGPL-3.0-only", livree: false }) }], []);
     expect(r.join("\n")).toMatch(/nom/);
   });
   it("[A-375] garde-briques refuse livree donné autrement que par un booléen", () => {
@@ -71,23 +71,23 @@ describe("garde-briques : licences et lieu de livraison", () => {
     expect(verifier({ source: "https://10.0.0.1/p" })).not.toEqual([]);
   });
   it("[A-375] garde-briques refuse un contenu qui n'est pas un objet", () => {
-    for (const contenu of [null, [], "x", 3]) expect(verifierBriques([{ fichier: "ops/briques/x.json", contenu }], [], ""), String(contenu)).not.toEqual([]);
+    for (const contenu of [null, [], "x", 3]) expect(verifierBriques([{ fichier: "ops/briques/x.json", contenu }], []), String(contenu)).not.toEqual([]);
   });
 });
 
 describe("garde-briques : redis, valkey, empreintes", () => {
   it("[A-378] garde-briques refuse une image redis", () => {
-    expect(verifierBriques([], [{ nom: "compose-redis.yml", texte: fixture("compose-redis.yml") }], "").join("\n")).toMatch(/redis/i);
+    expect(verifierBriques([], [{ nom: "compose-redis.yml", texte: fixture("compose-redis.yml") }]).join("\n")).toMatch(/redis/i);
   });
   it("[A-378] garde-briques refuse redis sous toutes ses écritures", () => {
     for (const image of ["redis:7", "REDIS:7", "bitnami/redis:7", "redis/redis-stack:7", "localhost:5000/library/redis@sha256:" + "b".repeat(64), "ghcr.io/acteur/redis-cluster:1"]) {
-      expect(verifierBriques([], [{ nom: "c.yml", texte: composeDe(image) }], "").join("\n"), image).toMatch(/redis/i);
+      expect(verifierBriques([], [{ nom: "c.yml", texte: composeDe(image) }]).join("\n"), image).toMatch(/redis/i);
     }
     expect(verifier({ nom: "files", image: "redis", version: "7.2" })).not.toEqual([]);
   });
   it("[C-493] garde-briques accepte valkey", () => {
     const valkey = brique({ nom: "valkey", image: "valkey/valkey", version: "8.0.1", empreinte: `sha256:${"c5d4f082b76d433a38274ebb38a43cff19829a062928bdcc45611135ef54e608"}`, licence: "BSD-3-Clause" });
-    const r = verifierBriques([{ fichier: "ops/briques/valkey.json", contenu: valkey }], [{ nom: "compose-valkey.yml", texte: fixture("compose-valkey.yml") }], "");
+    const r = verifierBriques([{ fichier: "ops/briques/valkey.json", contenu: valkey }], [{ nom: "compose-valkey.yml", texte: fixture("compose-valkey.yml") }]);
     expect(r).toEqual([]);
   });
   it("[A-381] garde-briques refuse une image sans empreinte", () => {
@@ -101,7 +101,7 @@ describe("garde-briques : redis, valkey, empreintes", () => {
     expect(verifier({ image: "exemple/exemple:1.0.0" })).not.toEqual([]);
   });
   it("[A-381] garde-briques refuse une image du compose sans fichier de brique", () => {
-    const r = verifierBriques([], [{ nom: "c.yml", texte: composeDe("exemple/inconnue:2.0.0") }], "");
+    const r = verifierBriques([], [{ nom: "c.yml", texte: composeDe("exemple/inconnue:2.0.0") }]);
     expect(r.join("\n")).toMatch(/exemple\/inconnue.*aucune brique/);
   });
   it("[A-381] garde-briques refuse une empreinte du compose différente de celle de la brique", () => {
@@ -119,12 +119,12 @@ describe("garde-briques : redis, valkey, empreintes", () => {
   });
   it("[A-381] garde-briques lit l'image à travers une ancre et une fusion YAML", () => {
     const compose = "x-base: &base\n  image: redis:7\nservices:\n  a:\n    <<: *base\n";
-    expect(verifierBriques([], [{ nom: "c.yml", texte: compose }], "").join("\n")).toMatch(/redis/i);
+    expect(verifierBriques([], [{ nom: "c.yml", texte: compose }]).join("\n")).toMatch(/redis/i);
   });
   it("[A-381] garde-briques refuse deux fichiers pour la même image et la même version avec deux empreintes", () => {
     const a = { fichier: "ops/briques/a.json", contenu: brique({ nom: "a" }) };
     const b = { fichier: "ops/briques/b.json", contenu: brique({ nom: "b", empreinte: `sha256:${"b".repeat(64)}` }) };
-    expect(verifierBriques([a, b], [], "").join("\n")).toMatch(/deux/);
+    expect(verifierBriques([a, b], []).join("\n")).toMatch(/deux/);
   });
   it("[A-381] lireImage sépare le dépôt, la version et l'empreinte", () => {
     expect(lireImage("Docker.io/Library/Postgres:16.4@sha256:" + "d".repeat(64))).toEqual({ depot: "postgres", version: "16.4", empreinte: `sha256:${"d".repeat(64)}` });

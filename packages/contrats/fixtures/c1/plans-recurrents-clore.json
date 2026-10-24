@@ -1,0 +1,27 @@
+{
+  "route": "plans-recurrents-clore",
+  "cas": [
+    {
+      "nom": "valide",
+      "valide": true,
+      "cle": "cle-test-c1-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c1-console-a",
+      "horodatage": "1792800000",
+      "methode": "POST",
+      "chemin": "/api/console/v1/plans-recurrents/plan-0001/clore",
+      "corps": "{\"dateFin\":\"2027-01-31\",\"motif\":\"fin d'engagement\"}",
+      "signature": "v1=0be75a2955cc6e08edcda6b3890cdc8225ad837f527e20303e5b67c31981675f"
+    },
+    {
+      "nom": "date mal formée",
+      "valide": false,
+      "cle": "cle-test-c1-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c1-console-a",
+      "horodatage": "1792800000",
+      "methode": "POST",
+      "chemin": "/api/console/v1/plans-recurrents/plan-0001/clore",
+      "corps": "{\"dateFin\":\"31/01/2027\",\"motif\":\"fin d'engagement\"}",
+      "signature": "v1=f9fea42a1bcfc724fbde73386b7ba850832a5232d5677611ddb96c2d5bd66b08"
+    }
+  ]
+}

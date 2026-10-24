@@ -6,6 +6,9 @@ import { configDefaults, defineConfig } from "vitest/config";
 const retry = 0;
 // Vitest 4 a retiré **/dist/** de ses exclusions par défaut : on le remet.
 const exclude = [...configDefaults.exclude, "**/dist/**", "**/__fixtures__/**"];
+// Les tests d'intégration demandent le socle lancé (ops/socle/lancer.sh) : seul le projet integration les prend.
+const excludeDefaut = [...exclude, "**/*.int.test.ts"];
+const integration = process.env.SOCLE_INTEGRATION === "1";
 const dossiers = (racine: string) =>
   readdirSync(racine, { withFileTypes: true })
     .filter((d) => d.isDirectory() && existsSync(`${racine}/${d.name}/package.json`))
@@ -18,8 +21,10 @@ export default defineConfig({
   root: fileURLToPath(new URL("./", import.meta.url)),
   test: {
     projects: [
-      { test: { name: "scripts", root: "./scripts", retry, exclude } },
-      ...[...dossiers("apps"), ...dossiers("packages")].map((d) => ({ test: { name: d, root: `./${d}`, retry, exclude } })),
+      { test: { name: "scripts", root: "./scripts", retry, exclude: excludeDefaut } },
+      ...[...dossiers("apps"), ...dossiers("packages")].map((d) => ({ test: { name: d, root: `./${d}`, retry, exclude: excludeDefaut } })),
+      // Vide sans SOCLE_INTEGRATION=1, pour que « vitest run » ne lance jamais ces tests faute de services.
+      { test: { name: "integration", root: ".", retry, exclude, include: integration ? ["**/*.int.test.ts"] : [] } },
     ],
   },
 });

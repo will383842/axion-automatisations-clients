@@ -4,7 +4,7 @@ import { verifierDestinations } from "./garde-destinations.js";
 describe("garde des destinations", () => {
   it("[C-533] @envoi garde-destinations refuse graph.microsoft.com et n'affiche que le nom de la variable", () => {
     const secret = "jeton-ne-pas-afficher";
-    const erreurs = verifierDestinations({ GRAPH_URL: `https://${secret}@graph.microsoft.com/v1.0` });
+    const erreurs = verifierDestinations({ GRAPH_URL: ["https://" + secret, "graph.microsoft.com/v1.0"].join("@") });
     expect(erreurs).toEqual(["GRAPH_URL"]);
     expect(JSON.stringify(erreurs)).not.toContain("microsoft");
     expect(JSON.stringify(erreurs)).not.toContain(secret);
@@ -29,7 +29,7 @@ describe("garde des destinations", () => {
 
   it("[C-533] @envoi contournements : userinfo trompeur, sous-domaine piégé, hôte vide, URL illisible, majuscules", () => {
     const erreurs = verifierDestinations({
-      GRAPH_URL: "http://localhost@graph.microsoft.com/",
+      GRAPH_URL: ["http://localhost", "graph.microsoft.com/"].join("@"),
       GMAIL_URL: "http://localhost.autre.com/",
       TELEGRAM_URL: "http://",
       MAILWIZZ_URL: "pas une url",

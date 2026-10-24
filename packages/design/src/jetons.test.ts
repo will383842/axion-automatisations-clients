@@ -46,4 +46,20 @@ describe("jetons", () => {
     const pkg = JSON.parse(readFileSync(ici("../package.json"), "utf8")) as { dependencies: Record<string, string> };
     expect(Object.keys(pkg.dependencies)).toEqual(expect.arrayContaining(["@fontsource/manrope", "@fontsource/fraunces"]));
   });
+
+  it("[C-597] couleursDe lit les formes à 3, 4 et 8 chiffres et hsl(, estBleu les juge", () => {
+    expect(couleursDe("#00f #1a4dd9ff #abcd hsl(220 80% 50%)")).toHaveLength(4);
+    expect(couleursDe("#00f #1a4dd9ff hsl(220 80% 50%) hsla(220, 80%, 50%, 0.5)").filter(estBleu)).toHaveLength(4);
+    expect(estBleu("hsl(20 80% 50%)")).toBe(false);
+  });
+
+  it("[C-586] les couleurs d'illustration viennent des maquettes", () => {
+    expect(Object.values(jetons.couleur.illustration)).toEqual(
+      expect.arrayContaining(["#f6c3a8", "#a9cfbb", "#7fb59a", "#9cc8b0", "#cfe5d8"]),
+    );
+  });
+
+  it("[C-595] jetons.css remet à zéro la palette par défaut de Tailwind", () => {
+    expect(genererCss(jetons)).toContain("--color-*: initial;");
+  });
 });

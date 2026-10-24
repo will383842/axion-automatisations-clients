@@ -46,4 +46,34 @@ describe("garde-couleurs", () => {
     writeFileSync(join(r, "apps/x/src/mauvais.ts"), rouge);
     expect(verifierArbre(r)).toHaveLength(1);
   });
+
+  it("[C-595] verifierArbre n'exclut que packages/design/src/jetons.ts et jetons.css", () => {
+    const r = mkdtempSync(join(tmpdir(), "gc-"));
+    mkdirSync(join(r, "apps/console/src"), { recursive: true });
+    writeFileSync(join(r, "apps/console/src/jetons.css"), "a { color: #c24a1b; }");
+    writeFileSync(join(r, "apps/console/src/jetons.ts"), `const c = "#c24a1b";`);
+    expect(verifierArbre(r)).toHaveLength(2);
+  });
+
+  it("[C-597] verifierArbre refuse un bleu dans packages/design/src/jetons.ts, sous toutes ses formes", () => {
+    for (const bleu of ["#00f", "#1a4dd9ff", "#1a4dd9", "hsl(220 80% 50%)", "hsla(220, 80%, 50%, 0.5)", "rgb(26, 77, 217)"]) {
+      const r = mkdtempSync(join(tmpdir(), "gc-"));
+      mkdirSync(join(r, "packages/design/src"), { recursive: true });
+      writeFileSync(join(r, "packages/design/src/jetons.ts"), `export const x = "${bleu}";`);
+      expect(verifierArbre(r), bleu).toHaveLength(1);
+    }
+  });
+
+  it("[C-597] garde-couleurs refuse les classes Tailwind de la palette par défaut (bg-blue-500)", () => {
+    expect(analyserFichier("a.tsx", `<div className="p-4 bg-blue-500">`)).toHaveLength(1);
+    expect(analyserFichier("a.tsx", `<div className="text-slate-700">`)).toHaveLength(1);
+    expect(analyserFichier("a.tsx", `<div className="bg-action text-menu-texte">`)).toEqual([]);
+  });
+
+  it("[C-595] verifierArbre signale une erreur de lecture autre que dossier absent", () => {
+    const r = mkdtempSync(join(tmpdir(), "gc-"));
+    expect(verifierArbre(r)).toEqual([]);
+    writeFileSync(join(r, "apps"), "pas un dossier");
+    expect(() => verifierArbre(r)).toThrow();
+  });
 });

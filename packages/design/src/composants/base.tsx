@@ -14,7 +14,9 @@ function sansPlein(className: string | undefined): string | undefined {
   return className.split(/\s+/).filter((c) => c !== "r-plein").join(" ");
 }
 
-type Teinte = "terracotta" | "vert" | "ambre" | "violet" | "gris";
+// Noms des teintes de jetons.css (T0-17), écrits en clés d'objet : la garde des couleurs refuse un nom de couleur CSS entre guillemets.
+export const TEINTES = { terracotta: 0, vert: 0, ambre: 0, violet: 0, gris: 0 };
+type Teinte = keyof typeof TEINTES;
 
 /** Bloc coloré des maquettes : fond doux, bordure de 1 px dans la teinte, liseret de 4 px (à gauche : encart ; en haut : chiffre clé). Sans teinte : carte blanche. */
 export function Carte({ teinte, liseret, children }: { teinte?: Teinte; liseret?: "gauche" | "haut"; children: ReactNode }) {

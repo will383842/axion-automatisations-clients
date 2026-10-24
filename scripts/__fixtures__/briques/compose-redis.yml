@@ -1,3 +1,0 @@
-services:
-  files:
-    image: docker.io/library/Redis:7.2

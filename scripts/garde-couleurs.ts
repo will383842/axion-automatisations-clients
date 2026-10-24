@@ -59,6 +59,7 @@ function fichiers(dossier: string, racine: string): string[] {
 }
 
 const JETONS = "packages/design/src/jetons.ts";
+const FONCTION_INCONNUE = /\b(?:oklch|oklab|lab|lch|hwb|color)\(/i;
 
 function lire(action: () => string[]): string[] {
   try {
@@ -70,11 +71,15 @@ function lire(action: () => string[]): string[] {
 }
 
 export function verifierArbre(racine: string): string[] {
-  const bleus = lire(() =>
-    couleursDe(readFileSync(join(racine, JETONS), "utf8"))
-      .filter(estBleu)
-      .map((c) => `${JETONS}: bleu interdit (C-597) : ${c}`),
-  );
+  const bleus = lire(() => {
+    const source = readFileSync(join(racine, JETONS), "utf8");
+    return [
+      ...couleursDe(source)
+        .filter(estBleu)
+        .map((c) => `${JETONS}: bleu interdit (C-597) : ${c}`),
+      ...(FONCTION_INCONNUE.test(source) ? [`${JETONS}: forme de couleur non contrôlable (oklch, lab, lch, hwb, color) interdite (C-597)`] : []),
+    ];
+  });
   const fichiersTrouves = ["apps", "packages"].flatMap((d) =>
     lire(() =>
       fichiers(join(racine, d), racine).flatMap((f) =>

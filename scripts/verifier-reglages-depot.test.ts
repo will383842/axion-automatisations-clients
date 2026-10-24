@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 const script = fileURLToPath(new URL("../ops/verifier-reglages-depot.sh", import.meta.url));
 
 // Faux « gh » : l'appel à /installation échoue (401 réel), le reste répond comme un dépôt bien réglé.
-function lancer(installation: "echec" | "read" | "write", reglages: { approbation?: string; dependabot?: string } = {}) {
+function lancer(installation: "echec" | "read" | "write", reglages: { approbation?: string; dependabot?: string; fusionAuto?: string; sansGardeFusion?: boolean } = {}) {
   const dossier = mkdtempSync(join(tmpdir(), "faux-gh-"));
   const gh = join(dossier, "gh");
   writeFileSync(
@@ -16,7 +16,8 @@ function lancer(installation: "echec" | "read" | "write", reglages: { approbatio
     `#!/usr/bin/env bash
 case "$*" in
   */installation*) ${installation === "echec" ? "exit 1" : `echo ${installation}`} ;;
-  *required_status_checks*) printf '%s\\n' "Aucun secret dans le dépôt (Gitleaks)" types lint tests garde-workflows compter-tests licences couverture-req garde-noms garde-couleurs harnais contrats-pg visuel-design ;;
+  *required_status_checks*) printf '%s\\n' "Aucun secret dans le dépôt (Gitleaks)" types lint tests garde-workflows compter-tests licences couverture-req ${reglages.sansGardeFusion ? "garde-noms" : "garde-fusion"} garde-couleurs harnais contrats-pg visuel-design ;;
+  *allow_auto_merge*) echo ${reglages.fusionAuto ?? "false"} ;;
   *fork-pr-contributor-approval*) echo ${reglages.approbation ?? "all_external_contributors"} ;;
   *actions/permissions/workflow*) echo read ;;
   *private-vulnerability-reporting*) echo true ;;
@@ -56,5 +57,17 @@ describe("ops/verifier-reglages-depot.sh", () => {
     const r = lancer("read", { dependabot: "disabled" });
     expect(r.status).not.toBe(0);
     expect(r.stdout).toMatch(/À CORRIGER.*Dependabot/);
+  });
+  it("[C-611] verifier-reglages-depot.sh exige garde-fusion et refuse la fusion automatique", () => {
+    const sans = lancer("read", { sansGardeFusion: true });
+    expect(sans.status).not.toBe(0);
+    expect(sans.stdout).toMatch(/À CORRIGER.*garde-fusion/);
+    const auto = lancer("read", { fusionAuto: "true" });
+    expect(auto.status).not.toBe(0);
+    expect(auto.stdout).toMatch(/À CORRIGER.*fusion automatique/);
+    const bon = lancer("read");
+    expect(bon.stdout).toMatch(/OK\s+main exige le contrôle « garde-fusion »/);
+    expect(bon.stdout).toMatch(/OK\s+fusion automatique désactivée/);
+    expect(bon.stdout).not.toMatch(/garde-noms/);
   });
 });

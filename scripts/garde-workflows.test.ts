@@ -38,6 +38,16 @@ describe("garde-workflows", () => {
   it("[C-529] garde-workflows refuse un checkout sans persist-credentials: false", () => {
     expect(erreurs("checkout-sans-persist.yml").join("\n")).toContain("persist-credentials");
   });
+  it("[C-529] garde-workflows refuse une action non épinglée écrite entre accolades", () => {
+    expect(erreurs("uses-accolades.yml").join("\n")).toContain("evil/act@v1");
+  });
+  it("[C-529] garde-workflows refuse un uses sur plusieurs lignes ou à valeur sur la ligne suivante", () => {
+    expect(erreurs("uses-multiligne.yml")).not.toEqual([]);
+    expect(erreurs("uses-ligne-suivante.yml")).not.toEqual([]);
+  });
+  it("[C-529] garde-workflows accepte une action épinglée écrite entre accolades", () => {
+    expect(erreurs("uses-accolades-epinglee.yml")).toEqual([]);
+  });
   it("[C-529] garde-workflows est vert sur les workflows réels du dépôt", () => {
     expect(verifierDossier(fileURLToPath(new URL("../.github/workflows", import.meta.url)))).toEqual([]);
   });

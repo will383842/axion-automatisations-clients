@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { analyserConfig, analyserSource, comparerCompte, compterRapport } from "./compter-tests.js";
+import { analyserConfig, analyserSource, comparerCompte, compterRapport, verifierConsigne } from "./compter-tests.js";
 
 const source = (nom: string) => readFileSync(fileURLToPath(new URL(`./__fixtures__/sources/${nom}`, import.meta.url)), "utf8");
 
@@ -36,5 +36,10 @@ describe("compter-tests", () => {
   it("[C-538] compter-tests refuse un retry supérieur à 0 dans une configuration Vitest", () => {
     expect(analyserConfig("vitest.config.ts", source("config-retry.txt"))).not.toEqual([]);
     expect(analyserConfig("vitest.config.ts", source("config-retry-zero.txt"))).toEqual([]);
+  });
+  it("[C-538] compter-tests refuse une consigne inférieure au compte réel", () => {
+    expect(verifierConsigne(71, 117)).not.toEqual([]);
+    expect(verifierConsigne(118, 117)).not.toEqual([]);
+    expect(verifierConsigne(117, 117)).toEqual([]);
   });
 });

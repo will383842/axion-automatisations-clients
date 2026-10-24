@@ -39,3 +39,22 @@ describe("garde-licences : exceptions nommées (dépendances de développement)"
     expect(verifierLicences(dev, new Set(), new Set(["argparse", "minimatch"]))).toHaveLength(2);
   });
 });
+
+describe("garde-licences : expressions composées", () => {
+  const refuse = (expr: string) => verifierLicences({ [expr]: paquet("z") }, new Set()).length;
+  it("refuse GPL-3.0-only AND (MIT OR Apache-2.0)", () => {
+    expect(refuse("GPL-3.0-only AND (MIT OR Apache-2.0)")).toBe(1);
+  });
+  it("accepte (MIT OR Apache-2.0) AND ISC et MIT OR GPL-3.0-only", () => {
+    expect(refuse("(MIT OR Apache-2.0) AND ISC")).toBe(0);
+    expect(refuse("MIT OR GPL-3.0-only")).toBe(0);
+  });
+  it("AND lie plus fort que OR : GPL-3.0-only AND MIT OR ISC se lit (GPL AND MIT) OR ISC", () => {
+    expect(refuse("GPL-3.0-only AND MIT OR ISC")).toBe(0);
+    expect(refuse("GPL-3.0-only OR (GPL-2.0-only AND MIT)")).toBe(1);
+  });
+  it("refuse une expression illisible", () => {
+    expect(refuse("(MIT OR")).toBe(1);
+    expect(refuse("MIT MIT")).toBe(1);
+  });
+});

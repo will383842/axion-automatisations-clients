@@ -55,4 +55,8 @@ describe("scanner-journaux", () => {
     expect(t.map((x) => x.type)).toEqual(["lien symbolique", "lien symbolique"]);
     expect(formaterTrouvailles(t).join("\n")).not.toContain("/etc");
   });
+  it("[C-531] scanner-journaux ne prend pas un numéro de version à quatre morceaux pour une IP", () => {
+    const v = ipv4(1, 2, 3, 4);
+    expect(scannerTexte("e.txt", `outil v${v} paquet@${v} version ${v}`)).toEqual([]);
+  });
 });

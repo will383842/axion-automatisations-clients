@@ -1,0 +1,45 @@
+# Routage par nom d'hôte vers console, portail, API et Keycloak. Les noms viennent de l'environnement du proxy (gabarit Go).
+# Aucun service interne n'est routé ici.
+tls:
+  certificates:
+    - certFile: /certs/socle.crt
+      keyFile: /certs/socle.key
+http:
+  routers:
+    console:
+      entryPoints: [websecure]
+      rule: 'Host(`{{ env "DOMAINE_CONSOLE" }}`)'
+      service: console
+      tls: {}
+    portail:
+      entryPoints: [websecure]
+      rule: 'Host(`{{ env "DOMAINE_PORTAIL" }}`)'
+      service: portail
+      tls: {}
+    api:
+      entryPoints: [websecure]
+      rule: 'Host(`{{ env "DOMAINE_API" }}`)'
+      service: api
+      tls: {}
+    sso:
+      entryPoints: [websecure]
+      rule: 'Host(`{{ env "DOMAINE_SSO" }}`)'
+      service: keycloak
+      tls: {}
+  services:
+    console:
+      loadBalancer:
+        servers:
+          - url: http://console:3000
+    portail:
+      loadBalancer:
+        servers:
+          - url: http://portail:3000
+    api:
+      loadBalancer:
+        servers:
+          - url: http://api:3001
+    keycloak:
+      loadBalancer:
+        servers:
+          - url: http://keycloak:8080

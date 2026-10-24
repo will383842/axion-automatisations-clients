@@ -6,7 +6,7 @@ command -v gh >/dev/null 2>&1 || { echo "À CORRIGER gh introuvable : rien n'a p
 DEPOT="${1:-will383842/axion-automatisations-clients}"
 FICHE_CONTROLES=(
   "Aucun secret dans le dépôt (Gitleaks)" types lint tests garde-workflows compter-tests licences
-  couverture-req garde-noms garde-couleurs harnais contrats-pg visuel-design
+  couverture-req garde-fusion garde-couleurs harnais contrats-pg visuel-design
 )
 mauvais=0
 verdict() { # $1 = libellé, $2 = 0 si OK
@@ -24,16 +24,18 @@ echo "$sa" | grep -q '"dependabot_security_updates":{"status":"enabled"' ; verdi
 api "/actions/permissions/workflow" --jq '.default_workflow_permissions' | grep -qx read ; verdict "droits par défaut du GITHUB_TOKEN en lecture" $?
 api "/private-vulnerability-reporting" --jq '.enabled' | grep -qx true ; verdict "signalement privé des failles actif" $?
 api "" --jq '.has_issues' | grep -qx false ; verdict "tickets vierges désactivés" $?
+# Toute fusion passe par ops/fusionner-pr.sh du chef (statut garde-fusion) : la fusion automatique de GitHub la contournerait (C-611).
+api "" --jq '.allow_auto_merge' | grep -qx false ; verdict "fusion automatique désactivée" $?
 
 controles_exiges=$(api "/branches/main/protection/required_status_checks" --jq '.contexts[]?, .checks[]?.context')
 for c in "${FICHE_CONTROLES[@]}"; do
   printf '%s\n' "$controles_exiges" | grep -qxF "$c" ; verdict "main exige le contrôle « $c »" $?
 done
 
-# L'application GitHub de Claude ne doit PAS pouvoir écrire les statuts de commit (sinon un statut garde-noms forgé passerait).
+# L'application GitHub de Claude ne doit PAS pouvoir écrire les statuts de commit (sinon un statut garde-fusion forgé passerait).
 # Cet appel exige un jeton d'application : s'il échoue, on ne sait pas, et on échoue (jamais de OK par défaut).
 if perm=$(gh api "repos/$DEPOT/installation" --jq '.permissions.statuses' 2>/dev/null) && [ -n "$perm" ]; then
-  [ "$perm" != "write" ] ; verdict "l'application Claude n'a pas statuses: write (sinon : contrôle d'auteur de ops/fusionner-pr.sh)" $?
+  [ "$perm" != "write" ] ; verdict "l'application Claude n'a pas statuses: write (sinon un statut garde-fusion pourrait être forgé)" $?
 else
   echo "À CORRIGER statuses de l'application Claude : non vérifiable ici, à vérifier à la main (réglages de l'application installée)"
   mauvais=1

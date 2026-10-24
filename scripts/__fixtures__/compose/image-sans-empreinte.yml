@@ -1,0 +1,7 @@
+services:
+  valkey:
+    image: valkey/valkey:8.0.1
+    networks: [interne]
+networks:
+  interne:
+    internal: true

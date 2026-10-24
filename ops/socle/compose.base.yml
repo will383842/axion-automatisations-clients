@@ -1,0 +1,28 @@
+# Socle : le proxy et les deux réseaux. Les briques ajoutent un fragment compose.<brique>.yml, jamais ce fichier.
+# Lancé par ops/socle/lancer.sh. Aucune valeur secrète ici.
+name: socle
+services:
+  traefik:
+    image: traefik:v3.1.6@sha256:f703a2ac2ddf75f6e06c9cccac7f158765e2ab42d642b04e79e2e3d7355c2ddc
+    restart: "no"
+    ports:
+      - "127.0.0.1:8443:8443"
+    environment:
+      DOMAINE_CONSOLE: ${DOMAINE_CONSOLE:-console.socle.test}
+      DOMAINE_PORTAIL: ${DOMAINE_PORTAIL:-client.socle.test}
+      DOMAINE_API: ${DOMAINE_API:-api.socle.test}
+      DOMAINE_SSO: ${DOMAINE_SSO:-sso.socle.test}
+    volumes:
+      - ./traefik/statique.yml:/etc/traefik/traefik.yml:ro
+      - ./traefik/dynamique.yml:/etc/traefik/dynamique/dynamique.yml:ro
+      - ${SOCLE_CERTS:-/nonexistent}:/certs:ro
+    networks: [entree]
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+networks:
+  entree: {}
+  interne:
+    internal: true

@@ -1,0 +1,4 @@
+{
+  "GPL-3.0-only": [{ "name": "bibliotheque-copyleft", "versions": ["1.0.0"], "paths": ["packages/connecteurs-essai/node_modules/bibliotheque-copyleft"] }],
+  "MIT": [{ "name": "petite-aide", "versions": ["2.0.0"], "paths": ["packages/connecteurs-essai/node_modules/petite-aide"] }]
+}

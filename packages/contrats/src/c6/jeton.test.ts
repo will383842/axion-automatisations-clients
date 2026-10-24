@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import { emettreJeton } from "./jeton.ts";
 import { verifierJeton, type Cle } from "./verifier.ts";
 
-const SECRET = "TEST-NE-PAS-UTILISER-cle-c6-a";
-const AUTRE = "TEST-NE-PAS-UTILISER-cle-c6-b";
+const SECRET = "TEST-NE-PAS-UTILISER-cle-c6-a-0123456789abcdef";
+const AUTRE = "TEST-NE-PAS-UTILISER-cle-c6-b-0123456789abcdef";
 const T = 1792800000;
 const EMAIL = "equipe@exemple.fr";
 const cles: Cle[] = [{ kid: "c6-a", secret: SECRET }];
@@ -105,5 +105,39 @@ describe("C6 lien signé", () => {
     expect(verifierJeton(cles, signe({ ...bonneCharge, exp: T + 3600 }), T + 100, jamais)).toEqual({ ok: false });
     expect(verifierJeton(cles, signe({ ...bonneCharge, email: 42 }), T, jamais)).toEqual({ ok: false });
     expect(verifierJeton(cles, signe({ ...bonneCharge, jti: "pas-un-uuid" }), T, jamais)).toEqual({ ok: false });
+  });
+
+  it("[C-541] maintenant qui n'est pas un entier sûr est refusé (NaN, Infinity, décimal)", () => {
+    const jeton = emettreJeton(SECRET, "c6-a", EMAIL, T);
+    for (const m of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, T + 0.5, 2 ** 60]) {
+      expect(verifierJeton(cles, jeton, m, jamais)).toEqual({ ok: false });
+    }
+  });
+
+  it("[C-541] une clé de moins de 32 octets est refusée à l'émission", () => {
+    for (const court of ["", "a".repeat(31)]) expect(() => emettreJeton(court, "c6-a", EMAIL, T)).toThrow();
+    expect(() => emettreJeton("a".repeat(32), "c6-a", EMAIL, T)).not.toThrow();
+    // 16 caractères de 2 octets chacun : 32 octets en UTF-8, acceptés ; 15 caractères : 30 octets, refusés.
+    expect(() => emettreJeton("é".repeat(16), "c6-a", EMAIL, T)).not.toThrow();
+    expect(() => emettreJeton("é".repeat(15), "c6-a", EMAIL, T)).toThrow();
+  });
+
+  it("[C-541] une clé de moins de 32 octets est refusée à la vérification, même si la signature colle", () => {
+    for (const court of ["", "a".repeat(31)]) {
+      const jeton = signe(bonneCharge, court);
+      expect(verifierJeton([{ kid: "c6-a", secret: court }], jeton, T, jamais)).toEqual({ ok: false });
+    }
+  });
+
+  it("[C-541] une signature malléable (bits de bourrage changés) est refusée", () => {
+    const jeton = emettreJeton(SECRET, "c6-a", EMAIL, T);
+    const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    const dernier = jeton.slice(-1);
+    const variante = alphabet[alphabet.indexOf(dernier) ^ 1] as string;
+    const modifie = jeton.slice(0, -1) + variante;
+    // Même signature une fois décodée : seule la forme canonique permet de la refuser.
+    expect(Buffer.from(modifie.split(".")[1] as string, "base64url").equals(Buffer.from(jeton.split(".")[1] as string, "base64url"))).toBe(true);
+    expect(verifierJeton(cles, modifie, T, jamais)).toEqual({ ok: false });
+    expect(verifierJeton(cles, jeton, T, jamais).ok).toBe(true);
   });
 });

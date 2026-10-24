@@ -8,7 +8,7 @@ const PROXY = "traefik";
 const INTERNES = ["postgres", "pgbouncer", "valkey", "openbao", "litellm", "stockage", "keycloak-admin"];
 const EMPREINTE = /@sha256:[0-9a-f]{64}$/;
 const REGLE_HOTE = /Host(?:SNI|Regexp)?\(/;
-const EXTENSIONS_FICHIER = new Set(["yml", "yaml", "json", "sh", "md", "ts", "crt", "key", "pem", "sock", "toml", "conf", "env", "log", "txt"]);
+const EXTENSIONS_FICHIER = new Set(["yml", "yaml", "json", "ts", "crt", "key", "pem", "sock", "toml", "conf", "env", "txt"]);
 
 type Noeud = string | Noeud[] | { [cle: string]: Noeud };
 type Objet = { [cle: string]: Noeud };
@@ -131,6 +131,12 @@ function reseauxDuService(service: Objet): string[] {
   return Array.isArray(r) ? r.map(chaine) : estObjet(r) ? Object.keys(r) : [];
 }
 
+// Port du proxy accepté : seulement 127.0.0.1 → 8443 (forme courte « ip:publié:cible » ou forme longue de « docker compose config »).
+function portProxyConforme(p: Noeud): boolean {
+  if (estObjet(p)) return chaine(p.host_ip) === "127.0.0.1" && chaine(p.published) === "8443" && chaine(p.target) === "8443";
+  return /^127\.0\.0\.1:8443:8443(?:\/tcp)?$/.test(chaine(p));
+}
+
 function etiquettes(service: Objet): [string, string][] {
   const l = service.labels;
   if (Array.isArray(l)) {
@@ -185,6 +191,10 @@ function verifierServices(nom: string, services: Objet): string[] {
     const interne = INTERNES.includes(id);
     const echec = (msg: string) => erreurs.push(`${nom}: service ${id} : ${msg}`);
     if (id !== PROXY && liste(valeur.ports).length > 0) echec("ports: publiés, seul le proxy peut en publier");
+    if (id === PROXY && liste(valeur.ports).length > 0) {
+      const ports = liste(valeur.ports);
+      if (ports.length !== 1 || !portProxyConforme(ports[0] as Noeud)) echec("ports: le proxy publie seulement 127.0.0.1:8443");
+    }
     const image = chaine(valeur.image);
     if (image) {
       if (!EMPREINTE.test(image)) echec(`image sans empreinte @sha256: (${image})`);
@@ -193,7 +203,15 @@ function verifierServices(nom: string, services: Objet): string[] {
     if (valeur.privileged === "true") echec("privileged: true interdit");
     if (valeur.network_mode === "host") echec("network_mode: host interdit");
     if (montageSocket(valeur)) echec("montage du socket Docker interdit");
+    if (liste(valeur.cap_add).length > 0) echec("cap_add interdit");
+    if (valeur.pid === "host") echec("pid: host interdit");
+    if (valeur.ipc === "host") echec("ipc: host interdit");
+    if (valeur.userns_mode === "host") echec("userns_mode: host interdit");
+    if (liste(valeur.devices).length > 0) echec("devices interdit");
     if (interne && reseauxDuService(valeur).includes("entree")) echec("service interne sur le réseau entree");
+    // Sans « networks: », Compose place le service sur « default », qui a une sortie.
+    const reseaux = reseauxDuService(valeur);
+    if (interne && (reseaux.length === 0 || reseaux.some((r) => r !== "interne"))) echec("réseau : un service interne est seulement sur le réseau interne");
     if (interne) {
       for (const [cle, v] of etiquettes(valeur)) {
         if (cle.startsWith("traefik.") && REGLE_HOTE.test(v)) echec(`nom d'hôte donné à un service interne (${cle})`);

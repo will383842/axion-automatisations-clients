@@ -100,4 +100,25 @@ describe("faux Microsoft 365", () => {
       process.env["NODE_ENV"] = avant;
     }
   });
+
+  it("[C-592] faux Graph : consentement exigé (AADSTS65001), puis accordé par /adminconsent, puis jeton délivré", async () => {
+    await fetch(`${graph.url}/__controle`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "normal", consentement_requis: true }) });
+    const jeton = (tenant: string) =>
+      fetch(`${graph.url}/${tenant}/oauth2/v2.0/token`, { method: "POST", body: new URLSearchParams({ client_id: "appli-test", grant_type: "client_credentials" }) });
+    const avant = await jeton("atelier-bertin.test");
+    expect(avant.status).toBe(400);
+    expect(JSON.stringify(await avant.json())).toContain("AADSTS65001");
+    const accord = await fetch(`${graph.url}/adminconsent?client_id=appli-test&tenant=atelier-bertin.test`);
+    expect(accord.status).toBe(200);
+    expect((await jeton("atelier-bertin.test")).status).toBe(200);
+    // Le consentement est PAR locataire : un autre locataire reste refusé.
+    expect((await jeton("garage-fontaine.test")).status).toBe(400);
+  });
+
+  it("[C-592] faux Graph : mauvais compte Microsoft (locataire inattendu) et /adminconsent sans paramètres", async () => {
+    expect((await fetch(`${graph.url}/adminconsent?client_id=appli-test`)).status).toBe(400);
+    const r = await fetch(`${graph.url}/mauvais-compte.test/oauth2/v2.0/token`, { method: "POST", body: new URLSearchParams({ client_id: "appli-test", tenant_attendu: "atelier-bertin.test" }) });
+    expect(r.status).toBe(400);
+    expect(JSON.stringify(await r.json())).toContain("AADSTS50020");
+  });
 });

@@ -2,8 +2,8 @@
 // Elle ne renvoie que le NOM des variables fautives, jamais leur valeur.
 
 const VARIABLES = /^(?:SMTP_HOTE|GRAPH_URL|GMAIL_URL|TELEGRAM_URL|MAILWIZZ_URL|WEBHOOK_\w+)$/;
-// Hôtes locaux, et noms simples du réseau « interne » (sans point) ou en .test.
-const HOTE_SOCLE = /^(?:localhost|127\.0\.0\.1|\[::1\]|[a-z0-9-]+|(?:[a-z0-9-]+\.)+test)$/;
+// Hôtes locaux, noms simples du réseau « interne » (sans point, sauf un nombre seul, décimal ou 0x…, qui est une adresse IP) ou en .test.
+const HOTE_SOCLE = /^(?:localhost|127\.0\.0\.1|\[::1\]|(?!(?:0x[0-9a-f]+|\d+)$)[a-z0-9-]+|(?:[a-z0-9-]+\.)+test)$/;
 
 function hoteDe(valeur: string): string {
   const texte = valeur.trim();

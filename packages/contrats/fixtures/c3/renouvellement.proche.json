@@ -1,0 +1,27 @@
+{
+  "type": "renouvellement.proche",
+  "cas": [
+    {
+      "nom": "valide",
+      "valide": true,
+      "cle": "cle-test-c3-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c3-console-a",
+      "horodatage": "1792800000",
+      "methode": "POST",
+      "chemin": "/api/console/v1/evenements",
+      "corps": "{\"event_id\":\"11111111-1111-4111-8111-111111111111\",\"schema_version\":1,\"occurred_at\":\"2026-10-24T10:00:00Z\",\"emitted_at\":\"2026-10-24T10:00:01Z\",\"sequence\":1,\"producer\":\"axion-console\",\"subject_ref\":{\"consoleClientId\":\"console-cli-0001\"},\"event_type\":\"renouvellement.proche\",\"payload\":{\"consoleClientId\":\"console-cli-0001\",\"dateRenouvellement\":\"2027-04-01\"}}",
+      "signature": "v1=7e8b6f8b85d50973f41d87a9b3f5856d09c6a0c7f2b4abc3981528702fec8d52"
+    },
+    {
+      "nom": "date mal formée",
+      "valide": false,
+      "cle": "cle-test-c3-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c3-console-a",
+      "horodatage": "1792800000",
+      "methode": "POST",
+      "chemin": "/api/console/v1/evenements",
+      "corps": "{\"event_id\":\"11111111-1111-4111-8111-111111111111\",\"schema_version\":1,\"occurred_at\":\"2026-10-24T10:00:00Z\",\"emitted_at\":\"2026-10-24T10:00:01Z\",\"sequence\":1,\"producer\":\"axion-console\",\"subject_ref\":{\"consoleClientId\":\"console-cli-0001\"},\"event_type\":\"renouvellement.proche\",\"payload\":{\"consoleClientId\":\"console-cli-0001\",\"dateRenouvellement\":\"01/04/2027\"}}",
+      "signature": "v1=3a5a903efe4d8b5dcc07210d7db3cc336598a148d3345dd41b6db2aac359c8bc"
+    }
+  ]
+}

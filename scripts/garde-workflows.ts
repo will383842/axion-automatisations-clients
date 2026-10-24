@@ -9,6 +9,10 @@ const IMAGE = /^docker:\/\/[^@]+@sha256:[0-9a-f]{64}$/;
 const RUNS_ON = /^\s*runs-on:\s*["']?ubuntu-(?:latest|\d{2}\.\d{2})["']?\s*$/;
 const DECLENCHEURS_RESERVES = new Set(["push", "schedule", "workflow_dispatch"]);
 
+// Valeur acceptée derrière statuses: ou checks:, puis formes YAML qui masquent une valeur (ancre &, alias *, étiquette !, clé explicite ?, fusion <<).
+const VALEUR_LECTURE = /^\s*["']?(?:read|none)["']?\s*(?:[,}]|$)/;
+const STRUCTURE_YAML = /(?:^|[\s:[{,-])&[\w-]+|(?::|^\s*-|[[{,])\s*\*[\w-]+|(?::|^\s*-|[[{,])\s*!\S|^\s*\?(?:\s|$)|^\s*<<\s*:/;
+
 const sansCommentaire = (ligne: string) => ligne.replace(/(^|\s)#.*$/, "");
 
 function declencheurs(lignes: string[]): string[] {
@@ -47,10 +51,18 @@ export function verifierWorkflow(nom: string, texte: string): string[] {
     } else if (/^\s*runs-on:/.test(l) && !RUNS_ON.test(l)) {
       echec(n, "runs-on doit être un exécuteur hébergé par GitHub (ubuntu-latest ou ubuntu-NN.NN)");
     }
-    if (/^\s*permissions:\s*["']?write-all/.test(l)) echec(n, "permissions: write-all est interdit");
-    // statuses/checks en écriture : un workflow pourrait poser un faux statut « garde-fusion » (fichier, job, accolades ou guillemets).
-    for (const m of l.matchAll(/["']?\b(statuses|checks)["']?\s*:\s*["']?write\b/g)) {
-      echec(n, `permission ${m[1] ?? ""}: write interdite`);
+    // Liste blanche : une clé statuses ou checks n'est acceptée que si read ou none suit sur la même ligne (un faux statut « garde-fusion » serait possible sinon).
+    for (const m of l.matchAll(/["']?\b(statuses|checks)["']?\s*:(.*)$/g)) {
+      if (!VALEUR_LECTURE.test(m[2] ?? "")) echec(n, `permission ${m[1] ?? ""}: write interdite (seul read ou none, sur la même ligne, est accepté)`);
+    }
+    if (STRUCTURE_YAML.test(l)) echec(n, "ancre, alias, étiquette, clé explicite ou fusion YAML interdits dans un workflow");
+    const perm = /^\s*permissions:(.*)$/.exec(l);
+    if (perm) {
+      const valeur = (perm[1] ?? "").trim();
+      if (/^["']?write-all["']?$/.test(valeur)) echec(n, "permissions: write-all est interdit");
+      else if (valeur === "" ? !/^\s+["']?[\w-]+["']?\s*:/.test(lignes.slice(idx + 1).find((x) => x.trim()) ?? "") : !/^(read-all|\{.*)$/.test(valeur)) {
+        echec(n, "permissions: doit être un bloc, read-all ou {}");
+      }
     }
     if (surPr) {
       // Un identifiant de job « secrets: » seul sur sa ligne n'expose rien.

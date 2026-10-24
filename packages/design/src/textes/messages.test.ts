@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { messages } from "./messages.fr.ts";
-import { CODES_FAUX_MAX, INVITATION_JOURS, LOGO_MO_MAX, MOT_DE_PASSE_MIN, PAUSE_MINUTES, PIECE_JOINTE_MO_MAX } from "./valeurs.ts";
+import { type Message, messages } from "./messages.fr.js";
+import { CODES_FAUX_MAX, INVITATION_JOURS, LOGO_MO_MAX, MOT_DE_PASSE_MIN, PAUSE_MINUTES, PIECE_JOINTE_MO_MAX } from "./valeurs.js";
 
 const CLES_ATTENDUES = [
   "vide.console.accueilZeroClient",
@@ -32,8 +32,9 @@ const CLES_ATTENDUES = [
   "erreur.horsLigneGeste",
 ];
 
-const entrees = Object.entries(messages);
-const textes = (m: { titre: string; phrase: string; bouton?: string }) => [m.titre, m.phrase, m.bouton ?? ""];
+const catalogue: Record<string, Message> = messages;
+const entrees = Object.entries(catalogue);
+const textes = (m: Message) => [m.titre, m.phrase, m.bouton ?? ""];
 
 describe("catalogue des messages", () => {
   it("[C-578] chaque cas listé ci-dessus a une clé", () => {
@@ -44,7 +45,7 @@ describe("catalogue des messages", () => {
   it("[C-578] aucun texte ne contient « tu », « credential », « webhook », un emoji, « Grenoble »", () => {
     for (const [cle, m] of entrees) {
       for (const t of textes(m)) {
-        expect(t, cle).not.toMatch(/\b(tu|toi|ton|ta|tes)\b/i);
+        expect(t, cle).not.toMatch(/(?<![\p{L}])(tu|toi|ton|ta|tes)(?![\p{L}])/iu);
         expect(t, cle).not.toMatch(/credential|webhook|grenoble/i);
         expect(t, cle).not.toMatch(/\p{Extended_Pictographic}/u);
       }
@@ -83,7 +84,7 @@ describe("catalogue des messages", () => {
       for (const v of utilisees) expect(declarees.has(v), `${cle} : {${v}}`).toBe(true);
       for (const v of declarees) expect(utilisees, `${cle} : ${v} inutilisée`).toContain(v);
     }
-    expect(messages["erreur.brouillonExpire"].variables).toContain("dureeExpiration");
+    expect(catalogue["erreur.brouillonExpire"]?.variables).toContain("dureeExpiration");
   });
 
   it("[C-578] hors ligne : aucun geste mis en file, texte de l'architecte", () => {

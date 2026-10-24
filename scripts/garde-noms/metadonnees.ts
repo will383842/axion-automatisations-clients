@@ -48,7 +48,11 @@ function jpeg(o: Uint8Array): string | null {
     if (m === 0xd9) return i === o.length ? ok : non("jpeg : octets après EOI");
     if (m >= 0xd0 && m <= 0xd7) continue; // RSTn, sans longueur
     const longueur = ((o[i] ?? 0) << 8) | (o[i + 1] ?? 0);
-    if (m === 0xe0 && !jfif && i === 4 && egal(o, i + 2, [0x4a, 0x46, 0x49, 0x46, 0x00])) jfif = true;
+    if (m === 0xe0 && !jfif && i === 4 && egal(o, i + 2, [0x4a, 0x46, 0x49, 0x46, 0x00])) {
+      // JFIF borné : 16 octets + une vignette RVB de Xt × Yt pixels, rien d'autre
+      if (longueur !== 16 + 3 * (o[i + 14] ?? 0) * (o[i + 15] ?? 0)) return non("jpeg : APP0 JFIF de longueur inattendue");
+      jfif = true;
+    }
     else if (!JPEG_AVEC_LONGUEUR(m)) return non(`jpeg : segment ${m.toString(16)}`);
     if (longueur < 2 || i + longueur > o.length) return non("jpeg : segment tronqué");
     i += longueur;
@@ -137,7 +141,7 @@ function ico(o: Uint8Array): string | null {
   for (const [offset, taille] of images) {
     if (offset !== attendu || taille < 8 || offset + taille > o.length) return non("ico : image hors répertoire ou octets inutilisés");
     const partie = o.subarray(offset, offset + taille);
-    const raison = egal(partie, 0, PNG_SIGNATURE) ? png(partie) : [40, 108, 124].includes(l32(partie, 0)) ? ok : non("ico : image ni PNG ni BMP");
+    const raison = egal(partie, 0, PNG_SIGNATURE) ? png(partie) : [40, 108].includes(l32(partie, 0)) ? ok : non("ico : image ni PNG ni BMP");
     if (raison) return `ico : ${raison}`;
     attendu = offset + taille;
   }

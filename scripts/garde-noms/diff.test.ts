@@ -57,7 +57,7 @@ describe("verifierDiff", () => {
   it("[C-611] le mode diff sort 1 (refus) sur un chemin échappé sans nom, 2 si un nom est aussi présent", () => {
     const sansNom = 'diff --git "a/docs/z\\303\\251.md" "b/docs/z\\303\\251.md"\nnew file mode 100644\n';
     expect(lancer(["diff", "d"], sansNom).status).toBe(1);
-    expect(lancer(["diff", "d"], 'diff --git "a/docs/\\001.md" "b/docs/\\001.md"\nnew file mode 100644\n').status).toBe(1);
+    expect(lancer(["diff", "d"], 'diff --git "a/docs/\\001.md" "b/docs/\\001.md"\nnew file mode 100644\n').status).toBe(0); // contrôle, pas un octet \3xx
     expect(lancer(["diff", "d"], sansNom + fichier("a.md", NOM)).status).toBe(2);
   });
   it("[C-611] verifierDiff refuse un \\3xx dans rename, --- ou +++ et dans un seul côté entre guillemets", () => {

@@ -122,9 +122,12 @@ function numerosDuChemin(brut: string, liste: Liste): number[] {
   return [...new Set(candidats.flatMap((c) => chercherNomDeFichier(c, liste)))];
 }
 
+// Octet UTF-8 écrit en octal (\\3xx) dans un chemin entre guillemets de l'en-tête : git a échappé ce chemin.
+const estEchappe = (enTete: string): boolean => (enTete.match(/"(?:[^"\\]|\\.)*"/g) ?? []).some((q) => /\\3[0-7]{2}/.test(q));
+
 // Vérifie un diff unifié (git diff / git show, --unified=0). Pure : texte et liste en entrée, erreurs sans nom en sortie (C-531).
 // Contrôle les lignes ajoutées (avec une fenêtre de 2 lignes ajoutées jointes : nom coupé en fin de ligne),
-// les chemins nouveaux et renommés (anciens et nouveaux), et refuse un chemin échappé (\3xx).
+// les chemins nouveaux et renommés (anciens et nouveaux), et refuse (Refus, code 1) un chemin échappé (\3xx) quand aucun nom n'est trouvé.
 export function verifierDiff(texteDiff: string, noms: Liste | string[]): string[] {
   const liste = asListe(noms);
   const erreurs: string[] = [];
@@ -138,6 +141,7 @@ export function verifierDiff(texteDiff: string, noms: Liste | string[]): string[
       }
     }
   };
+  let echappe = false;
   let lieu = "";
   let entete = false;
   let ligne = 0;
@@ -147,18 +151,17 @@ export function verifierDiff(texteDiff: string, noms: Liste | string[]): string[
       entete = true;
       lieu = "";
       precedente = null;
-      if (l.startsWith('diff --git "') && /\\[0-3][0-7]{2}/.test(l) && !vus.has("echappe")) {
-        vus.add("echappe");
-        erreurs.push("chemin échappé, relancer avec core.quotePath=false");
-      }
+      echappe ||= estEchappe(l);
       nomDeFichier(l.slice(11));
     } else if (entete && (l.startsWith("--- ") || l.startsWith("+++ "))) {
       const chemin = l.slice(4);
       if (!chemin.startsWith("/dev/null")) {
+        echappe ||= estEchappe(chemin);
         nomDeFichier(chemin);
         if (l.startsWith("+++ ")) lieu = lieuDuFichier(chemin, liste);
       }
     } else if (entete && /^(?:rename|copy) (?:from|to) /.test(l)) {
+      echappe ||= estEchappe(l);
       nomDeFichier(l.replace(/^(?:rename|copy) (?:from|to) /, ""));
     } else if (l.startsWith("@@")) {
       entete = false;
@@ -178,11 +181,13 @@ export function verifierDiff(texteDiff: string, noms: Liste | string[]): string[
       precedente = { texte, ligne, numeros };
     }
   }
+  // Un nom trouvé reste un code 2 ; un chemin échappé seul est un refus (code 1), jamais une trouvaille.
+  if (echappe && erreurs.length === 0) throw new Refus("chemin échappé, relancer avec core.quotePath=false");
   return erreurs;
 }
 
 export const verifierIndex = (liste: Liste): string[] =>
-  verifierDiff(git("index", "diff", "--cached", "-M", "--unified=0", "--no-color", "--diff-filter=ACMR"), liste);
+  verifierDiff(git("index", "diff", "--cached", "-M", "--unified=0", "--no-color", "--diff-filter=ACMRT"), liste);
 
 // Mode « chemins » : entrées séparées par NUL (sorties -z de git), jamais lues dans les lignes « diff --git ».
 export function verifierChemins(octets: Uint8Array, lieu: string, liste: Liste): string[] {

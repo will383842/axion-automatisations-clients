@@ -51,7 +51,11 @@ const INDEX = `
 const DECLENCHEURS = `
   SELECT t.tgrelid::int AS oid, t.tgtype::int AS type, t.tgenabled AS actif
   FROM pg_trigger t WHERE NOT t.tgisinternal`;
-const ROLES = `SELECT rolname AS nom, rolsuper AS super, rolbypassrls AS contourne FROM pg_roles`;
+// `contourne_par_membre` : le rôle est membre, même indirectement, d'un autre rôle superutilisateur ou BYPASSRLS (SET ROLE suffit).
+const ROLES = `
+  SELECT r.rolname AS nom, r.rolsuper AS super, r.rolbypassrls AS contourne,
+         EXISTS (SELECT 1 FROM pg_roles x WHERE (x.rolsuper OR x.rolbypassrls) AND x.oid <> r.oid AND pg_has_role(r.oid, x.oid, 'MEMBER')) AS contourne_par_membre
+  FROM pg_roles r`;
 
 const TGTYPE_DELETE = 8;
 const TGTYPE_UPDATE = 16;
@@ -78,7 +82,8 @@ function politiqueOuverte(p: Record<string, unknown>): boolean {
 
 const tablesSql = (migrations: string) => `
   SELECT c.oid::int AS oid, n.nspname AS "schema", c.relname AS nom, c.relrowsecurity AS rls, c.relforcerowsecurity AS force_rls,
-         pg_get_userbyid(c.relowner) AS proprietaire
+         pg_get_userbyid(c.relowner) AS proprietaire,
+         ARRAY(SELECT r.rolname FROM pg_roles r WHERE pg_has_role(r.oid, c.relowner, 'MEMBER')) AS membres
   FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
   WHERE n.nspname NOT IN ('pg_catalog', 'information_schema') AND n.nspname NOT LIKE 'pg\\_toast%' AND n.nspname NOT LIKE 'pg\\_temp%'
     AND c.relkind IN ('r', 'p') AND NOT (n.nspname = 'public' AND c.relname = '${migrations}')`;
@@ -102,7 +107,7 @@ export async function controlerInvariants(
   const nomsTables = new Set(tables.map((t) => cleTable(t.schema, t.nom)));
 
   for (const r of roles) {
-    if (options.rolesApplication.test(String(r.nom)) && (r.super || r.contourne)) noter("role_contourne_rls", String(r.nom));
+    if (options.rolesApplication.test(String(r.nom)) && (r.super || r.contourne || r.contourne_par_membre)) noter("role_contourne_rls", String(r.nom));
   }
 
   for (const t of tables) {
@@ -115,7 +120,8 @@ export async function controlerInvariants(
     if (siennes.some(politiqueOuverte)) noter("politique_ouverte", objet);
     if (!t.force_rls) noter("force_rls_absent", objet);
     if (!index.some((i) => i.oid === t.oid)) noter("index_tenant_absent", objet);
-    if (options.rolesApplication.test(String(t.proprietaire))) noter("proprietaire_application", objet);
+    const membres = Array.isArray(t.membres) ? t.membres : [t.proprietaire];
+    if (membres.some((m) => options.rolesApplication.test(String(m)))) noter("proprietaire_application", objet);
 
     if (JOURNAL.test(nom)) {
       const siens = declencheurs.filter((d) => d.oid === t.oid && ACTIFS.has(String(d.actif)));

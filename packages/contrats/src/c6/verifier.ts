@@ -1,5 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
-import { DUREE_SECONDES, VERSION_JETON, cleValide, signerCharge } from "./jeton.ts";
+import { DUREE_SECONDES, JETON_OCTETS_MAX, VERSION_JETON, cleValide, emailValide, kidValide, signerCharge } from "./jeton.ts";
 
 // RÈGLE (C-541, C-573) : le jeton n'est PAS un facteur d'authentification.
 // verifierJeton ne renvoie que l'e-mail, à utiliser comme login_hint ; il n'ouvre jamais de session.
@@ -14,14 +14,23 @@ export const AVANCE_MAX_SECONDES = 5;
 
 const BASE64URL = /^[A-Za-z0-9_-]+$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-const EMAIL = /^[^\s@]{1,64}@[^\s@]{1,255}$/;
 const refus = { ok: false } as const;
 
 // `cles` : les clés actives (2 pendant une rotation). `maintenant` : secondes Unix.
 // `dejaVu(jti)` : vrai si le jti est déjà consommé ; sinon il le consomme (gardé 2 min par l'appelant).
 // Il n'est appelé qu'une fois tout le reste vérifié : un jeton falsifié ne consomme aucun jti.
+// Toute exception interne (entrée inattendue, panne de dejaVu) est un refus : le contrôle échoue fermé.
 export function verifierJeton(cles: readonly Cle[], jeton: string, maintenant: number, dejaVu: (jti: string) => boolean): ResultatJeton {
+  try {
+    return verifier(cles, jeton, maintenant, dejaVu);
+  } catch {
+    return refus;
+  }
+}
+
+function verifier(cles: readonly Cle[], jeton: string, maintenant: number, dejaVu: (jti: string) => boolean): ResultatJeton {
   if (!Number.isSafeInteger(maintenant)) return refus;
+  if (typeof jeton !== "string" || jeton.length > JETON_OCTETS_MAX) return refus;
   const morceaux = jeton.split(".");
   const [charge, signature] = morceaux;
   if (morceaux.length !== 2 || !charge || !signature || !BASE64URL.test(charge) || !BASE64URL.test(signature)) return refus;
@@ -37,7 +46,7 @@ export function verifierJeton(cles: readonly Cle[], jeton: string, maintenant: n
 
   // La clé est choisie par kid, puis la signature canonique recalculée est comparée en temps constant,
   // sur les chaînes : une variante qui décode aux mêmes octets (bits de bourrage) est refusée.
-  const cle = typeof c.kid === "string" ? cles.find((k) => k.kid === c.kid) : undefined;
+  const cle = kidValide(c.kid) ? cles.find((k) => k.kid === c.kid) : undefined;
   if (!cle || !cleValide(cle.secret)) return refus;
   const attendu = Buffer.from(signerCharge(cle.secret, charge));
   const recu = Buffer.from(signature);
@@ -46,7 +55,7 @@ export function verifierJeton(cles: readonly Cle[], jeton: string, maintenant: n
   const { v, jti, email, iat, exp } = c;
   if (v !== VERSION_JETON) return refus;
   if (typeof jti !== "string" || !UUID.test(jti)) return refus;
-  if (typeof email !== "string" || !EMAIL.test(email)) return refus;
+  if (!emailValide(email)) return refus;
   if (!Number.isSafeInteger(iat) || !Number.isSafeInteger(exp)) return refus;
   if ((exp as number) !== (iat as number) + DUREE_SECONDES) return refus;
   if (maintenant > (exp as number) || (iat as number) > maintenant + AVANCE_MAX_SECONDES) return refus;

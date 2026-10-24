@@ -140,4 +140,30 @@ describe("C6 lien signé", () => {
     expect(verifierJeton(cles, modifie, T, jamais)).toEqual({ ok: false });
     expect(verifierJeton(cles, jeton, T, jamais).ok).toBe(true);
   });
+
+  it("[C-541] le kid doit porter le préfixe c6- : émission et vérification le refusent sinon", () => {
+    expect(() => emettreJeton(SECRET, "autre-usage", EMAIL, T)).toThrow();
+    const jeton = signe({ ...bonneCharge, kid: "autre-usage" });
+    expect(verifierJeton([{ kid: "autre-usage", secret: SECRET }], jeton, T, jamais)).toEqual({ ok: false });
+  });
+
+  it("[C-541] l'émetteur applique les règles de l'e-mail du vérificateur", () => {
+    for (const mauvais of ["pas un email", "a\"b@exemple.fr", "a<b>@exemple.fr", "a&b@exemple.fr", "a\u0000b@exemple.fr", "a\u202eb@exemple.fr"]) {
+      expect(() => emettreJeton(SECRET, "c6-a", mauvais, T)).toThrow();
+      expect(verifierJeton(cles, signe({ ...bonneCharge, email: mauvais }), T, jamais)).toEqual({ ok: false });
+    }
+  });
+
+  it("[C-541] un jeton trop long est refusé avant tout décodage", () => {
+    const long = signe({ ...bonneCharge, rempli: "x".repeat(5_000_000) });
+    expect(verifierJeton(cles, long, T, jamais)).toEqual({ ok: false });
+    expect(verifierJeton(cles, signe({ ...bonneCharge, rempli: "x".repeat(900) }), T, jamais)).toEqual({ ok: false });
+  });
+
+  it("[C-541] une entrée inattendue ou une panne de dejaVu est un refus, jamais une exception", () => {
+    const jeton = emettreJeton(SECRET, "c6-a", EMAIL, T);
+    expect(verifierJeton(cles, 42 as unknown as string, T, jamais)).toEqual({ ok: false });
+    expect(verifierJeton(undefined as unknown as Cle[], jeton, T, jamais)).toEqual({ ok: false });
+    expect(verifierJeton(cles, jeton, T, () => { throw new Error("panne"); })).toEqual({ ok: false });
+  });
 });

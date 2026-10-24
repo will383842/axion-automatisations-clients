@@ -1,0 +1,27 @@
+{
+  "type": "client.statut",
+  "cas": [
+    {
+      "nom": "valide",
+      "valide": true,
+      "cle": "cle-test-c3-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c3-console-a",
+      "horodatage": "1792800000",
+      "methode": "POST",
+      "chemin": "/api/console/v1/evenements",
+      "corps": "{\"event_id\":\"11111111-1111-4111-8111-111111111111\",\"schema_version\":1,\"occurred_at\":\"2026-10-24T10:00:00Z\",\"emitted_at\":\"2026-10-24T10:00:01Z\",\"sequence\":1,\"producer\":\"axion-console\",\"subject_ref\":{\"consoleClientId\":\"console-cli-0001\"},\"event_type\":\"client.statut\",\"payload\":{\"consoleClientId\":\"console-cli-0001\",\"statut\":\"dormant\"}}",
+      "signature": "v1=fde8afb39659cb7c4293f26c4c8b681ab210baf0205734cf0d1cddfb91918403"
+    },
+    {
+      "nom": "statut prospect",
+      "valide": false,
+      "cle": "cle-test-c3-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c3-console-a",
+      "horodatage": "1792800000",
+      "methode": "POST",
+      "chemin": "/api/console/v1/evenements",
+      "corps": "{\"event_id\":\"11111111-1111-4111-8111-111111111111\",\"schema_version\":1,\"occurred_at\":\"2026-10-24T10:00:00Z\",\"emitted_at\":\"2026-10-24T10:00:01Z\",\"sequence\":1,\"producer\":\"axion-console\",\"subject_ref\":{\"consoleClientId\":\"console-cli-0001\"},\"event_type\":\"client.statut\",\"payload\":{\"consoleClientId\":\"console-cli-0001\",\"statut\":\"prospect\"}}",
+      "signature": "v1=41ba5b5cff49cef6dae9d01d4c1a4c6f83b7fddbbde55724c44e51a342a5bc6a"
+    }
+  ]
+}

@@ -12,6 +12,14 @@ export const CLE_OCTETS_MIN = 32;
 // préfixe `c6-` et ces clés ne servent à aucun autre usage : la charge n'a pas de champ d'usage.
 export const PREFIXE_KID = "c6-";
 
+export const JETON_OCTETS_MAX = 1024;
+
+// Pas de caractère de contrôle ni de formatage (NUL, U+202E…), ni de `"`, `<`, `>`, `&`.
+const EMAIL = /^[^\s@"<>&\p{Cc}\p{Cf}]{1,64}@[^\s@"<>&\p{Cc}\p{Cf}]{1,255}$/u;
+export const emailValide = (email: unknown): email is string => typeof email === "string" && EMAIL.test(email);
+
+export const kidValide = (kid: unknown): kid is string => typeof kid === "string" && kid.startsWith(PREFIXE_KID);
+
 export function cleValide(secret: string): boolean {
   return typeof secret === "string" && Buffer.byteLength(secret, "utf8") >= CLE_OCTETS_MIN;
 }
@@ -24,6 +32,8 @@ export function signerCharge(secret: string, charge: string): string {
 export function emettreJeton(secret: string, kid: string, email: string, maintenant: number): string {
   if (!cleValide(secret)) throw new Error("clé C6 trop courte");
   if (!Number.isSafeInteger(maintenant)) throw new Error("heure invalide");
+  if (!kidValide(kid)) throw new Error(`le kid doit commencer par ${PREFIXE_KID}`);
+  if (!emailValide(email)) throw new Error("e-mail invalide");
   const charge = Buffer.from(JSON.stringify({ v: VERSION_JETON, kid, jti: randomUUID(), email, iat: maintenant, exp: maintenant + DUREE_SECONDES })).toString("base64url");
   return `${charge}.${signerCharge(secret, charge)}`;
 }

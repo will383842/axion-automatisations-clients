@@ -173,6 +173,27 @@ describe.skipIf(!URL_PG)("C5 invariants du schéma", () => { // fiche: T0-16
     }
   });
 
+  it("[C-536] un rôle de l'application membre du propriétaire ou d'un rôle BYPASSRLS est signalé", async () => {
+    const proprio = `proprio_c5_${process.pid}`;
+    const bypass = `contourne_c5_${process.pid}`;
+    const intermediaire = `inter_c5_${process.pid}`;
+    const membre = `app_c5_membre_${process.pid}`;
+    const indirect = `app_c5_indirect_${process.pid}`;
+    const sain = `app_c5_sain2_${process.pid}`;
+    psql(undefined, `CREATE ROLE ${proprio}; CREATE ROLE ${bypass} BYPASSRLS; CREATE ROLE ${intermediaire}; CREATE ROLE ${membre}; CREATE ROLE ${indirect}; CREATE ROLE ${sain};
+      GRANT ${proprio} TO ${membre}; GRANT ${bypass} TO ${intermediaire}; GRANT ${intermediaire} TO ${indirect}`);
+    try {
+      await avec("membre", `CREATE TABLE notes (id bigint PRIMARY KEY, tenant_id uuid NOT NULL); ALTER TABLE notes OWNER TO ${proprio};`, (e) => {
+        expect(e).toContainEqual({ regle: "proprietaire_application", objet: "notes" });
+        expect(e).toContainEqual({ regle: "role_contourne_rls", objet: indirect });
+        expect(e).not.toContainEqual({ regle: "role_contourne_rls", objet: sain });
+        expect(e.filter((x) => x.objet === sain)).toEqual([]);
+      });
+    } finally {
+      psql(undefined, `DROP ROLE IF EXISTS ${membre}, ${indirect}, ${sain}, ${intermediaire}, ${bypass}, ${proprio}`);
+    }
+  });
+
   it("[C-536] une table d'un autre schéma que public est contrôlée ; seule la table de migrations est exemptée", async () => {
     await avec("schema", `CREATE SCHEMA metier; CREATE TABLE metier.notes (id bigint PRIMARY KEY, tenant_id uuid NOT NULL);
       CREATE TABLE __migrations (id bigint PRIMARY KEY); CREATE TABLE __autre (id bigint PRIMARY KEY);`, (e) => {

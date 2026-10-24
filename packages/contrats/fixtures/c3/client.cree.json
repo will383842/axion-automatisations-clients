@@ -1,0 +1,27 @@
+{
+  "type": "client.cree",
+  "cas": [
+    {
+      "nom": "valide",
+      "valide": true,
+      "cle": "cle-test-c3-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c3-console-a",
+      "horodatage": "1792800000",
+      "methode": "POST",
+      "chemin": "/api/console/v1/evenements",
+      "corps": "{\"event_id\":\"11111111-1111-4111-8111-111111111111\",\"schema_version\":1,\"occurred_at\":\"2026-10-24T10:00:00Z\",\"emitted_at\":\"2026-10-24T10:00:01Z\",\"sequence\":1,\"producer\":\"axion-console\",\"subject_ref\":{\"consoleClientId\":\"console-cli-0001\"},\"event_type\":\"client.cree\",\"payload\":{\"consoleClientId\":\"console-cli-0001\",\"crmCompanyId\":\"crm-0001\"}}",
+      "signature": "v1=2897290583e5ba1b0abf4e37debcee6608a0c80248076826822c80f37409d340"
+    },
+    {
+      "nom": "fiche CRM absente",
+      "valide": false,
+      "cle": "cle-test-c3-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c3-console-a",
+      "horodatage": "1792800000",
+      "methode": "POST",
+      "chemin": "/api/console/v1/evenements",
+      "corps": "{\"event_id\":\"11111111-1111-4111-8111-111111111111\",\"schema_version\":1,\"occurred_at\":\"2026-10-24T10:00:00Z\",\"emitted_at\":\"2026-10-24T10:00:01Z\",\"sequence\":1,\"producer\":\"axion-console\",\"subject_ref\":{\"consoleClientId\":\"console-cli-0001\"},\"event_type\":\"client.cree\",\"payload\":{\"consoleClientId\":\"console-cli-0001\"}}",
+      "signature": "v1=46e67faceeafa3ccdc1c56fa818a1aca55de36b3c3d0299d954a348d4fdbfa26"
+    }
+  ]
+}

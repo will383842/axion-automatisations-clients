@@ -12,4 +12,5 @@ Format court : contexte, décision, conséquences, date. Un ADR par décision, n
 | 0006 | Les fiches de tâches vivent dans le dépôt privé |
 | 0007 | Exceptions de licences pour deux dépendances de développement |
 | 0008 | Exception de licence MIT-0 pour nodemailer (dépendance de test) |
-| 0009 | Licences du livre et inventaire des briques |
+| 0009 | Garde des permissions statuses et checks : limite de fond |
+| 0010 | Licences du livre et inventaire des briques |

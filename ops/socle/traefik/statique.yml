@@ -1,0 +1,19 @@
+# Configuration statique du proxy : fournisseur de fichiers seulement, jamais le socket Docker.
+global:
+  checkNewVersion: false
+  sendAnonymousUsage: false
+log:
+  level: INFO
+entryPoints:
+  websecure:
+    address: ":8443"
+    http:
+      tls: {}
+  traefik:
+    address: ":8080"
+ping:
+  entryPoint: traefik
+providers:
+  file:
+    directory: /etc/traefik/dynamique
+    watch: false

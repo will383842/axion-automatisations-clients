@@ -47,24 +47,40 @@ export function analyserConfig(nom: string, texte: string): string[] {
     .flatMap((l, i) => ((/\bretry\s*:\s*([^\s,}]+)/.exec(l)?.[1] ?? "0") !== "0" ? [`${nom}:${i + 1}: retry supérieur à 0 interdit`] : []));
 }
 
+// Options : --rapport <fichier> (rapport Vitest JSON) et --reference <fichier> (consigne du compte). Un premier argument seul reste le rapport.
+export function analyserArguments(argv: string[]): { rapport: string; reference: string } {
+  const sortie = { rapport: "rapport-tests.json", reference: "spec/compte-tests.json" };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i] ?? "";
+    if (a === "--rapport" || a === "--reference") {
+      const valeur = argv[++i];
+      if (!valeur || valeur.startsWith("--")) throw new Error(`${a} demande un fichier`);
+      sortie[a === "--rapport" ? "rapport" : "reference"] = valeur;
+    } else if (!a.startsWith("--") && i === 0) sortie.rapport = a;
+    else throw new Error(`argument inconnu : ${a}`);
+  }
+  return sortie;
+}
+
 function git(...args: string[]): string {
   return execFileSync("git", args, { encoding: "utf8" });
 }
 
-// Usage : node scripts/compter-tests.ts <rapport-vitest.json>
+// Usage : node scripts/compter-tests.ts [<rapport-vitest.json>] [--rapport <fichier>] [--reference <fichier>]
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const erreurs: string[] = [];
-  const rapport = JSON.parse(readFileSync(process.argv[2] ?? "rapport-tests.json", "utf8"));
+  const options = analyserArguments(process.argv.slice(2));
+  const rapport = JSON.parse(readFileSync(options.rapport, "utf8"));
   const actuel = compterRapport(rapport);
   let reference = 0;
   try {
-    reference = (JSON.parse(git("show", "origin/main:spec/compte-tests.json")) as { total: number }).total;
+    reference = (JSON.parse(git("show", `origin/main:${options.reference}`)) as { total: number }).total;
   } catch {
-    console.error("origin/main sans spec/compte-tests.json : référence à 0");
+    console.error(`origin/main sans ${options.reference} : référence à 0`);
   }
   erreurs.push(...comparerCompte(actuel, reference));
-  const consigne = (JSON.parse(readFileSync("spec/compte-tests.json", "utf8")) as { total: number }).total;
-  erreurs.push(...comparerCompte(consigne, reference).map((e) => `spec/compte-tests.json : ${e}`));
+  const consigne = (JSON.parse(readFileSync(options.reference, "utf8")) as { total: number }).total;
+  erreurs.push(...comparerCompte(consigne, reference).map((e) => `${options.reference} : ${e}`));
   erreurs.push(...verifierConsigne(consigne, actuel));
   const fichiers = git("ls-files", "*.test.ts", "*.test.tsx").split("\n").filter((f) => f && !f.includes("__fixtures__"));
   for (const f of fichiers) erreurs.push(...analyserSource(f, readFileSync(f, "utf8")));

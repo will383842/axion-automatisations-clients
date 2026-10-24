@@ -1,0 +1,38 @@
+name: Socle intégration
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  socle-integration:
+    name: socle-integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: git fetch --no-tags origin main:refs/remotes/origin/main
+      - name: Garde du compose, fichier par fichier puis assemblé
+        run: |
+          node scripts/garde-compose.ts ops/socle/compose.*.yml ops/socle/traefik/dynamique.yml
+          ops/socle/lancer.sh --assembler > "$RUNNER_TEMP/assemble.yml"
+          node scripts/garde-compose.ts "$RUNNER_TEMP/assemble.yml"
+      - name: Lancer le socle
+        run: ops/socle/lancer.sh
+      - name: Tests d'intégration
+        run: pnpm exec vitest run --project integration --reporter=json --outputFile=rapport-integration.json
+        env:
+          SOCLE_INTEGRATION: "1"
+      - name: Compter les tests d'intégration
+        run: node scripts/compter-tests.ts --rapport rapport-integration.json --reference spec/compte-tests-integration.json
+      - name: Arrêter le socle
+        if: always()
+        run: ops/socle/arreter.sh

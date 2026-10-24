@@ -3,7 +3,7 @@ import { configDefaults } from "vitest/config";
 
 // retry: 0 — aucune relance automatique (C-538), pour chaque projet.
 const retry = 0;
-const exclude = [...configDefaults.exclude, "**/__fixtures__/**"];
+const exclude = [...new Set([...configDefaults.exclude, "**/dist/**", "**/__fixtures__/**"])];
 const dossiers = (racine: string) =>
   readdirSync(racine, { withFileTypes: true })
     .filter((d) => d.isDirectory() && existsSync(`${racine}/${d.name}/package.json`))

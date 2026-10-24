@@ -1,0 +1,12 @@
+{
+  "testResults": [
+    {
+      "assertionResults": [
+        { "title": "[C-555] refuse un id inconnu", "fullName": "couverture [C-555] refuse un id inconnu", "status": "passed" },
+        { "title": "[C-600] test attendu rouge @lot-5", "fullName": "x [C-600] test attendu rouge @lot-5", "status": "passed" },
+        { "title": "[C-700] test d'une exigence V2", "fullName": "x [C-700] test d'une exigence V2", "status": "passed" },
+        { "title": "[C-543] test en échec", "fullName": "x [C-543] test en échec", "status": "failed" }
+      ]
+    }
+  ]
+}

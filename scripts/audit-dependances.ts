@@ -21,8 +21,13 @@ export interface Verdict {
   avertissements: string[];
 }
 
-export function evaluerAudit(rapport: { advisories?: Record<string, Avis> }, maintenant: Date): Verdict {
+export function evaluerAudit(rapport: { advisories?: Record<string, Avis>; metadata?: unknown }, maintenant: Date): Verdict {
   const verdict: Verdict = { echecs: [], avertissements: [] };
+  // Échec fermé : un audit en erreur (réseau, registre) ne donne ni avis ni métadonnées.
+  if (rapport.advisories === undefined && rapport.metadata === undefined) {
+    verdict.echecs.push("rapport-invalide audit-en-erreur");
+    return verdict;
+  }
   for (const avis of Object.values(rapport.advisories ?? {})) {
     const delai = DELAIS_JOURS[avis.severity ?? ""];
     if (delai === undefined) continue;
@@ -37,7 +42,7 @@ export function evaluerAudit(rapport: { advisories?: Record<string, Avis> }, mai
 
 // Usage : node scripts/audit-dependances.ts <audit.json>
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  let rapport: { advisories?: Record<string, Avis> };
+  let rapport: { advisories?: Record<string, Avis>; metadata?: unknown };
   try {
     rapport = JSON.parse(readFileSync(process.argv[2] ?? "audit.json", "utf8"));
   } catch {
@@ -46,6 +51,6 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   }
   const v = evaluerAudit(rapport, new Date());
   for (const a of v.avertissements) console.warn(`AVERTISSEMENT ${a} (dans le délai)`);
-  for (const e of v.echecs) console.error(`ÉCHEC ${e} (délai dépassé)`);
+  for (const e of v.echecs) console.error(`ÉCHEC ${e}`);
   process.exit(v.echecs.length ? 1 : 0);
 }

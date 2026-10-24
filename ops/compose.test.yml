@@ -1,0 +1,37 @@
+# Services des tests (session cloud et CI). Modes dev seulement, aucun jeton réel.
+# Versions épinglées (jamais « latest ») ; à confirmer au premier essai mesuré (T0-12).
+services:
+  postgres:
+    image: postgres:16.4
+    environment:
+      POSTGRES_PASSWORD: test
+    ports: ["127.0.0.1:${SONDE_PORT_POSTGRES:-5432}:5432"]
+  pgbouncer:
+    image: edoburu/pgbouncer:v1.23.1-p2
+    environment:
+      DB_HOST: postgres
+      DB_USER: postgres
+      DB_PASSWORD: test
+      POOL_MODE: transaction
+      AUTH_TYPE: scram-sha-256
+    depends_on: [postgres]
+    ports: ["127.0.0.1:${SONDE_PORT_PGBOUNCER:-6432}:5432"]
+  valkey:
+    image: valkey/valkey:8.0.1
+    ports: ["127.0.0.1:${SONDE_PORT_VALKEY:-6379}:6379"]
+  openbao:
+    image: openbao/openbao:2.0.1
+    command: ["server", "-dev", "-dev-listen-address=0.0.0.0:8200"]
+    ports: ["127.0.0.1:${SONDE_PORT_OPENBAO:-8200}:8200"]
+  keycloak:
+    image: quay.io/keycloak/keycloak:25.0.6
+    command: ["start-dev"]
+    environment:
+      KC_HEALTH_ENABLED: "true"
+    ports: ["127.0.0.1:${SONDE_PORT_KEYCLOAK:-9000}:9000"]
+  litellm:
+    image: ghcr.io/berriai/litellm:main-v1.48.0
+    ports: ["127.0.0.1:${SONDE_PORT_LITELLM:-4000}:4000"]
+  mailpit:
+    image: axllent/mailpit:v1.20.4
+    ports: ["127.0.0.1:${SONDE_PORT_MAILPIT:-8025}:8025"]

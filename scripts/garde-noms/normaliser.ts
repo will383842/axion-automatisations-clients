@@ -8,6 +8,8 @@ export function normaliser(texte: string): string {
     .normalize("NFKD")
     .replace(/\p{M}+/gu, "")
     .toLowerCase()
+    .replace(/œ/g, "oe")
+    .replace(/æ/g, "ae")
     .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim();
 }

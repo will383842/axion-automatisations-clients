@@ -9,8 +9,9 @@ services:
       SOCLE_PG_MOT_DE_PASSE: ${SOCLE_PG_MOT_DE_PASSE:?mot de passe de test absent}
       # G : mot de passe du superutilisateur, distinct de celui de chaque rôle de l'application
       G: export POSTGRES_PASSWORD=$$(printf %s/postgres $$SOCLE_PG_MOT_DE_PASSE|sha256sum|cut -c1-64)
+      X: sh
       POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
-    entrypoint: ['sh', '-c', 'eval "$$G"; exec docker-entrypoint.sh postgres']
+    entrypoint: ['sh', '-c', 'eval "$$G"; exec docker-entrypoint.$$X postgres']
     volumes:
       - ./postgres/init:/docker-entrypoint-initdb.d:ro
     networks: [interne]

@@ -25,13 +25,16 @@ Le prototype ne change pas le contrat : T4-03 applique ces corrections.
 | 17 | `executionId` | Une relivraison sous un autre `executionId` refait l'effet. | Écrire que `executionId` est dérivé de façon déterministe du déclencheur. | Additif |
 | 18 | Réglages du client (C-539) | Une action hors de la liste du client est refusée (`action_non_autorisee`). La voie « brouillon » n'existe pas. | Voie brouillon dans le contexte d'étape. | Additif |
 | 19 | Actions de connecteurs | Une action déclarée par deux connecteurs est refusée au chargement (`lierEtapes`), pas par le SDK. | Contrôle dans `defineAutomation`. | Additif |
+| 20 | Port `Connecteurs.appeler` | Le bail d'une intention court jusqu'à la fin de l'étape plus 60 s. Un appel qui ignore le signal et dépasse cette marge peut être rappelé. | Écrire dans C4 que `appeler` finit dans la marge après l'arrêt. | Additif |
+| 21 | Lancement perdant | Un lancement qui trouve le bail vivant rend `en_cours` sans journal ni événement `erreur` ou `fin`, mais `debut` est déjà parti (voir manque 14). | Événement `debut` envoyé seulement par le lancement qui tient l'appel, ou règle d'idempotence côté console. | Additif |
+| 22 | Réglages du client | Les réglages sont lus une fois par lancement : un retrait d'action n'agit qu'au lancement suivant. | Relire les réglages avant chaque `effet`. | Additif |
 
 ## Choix du prototype
 - Une étape qui lève une erreur non classée sort en `definitive`, sans renvoi.
 - Un code d'erreur hors du motif `^[a-z][a-z0-9_]{2,63}$` devient `erreur_inconnue` ; le message n'est jamais envoyé (A-323).
 - Les attentes sont bornées à 24 h ; une date de quota absente, infinie ou passée ne donne jamais d'attente négative ni infinie.
 - Les intentions sont propres à une exécution : deux exécutions d'une même instance ne se lisent pas.
-- Un appel en vol tient un bail (durée de l'étape) : un autre lancement de la même intention attend, il ne rappelle pas l'outil. Une coupure de processus laisse le bail jusqu'à son échéance.
+- Un appel en vol tient un bail (fin de l'étape + 60 s, jamais rendu après un arrêt par signal) : un autre lancement de la même intention rend `en_cours`, il ne rappelle pas l'outil et n'inscrit rien. Une coupure de processus laisse le bail jusqu'à son échéance.
 - Un échec définitif déjà journalisé n'est pas rejoué et n'émet aucun nouvel événement. La pause (identification) n'est pas un échec final.
 - Le journal est lu par (instance, exécution). La configuration et l'état voulu doivent porter l'instance demandée, et la configuration le code du module.
 - Le délai d'une étape est borné à une heure ; l'état voulu est relu avant chaque étape.

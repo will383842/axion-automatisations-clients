@@ -260,10 +260,10 @@ describe("politique des erreurs", () => {
 describe("attaques de l'audit (tour 1)", () => {
   const garanties: Garantie[] = ["idempotent_par_cle", "verifiable_apres_coup", "au_plus_une_fois"];
 
-  it.each(garanties)("[A-319] @anti-doublon deux lancements simultanés (%s) : un seul appel à l'outil, les deux finissent", async (g) => {
+  it.each(garanties)("[A-319] @anti-doublon deux lancements simultanés (%s) : un seul appel à l'outil, le second rend la main", async (g) => {
     const b = banc({ e1: envoyer }, g);
-    const statuts = (await Promise.all([b.lancer(), b.lancer()])).map((r) => r.statut);
-    expect(statuts).toEqual(["terminee", "terminee"]);
+    const statuts = (await Promise.all([b.lancer(), b.lancer()])).map((r) => r.statut).sort();
+    expect(statuts).toEqual(["en_cours", "terminee"]);
     expect(b.connecteur.appels).toHaveLength(1);
     expect(b.connecteur.effetsReels).toBe(1);
     expect((await b.boite.toutes())[0]?.etat).toBe("faite");

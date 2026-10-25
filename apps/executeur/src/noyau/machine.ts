@@ -1,12 +1,12 @@
 import type { defineAutomation } from "@axion-auto/sdk-module";
 import { lierEtapes, type EtapeExecutable } from "./etape.ts";
-import { ATrancher, effet } from "./intention.ts";
+import { ATrancher, effet, IntentionEnCours } from "./intention.ts";
 import { classer, decider, ErreurConnecteur } from "./politique-erreurs.ts";
 import { CoupureProcessus, type Ports } from "./ports.ts";
 
 type Module = ReturnType<typeof defineAutomation>;
 const DELAI_MAX_SECONDES = 3600;
-export type Statut = "terminee" | "a_trancher" | "echec" | "pause" | "ignoree";
+export type Statut = "terminee" | "a_trancher" | "echec" | "pause" | "ignoree" | "en_cours";
 
 // Machine rejouable : une étape inscrite « faite » est sautée ; tout effet passe par une intention écrite avant.
 export class Machine {
@@ -33,7 +33,9 @@ export class Machine {
       const trace = deja.filter((e) => e.etape === decl.nom);
       if (trace.some((e) => e.statut === "faite")) continue;
       if (trace.some((e) => e.statut === "a_trancher")) return { statut: "a_trancher", etape: decl.nom };
-      if ((await console.lireEtatVoulu(instanceId)).etat !== "actif") return { statut: "ignoree", etape: decl.nom };
+      const encore = await console.lireEtatVoulu(instanceId);
+      if (encore.instanceId !== instanceId) return this.incoherente(instanceId, executionId);
+      if (encore.etat !== "actif") return { statut: "ignoree", etape: decl.nom };
       const base = { instanceId, executionId, etape: decl.nom, connecteurs: module.connecteurs };
       for (let essai = 1; ; essai++) {
         const issue = await this.tenter(decl.nom, decl.delaiMaxSecondes ?? 120, { ...base, reglages }, () => elements++);
@@ -43,6 +45,7 @@ export class Machine {
           await inscrire("faite");
           break;
         }
+        if (issue instanceof IntentionEnCours) return { statut: "en_cours", etape: decl.nom }; // un autre lancement tient l'appel : ni journal, ni événement
         if (issue instanceof ATrancher) {
           await inscrire("a_trancher");
           return { statut: "a_trancher", etape: decl.nom };
@@ -75,8 +78,9 @@ export class Machine {
     const ac = new AbortController();
     const { horloge } = this.o.ports;
     const delaiMs = Math.min(delaiSecondes, DELAI_MAX_SECONDES) * 1000;
+    const finEtape = horloge.maintenant() + delaiMs;
     try {
-      const travail = this.o.etapes[nom]!.executer(this.contexte(base, nom, ac.signal, delaiMs, compter));
+      const travail = this.o.etapes[nom]!.executer(this.contexte(base, nom, ac.signal, finEtape, compter));
       travail.catch(() => undefined);
       const delai = horloge.attendre(delaiMs, ac.signal).then(() => {
         throw new ErreurConnecteur("passagere", "delai_depasse");
@@ -95,10 +99,10 @@ export class Machine {
     base: { instanceId: string; executionId: string; etape: string; connecteurs: Module["connecteurs"]; reglages: Readonly<Record<string, unknown>> },
     nom: string,
     signal: AbortSignal,
-    bailMs: number,
+    finEtape: number,
     compter: () => void,
   ) {
-    const effetBase = { ...base, signal, bailMs, classer: (a: string) => this.o.module.classerAction(base.reglages as { actionsAutomatiquesAutorisees: string[] }, a) };
+    const effetBase = { ...base, signal, finEtape, classer: (a: string) => this.o.module.classerAction(base.reglages as { actionsAutomatiquesAutorisees: string[] }, a) };
     return {
       instanceId: base.instanceId,
       executionId: base.executionId,

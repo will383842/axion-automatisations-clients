@@ -83,7 +83,7 @@ function verifierEcrituresPaquets(nom: string, texte: string): string[] {
     if (!estObjet(noeud)) return;
     for (const [cle, valeur] of Object.entries(noeud)) {
       if (cle === "permissions" && estObjet(valeur)) {
-        const autorise = nom === "images-derivees.yml" && chemin.join(".") === "jobs.publier";
+        const autorise = (nom === "images-derivees.yml" || nom === "images.yml") && chemin.join(".") === "jobs.publier";
         for (const [droit, niveau] of Object.entries(valeur)) {
           if (DROITS_PUBLICATION.has(droit.toLowerCase()) && !LECTURE_SEULE.has(String(niveau)) && !autorise) erreurs.push(`permission ${droit}: ${String(niveau)} interdite hors du job publier de images-derivees.yml`);
         }
@@ -92,6 +92,75 @@ function verifierEcrituresPaquets(nom: string, texte: string): string[] {
     }
   };
   documents.forEach((d) => parcourir(d, []));
+  return erreurs;
+}
+
+// T1A-16 : chaîne de déploiement protégée (C-388, C-391). Tout est lu sur l'arbre YAML, jamais par regex sur le YAML.
+const ENV_RESERVES = /^(production|recette)$/i;
+const SECRET_AUTRE = /\bsecrets\.(?!GITHUB_TOKEN\b)(\w+)/g;
+const REF_MAIN = "github.ref == 'refs/heads/main'";
+type Entree = [string[], unknown];
+function entrees(noeud: unknown, chemin: string[] = []): Entree[] {
+  if (Array.isArray(noeud)) return noeud.flatMap((n, i) => entrees(n, [...chemin, String(i)]));
+  if (!estObjet(noeud)) return [];
+  return Object.entries(noeud).flatMap(([c, v]): Entree[] => [[[...chemin, c], v], ...entrees(v, [...chemin, c])]);
+}
+const textes = (n: unknown): string[] => (typeof n === "string" ? [n] : Array.isArray(n) ? n.flatMap(textes) : estObjet(n) ? Object.values(n).flatMap(textes) : []);
+const dans = (n: unknown, ...cles: string[]): unknown => cles.reduce<unknown>((x, c) => (estObjet(x) ? x[c] : undefined), n);
+
+function verifierChaine(nom: string, texte: string): string[] {
+  let doc: unknown;
+  try {
+    doc = loadAll(texte)[0];
+  } catch {
+    return [];
+  }
+  if (!estObjet(doc)) return [];
+  const erreurs: string[] = [];
+  const tous = entrees(doc);
+  const declencheur = doc.on;
+  const noms = typeof declencheur === "string" ? [declencheur] : Array.isArray(declencheur) ? declencheur.map(String) : estObjet(declencheur) ? Object.keys(declencheur) : [];
+  for (const [chemin, valeur] of tous) if (chemin.at(-1) === "secrets" && valeur === "inherit") erreurs.push("secrets: inherit interdit");
+
+  if (nom !== "deploiement.yml") {
+    if (/coolify/i.test(texte)) erreurs.push("COOLIFY réservé à deploiement.yml");
+    if (/deploiement\.yml/.test(texte)) erreurs.push("seul un lancement manuel peut viser deploiement.yml");
+    for (const [chemin, valeur] of tous) {
+      if (chemin.at(-1) !== "environment") continue;
+      const cible = estObjet(valeur) ? valeur.name : valeur;
+      if (typeof cible !== "string" || ENV_RESERVES.test(cible.trim()) || cible.includes("${{")) erreurs.push("environment production, recette ou dynamique réservé à deploiement.yml");
+    }
+  }
+  if (nom === "images.yml") {
+    if (noms.some((n) => n !== "push" && n !== "pull_request")) erreurs.push("images.yml : seuls push sur main et pull_request sont permis");
+    if (JSON.stringify(dans(declencheur, "push", "branches")) !== '["main"]') erreurs.push("images.yml : push limité à la branche main");
+    for (const s of textes(doc).flatMap((x) => [...x.matchAll(SECRET_AUTRE)])) erreurs.push(`secrets.${s[1] ?? ""} interdit dans images.yml (seul GITHUB_TOKEN est permis)`);
+    const garde = String(dans(doc, "jobs", "publier", "if") ?? "");
+    if (!garde.includes("github.event_name == 'push'") || !garde.includes(REF_MAIN)) erreurs.push("job publier : garde « push sur main » absente");
+  }
+  if (nom !== "deploiement.yml") return erreurs;
+
+  if (noms.length !== 1 || noms[0] !== "workflow_dispatch") erreurs.push("deploiement.yml : workflow_dispatch seulement");
+  const entrees_ = dans(declencheur, "workflow_dispatch", "inputs");
+  if (JSON.stringify([...((dans(entrees_, "cible", "options") as string[] | undefined) ?? [])].sort()) !== '["production","recette"]') erreurs.push("entrée cible : seulement recette et production");
+  if (!estObjet(dans(entrees_, "empreinte"))) erreurs.push("entrée empreinte absente");
+  for (const [chemin, valeur] of tous) if (chemin[0] !== "jobs" && textes(valeur).some((x) => x.includes("secrets."))) erreurs.push("secret hors d'un job interdit");
+  const jobs = estObjet(doc.jobs) ? Object.entries(doc.jobs) : [];
+  if (jobs.length === 0) erreurs.push("aucun job");
+  for (const [id, job] of jobs) {
+    if (!String(dans(job, "if") ?? "").includes(REF_MAIN)) erreurs.push(`job ${id} : if ${REF_MAIN} absent (refs/heads/main)`);
+    if (dans(job, "environment") !== "${{ inputs.cible }}") erreurs.push(`job ${id} : environment doit être \${{ inputs.cible }}`);
+    const etapes = Array.isArray(dans(job, "steps")) ? (dans(job, "steps") as unknown[]) : [];
+    const premiere = etapes[0];
+    if (!textes(dans(premiere, "env")).includes("${{ github.ref }}") || !String(dans(premiere, "run") ?? "").includes("refs/heads/main") || !String(dans(premiere, "run") ?? "").includes("exit 1")) erreurs.push(`job ${id} : première étape sans refus explicite hors refs/heads/main`);
+    for (const etape of etapes) {
+      const run = String(dans(etape, "run") ?? "");
+      if (/^actions\/checkout@/.test(String(dans(etape, "uses") ?? ""))) erreurs.push("checkout interdit : le déploiement ne construit jamais de code");
+      if (/\bdocker\s+(buildx\s+)?build\b/.test(run)) erreurs.push("docker build interdit : le déploiement ne construit jamais de code");
+      if (run.includes("${{")) erreurs.push("run : expression ${{ }} interdite (passer par env)");
+    }
+    if (!etapes.some((e) => String(dans(e, "run") ?? "").includes("sha256:[0-9a-f]{64}"))) erreurs.push(`job ${id} : empreinte non validée (sha256:[0-9a-f]{64} exigé)`);
+  }
   return erreurs;
 }
 
@@ -120,6 +189,7 @@ export function verifierWorkflow(nom: string, texte: string): string[] {
   const echec = (n: number, msg: string) => erreurs.push(`${nom}:${n}: ${msg}`);
   verifierPermissionsYaml(texte).forEach((msg) => echec(1, msg));
   verifierEcrituresPaquets(nom, texte).forEach((msg) => echec(1, msg));
+  verifierChaine(nom, texte).forEach((msg) => echec(1, msg));
   const trigs = declencheurs(lignes);
   const surPr = trigs.includes("pull_request") || lignes.some((l) => /\bpull_request\b(?!_target)/.test(l));
 

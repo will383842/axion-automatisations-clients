@@ -148,8 +148,20 @@ describe("garde-briques : service construit sur place (R2)", () => {
   it("[A-381] compose : un service avec build: et sans image: est refusé", () => {
     expect(compose(COMPOSE_BUILD)).toMatch(/c\.yml.*postgres.*build/);
   });
-  it("[A-381] compose : build: avec image: reste soumis à la brique, donc refusé sans brique inscrite", () => {
-    expect(compose(`${COMPOSE_BUILD}    image: x/y:1@sha256:${"a".repeat(64)}\n`)).toMatch(/aucune brique/);
+  it("[A-381] compose : build: refusé même avec image: (pull_policy: build ou --build construit sur place)", () => {
+    expect(compose(`${COMPOSE_BUILD}    image: x/y:1@sha256:${"a".repeat(64)}\n    pull_policy: build\n`)).toMatch(/build/);
+    expect(compose(`${COMPOSE_BUILD}    image: x/y:1@sha256:${"a".repeat(64)}\n`)).toMatch(/build/);
+  });
+  it("[A-381] compose : pull_policy autre que always ou missing, include et extends.file refusés", () => {
+    const img = `image: x/y:1@sha256:${"a".repeat(64)}`;
+    const cas: Array<[string, RegExp]> = [
+      [`services:\n  a:\n    ${img}\n    pull_policy: build\n`, /pull_policy/],
+      [`services:\n  a:\n    ${img}\n    pull_policy: never\n`, /pull_policy/],
+      [`include:\n  - autre.yml\nservices:\n  a:\n    ${img}\n`, /include/],
+      [`services:\n  a:\n    ${img}\n    extends:\n      file: autre.yml\n      service: b\n`, /extends/],
+    ];
+    for (const [texte, motif] of cas) expect(compose(texte), texte).toMatch(motif);
+    expect(compose(`services:\n  a:\n    ${img}\n    pull_policy: always\n`)).not.toMatch(/pull_policy/);
   });
   it("[A-381] compose : build: refusé même en forme courte, avec image vide ou donnée par une variable", () => {
     for (const texte of ["services:\n  a:\n    build: .\n", "services:\n  a:\n    build: .\n    image: ''\n", "services:\n  a:\n    build: { context: . }\n    image: ${X}\n"]) {
@@ -161,6 +173,13 @@ describe("garde-briques : service construit sur place (R2)", () => {
       const services = (load(lire(nom)) as { services: Record<string, { build?: unknown; image?: string }> }).services;
       for (const [s, def] of Object.entries(services)) expect(def.build === undefined && typeof def.image === "string", `${nom} ${s}`).toBe(true);
     }
+  });
+});
+
+describe("garde-briques : brique du dépôt GHCR sans clé derivee (R2)", () => {
+  it("[A-381] brique dont l'image est sous ghcr.io/will383842/axion-automatisations-clients/ : derivee obligatoire", () => {
+    const { derivee: _d, ...sans } = brique() as Record<string, unknown>;
+    expect(verifierBriques([{ fichier: "ops/briques/postgres.json", contenu: sans }], []).join("\n")).toMatch(/derivee.*obligatoire/);
   });
 });
 

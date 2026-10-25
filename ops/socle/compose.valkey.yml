@@ -2,7 +2,7 @@
 # Journal sur disque (AOF) et noeviction : une tâche déposée survit à un redémarrage et n'est jamais évincée.
 services:
   valkey:
-    image: valkey/valkey:8.0.11@sha256:4436c94fc34ce4af0354b9379d433a1f258998fb955f995c89822f98c14a8cab
+    image: valkey/valkey:8.1.10@sha256:640c5e62cea04b6d6f2084232651d0cc70362d31f4f805e7be94dbed6855e8f2
     restart: "no"
     environment:
       VALKEY_MOT_DE_PASSE: ${SOCLE_VALKEY_MOT_DE_PASSE:?mot de passe de test absent}

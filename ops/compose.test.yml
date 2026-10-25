@@ -2,12 +2,12 @@
 # Versions épinglées (jamais « latest ») ; à confirmer au premier essai mesuré (T0-12).
 services:
   postgres:
-    image: postgres:16.4
+    image: postgres:16.15-alpine@sha256:f4610795587492cd4fb887c2dc3de301b813278bb6f616992061141b5f15ac36
     environment:
       POSTGRES_PASSWORD: test
     ports: ["127.0.0.1:${SONDE_PORT_POSTGRES:-5432}:5432"]
   pgbouncer:
-    image: edoburu/pgbouncer:v1.23.1-p2
+    image: edoburu/pgbouncer:v1.26.1-p0@sha256:488422e38cff912895d0d65d8963fcd306e6ac589a724398b6eb8e294e94d624
     environment:
       DB_HOST: postgres
       DB_USER: postgres
@@ -17,23 +17,23 @@ services:
     depends_on: [postgres]
     ports: ["127.0.0.1:${SONDE_PORT_PGBOUNCER:-6432}:5432"]
   valkey:
-    image: valkey/valkey:8.0.1
+    image: valkey/valkey:8.1.10@sha256:640c5e62cea04b6d6f2084232651d0cc70362d31f4f805e7be94dbed6855e8f2
     ports: ["127.0.0.1:${SONDE_PORT_VALKEY:-6379}:6379"]
   openbao:
-    image: openbao/openbao:2.0.1
+    image: openbao/openbao:2.6.4@sha256:cf2340fc9a22cb9358ca0defd1f39b65673836bd23fe2bb8984a07e11fe13ef4
     command: ["server", "-dev", "-dev-listen-address=0.0.0.0:8200"]
     ports: ["127.0.0.1:${SONDE_PORT_OPENBAO:-8200}:8200"]
   keycloak:
-    image: quay.io/keycloak/keycloak:25.0.6
+    image: quay.io/keycloak/keycloak:26.8.1@sha256:a78d6b79572168cb25886b80a8b5b8d4ed4390743e3eecb810538683e209dd6b
     command: ["start-dev"]
     environment:
       KC_HEALTH_ENABLED: "true"
     ports: ["127.0.0.1:${SONDE_PORT_KEYCLOAK:-9000}:9000"]
   litellm:
-    image: ghcr.io/berriai/litellm:main-v1.48.0
+    image: ghcr.io/berriai/litellm-non_root:main-v1.83.14-stable.patch.3@sha256:6da3c89855a0fd1c92258651e01b57f3d1ccb028afef0b4c62c9b89422dc2b77
     ports: ["127.0.0.1:${SONDE_PORT_LITELLM:-4000}:4000"]
   mailpit:
-    image: axllent/mailpit:v1.20.4@sha256:ff82a613c735f4e8a3ddfdf7ee4e18cb934c721e72a340ecbbb7ec0ca7fbd057
+    image: axllent/mailpit:v1.32.0@sha256:0790692be935ea4420d085694f7985b1f692ca6a8771ab0e0bd8ba75ac180498
     ports:
       - "127.0.0.1:${SONDE_PORT_MAILPIT:-8025}:8025"
       - "127.0.0.1:${SONDE_PORT_MAILPIT_SMTP:-1025}:1025"

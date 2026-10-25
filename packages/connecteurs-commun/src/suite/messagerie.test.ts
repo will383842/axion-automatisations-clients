@@ -25,7 +25,7 @@ describe("suite de contrat messagerie", () => {
     }
     await expect(lancer(manque(fabriqueMemoire, "envoyer"))).rejects.toThrow(/échoue/);
   });
-  it("[A-405] la suite rejouée sur les réponses enregistrées passe, sans réseau", async () => {
+  it("[A-338] la suite rejouée sur les réponses enregistrées passe, sans réseau", async () => {
     const reseau = globalThis.fetch;
     globalThis.fetch = (() => { throw new Error("réseau interdit"); }) as never;
     try {
@@ -33,6 +33,10 @@ describe("suite de contrat messagerie", () => {
     } finally {
       globalThis.fetch = reseau;
     }
+  });
+  it("[A-397] le lanceur joue la même suite contre un serveur (faux ou compte de test), pas seulement les enregistrements", async () => {
+    await lancer(fabriqueMemoire);
+    await expect(lancer(manque(fabriqueMemoire, "lire"))).rejects.toThrow(/échoue/);
   });
   it("[A-405] un connecteur qui envoie deux fois échoue la suite (anti-doublon)", async () => {
     const double: Fabrique = async (s) => {

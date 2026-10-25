@@ -1,0 +1,13 @@
+{
+  "nom": "panne_503",
+  "appels": [
+    {
+      "methode": "lire",
+      "erreur": {
+        "classe": "passagere",
+        "code": "http_503"
+      }
+    }
+  ],
+  "envoyes": 0
+}

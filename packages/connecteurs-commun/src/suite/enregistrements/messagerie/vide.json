@@ -1,0 +1,13 @@
+{
+  "nom": "vide",
+  "appels": [
+    {
+      "methode": "listerNouveaux",
+      "reponse": {
+        "ids": [],
+        "suivant": null
+      }
+    }
+  ],
+  "envoyes": 0
+}

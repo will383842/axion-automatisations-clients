@@ -49,7 +49,9 @@ describe("Valkey du socle", () => {
 
     const file = creerFile("essai-traite", connexion.client);
     const traite = new Promise<string>((ok) => {
-      const w = new Worker("essai-traite", (job) => Promise.resolve(ok(String(job.data.tenantId))), { connection: connexion.client.duplicate({ maxRetriesPerRequest: null }), prefix: PREFIXE });
+      const connexionWorker = connexion.client.duplicate({ maxRetriesPerRequest: null });
+      connexions.push(connexionWorker);
+      const w = new Worker("essai-traite", (job) => Promise.resolve(ok(String(job.data.tenantId))), { connection: connexionWorker, prefix: PREFIXE });
       ouverts.push({ quit: () => w.close() });
     });
     await deposer(file, { tenantId: TENANT, type: "essai", cle: `traite-${Date.now()}` }, {});

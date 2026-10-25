@@ -11,6 +11,7 @@ DECLARE
   app text := current_setting('modele.app');
   equipe text := current_setting('modele.equipe');
   autre record;
+  qui text;
   client_actif text := $c$tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid$c$;
 BEGIN
   EXECUTE format('ALTER TABLE %s ENABLE ROW LEVEL SECURITY', cible);
@@ -24,6 +25,11 @@ BEGIN
   -- L'équipe lit tous les clients : « tenant_id IS NOT NULL » vaut « vrai » (colonne NOT NULL) et cite tenant_id, comme l'exige l'invariant C5 (USING (true) est signalé).
   EXECUTE format('DROP POLICY IF EXISTS lecture_equipe ON %s', cible);
   EXECUTE format('CREATE POLICY lecture_equipe ON %s FOR SELECT TO %I USING (tenant_id IS NOT NULL)', cible, equipe);
+  -- Tout droit déjà accordé sur la table (PUBLIC, TRUNCATE, REFERENCES, TRIGGER, autre rôle) est retiré avant les droits ci-dessous : TRUNCATE ignore la RLS.
+  FOR qui IN SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE quote_ident(pg_get_userbyid(a.grantee)) END
+      FROM pg_class c, aclexplode(c.relacl) a WHERE c.oid = cible::regclass AND a.grantee <> c.relowner LOOP
+    EXECUTE format('REVOKE ALL ON %s FROM %s', cible, qui);
+  END LOOP;
   EXECUTE format('GRANT USAGE ON SCHEMA %I TO %I, %I', schema_, app, equipe);
   EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON %s TO %I', cible, app);
   EXECUTE format('GRANT SELECT ON %s TO %I', cible, equipe);

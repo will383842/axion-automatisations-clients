@@ -200,6 +200,7 @@ function verifierBrique(fichier: string, contenu: unknown, options: Options = {}
   if (lieu && !LIEUX.has(lieu)) echec(`lieu « ${lieu} » inconnu (UE, hors UE, local)`);
   if (source && !sourceSure(source)) echec("source : adresse https d'un projet, sans adresse IP ni hôte interne");
   if (verifie && !dateReelle(verifie)) echec(`verifie_le « ${verifie} » n'est pas une date AAAA-MM-JJ réelle`);
+  if (image && (image.split("/")[0] ?? "").includes(":")) echec("image : port interdit dans le nom d'hôte du registre (A-381)");
   if ("derivee" in contenu) erreurs.push(...verifierDerivee(fichier, contenu, options));
   else if (image.startsWith(DEPOT_DERIVEES)) echec("derivee obligatoire pour une image de notre dépôt GHCR : l'attestation ne se vérifie que par elle (ADR 0016)");
   return erreurs;
@@ -219,6 +220,8 @@ function imagesDuCompose(c: Compose): { images: string[]; erreurs: string[] } {
   if (estObjet(doc) && "include" in doc) erreurs.push(`${c.nom} : include: refusé, la garde ne lit pas le fichier inclus (A-381)`);
   for (const [nom, s] of entrees) {
     if (!estObjet(s)) continue;
+    if ("provider" in s) erreurs.push(`${c.nom} : service « ${nom} » : provider: refusé, il lance un greffon sans image (A-381)`);
+    if ("image" in s && typeof s.image !== "string") erreurs.push(`${c.nom} : service « ${nom} » : image doit être un texte`);
     if ("build" in s) erreurs.push(`${c.nom} : service « ${nom} » : build: refusé, une image se tire du registre (A-381)`);
     if (s.pull_policy !== undefined && s.pull_policy !== "always" && s.pull_policy !== "missing") erreurs.push(`${c.nom} : service « ${nom} » : pull_policy « ${String(s.pull_policy)} » refusé (always ou missing)`);
     if (estObjet(s.extends) && "file" in s.extends) erreurs.push(`${c.nom} : service « ${nom} » : extends.file refusé, la garde ne lit pas le fichier cité`);

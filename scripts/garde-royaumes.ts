@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 
 const SESSION_MAX = 8 * 3600;
 const JETON_MAX = 300;
+const FACTEUR_ECHECS_MAX = 5;
 const SECRET_ENV = /^\$\{env\.[A-Z][A-Z0-9_]*\}$/;
 // Seuls authentificateurs permis dans le flux de navigateur de l'équipe : tout autre (SMS, fournisseur d'identité, clé d'accès seule…) est refusé.
 const PERMIS = new Set(["auth-cookie", "auth-username-password-form", "auth-otp-form", "webauthn-authenticator"]);
@@ -25,6 +26,14 @@ function verifierDurees(r: Objet, echec: (m: string) => void): void {
   duree("accessTokenLifespan", JETON_MAX);
 }
 
+// Force brute (C-002) : absent = faux par défaut de Keycloak ; verrouillage temporaire seulement, échecs peu nombreux.
+function verifierForceBrute(r: Objet, echec: (m: string) => void): void {
+  if (r["bruteForceProtected"] !== true) echec("bruteForceProtected doit être true (absent = faux par défaut de Keycloak)");
+  const f = r["failureFactor"];
+  if (typeof f !== "number" || !(f >= 1) || f > FACTEUR_ECHECS_MAX) echec(`failureFactor doit être un nombre de 1 à ${FACTEUR_ECHECS_MAX}`);
+  if (r["permanentLockout"] === true) echec("permanentLockout interdit : verrouillage temporaire seulement");
+}
+
 function verifierClients(r: Objet, echec: (m: string) => void): void {
   for (const c of liste(r["clients"])) {
     const id = String(c["clientId"]);
@@ -32,6 +41,17 @@ function verifierClients(r: Objet, echec: (m: string) => void): void {
     if (c["directAccessGrantsEnabled"] !== false) echec(`client « ${id} » : directAccessGrantsEnabled doit être false (absent = valeur par défaut de Keycloak)`);
     if (c["implicitFlowEnabled"] === true) echec(`client « ${id} » : implicitFlowEnabled interdit`);
     if (!estObjet(c["attributes"]) || c["attributes"]["pkce.code.challenge.method"] !== "S256") echec(`client « ${id} » : PKCE S256 obligatoire`);
+    for (const cle of ["redirectUris", "webOrigins"]) {
+      const v = c[cle];
+      if (Array.isArray(v) && v.some((x) => typeof x !== "string" || x.includes("*"))) echec(`client « ${id} » : ${cle} sans joker « * »`);
+    }
+    const liaisons = c["authenticationFlowBindingOverrides"];
+    if (liaisons !== undefined && !(estObjet(liaisons) && Object.keys(liaisons).length === 0)) echec(`client « ${id} » : authenticationFlowBindingOverrides interdit (contourne le flux du royaume)`);
+    // offline_access donne des sessions hors ligne de 30 jours : déclarer les portées, sans elle.
+    for (const cle of ["defaultClientScopes", "optionalClientScopes"]) {
+      const v = c[cle];
+      if (!Array.isArray(v) || v.includes("offline_access")) echec(`client « ${id} » : ${cle} doit être déclaré, sans offline_access`);
+    }
     if (c["secret"] !== undefined && !(typeof c["secret"] === "string" && SECRET_ENV.test(c["secret"]))) echec(`client « ${id} » : secret en clair (utiliser \${env.NOM})`);
   }
 }
@@ -89,7 +109,9 @@ export function verifierRoyaume(nom: string, texte: string): string[] {
   const erreurs: string[] = [];
   const echec = (m: string) => erreurs.push(`${nom}: ${m}`);
   verifierDurees(r, echec);
+  verifierForceBrute(r, echec);
   verifierClients(r, echec);
+  if (liste(r["identityProviders"]).length > 0) echec("identityProviders : aucun courtier d'identité (hors du flux de connexion contrôlé)");
   if (liste(r["users"]).length > 0) echec("users : aucun utilisateur ni identifiant dans un fichier de royaume");
   if (r["realm"] === "equipe") {
     if (r["registrationAllowed"] !== false) echec("registrationAllowed doit être false dans le royaume de l'équipe");

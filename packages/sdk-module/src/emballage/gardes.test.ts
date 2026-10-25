@@ -44,7 +44,7 @@ describe("gardes d'emballage", () => {
   });
 
   it("[A-302] une adresse e-mail réelle est refusée, @exemple.fr et .test sont permises", () => {
-    const reelle = "contact" + "@" + "societe-inventee.com";
+    const reelle = "contact" + "@" + "example.com";
     expect(verifierCode(`x("${reelle}")`, []).length).toBe(1);
     expect(verifierCode(`x("a@exemple.fr"); y("b@boite.test")`, [])).toEqual([]);
     expect(JSON.stringify(verifierCode(`x("${reelle}")`, []))).not.toContain(reelle);
@@ -59,5 +59,11 @@ describe("gardes d'emballage", () => {
 
   it("[A-302] un chemin absolu de la machine dans le code est refusé", () => {
     expect(verifierCode("// /srv/travail/projet/module.ts", ["/srv/travail/projet"]).length).toBe(1);
+  });
+
+  it("[A-302] une racine « / » ne fait pas refuser tout module, et /tmp n'est pas pris pour /tmpfs", () => {
+    expect(verifierCode("// /usr/lib/x", ["/"])).toEqual([]);
+    expect(verifierCode("// /tmpfs/x", ["/tmp"])).toEqual([]);
+    expect(verifierCode("// /tmp/x", ["/tmp"]).length).toBe(1);
   });
 });

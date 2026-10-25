@@ -13,6 +13,7 @@ interface Dep {
   dossier?: string;
   nom?: string;
   licence?: string;
+  version?: string;
 }
 // Projet jetable : un module qui réexporte l'exemple, plus des dépendances inventées dans node_modules.
 function projet(opts: { deps?: Dep[]; inutilises?: Dep[]; extra?: string; source?: string } = {}): string {
@@ -22,7 +23,7 @@ function projet(opts: { deps?: Dep[]; inutilises?: Dep[]; extra?: string; source
   for (const d of toutes) {
     const dir = join(racine, "node_modules", d.dossier ?? d.nom ?? "x");
     mkdirSync(dir, { recursive: true });
-    const pkg: Record<string, unknown> = { name: d.nom ?? d.dossier, version: "1.2.3" };
+    const pkg: Record<string, unknown> = { name: d.nom ?? d.dossier, version: d.version ?? "1.2.3" };
     if (d.licence !== undefined) pkg.license = d.licence;
     writeFileSync(join(dir, "package.json"), JSON.stringify(pkg));
     writeFileSync(join(dir, "index.js"), "export default 1;\n");
@@ -92,6 +93,40 @@ describe("construire un module", () => {
   it("[C-471] une dépendance AGPL est refusée", async () => {
     const m = projet({ deps: [{ nom: "copyleft", licence: "AGPL-3.0-only" }] });
     await expect(construire(m)).rejects.toThrow(/copyleft.*licence/);
+  });
+
+  it("[C-471] deux versions du même paquet : l'AGPL au niveau haut est refusée même si l'imbriquée est MIT", async () => {
+    const m = projet({ deps: [{ nom: "lib-a", version: "1.0.0", licence: "AGPL-3.0-only" }] });
+    const b = join(dirname(m), "node_modules", "b");
+    const imbrique = join(b, "node_modules", "lib-a");
+    mkdirSync(imbrique, { recursive: true });
+    writeFileSync(join(imbrique, "package.json"), JSON.stringify({ name: "lib-a", version: "2.0.0", license: "MIT" }));
+    writeFileSync(join(imbrique, "index.js"), "export default 2;\n");
+    writeFileSync(join(b, "package.json"), JSON.stringify({ name: "b", version: "1.0.0", license: "MIT" }));
+    writeFileSync(join(b, "index.js"), 'import a from "lib-a";\nexport default a;\n');
+    writeFileSync(m, `${readFileSync(m, "utf8")}\nimport bb from "b";\nexport const ub = bb;\n`);
+    await expect(construire(m)).rejects.toThrow(/lib-a.*licence/);
+  });
+
+  it("[A-017] le SBOM liste chaque version emballée d'un même paquet", async () => {
+    const m = projet({ deps: [{ nom: "lib-a", version: "1.0.0", ...MIT }] });
+    const b = join(dirname(m), "node_modules", "b");
+    const imbrique = join(b, "node_modules", "lib-a");
+    mkdirSync(imbrique, { recursive: true });
+    writeFileSync(join(imbrique, "package.json"), JSON.stringify({ name: "lib-a", version: "2.0.0", license: "MIT" }));
+    writeFileSync(join(imbrique, "index.js"), "export default 2;\n");
+    writeFileSync(join(b, "package.json"), JSON.stringify({ name: "b", version: "1.0.0", license: "MIT" }));
+    writeFileSync(join(b, "index.js"), 'import a from "lib-a";\nexport default a;\n');
+    writeFileSync(m, `${readFileSync(m, "utf8")}\nimport bb from "b";\nexport const ub = bb;\n`);
+    const { dossier } = await construire(m);
+    const sbom = JSON.parse(readFileSync(join(dossier, "sbom.cdx.json"), "utf8")) as { components: { name: string; version: string }[] };
+    expect(sbom.components.filter((c) => c.name === "lib-a").map((c) => c.version).sort()).toEqual(["1.0.0", "2.0.0"]);
+  });
+
+  it("[A-302] le module d'emballage se charge avec node seul (sans propriété de paramètre)", async () => {
+    const { execFileSync } = await import("node:child_process");
+    const url = new URL("./construire.ts", import.meta.url).href;
+    expect(() => execFileSync(process.execPath, ["--input-type=module", "-e", `await import(${JSON.stringify(url)})`], { stdio: "pipe" })).not.toThrow();
   });
 
   it("[C-471] une licence « non commerciale » est refusée", async () => {

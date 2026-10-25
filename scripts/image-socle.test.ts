@@ -42,6 +42,17 @@ function analyserDockerfile(texte: string): string[] {
   if (texte.split("\n").some((l) => /^\s*#\s*[A-Za-z]+\s*=/.test(l))) erreurs.push("directive d'analyse interdite");
   const from = liste.filter((i) => i.cmd === "FROM");
   if (from.length !== 1 || !/^postgres:16@sha256:[0-9a-f]{64}$/.test(from[0]?.arg ?? "")) erreurs.push("un seul FROM, postgres:16 épinglé par empreinte");
+  const AUTORISEES = [
+    /^ARG PARTMAN_VERSION=[\w.+~-]+$/,
+    /^RUN apt-get update && apt-get install -y --no-install-recommends "postgresql-16-partman=\$\{PARTMAN_VERSION\}" && rm -rf \/var\/lib\/apt\/lists\/\*$/,
+    /^RUN rm \/usr\/local\/bin\/gosu$/,
+    /^USER postgres$/,
+  ];
+  for (const i of liste) {
+    if (i.cmd === "FROM") continue;
+    const texte = `${i.cmd} ${i.arg}`.replace(/\s+/g, " ").replace(/ ?&& ?/g, " && ");
+    if (!AUTORISEES.some((m) => m.test(texte))) erreurs.push(`${i.cmd} : instruction hors liste blanche`);
+  }
   const rm = liste.filter((i) => i.cmd === "RUN" && /^rm\s/.test(i.arg));
   if (rm.length !== 1 || rm[0]?.arg !== "rm /usr/local/bin/gosu") erreurs.push("RUN rm /usr/local/bin/gosu exigé, sans option");
   const iRm = liste.findIndex((i) => i === rm[0]);
@@ -83,6 +94,9 @@ describe("image postgres du socle : Dockerfile", () => {
       ["instruction après USER", `${ok.trimEnd()}\nRUN true\n`],
       ["gosu recopié", ok.replace("USER postgres", "RUN cp /bin/busybox /usr/local/bin/gosu\nUSER postgres")],
       ["setuid", ok.replace("USER postgres", "RUN chmod u+s /bin/sh\nUSER postgres")],
+      ["setuid par install", ok.replace("USER postgres", "RUN install -m 4755 /bin/bash /usr/local/bin/b\nUSER postgres")],
+      ["sudo installé", ok.replace("USER postgres", "RUN apt-get install -y sudo\nUSER postgres")],
+      ["heredoc RUN", ok.replace("USER postgres", "RUN <<X\nid\nX\nUSER postgres")],
       ["ENTRYPOINT remplacé", ok.replace("USER postgres", 'ENTRYPOINT ["sh"]\nUSER postgres')],
       ["FROM sur une étiquette seule", ok.replace(/@sha256:[0-9a-f]{64}/, "")],
       ["directive syntax", `# syntax=docker.io/exemple/frontend:latest\n${ok}`],

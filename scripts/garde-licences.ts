@@ -94,6 +94,24 @@ function lireWorkflow(f: Fichier): Obj | string {
   }
 }
 
+// Contenu des $( … ) (parenthèses équilibrées) et des `…` : ces commandes s'exécutent aussi.
+function substitutions(t: string): string[] {
+  const internes: string[] = [];
+  for (let i = 0; i < t.length; i++) {
+    if (t[i] === "`") {
+      const fin = t.indexOf("`", i + 1);
+      internes.push(t.slice(i + 1, fin < 0 ? t.length : fin));
+      i = fin < 0 ? t.length : fin;
+    } else if (t[i] === "$" && t[i + 1] === "(") {
+      let profondeur = 1;
+      let j = i + 2;
+      for (; j < t.length && profondeur > 0; j++) profondeur += t[j] === "(" ? 1 : t[j] === ")" ? -1 : 0;
+      internes.push(t.slice(i + 2, j - 1));
+    }
+  }
+  return internes;
+}
+
 // Découpe un « run: » en commandes (guillemets, commentaires, && || ; |, lignes continuées). « tolere » : la commande est suivie de « || ».
 function commandes(script: string): { mots: string[]; tolere: boolean }[] {
   const sorties: { mots: string[]; tolere: boolean }[] = [];
@@ -112,6 +130,7 @@ function commandes(script: string): { mots: string[]; tolere: boolean }[] {
     mots = [];
   };
   const t = script.replace(/\\\r?\n/g, " ");
+  for (const interne of substitutions(t)) sorties.push(...commandes(interne));
   for (let i = 0; i < t.length; i++) {
     const c = t[i] ?? "";
     const suivant = t[i + 1] ?? "";
@@ -144,38 +163,86 @@ function commandes(script: string): { mots: string[]; tolere: boolean }[] {
 const PREFIXES = new Set(["corepack", "env", "sudo", "time", "exec", "command"]);
 const outil = (mots: string[]): number => mots.findIndex((m) => !PREFIXES.has(m) && !/^\w+=/.test(m));
 const FIGE = /^--frozen-lockfile(?:=true)?$/;
+const INCONNU = "forme non lisible, refusée par prudence";
+const LANCEURS = new Set(["npx", "pnpx", "bunx", "eval", "xargs", "source", "."]);
+const SANS_VALEUR = new Set(["-r", "--recursive", "-w", "--workspace-root", "-s", "--silent", "--stream", "--offline", "--prefer-offline", "--color", "--no-color", "--if-present", "--frozen-lockfile", "--ignore-scripts"]);
+const AVEC_VALEUR = new Set(["--filter", "-F", "--dir", "-C", "--reporter", "--loglevel", "--prefix", "--cwd", "--workspace", "--registry"]);
+
+// Premier mot qui n'est pas une option ; une option inconnue avant lui rend la forme illisible (undefined).
+function verbeDe(reste: string[]): { verbe: string; apres: string[] } | undefined {
+  for (let k = 0; k < reste.length; k++) {
+    const m = reste[k] ?? "";
+    if (!m.startsWith("-")) return { verbe: m, apres: reste.slice(k + 1) };
+    const [nom = ""] = m.split("=");
+    if (AVEC_VALEUR.has(nom)) k += m.includes("=") ? 0 : 1;
+    else if (!SANS_VALEUR.has(nom)) return undefined;
+  }
+  return { verbe: "", apres: [] };
+}
 
 function installOk(mots: string[]): string | undefined {
   const i = outil(mots);
-  const nom = (mots[i] ?? "").split("/").pop() ?? "";
+  const chemin = mots[i] ?? "";
+  const nom = chemin.split("/").pop() ?? "";
   const reste = mots.slice(i + 1);
-  if ((nom === "bash" || nom === "sh") && reste[0] === "-c") return (commandes(reste[1] ?? "").map((c) => installOk(c.mots)).find(Boolean));
+  if (LANCEURS.has(nom) || chemin.startsWith("./") || chemin.startsWith("/")) return `« ${nom} » : ${INCONNU}`;
+  if (nom === "bash" || nom === "sh") {
+    const options = reste.filter((m) => m.startsWith("-"));
+    const script = reste.find((m) => !m.startsWith("-"));
+    if (script === undefined || !options.some((m) => /^-[a-z]*c[a-z]*$/.test(m))) return `« ${nom} » sans -c : script non lu`;
+    return commandes(script).map((c) => installOk(c.mots)).find(Boolean);
+  }
   if (nom === "pnpm") {
-    let verbe = "";
-    for (let k = 0; k < reste.length; k++) {
-      const m = reste[k] ?? "";
-      if (["--filter", "-F", "--dir", "-C"].includes(m)) k++;
-      else if (!m.startsWith("-")) {
-        verbe = m;
-        break;
-      }
-    }
+    const v = verbeDe(reste);
+    if (!v) return `pnpm : option inconnue avant le verbe (${INCONNU})`;
+    const { verbe } = v;
     if (["add", "update", "up", "upgrade", "dedupe", "link", "remove", "rm"].includes(verbe)) return `« pnpm ${verbe} » modifie le verrou`;
+    if (verbe === "exec") return installOk(v.apres.filter((m) => !m.startsWith("-")));
+    if (["it", "install-test", "dlx", "x", "create", "env", "self-update"].includes(verbe)) return `« pnpm ${verbe} » : ${INCONNU}`;
     if (verbe !== "install" && verbe !== "i") return undefined;
     if (reste.some((m) => /^--no-frozen-lockfile$|^--frozen-lockfile=(?!true$)/.test(m)) || !reste.some((m) => FIGE.test(m))) return "pnpm install sans --frozen-lockfile";
     return undefined;
   }
-  if (nom === "npm") return ["install", "i", "add", "update", "install-test", "it"].includes(reste.find((m) => !m.startsWith("-")) ?? "") ? "npm install sans verrou (utiliser npm ci)" : undefined;
+  if (nom === "npm") {
+    const v = verbeDe(reste);
+    if (!v) return `npm : option inconnue avant le verbe (${INCONNU})`;
+    return ["install", "i", "add", "update", "install-test", "it", "exec", "x"].includes(v.verbe) ? "npm install sans verrou (utiliser npm ci)" : undefined;
+  }
   if (nom === "yarn" || nom === "bun") {
-    const verbe = reste.find((m) => !m.startsWith("-")) ?? "install";
+    const v = verbeDe(reste);
+    if (!v) return `${nom} : option inconnue avant le verbe (${INCONNU})`;
+    const verbe = v.verbe || "install";
     if (verbe === "add" || verbe === "upgrade") return `« ${nom} ${verbe} » modifie le verrou`;
     return verbe === "install" && !reste.some((m) => m === "--frozen-lockfile" || m === "--immutable") ? `${nom} install sans verrou figé` : undefined;
   }
   return undefined;
 }
 
-const etapes = (doc: Obj): { job: Obj; etape: Obj }[] =>
-  Object.values(estObj(doc.jobs) ? doc.jobs : {}).flatMap((job) => (estObj(job) && Array.isArray(job.steps) ? job.steps.filter(estObj).map((etape) => ({ job, etape })) : []));
+// Scripts de package.json : ils s'exécutent par « pnpm <script> » et doivent respecter la même règle.
+export function verifierScriptsPaquets(fichiers: Fichier[]): string[] {
+  const erreurs: string[] = [];
+  for (const f of fichiers) {
+    let scripts: unknown;
+    try {
+      scripts = (JSON.parse(f.texte) as Obj).scripts;
+    } catch {
+      erreurs.push(`${f.nom} : illisible`);
+      continue;
+    }
+    for (const [cle, cmd] of Object.entries(estObj(scripts) ? scripts : {})) {
+      for (const c of typeof cmd === "string" ? commandes(cmd) : []) {
+        const e = installOk(c.mots);
+        if (e) erreurs.push(`${f.nom} (script ${cle}) : ${e}`);
+      }
+    }
+  }
+  return erreurs;
+}
+
+const etapes = (doc: Obj): { job: Obj; etape: Obj }[] => {
+  const jobs = estObj(doc.jobs) ? Object.values(doc.jobs) : estObj(doc.runs) ? [doc.runs] : []; // action composite : « runs.steps »
+  return jobs.flatMap((job) => (estObj(job) && Array.isArray(job.steps) ? job.steps.filter(estObj).map((etape) => ({ job, etape })) : []));
+};
 
 // C-020 : chaque installation de chaque workflow passe par --frozen-lockfile.
 export function verifierInstallationsFigees(workflows: Fichier[]): string[] {
@@ -193,9 +260,10 @@ export function verifierInstallationsFigees(workflows: Fichier[]): string[] {
           if (e) erreurs.push(`${f.nom} : ${e}`);
         }
       }
-      if (typeof etape.uses === "string" && /^pnpm\/action-setup@/.test(etape.uses)) {
-        const run = estObj(etape.with) ? etape.with.run_install : undefined;
-        if (run !== undefined && run !== false && run !== "false") erreurs.push(`${f.nom} : pnpm/action-setup run_install doit rester faux`);
+      if (typeof etape.uses === "string" && /^pnpm\/action-setup@/i.test(etape.uses)) {
+        const cle = Object.keys(estObj(etape.with) ? etape.with : {}).find((k) => k.toLowerCase() === "run_install");
+        const run = cle === undefined ? undefined : (etape.with as Obj)[cle];
+        if (run !== undefined && String(run).toLowerCase() !== "false") erreurs.push(`${f.nom} : pnpm/action-setup run_install doit rester faux`);
       }
     }
   }
@@ -212,7 +280,22 @@ function surChaquePr(doc: Obj): boolean {
   return pr === null || (estObj(pr) && FILTRES_PR.every((k) => !(k in pr)));
 }
 
-// C-019 : un job sans condition lance la garde des licences à chaque PR, sans que son échec soit toléré.
+// C-019 : la garde tourne à chaque PR, sous sa seule forme exacte, sans rien qui change le shell, le dossier, l'environnement ou l'ordre des jobs.
+const GARDE = "node scripts/garde-licences.ts";
+const AVANT_OK = ["corepack enable", "pnpm install --frozen-lockfile"];
+const ACTIONS_OK = /^(actions\/checkout|actions\/setup-node|pnpm\/action-setup)@/i;
+const intact = (o: Obj, cles: string[]) => cles.every((k) => o[k] === undefined);
+const sansReglage = (o: unknown) => !estObj(o) || (o.defaults === undefined && o.env === undefined);
+
+function jobLanceGarde(job: Obj): boolean {
+  if (!intact(job, ["if", "continue-on-error", "needs", "env", "defaults", "container", "strategy"]) || !Array.isArray(job.steps)) return false;
+  const liste = job.steps.filter(estObj);
+  const k = liste.findIndex((e) => typeof e.run === "string" && e.run.trim() === GARDE);
+  const etape = liste[k];
+  if (!etape || !intact(etape, ["if", "continue-on-error", "shell", "working-directory", "env"])) return false;
+  return liste.slice(0, k).every((e) => intact(e, ["if", "continue-on-error", "shell", "working-directory", "env"]) && (typeof e.run === "string" ? AVANT_OK.includes(e.run.trim()) : typeof e.uses === "string" && ACTIONS_OK.test(e.uses)));
+}
+
 export function verifierWorkflowsLicences(workflows: Fichier[]): string[] {
   const erreurs: string[] = [];
   let trouve = false;
@@ -222,13 +305,10 @@ export function verifierWorkflowsLicences(workflows: Fichier[]): string[] {
       erreurs.push(doc);
       continue;
     }
-    if (!surChaquePr(doc)) continue;
-    for (const { job, etape } of etapes(doc)) {
-      if (job.if !== undefined || job["continue-on-error"] !== undefined || etape.if !== undefined || etape["continue-on-error"] !== undefined) continue;
-      if (typeof etape.run === "string" && commandes(etape.run).some((c) => !c.tolere && c.mots[0] === "node" && c.mots.includes("scripts/garde-licences.ts"))) trouve = true;
-    }
+    if (!surChaquePr(doc) || !sansReglage(doc)) continue;
+    if (Object.values(estObj(doc.jobs) ? doc.jobs : {}).some((job) => estObj(job) && jobLanceGarde(job))) trouve = true;
   }
-  if (!trouve) erreurs.push("aucun workflow ne lance scripts/garde-licences.ts sur chaque PR, sans condition ni tolérance");
+  if (!trouve) erreurs.push("aucun workflow ne lance exactement « node scripts/garde-licences.ts » sur chaque PR, sans condition, tolérance ni réglage");
   return erreurs;
 }
 
@@ -246,11 +326,20 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const nomsLivres = new Set(Object.values(livres).flatMap((ps) => ps.map((p) => p.name)));
   const dossier = ".github/workflows";
   const workflows = readdirSync(dossier).filter((f) => /\.ya?ml$/.test(f)).map((f) => ({ nom: f, texte: readFileSync(join(dossier, f), "utf8") }));
+  const composites = ((): Fichier[] => {
+    try {
+      return readdirSync(".github/actions", { recursive: true, encoding: "utf8" }).filter((f) => /(^|\/)action\.ya?ml$/.test(f)).map((f) => ({ nom: f, texte: readFileSync(join(".github/actions", f), "utf8") }));
+    } catch {
+      return [];
+    }
+  })();
+  const paquets = readdirSync(".", { recursive: true, encoding: "utf8" }).filter((f) => /(^|\/)package\.json$/.test(f) && !f.includes("node_modules")).map((f) => ({ nom: f, texte: readFileSync(f, "utf8") }));
   const erreurs = [
     ...verifierLicences(lister(), nomsMpl, nomsProduction, nomsLivres),
     ...verifierLicencesLivrees(livres, "apps/executeur, sdk-module, connecteurs, modules"),
     ...verifierWorkflowsLicences(workflows),
-    ...verifierInstallationsFigees(workflows),
+    ...verifierInstallationsFigees([...workflows, ...composites]),
+    ...verifierScriptsPaquets(paquets),
   ];
   for (const e of erreurs) console.error(e);
   process.exit(erreurs.length ? 1 : 0);

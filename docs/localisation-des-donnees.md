@@ -2,7 +2,7 @@
 
 Document de preuve : pour chaque brique et chaque fournisseur, le lieu des données. Pas d'avis juridique ici.
 
-## Briques inscrites (`ops/briques/`)
+## Briques prévues (`ops/briques/`)
 Toutes tournent chez AXION IA (lieu `local`) ; aucune n'est livrée chez un client à ce stade.
 
 | Brique | Rôle | Lieu des données |
@@ -16,7 +16,7 @@ Toutes tournent chez AXION IA (lieu `local`) ; aucune n'est livrée chez un clie
 | `openbao` | coffre à secrets | `local` : serveur d'AXION IA |
 | `litellm` | passerelle d'IA | `local` pour la passerelle ; les demandes partent ensuite chez le fournisseur choisi (voir plus bas) |
 
-La brique `keycloak` (connexion) sera inscrite dans `ops/briques/` avec son empreinte, dès qu'elle aura été relevée.
+La brique `keycloak` (connexion) sera prévue dans `ops/briques/` avec son empreinte, dès qu'elle aura été relevée.
 
 ## Fournisseurs d'IA
 | Fournisseur | Lieu des données |

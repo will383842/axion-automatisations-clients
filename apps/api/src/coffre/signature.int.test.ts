@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
-import { appendFileSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
 import { lireYaml } from "../../../../scripts/garde-compose.js";
@@ -17,18 +17,6 @@ const compose = lireYaml(readFileSync(racineDepot("ops/socle/compose.openbao.yml
 const IMAGE = compose.services.openbao.image;
 const lancés: string[] = [];
 afterAll(() => { for (const id of lancés) try { docker("rm", "-f", id); } catch { /* déjà arrêté */ } });
-
-// Diagnostic TEMPORAIRE : le rapport JSON de la CI avale la console ; on écrit une annotation sur la sortie des processus parents (cause seulement, jamais un jeton).
-function emettre(message: string): void {
-  let pid = process.pid;
-  for (let i = 0; i < 6 && pid > 1; i++) {
-    try { appendFileSync(`/proc/${pid}/fd/1`, `::error title=DIAG T1A-07::${message.replace(/[\r\n]+/g, " | ").slice(0, 400)}\n`); } catch { /* sortie fermée */ }
-    try { pid = Number(readFileSync(`/proc/${pid}/stat`, "utf8").split(") ")[1]?.split(" ")[1]); } catch { return; }
-  }
-}
-const diag = (f: () => Promise<void>) => async () => {
-  try { await f(); } catch (e) { emettre(e instanceof ErreurCoffre ? `ErreurCoffre ${e.code}` : String(e instanceof Error ? e.message : e).replace(/TEST-NE-PAS-UTILISER-\w+/g, "[jeton]")); throw e; }
-};
 
 interface Instance { racine: OptionsBao; jeton: (role: string) => Promise<OptionsBao> }
 
@@ -67,22 +55,22 @@ async function appelerAdmin(o: OptionsBao, methode: string, chemin: string, corp
 }
 
 describe("OpenBao réel : clé de signature, copie de secours et clés HMAC", () => {
-  it("[A-193] la clé de signature des modules est dans OpenBao et n'est pas exportable", diag(async () => {
+  it("[A-193] la clé de signature des modules est dans OpenBao et n'est pas exportable", async () => {
     const bao = await lancer();
     await creerSignature(bao.racine).creerCle();
     expect(await creerSignature(await bao.jeton("signature")).etatCle()).toEqual({ type: "ed25519", exportable: false, sauvegardePossible: true });
     const e = await appeler(bao.racine, "GET", "transit/export/signing-key/modules-signature").then(() => undefined, (x: unknown) => x);
     expect(e).toBeInstanceOf(ErreurCoffre);
-  }));
-  it("[A-193] signer puis vérifier une signature Ed25519 par OpenBao", diag(async () => {
+  });
+  it("[A-193] signer puis vérifier une signature Ed25519 par OpenBao", async () => {
     const bao = await lancer();
     await creerSignature(bao.racine).creerCle();
     const s = creerSignature(await bao.jeton("signature")), m = Buffer.from(randomUUID());
     const signature = await s.signer(m);
     expect(await s.verifier(m, signature)).toBe(true);
     expect(await s.verifier(Buffer.from("autre"), signature)).toBe(false);
-  }));
-  it("[A-303] le paquet de secours restauré dans un second OpenBao neuf vérifie une signature faite avant", diag(async () => {
+  });
+  it("[A-303] le paquet de secours restauré dans un second OpenBao neuf vérifie une signature faite avant", async () => {
     const premier = await lancer();
     await creerSignature(premier.racine).creerCle();
     const m = Buffer.from(randomUUID()), signature = await creerSignature(await premier.jeton("signature")).signer(m);
@@ -90,8 +78,8 @@ describe("OpenBao réel : clé de signature, copie de secours et clés HMAC", ()
     const second = await lancer();
     await creerSignature(second.racine).restaurerSecours(paquet);
     expect(await creerSignature(await second.jeton("signature")).verifier(m, signature)).toBe(true);
-  }));
-  it("[C-015] @isolation la clé HMAC c1 est lue par la politique echanges et refusée aux politiques courtier et equipe", diag(async () => {
+  });
+  it("[C-015] @isolation la clé HMAC c1 est lue par la politique echanges et refusée aux politiques courtier et equipe", async () => {
     const bao = await lancer();
     const e = creerClesEchanges(await bao.jeton("echanges"));
     const cle = await e.tourner("c1", "emission");
@@ -100,5 +88,5 @@ describe("OpenBao réel : clé de signature, copie de secours et clés HMAC", ()
       const autre = creerClesEchanges(await bao.jeton(role));
       await expect(autre.cleActive("c1", "emission")).rejects.toMatchObject({ code: "refuse" });
     }
-  }));
+  });
 });

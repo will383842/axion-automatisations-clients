@@ -68,6 +68,33 @@ function verifierPermissionsYaml(texte: string): string[] {
   return erreurs;
 }
 
+// ADR 0014 : packages, id-token et attestations en écriture ouvrent la publication. Permis dans un seul endroit : jobs.publier de images-derivees.yml.
+const DROITS_PUBLICATION = new Set(["packages", "id-token", "attestations"]);
+function verifierEcrituresPaquets(nom: string, texte: string): string[] {
+  let documents: unknown[];
+  try {
+    documents = loadAll(texte);
+  } catch {
+    return [];
+  }
+  const erreurs: string[] = [];
+  const parcourir = (noeud: unknown, chemin: string[]): void => {
+    if (Array.isArray(noeud)) return noeud.forEach((n, i) => parcourir(n, [...chemin, String(i)]));
+    if (!estObjet(noeud)) return;
+    for (const [cle, valeur] of Object.entries(noeud)) {
+      if (cle === "permissions" && estObjet(valeur)) {
+        const autorise = nom === "images-derivees.yml" && chemin.join(".") === "jobs.publier";
+        for (const [droit, niveau] of Object.entries(valeur)) {
+          if (DROITS_PUBLICATION.has(droit.toLowerCase()) && !LECTURE_SEULE.has(String(niveau)) && !autorise) erreurs.push(`permission ${droit}: ${String(niveau)} interdite hors du job publier de images-derivees.yml`);
+        }
+      }
+      parcourir(valeur, [...chemin, cle]);
+    }
+  };
+  documents.forEach((d) => parcourir(d, []));
+  return erreurs;
+}
+
 function declencheurs(lignes: string[]): string[] {
   const i = lignes.findIndex((l) => /^["']?on["']?:/.test(l));
   if (i < 0) return [];
@@ -92,6 +119,7 @@ export function verifierWorkflow(nom: string, texte: string): string[] {
   const erreurs: string[] = [];
   const echec = (n: number, msg: string) => erreurs.push(`${nom}:${n}: ${msg}`);
   verifierPermissionsYaml(texte).forEach((msg) => echec(1, msg));
+  verifierEcrituresPaquets(nom, texte).forEach((msg) => echec(1, msg));
   const trigs = declencheurs(lignes);
   const surPr = trigs.includes("pull_request") || lignes.some((l) => /\bpull_request\b(?!_target)/.test(l));
 

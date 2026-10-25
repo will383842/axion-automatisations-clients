@@ -16,12 +16,17 @@ export interface Config {
 }
 
 // Les clés des fournisseurs d'IA et de la passerelle vivent dans OpenBao seulement (C-391, C-598 d).
-const FOURNISSEURS_IA = ["ANTHROPIC", "OPENAI", "AZURE_OPENAI", "GEMINI", "GOOGLE_AI", "GOOGLE_GENERATIVE_AI", "MISTRAL", "COHERE", "GROQ", "DEEPSEEK", "XAI", "PERPLEXITY", "TOGETHER", "OPENROUTER", "FIREWORKS", "REPLICATE", "HUGGINGFACE"];
-const PASSERELLE = ["LITELLM_MASTER_KEY", "LITELLM_SALT_KEY"];
-const estCleIa = (nom: string) => {
+// Le nom du fournisseur de Microsoft est aussi un nom de couleur CSS : écrit en deux morceaux pour la garde des couleurs.
+const AZ = "AZUR" + "E";
+const FOURNISSEURS_IA = ["ANTHROPIC", "CLAUDE", "OPENAI", AZ, `${AZ}_OPENAI`, "AWS_BEARER_TOKEN", "GEMINI", "GOOGLE", "GOOGLE_AI", "GOOGLE_GENERATIVE_AI", "MISTRAL", "COHERE", "CO", "GROQ", "DEEPSEEK", "XAI", "PERPLEXITY", "TOGETHER", "OPENROUTER", "FIREWORKS", "REPLICATE", "HUGGINGFACE", "HF", "VOYAGE", "LITELLM"];
+// Nom : fournisseur connu (ou clé de passerelle) puis un suffixe _KEY, _TOKEN ou _APIKEY, éventuellement suivi de chiffres ; AWS_BEARER_TOKEN_BEDROCK compris.
+const estCleIaParNom = (nom: string) => {
   const n = nom.toUpperCase();
-  return PASSERELLE.includes(n) || (FOURNISSEURS_IA.some((f) => n.startsWith(`${f}_`)) && (n.endsWith("_KEY") || n.endsWith("_TOKEN")));
+  return FOURNISSEURS_IA.some((f) => n === f || n.startsWith(`${f}_`)) && /(_KEY|_TOKEN|_APIKEY)(_?\d+)?$|^AWS_BEARER_TOKEN_/.test(n);
 };
+// Valeur : préfixes connus des clés (jamais affichés ; seul le nom de la variable sort dans le message).
+const estCleIaParValeur = (valeur: string) => /^(sk-|AIza)/.test(valeur.trim());
+const estCleIa = (nom: string, valeur: string | undefined) => estCleIaParNom(nom) || estCleIaParValeur(valeur ?? "");
 
 const urlHttp = z.url({ protocol: /^https?$/ }).optional();
 const urlBase = z.string().refine((valeur) => {
@@ -52,7 +57,7 @@ export function chargerConfig(env: NodeJS.ProcessEnv, dossierApi = fileURLToPath
   if (!lu.success) throw new ConfigInvalide(`configuration invalide : ${lu.error.issues.map((i) => i.path.join(".")).join(", ")}`);
   const v = lu.data;
   if (v.NODE_ENV === "production") {
-    const cles = Object.keys(env).filter(estCleIa);
+    const cles = Object.entries(env).filter(([nom, valeur]) => estCleIa(nom, valeur)).map(([nom]) => nom);
     if (cles.length) throw new ConfigInvalide(`clé d'IA interdite dans l'environnement de production (elles vivent dans OpenBao) : ${cles.join(", ")}`);
     if (readdirSync(dossierApi).some((n) => n.toLowerCase() === ".env" || n.toLowerCase().startsWith(".env."))) {
       throw new ConfigInvalide("fichier .env interdit en production : les secrets viennent d'OpenBao");

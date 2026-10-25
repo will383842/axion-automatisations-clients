@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import pg from "pg";
+import { verifierDossier } from "../../../../scripts/garde-migrations.ts";
 
 // Outil de migration : applique apps/api/drizzle/ avec console_migration, jamais console_app.
 // Le journal des migrations appliquées est la table drizzle.__drizzle_migrations.
@@ -22,6 +23,9 @@ export async function migrer(options: { url: string; dossier: string }): Promise
   if (lu?.role !== ROLE || lu.parametres.some((p) => p !== "sslmode")) {
     throw new Error(`migrer exige une URL du rôle ${ROLE}, sans autre paramètre que sslmode`);
   }
+  // Même contrôle que la garde, sur exactement les fichiers que drizzle va appliquer, avant toute connexion.
+  const refus = verifierDossier(options.dossier);
+  if (refus.length) throw new Error(`migrations refusées :\n${refus.join("\n")}`);
   if (!existsSync(`${options.dossier}/meta/_journal.json`)) return; // dossier vide : rien à appliquer
   const client = new pg.Client({ connectionString: options.url });
   await client.connect();

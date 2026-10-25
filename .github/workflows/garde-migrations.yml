@@ -15,5 +15,7 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
-      - name: Refuser DROP, RENAME, ALTER … TYPE, TRUNCATE et SQL dynamique dans apps/*/drizzle
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - name: Refuser DROP, RENAME, ALTER … TYPE, TRUNCATE, SET SCHEMA, DO, fonctions et SQL dynamique dans apps/*/drizzle
         run: node scripts/garde-migrations.ts

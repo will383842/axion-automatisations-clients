@@ -20,7 +20,7 @@ describe("outil de migration", () => {
     const dossier = mkdtempSync(join(tmpdir(), "migrer-"));
     mkdirSync(join(dossier, "meta"));
     writeFileSync(join(dossier, "meta/_journal.json"), JSON.stringify({ version: "7", dialect: "postgresql", entries: [{ idx: 0, version: "7", when: 0, tag: "../hors/0000_cache", breakpoints: true }] }));
-    await expect(migrer({ url: "postgres://console_migration@hote.invalid:5432/console", dossier })).rejects.toThrow(/tag de journal invalide/);
+    await expect(migrer({ url: "postgres://console_migration@hote.test:5432/console", dossier })).rejects.toThrow(/tag de journal invalide/);
   });
 
   it("[A-233] migrer refuse un DROP dans un fichier du journal, avant toute connexion", async () => {
@@ -28,6 +28,6 @@ describe("outil de migration", () => {
     mkdirSync(join(dossier, "meta"));
     writeFileSync(join(dossier, "meta/_journal.json"), JSON.stringify({ version: "7", dialect: "postgresql", entries: [{ idx: 0, version: "7", when: 0, tag: "0000_a", breakpoints: true }] }));
     writeFileSync(join(dossier, "0000_a.sql"), "DROP TABLE a;\n");
-    await expect(migrer({ url: "postgres://console_migration@hote.invalid:5432/console", dossier })).rejects.toThrow(/instruction interdite : DROP/);
+    await expect(migrer({ url: "postgres://console_migration@hote.test:5432/console", dossier })).rejects.toThrow(/instruction interdite : DROP/);
   });
 });

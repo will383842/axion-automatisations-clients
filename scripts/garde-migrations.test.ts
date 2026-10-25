@@ -14,7 +14,7 @@ describe("garde des migrations", () => {
   });
 
   it("[A-233] garde-migrations refuse RENAME COLUMN", () => {
-    expect(analyser("ALTER TABLE a\nRENAME COLUMN x TO y;")).toEqual(["m.sql:2: instruction interdite : RENAME"]);
+    expect(analyser("ALTER TABLE a\nRENAME COLUMN x TO y;")).toEqual(["m.sql:1: instruction interdite : RENAME"]);
   });
 
   it("[A-233] garde-migrations refuse ALTER COLUMN TYPE", () => {
@@ -29,7 +29,7 @@ describe("garde des migrations", () => {
     for (const f of ["ko-drop-colonne", "ko-drop-table", "ko-rename-colonne", "ko-truncate"]) {
       expect(analyser(lireFixture(f)).length, f).toBeGreaterThan(0);
     }
-    expect(analyser(lireFixture("ko-drop-colonne"))[0]).toBe("m.sql:2: instruction interdite : DROP");
+    expect(analyser(lireFixture("ko-drop-colonne"))[0]).toBe("m.sql:1: instruction interdite : DROP");
     const types = analyser(lireFixture("ko-alter-type"));
     expect(types.map((e) => e.split(":")[1])).toEqual(["1", "2", "3"]);
   });

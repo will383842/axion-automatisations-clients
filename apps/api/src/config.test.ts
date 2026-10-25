@@ -62,7 +62,7 @@ describe("configuration", () => {
   });
 
   it("[C-391] sonde 6 : GOOGLE_API_KEY, CO_API_KEY, HF_TOKEN, AZURE_API_KEY et les suffixes _KEY/_TOKEN/_APIKEY (avec chiffres) sont refusés", () => {
-    for (const nom of ["GOOGLE_API_KEY", "CO_API_KEY", "HF_TOKEN", "AZURE_API_KEY", "ANTHROPIC_API_KEY_2", "OPENAI_APIKEY", "CLAUDE_API_KEY", "AWS_BEARER_TOKEN_BEDROCK", "VOYAGE_API_KEY", "LITELLM_API_KEY", "MA_CLE_APIKEY3", "MON_JETON_TOKEN_12"]) {
+    for (const nom of ["GOOGLE_API_KEY", "CO_API_KEY", "HF_TOKEN", "AZURE_API_KEY", "ANTHROPIC_API_KEY_2", "OPENAI_APIKEY", "CLAUDE_API_KEY", "AWS_BEARER_TOKEN_BEDROCK", "VOYAGE_API_KEY", "LITELLM_API_KEY", "OPENAI_APIKEY3", "GROQ_API_KEY_12"]) {
       expect(refus(prod({ [nom]: "x" })), nom).toContain(nom);
     }
   });

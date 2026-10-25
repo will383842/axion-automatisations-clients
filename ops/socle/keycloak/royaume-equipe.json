@@ -1,0 +1,75 @@
+{
+  "realm": "equipe",
+  "enabled": true,
+  "registrationAllowed": false,
+  "ssoSessionMaxLifespan": 28800,
+  "ssoSessionIdleTimeout": 1800,
+  "accessTokenLifespan": 300,
+  "bruteForceProtected": true,
+  "failureFactor": 5,
+  "permanentLockout": false,
+  "maxFailureWaitSeconds": 900,
+  "waitIncrementSeconds": 60,
+  "browserFlow": "navigateur-equipe",
+  "attributes": { "acr.loa.map": "{\"mfa\":\"2\"}" },
+  "requiredActions": [
+    { "alias": "CONFIGURE_TOTP", "name": "Configurer le TOTP", "providerId": "CONFIGURE_TOTP", "enabled": true, "defaultAction": true, "priority": 10 },
+    { "alias": "webauthn-register", "name": "Enregistrer une clé d'accès", "providerId": "webauthn-register", "enabled": true, "defaultAction": true, "priority": 20 }
+  ],
+  "authenticationFlows": [
+    {
+      "alias": "navigateur-equipe",
+      "providerId": "basic-flow",
+      "topLevel": true,
+      "builtIn": false,
+      "authenticationExecutions": [
+        { "authenticator": "auth-cookie", "requirement": "ALTERNATIVE", "priority": 10, "userSetupAllowed": false, "authenticatorFlow": false },
+        { "flowAlias": "formulaire-equipe", "requirement": "ALTERNATIVE", "priority": 20, "userSetupAllowed": false, "authenticatorFlow": true }
+      ]
+    },
+    {
+      "alias": "formulaire-equipe",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        { "authenticator": "auth-username-password-form", "requirement": "REQUIRED", "priority": 10, "userSetupAllowed": false, "authenticatorFlow": false },
+        { "flowAlias": "double-facteur-equipe", "requirement": "REQUIRED", "priority": 20, "userSetupAllowed": false, "authenticatorFlow": true }
+      ]
+    },
+    {
+      "alias": "double-facteur-equipe",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        { "authenticator": "webauthn-authenticator", "requirement": "ALTERNATIVE", "priority": 10, "userSetupAllowed": false, "authenticatorFlow": false },
+        { "authenticator": "auth-otp-form", "requirement": "ALTERNATIVE", "priority": 20, "userSetupAllowed": false, "authenticatorFlow": false }
+      ]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "console",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "${env.KC_SECRET_CONSOLE}",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+      "defaultClientScopes": ["basic", "profile"],
+      "optionalClientScopes": [],
+      "attributes": { "pkce.code.challenge.method": "S256", "default.acr.values": "mfa", "minimum.acr.value": "mfa" },
+      "protocolMappers": [
+        {
+          "name": "audience-api-equipe",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": { "included.custom.audience": "api-equipe", "access.token.claim": "true", "id.token.claim": "false" }
+        }
+      ]
+    }
+  ]
+}

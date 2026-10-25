@@ -123,7 +123,7 @@ const ACTIONS_IMAGES: [string, unknown[]][] = [
 // Seul bloc « services » connu : le Mailpit de harnais.yml, comparé en forme canonique.
 const SERVICES = canon({
   mailpit: {
-    image: "axllent/mailpit:v1.20.4@sha256:ff82a613c735f4e8a3ddfdf7ee4e18cb934c721e72a340ecbbb7ec0ca7fbd057",
+    image: "axllent/mailpit:v1.32.0@sha256:0790692be935ea4420d085694f7985b1f692ca6a8771ab0e0bd8ba75ac180498",
     ports: ["127.0.0.1:8025:8025", "127.0.0.1:1025:1025"],
     options: '--health-cmd "/mailpit readyz" --health-interval 2s --health-timeout 3s --health-retries 30',
   },
@@ -137,7 +137,7 @@ const RUN_OK = new Set([
   'pnpm audit --json > "$RUNNER_TEMP/audit.json" || true', 'node scripts/audit-dependances.ts "$RUNNER_TEMP/audit.json"', "node scripts/garde-workflows.ts .github/workflows",
   "node scripts/compter-tests.ts rapport-tests.json", "node scripts/compter-tests.ts --rapport rapport-integration.json --reference spec/compte-tests-integration.json",
   "node scripts/couverture-req.ts rapport-vitest.json rapport-playwright.json", "node scripts/garde-couleurs.ts", "node scripts/garde-donnees-reelles.ts", "node scripts/garde-migrations.ts",
-  'node scripts/scanner-journaux.ts "$RUNNER_TEMP/texte"', "git fetch --no-tags origin main:refs/remotes/origin/main", "ops/socle/lancer.sh", "ops/socle/arreter.sh",
+  'node scripts/scanner-journaux.ts "$RUNNER_TEMP/texte"', "git fetch --no-tags origin main:refs/remotes/origin/main", "ops/socle/lancer.sh", "ops/socle/arreter.sh", "node scripts/garde-briques.ts",
 ]);
 // Blocs de plusieurs lignes : empreinte SHA-256 du texte (controle-journaux ×2, nuit, socle-integration, squelettes-web).
 const BLOCS = new Set([

@@ -154,3 +154,27 @@ describe("garde-workflows", () => {
     });
   });
 });
+
+describe("garde-workflows : écriture de paquets (ADR 0014, bloquant 3 de l'audit)", () => {
+  const reel = readFileSync(fileURLToPath(new URL("../.github/workflows/images-derivees.yml", import.meta.url)), "utf8");
+  const avec = (droits: string) => `name: x\non: [pull_request]\npermissions:\n  contents: read\njobs:\n  j:\n    runs-on: ubuntu-latest\n    permissions:\n${droits}\n    steps:\n      - run: echo 1\n`;
+  it("[A-381] le job publier de images-derivees.yml reste accepté", () => {
+    expect(verifierWorkflow("images-derivees.yml", reel)).toEqual([]);
+  });
+  it.each(["packages", "id-token", "attestations"])("[A-381] %s: write est refusé dans tout autre fichier, même copie exacte de publier", (droit) => {
+    expect(verifierWorkflow("x.yml", avec(`      contents: read\n      ${droit}: write`)).join("\n")).toContain(droit);
+    expect(verifierWorkflow("x.yml", reel).join("\n")).toContain("packages");
+  });
+  it("[A-381] les écritures de paquets sont refusées sous toutes leurs écritures YAML", () => {
+    expect(verifierWorkflow("x.yml", avec("      \"packages\": write"))).not.toEqual([]);
+    expect(verifierWorkflow("x.yml", avec("      contents: read\n      id-token: \"write\""))).not.toEqual([]);
+    expect(verifierWorkflow("x.yml", avec("      { attestations: write }").replace("permissions:\n      {", "permissions: {").replace(" }\n    steps", " }\n    steps"))).not.toEqual([]);
+  });
+  it("[A-381] dans images-derivees.yml, l'écriture est refusée en tête et dans construire", () => {
+    expect(verifierWorkflow("images-derivees.yml", reel.replace("permissions:\n  contents: read\njobs:", "permissions:\n  contents: read\n  packages: write\njobs:"))).not.toEqual([]);
+    expect(verifierWorkflow("images-derivees.yml", reel.replace("    permissions:\n      contents: read\n    steps:", "    permissions:\n      contents: read\n      packages: write\n    steps"))).not.toEqual([]);
+  });
+  it("[A-381] un fichier qui n'est pas images-derivees.yml ne peut pas reprendre le nom de job publier", () => {
+    expect(verifierWorkflow("autre.yml", reel)).not.toEqual([]);
+  });
+});

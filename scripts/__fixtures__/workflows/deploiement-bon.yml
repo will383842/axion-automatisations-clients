@@ -1,0 +1,37 @@
+name: deploiement
+on:
+  workflow_dispatch:
+    inputs:
+      cible:
+        description: Environnement cible
+        type: choice
+        required: true
+        options: [recette, production]
+      empreinte:
+        description: Empreinte de l'image déjà construite par images.yml
+        type: string
+        required: true
+permissions:
+  contents: read
+jobs:
+  deployer:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.cible }}
+    steps:
+      - name: Refuser hors main
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          [ "$REF" = "refs/heads/main" ] || { echo "Déploiement refusé : seule la branche main est permise"; exit 1; }
+      - name: Valider l'empreinte
+        env:
+          EMPREINTE: ${{ inputs.empreinte }}
+        run: |
+          [[ "$EMPREINTE" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "Empreinte invalide"; exit 1; }
+      - name: Appeler Coolify
+        env:
+          COOLIFY_JETON: ${{ secrets.COOLIFY_JETON }}
+        run: |
+          [ -n "$COOLIFY_JETON" ] || { echo "Non configuré : le jeton de l'environnement est absent (lot 1-B)"; exit 1; }
+          echo "Branchement prévu au lot 1-B"; exit 1

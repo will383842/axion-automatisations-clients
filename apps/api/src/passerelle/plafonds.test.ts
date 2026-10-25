@@ -14,7 +14,7 @@ const PLAFOND_TEST = 1_000_000; // micro-centimes, fictif
 const ADMIN = "admin-test";
 const ENV_OK = { PLAFOND_CLE_CLIENT_MICROCENTIMES: "1000000", PLAFOND_PASSERELLE_JOUR_MICROCENTIMES: "5000000", SEUIL_RYTHME_ANORMAL: "5" };
 
-interface CleFausse { token: string; alias: string; tenant: string; spend: number; maxBudget?: number; duree?: string; bloquee: boolean }
+interface CleFausse { token: string; alias: string; tenant: string; spend: number; maxBudget?: number | undefined; duree?: string | undefined; bloquee: boolean }
 interface Appel { methode: string; url: string; corps: string; auth: string | null; redirect: string | undefined }
 // Imitation de la passerelle : chemins de LiteLLM (/key/list, /key/info, /key/update, /key/block, /key/unblock), clé maîtresse exigée.
 function fausse() {

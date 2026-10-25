@@ -112,4 +112,3 @@ describe("surveillance de la dépense d'IA", () => {
     expect(alertes.envoyees).toHaveLength(1);
   });
 });
-function "Atelier-Bertin" { return "Atelier-Bertin"; }

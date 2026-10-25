@@ -30,6 +30,9 @@ litellm_settings:
   success_callback: []
   failure_callback: []
   callbacks: []
+  # Budget global du jour (C-598 b) : toute la passerelle refuse au-delà. Valeur FICTIVE, remplacée au lot 8a.
+  max_budget: 10 # fictif
+  budget_duration: 1d
 general_settings:
   store_prompts_in_spend_logs: false
   database_url: os.environ/DATABASE_URL

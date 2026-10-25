@@ -129,6 +129,12 @@ function analyserForme(jobs: Obj): string[] {
   const erreurs: string[] = [];
   if (JSON.stringify(suite(jobs.construire)) !== JSON.stringify(SUITE_CONSTRUIRE)) erreurs.push("construire : suite exacte des étapes attendue");
   if (JSON.stringify(suite(jobs.publier)) !== JSON.stringify(SUITE_PUBLIER)) erreurs.push("publier : suite exacte des étapes attendue (aucune étape ajoutée, retirée ni modifiée)");
+  for (const [nom, job] of [["construire", jobs.construire], ["publier", jobs.publier]] as const) {
+    for (const e of etapes(job)) {
+      if (Object.keys(e).some((k) => !["name", "id", "uses", "with", "run", "env"].includes(k))) erreurs.push(`${nom} : clé d'étape inattendue`);
+      if ("env" in e && !(e.id === "pousser" && JSON.stringify(e.env) === JSON.stringify({ GITHUB_TOKEN: "${{ github.token }}" }))) erreurs.push(`${nom} : env d'étape réservé au push (GITHUB_TOKEN)`);
+    }
+  }
   const clefs = (j: unknown) => (estObj(j) ? Object.keys(j).sort().join(",") : "");
   if (clefs(jobs.publier) !== "if,name,needs,permissions,runs-on,steps") erreurs.push("publier : clés exactes if, name, needs, permissions, runs-on, steps (ni env ni timeout-minutes)");
   if (clefs(jobs.construire) !== "name,permissions,runs-on,steps") erreurs.push("construire : clés exactes name, permissions, runs-on, steps");
@@ -272,6 +278,9 @@ describe("images dérivées : workflow", () => {
       ["script du socle avant le push [N3]", (d) => pas(d, "publier").splice(trouver(job(d, "publier"), "docker push"), 0, { run: "ops/socle/lancer.sh" })],
       ["bloc de construction recopié avant le push [N4]", (d) => { const s = pas(d, "publier"); s.splice(trouver(job(d, "publier"), "docker push"), 0, copie(s[2]!)); }],
       ["env de job dans publier [N15]", (d) => (job(d, "publier").env = { NODE_ENV: "${{ github.event.pull_request.title }}" })],
+      ["env ajouté à l'étape de construction", (d) => (etapes(job(d, "publier"))[2]!.env = { LD_PRELOAD: "/tmp/x.so" })],
+      ["env du push avec une clé en plus", (d) => ((etapes(job(d, "publier"))[trouver(job(d, "publier"), "docker push")]!.env as Obj).AUTRE = "x")],
+      ["clé d'étape inattendue (shell)", (d) => (etapes(job(d, "publier"))[3]!.shell = "bash {0}")],
       ["timeout-minutes dans publier [N15]", (d) => (job(d, "publier")["timeout-minutes"] = 1)],
       ["étape ajoutée dans construire", (d) => pas(d, "construire").push({ run: "pnpm install" })],
       ["push avant Trivy", (d) => { const s = pas(d, "publier"); const t = s.splice(trouver(job(d, "publier"), "aquasecurity/trivy"), 1)[0]!; s.push(t); }],

@@ -44,12 +44,20 @@ const COURRIEL = /[A-Za-z0-9._%+-]+@([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]
 const URL_IDENTIFIANT = /\b[a-z][a-z0-9+.-]*:\/\/[^\s/@"'`]+:[^\s/@"'`]*@/i;
 const fictif = (domaine: string) => domaine.toLowerCase() === "exemple.fr" || domaine.toLowerCase().endsWith(".test");
 
+// Un chemin est cité en entier (suivi de « / » ou d'un caractère qui n'en fait pas partie) ; la racine « / » est ignorée.
+function contientChemin(texte: string, chemin: string): boolean {
+  const c = chemin.replace(/\/+$/, "");
+  if (!c) return false;
+  for (let i = texte.indexOf(c); i >= 0; i = texte.indexOf(c, i + 1)) if (!/[\w.-]/.test(texte[i + c.length] ?? "")) return true;
+  return false;
+}
+
 // Lit le texte emballé ; `cheminsMachine` = dossiers de la machine qui ne doivent pas s'y trouver.
 export function verifierCode(texte: string, cheminsMachine: string[]): Violation[] {
   const v: Violation[] = [];
   if (CLES.some((r) => r.test(texte))) v.push({ regle: "cle" });
   if ([...texte.matchAll(COURRIEL)].some((m) => !fictif(m[1] ?? ""))) v.push({ regle: "courriel" });
   if (URL_IDENTIFIANT.test(texte)) v.push({ regle: "url-identifiant" });
-  if (cheminsMachine.some((c) => c && texte.includes(c))) v.push({ regle: "chemin" });
+  if (cheminsMachine.some((c) => contientChemin(texte, c))) v.push({ regle: "chemin" });
   return v;
 }

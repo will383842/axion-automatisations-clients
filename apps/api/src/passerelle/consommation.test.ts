@@ -94,6 +94,18 @@ describe("passerelle : consommation d'un client", () => {
     journal = () => lignes(4, 10, 5); // plus que la dépense : refusé aussi
     await refus(c().lire(A, REF_A), "journal_incomplet");
   });
+  it("[A-059] @argent attaque : des milliers de lignes vides ne gonflent pas la tolérance d'écart du journal", async () => {
+    info = () => infoDe(A, 0.002);
+    journal = () => [...lignes(1, 10, 5), ...Array.from({ length: 60_000 }, () => ({ api_key: EMPREINTE_A, spend: 0, prompt_tokens: 0, completion_tokens: 0 }))];
+    await refus(c().lire(A, REF_A), "journal_incomplet");
+  });
+  it("[A-059] @argent attaque : ligne incohérente (dépense sans jeton, ou jetons sans dépense) → refusée", async () => {
+    for (const l of [{ spend: 0.0015, prompt_tokens: 0, completion_tokens: 0 }, { spend: 0, prompt_tokens: 4e15, completion_tokens: 0 }]) {
+      info = () => infoDe(A, l.spend);
+      journal = () => [{ api_key: EMPREINTE_A, ...l }];
+      await refus(c().lire(A, REF_A), "reponse_invalide");
+    }
+  });
   it("[A-059] @argent les demi-cas ne s'arrondissent pas à l'envers (1,5e-8 → 2 ; 2,95e-7 → 30)", async () => {
     for (const [d, attendu] of [[1.5e-8, 2], [2.95e-7, 30]] as const) {
       info = () => infoDe(A, d);

@@ -70,9 +70,10 @@ export function creerConsommation(o: OptionsConsommation) {
       const l = journal.safeParse(await obtenir(`/spend/logs?api_key=${encodeURIComponent(token)}&summarize=false`, cle));
       if (!l.success) throw new ErreurConsommation("reponse_invalide");
       if (l.data.some((x) => x.api_key !== token)) throw new ErreurConsommation("client_different");
+      if (l.data.some((x) => x.spend > 0 !== x.prompt_tokens + x.completion_tokens > 0)) throw new ErreurConsommation("reponse_invalide");
       // Journal tronqué, paginé, purgé ou en retard : la somme des lignes doit retrouver la dépense (à l'arrondi près), sinon on ne rend pas un total trop bas.
       const ecart = Math.abs(enMicroCentimes(l.data.reduce((n, x) => n + x.spend, 0)) - enMicroCentimes(spend));
-      if (ecart > l.data.length + 1) throw new ErreurConsommation("journal_incomplet");
+      if (ecart > 1) throw new ErreurConsommation("journal_incomplet");
       const cout = enMicroCentimes(spend);
       const somme = (k: "prompt_tokens" | "completion_tokens") => l.data.reduce((n, x) => n + x[k], 0);
       const r = { jetonsEntree: somme("prompt_tokens"), jetonsSortie: somme("completion_tokens"), coutMicroCentimes: cout };

@@ -83,6 +83,12 @@ describe("image postgres du socle : Dockerfile", () => {
     const compose = load(lire("ops/socle/compose.postgres.yml")) as { services: { postgres: { volumes: string[] } } };
     expect(compose.services.postgres.volumes).toEqual(["./postgres/init:/docker-entrypoint-initdb.d:ro"]);
   });
+  it("[A-381] image du socle : le compose ne fixe aucun « user: » sur postgres", () => {
+    const sansUser = (texte: string) => !("user" in ((load(texte) as { services: { postgres: Obj } }).services.postgres));
+    const reelCompose = lire("ops/socle/compose.postgres.yml");
+    expect(sansUser(reelCompose)).toBe(true);
+    expect(sansUser(reelCompose.replace("    restart:", "    user: root\n    restart:"))).toBe(false);
+  });
   describe("attaques refusées", () => {
     const ok = lire(DOCKERFILE);
     const attaques: [string, string][] = [

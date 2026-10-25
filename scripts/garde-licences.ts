@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { load } from "js-yaml";
 
 // Garde des licences : liste fermée. MPL-2.0 seulement dans ce qui n'est jamais livré (apps/api, apps/console, apps/portail) ;
-// ce qui est livré chez un client n'a droit qu'aux six licences du livre (A-375, ADR 0010).
+// ce qui est livré chez un client n'a droit qu'aux six licences du livre (A-375, ADR 0012).
 
 export const LIVRE = new Set(["MIT", "BSD-2-Clause", "BSD-3-Clause", "ISC", "Apache-2.0", "PostgreSQL"]);
 const PERMISES = new Set([...LIVRE, "0BSD", "OFL-1.1"]);
@@ -13,6 +13,10 @@ const MPL = "MPL-2.0";
 
 // Exceptions NOMMÉES (paquet + licence), réservées aux dépendances de développement (ADR 0007, ADR 0008).
 const EXCEPTIONS_DEV: Record<string, string> = { argparse: "Python-2.0", minimatch: "BlueOak-1.0.0", nodemailer: "MIT-0" };
+
+// Exception NOMMÉE pour une dépendance de PRODUCTION (ADR 0011) : données sous CC-BY-4.0, imposées par Next.js.
+// Comparaison exacte du nom du paquet ET de la licence entière (jamais d'atome d'une expression composée).
+const EXCEPTION_PRODUCTION = { paquet: "caniuse-lite", licence: "CC-BY-4.0" };
 
 type Paquets = Record<string, { name: string }[]>;
 
@@ -62,6 +66,7 @@ export function verifierLicences(parLicence: Paquets, nomsMpl: Set<string>, noms
     const ok = (id: string, nom: string) =>
       PERMISES.has(id) || (id === MPL && nomsMpl.has(nom) && !nomsLivres.has(nom)) || (EXCEPTIONS_DEV[nom] === id && !nomsProduction.has(nom));
     for (const p of paquets) {
+      if (licence === EXCEPTION_PRODUCTION.licence && p.name === EXCEPTION_PRODUCTION.paquet && nomsProduction.has(p.name)) continue;
       if (!expressionPermise(licence, (id) => ok(id, p.name))) erreurs.push(`${p.name} : licence « ${licence} » non permise`);
     }
   }

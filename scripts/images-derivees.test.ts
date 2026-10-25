@@ -131,8 +131,11 @@ const suite = (job: unknown) => etapes(job).map((e) => (typeof e.uses === "strin
 const CHECKOUT = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1";
 const SETUP_NODE = "actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1";
 const ATTESTATION = "actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8";
-const SUITE_CONSTRUIRE = [CHECKOUT, SETUP_NODE, "2cc82b403c67a4e486037fa8bca9d916b741363c20a1d849a3f7b53ca77beb75", "2b4e7f6c62e6037dcd3066d1bfdf04198fdb53ba15ad1155d64f01436d6fbf28", "141ad4b7e734456991654ae2e26f05ec4899efb2ad3828e0b77650ceec614614", "95587cf550dce1fbc69f7e8d88b456602526e53d79e7102cded09b33f724b58f"];
-const SUITE_PUBLIER = [...SUITE_CONSTRUIRE, "89dd0a51528b351200f20dee084db620976d939f9eda0c815e52b9fba10202bd", ATTESTATION];
+const SUITE_DERIVEE = ["2cc82b403c67a4e486037fa8bca9d916b741363c20a1d849a3f7b53ca77beb75", "2b4e7f6c62e6037dcd3066d1bfdf04198fdb53ba15ad1155d64f01436d6fbf28", "141ad4b7e734456991654ae2e26f05ec4899efb2ad3828e0b77650ceec614614", "95587cf550dce1fbc69f7e8d88b456602526e53d79e7102cded09b33f724b58f"];
+// Image du socle (D4) : construction, fumée, Trivy, évaluateur ; puis, dans publier seulement, push et attestation.
+const SUITE_SOCLE = ["668bc1cd1c3f9cf87bbb799911b0839c3d0addfe804d840d4979b978a47ed6c7", "9139d805fe20a8cd38599f90af5d787089a60055efbd99dbed6071e9638f4bab", "cecf1891da06cd0c97652db0656ef7b12e5e75df0f9988ed986e9b7f89e4273a", "4af8f781253d648981d1bb01f72cb2b67a77173a1b94abecf84918847d6679b4"];
+const SUITE_CONSTRUIRE = [CHECKOUT, SETUP_NODE, ...SUITE_DERIVEE, ...SUITE_SOCLE];
+const SUITE_PUBLIER = [CHECKOUT, SETUP_NODE, ...SUITE_DERIVEE, "89dd0a51528b351200f20dee084db620976d939f9eda0c815e52b9fba10202bd", ATTESTATION, ...SUITE_SOCLE, "9904653be6709787daf7d81edc6b9784cace85d9cf5daf19fa02541d3c5a1099", ATTESTATION];
 
 function analyserForme(jobs: Obj): string[] {
   const erreurs: string[] = [];
@@ -141,7 +144,7 @@ function analyserForme(jobs: Obj): string[] {
   for (const [nom, job] of [["construire", jobs.construire], ["publier", jobs.publier]] as const) {
     for (const e of etapes(job)) {
       if (Object.keys(e).some((k) => !["name", "id", "uses", "with", "run", "env"].includes(k))) erreurs.push(`${nom} : clé d'étape inattendue`);
-      if ("env" in e && !(e.id === "pousser" && JSON.stringify(e.env) === JSON.stringify({ GITHUB_TOKEN: "${{ github.token }}" }))) erreurs.push(`${nom} : env d'étape réservé au push (GITHUB_TOKEN)`);
+      if ("env" in e && !((e.id === "pousser" || e.id === "pousser-socle") && JSON.stringify(e.env) === JSON.stringify({ GITHUB_TOKEN: "${{ github.token }}" }))) erreurs.push(`${nom} : env d'étape réservé au push (GITHUB_TOKEN)`);
     }
   }
   const clefs = (j: unknown) => (estObj(j) ? Object.keys(j).sort().join(",") : "");
@@ -248,8 +251,8 @@ describe("images dérivées : workflow", () => {
     expect(on).toEqual(ON);
     for (const d of ["pull_request", "push"]) expect((on[d] as Obj).paths).toContain(EVALUATEUR);
   });
-  it("[A-381] images-derivees.yml : un seul docker push dans tout le fichier", () => {
-    expect(lire(WORKFLOW).match(/docker push/g)?.length).toBe(1);
+  it("[A-381] images-derivees.yml : deux docker push dans tout le fichier, un par image", () => {
+    expect(lire(WORKFLOW).match(/docker push/g)?.length).toBe(2);
   });
   describe("attaques refusées", () => {
     const modif = (f: (d: Obj) => void) => {
@@ -286,7 +289,7 @@ describe("images dérivées : workflow", () => {
       ["checkout qui garde les identifiants", (d) => ((etapes(job(d, "construire"))[0]!.with as Obj)["persist-credentials"] = true)],
       ["push dans construire", (d) => pas(d, "construire").push({ run: "docker push local/x" })],
       ["Trivy d'une autre empreinte", (d) => (etapes(job(d, "publier"))[trouver(job(d, "publier"), "aquasecurity/trivy")]!.run = "docker run trivy:latest image x")],
-      ["attestation sur une autre empreinte", (d) => ((etapes(job(d, "publier")).at(-1)!.with as Obj)["subject-digest"] = "sha256:inventee")],
+      ["attestation sur une autre empreinte", (d) => ((etapes(job(d, "publier"))[trouver(job(d, "publier"), "docker push") + 1]!.with as Obj)["subject-digest"] = "sha256:inventee")],
       ["attestation avant le push", (d) => { const s = pas(d, "publier"); const a = s.pop()!; s.splice(trouver(job(d, "publier"), "docker push"), 0, a); }],
       ["pnpm install, test et corepack entre le push et l'attestation [N1]", (d) => pas(d, "publier").splice(-1, 0, { run: "corepack enable" }, { run: "pnpm install --frozen-lockfile" }, { run: "pnpm test" })],
       ["env de job avec le jeton et pnpm install avant le push [N2]", (d) => { job(d, "publier").env = { GITHUB_TOKEN: "${{ github.token }}" }; pas(d, "publier").splice(trouver(job(d, "publier"), "docker push"), 0, { run: "pnpm install" }); }],

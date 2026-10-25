@@ -77,7 +77,7 @@ describe("image postgres du socle : Dockerfile", () => {
     const attaques: [string, string][] = [
       ["gosu non retiré", ok.replace(/^RUN rm .*$/m, "")],
       ["rm -f qui tait un échec", ok.replace("RUN rm ", "RUN rm -f ")],
-      ["rm avant l'installation", ok.replace(/(RUN apt-get[^]*?lists\/apt\/lists\/\*\n?)/, "RUN rm /usr/local/bin/gosu\n$1")],
+      ["rm avant l'installation", ok.replace(/^RUN rm .*$\n/m, "").replace(/^RUN apt-get/m, "RUN rm /usr/local/bin/gosu\nRUN apt-get")],
       ["démarrage en root", ok.replace("USER postgres", "USER root")],
       ["USER absent", ok.replace("USER postgres", "")],
       ["instruction après USER", `${ok.trimEnd()}\nRUN true\n`],
@@ -104,7 +104,7 @@ describe("image postgres du socle : workflow images-derivees.yml", () => {
     expect(construction).toBeLessThan(fumee);
     expect(fumee).toBeLessThan(trivy);
     expect(trivy).toBeLessThan(garde);
-    expect(execute(etapes(job)[construction] ?? {})).toContain("ops/images/postgres ");
+    expect(execute(etapes(job)[construction] ?? {})).toMatch(/ ops\/images\/postgres$/);
     expect(execute(etapes(job)[construction] ?? {})).toContain("--platform linux/amd64");
     expect(execute(etapes(job)[fumee] ?? {})).toMatch(/test ! -e \/usr\/local\/bin\/gosu/);
     expect(execute(etapes(job)[garde] ?? {})).toContain("node scripts/releve-trivy.ts --garde");

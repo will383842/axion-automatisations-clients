@@ -1,0 +1,13 @@
+{
+  "nom": "jeton_refuse",
+  "appels": [
+    {
+      "methode": "lire",
+      "erreur": {
+        "classe": "identification",
+        "code": "jeton_refuse"
+      }
+    }
+  ],
+  "envoyes": 0
+}

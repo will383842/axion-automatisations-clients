@@ -12,3 +12,7 @@ updates:
     directory: /ops/images/postgres-derivee
     schedule:
       interval: weekly
+  - package-ecosystem: docker
+    directory: /ops/images/litellm-derivee
+    schedule:
+      interval: weekly

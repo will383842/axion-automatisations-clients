@@ -17,3 +17,4 @@ Format court : contexte, décision, conséquences, date. Un ADR par décision, n
 | 0011 | Exception de licence CC-BY-4.0 pour caniuse-lite (dépendance de production) |
 | 0012 | Licences du livre et inventaire des briques |
 | 0014 | Images dérivées temporaires |
+| 0015 | Image dérivée temporaire de LiteLLM |

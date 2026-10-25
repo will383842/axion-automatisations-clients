@@ -80,9 +80,10 @@ function analyserWorkflow(doc: Obj): string[] {
   if (/secrets\./.test(texte)) erreurs.push("secrets.* interdit");
   if (JSON.stringify(on) !== JSON.stringify(ON)) erreurs.push("déclencheurs figés : paths pull_request et push = images, workflow, évaluateur, .nvmrc, package.json ; push sur main seulement");
   const nomsJobs = Object.keys(jobs).sort().join(",");
-  if (nomsJobs !== "construire,publier") erreurs.push(`jobs attendus : construire et publier (trouvé : ${nomsJobs})`);
+  if (nomsJobs !== "construire,construire-litellm,publier,publier-litellm") erreurs.push(`jobs attendus : construire, construire-litellm, publier et publier-litellm (trouvé : ${nomsJobs})`);
   for (const [nom, job] of Object.entries(jobs)) {
     if (!estObj(job)) continue;
+    if (nom.endsWith("-litellm")) continue; // contrôlés par images-derivees-litellm.test.ts
     const permissions = estObj(job.permissions) ? job.permissions : {};
     if (nom === "publier") {
       if (JSON.stringify(Object.entries(permissions).sort()) !== JSON.stringify([["attestations", "write"], ["contents", "read"], ["id-token", "write"], ["packages", "write"]])) erreurs.push("publier : permissions exactes attendues");
@@ -206,7 +207,7 @@ describe("images dérivées : workflow", () => {
     const doc = reel();
     expect(doc.permissions).toEqual({ contents: "read" });
     const jobs = doc.jobs as Obj;
-    expect(Object.keys(jobs).sort()).toEqual(["construire", "publier"]);
+    expect(Object.keys(jobs).sort()).toEqual(["construire", "construire-litellm", "publier", "publier-litellm"]);
     expect((jobs.construire as Obj).permissions).toEqual({ contents: "read" });
     expect((jobs.publier as Obj).permissions).toEqual({ contents: "read", packages: "write", "id-token": "write", attestations: "write" });
     expect(String((jobs.publier as Obj).if)).toContain("github.event_name != 'pull_request'");
@@ -248,8 +249,8 @@ describe("images dérivées : workflow", () => {
     expect(on).toEqual(ON);
     for (const d of ["pull_request", "push"]) expect((on[d] as Obj).paths).toContain(EVALUATEUR);
   });
-  it("[A-381] images-derivees.yml : un seul docker push dans tout le fichier", () => {
-    expect(lire(WORKFLOW).match(/docker push/g)?.length).toBe(1);
+  it("[A-381] images-derivees.yml : un docker push par image (postgres, litellm), pas un de plus", () => {
+    expect(lire(WORKFLOW).match(/docker push/g)?.length).toBe(2);
   });
   describe("attaques refusées", () => {
     const modif = (f: (d: Obj) => void) => {
@@ -335,6 +336,6 @@ describe("images dérivées : documents", () => {
     expect(lire("docs/adr/0014-images-derivees.md")).toContain("Trivy");
     expect(lire("docs/adr/README.md")).toContain("| 0014 |");
     const dependabot = load(lire(".github/dependabot.yml")) as { updates: { "package-ecosystem": string; directory: string }[] };
-    expect(dependabot.updates.filter((u) => u["package-ecosystem"] === "docker").map((u) => u.directory)).toEqual(["/ops/images/postgres-derivee"]);
+    expect(dependabot.updates.filter((u) => u["package-ecosystem"] === "docker").map((u) => u.directory)).toContain("/ops/images/postgres-derivee");
   });
 });

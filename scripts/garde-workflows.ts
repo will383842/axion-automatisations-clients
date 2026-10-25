@@ -83,7 +83,7 @@ function verifierEcrituresPaquets(nom: string, texte: string): string[] {
     if (!estObjet(noeud)) return;
     for (const [cle, valeur] of Object.entries(noeud)) {
       if (cle === "permissions" && estObjet(valeur)) {
-        const autorise = nom === "images-derivees.yml" && chemin.join(".") === "jobs.publier";
+        const autorise = nom === "images-derivees.yml" && ["jobs.publier", "jobs.publier-litellm"].includes(chemin.join("."));
         for (const [droit, niveau] of Object.entries(valeur)) {
           if (DROITS_PUBLICATION.has(droit.toLowerCase()) && !LECTURE_SEULE.has(String(niveau)) && !autorise) erreurs.push(`permission ${droit}: ${String(niveau)} interdite hors du job publier de images-derivees.yml`);
         }

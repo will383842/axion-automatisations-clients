@@ -118,7 +118,7 @@ const ACTIONS: [string, unknown[]][] = [
 // ADR 0014 : attestation de provenance des images dérivées, par SHA du tag v4.2.2. Acceptée dans images-derivees.yml seulement.
 const FICHIER_IMAGES = "images-derivees.yml";
 const ACTIONS_IMAGES: [string, unknown[]][] = [
-  ["actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8", [{ "subject-name": "ghcr.io/will383842/axion-automatisations-clients/postgres-derivee", "subject-digest": "${{ steps.pousser.outputs.empreinte }}", "push-to-registry": true }]],
+  ["actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8", [{ "subject-name": "ghcr.io/will383842/axion-automatisations-clients/postgres-derivee", "subject-digest": "${{ steps.pousser.outputs.empreinte }}", "push-to-registry": true }, { "subject-name": "ghcr.io/will383842/axion-automatisations-clients/litellm-derivee", "subject-digest": "${{ steps.pousser.outputs.empreinte }}", "push-to-registry": true }]],
 ];
 // Seul bloc « services » connu : le Mailpit de harnais.yml, comparé en forme canonique.
 const SERVICES = canon({
@@ -148,6 +148,9 @@ const BLOCS = new Set([
 const BLOCS_IMAGES = new Set([
   "2cc82b403c67a4e486037fa8bca9d916b741363c20a1d849a3f7b53ca77beb75", "2b4e7f6c62e6037dcd3066d1bfdf04198fdb53ba15ad1155d64f01436d6fbf28", "141ad4b7e734456991654ae2e26f05ec4899efb2ad3828e0b77650ceec614614",
   "95587cf550dce1fbc69f7e8d88b456602526e53d79e7102cded09b33f724b58f", "89dd0a51528b351200f20dee084db620976d939f9eda0c815e52b9fba10202bd",
+  // ADR 0015 : construction, fumée, Trivy, évaluateur et push de l'image litellm.
+  "07e1fbef2ec27cb00f5ca0c12c2e805bcaca32af7c20afba5bccc46257812cb1", "16e07a8cf2ab813e3b062646513acec3efbc114f97b115a08169746c10a448ef", "87591c5b725f74fef3fc735ae756eac3142f87fe36a2746cd36b74e3abcb971d",
+  "2fbb9aec1377fcc76be5364133f152f48b2da9f00dfb8c99685553b29b92cbc7", "298dd1c6d36508736401c64dd798ea6bac4e62f73203809d56d17396f4aaf2a1",
 ]);
 const ENV_OK = ["GH_TOKEN", "DEPOT", "RUN_ID", "CORPS_PR", "GITHUB_TOKEN", "SOCLE_INTEGRATION", "NODE_ENV", "MAILPIT_API", "MAILPIT_SMTP_HOTE", "MAILPIT_SMTP_PORT", "NEXT_TELEMETRY_DISABLED"];
 const envOk = (o: unknown) => o === undefined || (estObj(o) && cles(o, ENV_OK));

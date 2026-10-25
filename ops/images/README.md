@@ -5,6 +5,7 @@ Une image dérivée est une image amont (épinglée par empreinte) avec le stric
 | Dossier | Amont | Correction |
 |---|---|---|
 | `postgres-derivee/` | `postgres:16.15-alpine@sha256:f461…` | retire `gosu` et `su-exec` (binaire Go vulnérable) ; démarre en utilisateur `postgres` |
+| `litellm-derivee/` | `litellm-non_root:main-v1.83.14-stable.patch.3@sha256:6da3…` | met à jour des paquets Python listés dans `correctifs.txt` (versions et empreintes figées, `--no-deps`, `pip check`) ; ADR 0015 |
 
 L'image du socle de développement (`ops/images/postgres/`, avec pg_partman) est un autre fichier et n'est pas touchée.
 

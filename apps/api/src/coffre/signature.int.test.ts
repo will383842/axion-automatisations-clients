@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { appendFileSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
 import { lireYaml } from "../../../../scripts/garde-compose.js";
@@ -18,9 +18,16 @@ const IMAGE = compose.services.openbao.image;
 const lancés: string[] = [];
 afterAll(() => { for (const id of lancés) try { docker("rm", "-f", id); } catch { /* déjà arrêté */ } });
 
-// Diagnostic : le rapport JSON de la CI n'est pas affiché, on écrit donc la cause (code ou message, jamais un jeton).
+// Diagnostic TEMPORAIRE : le rapport JSON de la CI avale la console ; on écrit une annotation sur la sortie des processus parents (cause seulement, jamais un jeton).
+function emettre(message: string): void {
+  let pid = process.pid;
+  for (let i = 0; i < 6 && pid > 1; i++) {
+    try { appendFileSync(`/proc/${pid}/fd/1`, `::error title=DIAG T1A-07::${message.replace(/[\r\n]+/g, " | ").slice(0, 400)}\n`); } catch { /* sortie fermée */ }
+    try { pid = Number(readFileSync(`/proc/${pid}/stat`, "utf8").split(") ")[1]?.split(" ")[1]); } catch { return; }
+  }
+}
 const diag = (f: () => Promise<void>) => async () => {
-  try { await f(); } catch (e) { console.error("DIAG", e instanceof ErreurCoffre ? `ErreurCoffre ${e.code}` : String(e instanceof Error ? e.message : e).replace(/TEST-NE-PAS-UTILISER-\w+/g, "[jeton]")); throw e; }
+  try { await f(); } catch (e) { emettre(e instanceof ErreurCoffre ? `ErreurCoffre ${e.code}` : String(e instanceof Error ? e.message : e).replace(/TEST-NE-PAS-UTILISER-\w+/g, "[jeton]")); throw e; }
 };
 
 interface Instance { racine: OptionsBao; jeton: (role: string) => Promise<OptionsBao> }

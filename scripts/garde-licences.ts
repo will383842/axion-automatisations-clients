@@ -143,6 +143,7 @@ const RUN_OK = new Set([
 const BLOCS = new Set([
   "91d880b8d946344fb442e64a8f8ff4c6eb2e25266d2d4323be61ae56e8cbcfc0", "5cd6fd64e4938d39c80bac4b7d85814c9c830b5c1af5f0b7ce439360ae98e36c", "e2650042d59f0d28585d19828302efac1a54e9b198fe25ec140de1ce00e69b2e",
   "0fd60f11b15695a31240caf38b0dc6261a44d31e6e69d3b3efb7a109e0d33917", "1ee1fc7af3202d9908c3dff871f61c9ad720a975cdfec88cf13c6d5eae58d11c",
+  "44f16a54a5416fefe33b04f0b5a9373d797664be6bc1fdcc8bb47d4a8a506046", // garde-briques : attestation de chaque image dérivée
 ]);
 // Les blocs de images-derivees.yml (dérivée alpine, puis image du socle) (ADR 0014) : acceptés dans ce fichier seulement.
 const BLOCS_IMAGES = new Set([

@@ -12,3 +12,4 @@ A-378 → test « [A-378] garde-briques refuse une image redis » (scripts/garde
 A-379 → test « [A-379] garde-briques accepte OpenBao livree:false sous MPL-2.0 » (scripts/garde-briques.test.ts), 2026-10-25
 A-381 → fichiers ops/briques/*.json et tests [A-381] de scripts/garde-briques.test.ts, 2026-10-25
 C-493 → test « [C-493] garde-briques accepte valkey » (scripts/garde-briques.test.ts), 2026-10-25
+A-381 → ADR 0016, scripts/garde-briques.ts (clé `derivee`, attestation, refus de `build:`) et tests [A-381] de scripts/garde-briques-derivee.test.ts, 2026-10-25

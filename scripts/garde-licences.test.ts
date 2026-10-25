@@ -310,7 +310,7 @@ describe("garde-licences : liste blanche des workflows", () => {
   });
   const MAILPIT = {
     mailpit: {
-      image: "axllent/mailpit:v1.20.4@sha256:ff82a613c735f4e8a3ddfdf7ee4e18cb934c721e72a340ecbbb7ec0ca7fbd057",
+      image: "axllent/mailpit:v1.32.0@sha256:0790692be935ea4420d085694f7985b1f692ca6a8771ab0e0bd8ba75ac180498",
       ports: ["127.0.0.1:8025:8025", "127.0.0.1:1025:1025"],
       options: '--health-cmd "/mailpit readyz" --health-interval 2s --health-timeout 3s --health-retries 30',
     },
@@ -318,7 +318,7 @@ describe("garde-licences : liste blanche des workflows", () => {
   const servicesRefuses: [string, unknown][] = [
     ["image quelconque", { mailpit: { ...MAILPIT.mailpit, image: "autre/image:1" } }],
     ["image en expression", { mailpit: { ...MAILPIT.mailpit, image: "${{ github.event.pull_request.title }}" } }],
-    ["image sans empreinte", { mailpit: { ...MAILPIT.mailpit, image: "axllent/mailpit:v1.20.4" } }],
+    ["image sans empreinte", { mailpit: { ...MAILPIT.mailpit, image: "axllent/mailpit:v1.32.0" } }],
     ["--entrypoint dans options", { mailpit: { ...MAILPIT.mailpit, options: `${MAILPIT.mailpit.options} --entrypoint sh` } }],
     ["volume sur l'espace de travail", { mailpit: { ...MAILPIT.mailpit, volumes: ["${{ github.workspace }}:/w"] } }],
     ["env du service", { mailpit: { ...MAILPIT.mailpit, env: { X: "1" } } }],
@@ -453,5 +453,12 @@ describe("garde-licences : workflow des images dérivées (ADR 0014)", () => {
   });
   it("[A-381] l'attestation n'est acceptée qu'avec ses réglages exacts", () => {
     expect(refuse((d) => { const s = d.jobs.publier!.steps.find((e) => String(e.uses ?? "").startsWith("actions/attest-build-provenance@"))!; s.with = { ...(s.with as object), "show-summary": false }; })).not.toEqual([]);
+  });
+});
+
+describe("garde-licences : workflow garde-briques", () => {
+  const reel = () => lire(".github/workflows/garde-briques.yml");
+  it("[C-020] garde-briques.yml réel accepté par la liste blanche", () => {
+    expect(verifierInstallationsFigees([{ nom: "garde-briques.yml", texte: reel() }])).toEqual([]);
   });
 });

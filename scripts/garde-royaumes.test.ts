@@ -86,7 +86,7 @@ describe("garde-royaumes : octroi direct et clients", () => {
   });
   it("[LOT1-kc] refuse un secret de client en clair", () => {
     const r = equipe();
-    r.clients[0].secret = "abcdef0123456789";
+    r.clients[0].secret = "valeur-en-clair";
     expect(verifier(r).join()).toMatch(/secret/);
   });
   it("[LOT1-kc] refuse un client sans PKCE S256 et le flux implicite", () => {

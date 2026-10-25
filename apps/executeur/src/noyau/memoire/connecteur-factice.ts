@@ -4,6 +4,8 @@ import type { Connecteurs, Verification } from "../ports.ts";
 export class ConnecteurFactice implements Connecteurs {
   appels: { action: string; cle: string }[] = [];
   effetsReels = 0;
+  // Vrai pour idempotent_par_cle seulement : les autres garanties ne dédupliquent pas, les doublons doivent se voir.
+  dedupliquer = true;
   verification: Verification | undefined;
   surAppel: ((cle: string) => Promise<void>) | undefined;
   #erreurs: Error[] = [];
@@ -17,7 +19,7 @@ export class ConnecteurFactice implements Connecteurs {
     await Promise.resolve();
     const erreur = this.#erreurs.shift();
     if (erreur) throw erreur;
-    if (!this.#effets.has(d.cle)) this.effetsReels++;
+    if (!this.dedupliquer || !this.#effets.has(d.cle)) this.effetsReels++;
     this.#effets.add(d.cle);
     return { ok: true };
   }

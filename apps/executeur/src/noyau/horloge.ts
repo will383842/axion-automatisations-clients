@@ -1,11 +1,16 @@
 import type { Horloge } from "./ports.ts";
 
+const MAX_MINUTERIE = 2 ** 31 - 1;
+
 export class HorlogeSysteme implements Horloge {
   maintenant = () => Date.now();
   alea = () => Math.random();
   attendre(ms: number, signal?: AbortSignal): Promise<void> {
+    // setTimeout plafonne à 2^31-1 ms : au-delà, l'attente est découpée.
     return new Promise((resolu) => {
-      const t = setTimeout(resolu, ms);
+      let t: ReturnType<typeof setTimeout>;
+      const pas = (reste: number) => void (t = setTimeout(() => (reste > MAX_MINUTERIE ? pas(reste - MAX_MINUTERIE) : resolu()), Math.min(reste, MAX_MINUTERIE)));
+      pas(ms);
       signal?.addEventListener("abort", () => clearTimeout(t), { once: true });
     });
   }

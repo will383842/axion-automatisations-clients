@@ -20,7 +20,7 @@ export interface EntreeJournal {
 }
 export interface JournalEtapes {
   inscrire(entree: EntreeJournal): Promise<void>;
-  lire(executionId: string): Promise<readonly EntreeJournal[]>;
+  lire(instanceId: string, executionId: string): Promise<readonly EntreeJournal[]>;
 }
 
 export interface Intention {

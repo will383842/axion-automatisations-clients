@@ -13,7 +13,7 @@ services:
       - exec valkey-server "$$@" --requirepass "$$VALKEY_MOT_DE_PASSE"
       - sh
       - --appendonly
-      - "no"
+      - "yes"
       - --appendfsync
       - everysec
       - --maxmemory-policy

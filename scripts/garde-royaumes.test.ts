@@ -15,6 +15,9 @@ function equipe(): Royaume {
     ssoSessionMaxLifespan: 28800,
     ssoSessionIdleTimeout: 1800,
     accessTokenLifespan: 300,
+    bruteForceProtected: true,
+    failureFactor: 5,
+    permanentLockout: false,
     browserFlow: "navigateur-equipe",
     requiredActions: [
       { alias: "CONFIGURE_TOTP", enabled: true, defaultAction: true },
@@ -52,6 +55,8 @@ function equipe(): Royaume {
         implicitFlowEnabled: false,
         secret: "${env.KC_SECRET_CONSOLE}",
         attributes: { "pkce.code.challenge.method": "S256" },
+        defaultClientScopes: ["basic", "profile"],
+        optionalClientScopes: [],
       },
     ],
   };
@@ -134,6 +139,50 @@ describe("garde-royaumes : durées", () => {
 });
 
 describe("garde-royaumes : double facteur", () => {
+  it("[C-002] refuse un royaume sans protection contre la force brute (absente ou fausse)", () => {
+    const r = equipe();
+    r.bruteForceProtected = false;
+    expect(verifier(r).join()).toMatch(/bruteForceProtected/);
+    delete r.bruteForceProtected;
+    expect(verifier(r).join()).toMatch(/bruteForceProtected/);
+  });
+  it("[C-002] refuse un verrouillage trop tolérant ou définitif (failureFactor absent ou haut, verrouillage permanent)", () => {
+    const r = equipe();
+    r.failureFactor = 30;
+    expect(verifier(r).join()).toMatch(/failureFactor/);
+    delete r.failureFactor;
+    expect(verifier(r).join()).toMatch(/failureFactor/);
+    r.failureFactor = 5;
+    r.permanentLockout = true;
+    expect(verifier(r).join()).toMatch(/permanentLockout/);
+  });
+  it("[C-002] refuse des redirections génériques, un autre flux lié à un client, un courtier d'identité", () => {
+    const r = equipe();
+    r.clients[0].redirectUris = ["*"];
+    expect(verifier(r).join()).toMatch(/redirectUris/);
+    r.clients[0].redirectUris = ["https://console.exemple.fr/*"];
+    expect(verifier(r).join()).toMatch(/redirectUris/);
+    r.clients[0].redirectUris = ["https://console.exemple.fr/retour"];
+    r.clients[0].webOrigins = ["*"];
+    expect(verifier(r).join()).toMatch(/webOrigins/);
+    r.clients[0].webOrigins = [];
+    expect(verifier(r)).toEqual([]);
+    r.clients[0].authenticationFlowBindingOverrides = { browser: "autre" };
+    expect(verifier(r).join()).toMatch(/authenticationFlowBindingOverrides/);
+    delete r.clients[0].authenticationFlowBindingOverrides;
+    r.identityProviders = [{ alias: "courtier" }];
+    expect(verifier(r).join()).toMatch(/identityProviders/);
+  });
+  it("[C-002] refuse la portée offline_access (session hors ligne au-delà de 8 h), absente ou offerte", () => {
+    const r = equipe();
+    r.clients[0].optionalClientScopes = ["offline_access"];
+    expect(verifier(r).join()).toMatch(/offline_access/);
+    r.clients[0].optionalClientScopes = [];
+    r.clients[0].defaultClientScopes = ["offline_access"];
+    expect(verifier(r).join()).toMatch(/offline_access/);
+    delete r.clients[0].optionalClientScopes;
+    expect(verifier(r).join()).toMatch(/offline_access/);
+  });
   it("[C-002] refuse un authentificateur SMS", () => {
     const r = equipe();
     cible(r, "double-facteur-equipe").authenticationExecutions.push({ authenticator: "sms-authenticator", requirement: "ALTERNATIVE" });

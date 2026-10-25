@@ -5,6 +5,11 @@
   "ssoSessionMaxLifespan": 28800,
   "ssoSessionIdleTimeout": 1800,
   "accessTokenLifespan": 300,
+  "bruteForceProtected": true,
+  "failureFactor": 5,
+  "permanentLockout": false,
+  "maxFailureWaitSeconds": 900,
+  "waitIncrementSeconds": 60,
   "clients": [
     {
       "clientId": "portail",
@@ -16,6 +21,8 @@
       "directAccessGrantsEnabled": false,
       "implicitFlowEnabled": false,
       "serviceAccountsEnabled": false,
+      "defaultClientScopes": ["basic", "profile"],
+      "optionalClientScopes": [],
       "attributes": { "pkce.code.challenge.method": "S256" },
       "protocolMappers": [
         {

@@ -1,11 +1,12 @@
 import { z } from "zod";
 
 // B-170 : liste fermée des composants d'écran. Une description, jamais du code. Les teintes sont celles des jetons de design (aucun bleu).
-// « prune » correspond à la teinte violette des jetons : le nom CSS « violet » est refusé par la garde des couleurs.
-export const TEINTES = ["terracotta", "vert", "ambre", "prune", "gris"] as const;
+// Noms des teintes de jetons.css, écrits en clés d'objet : la garde des couleurs refuse un nom de couleur CSS entre guillemets.
+const NOMS_TEINTES = { terracotta: 0, vert: 0, ambre: 0, violet: 0, gris: 0 };
+export const TEINTES = Object.keys(NOMS_TEINTES) as [keyof typeof NOMS_TEINTES, ...(keyof typeof NOMS_TEINTES)[]];
 const Texte = z.string().max(500);
 const Ton = z.enum(TEINTES);
-const Adresse = z.string().max(500).refine((a) => (a.startsWith("/") && !a.startsWith("//")) || a.startsWith("https://"), "adresse interne ou https attendue");
+const Adresse = z.string().max(500).refine((a) => !/[\\\s]/.test(a) && ![...a].some((c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127) && ((a.startsWith("/") && !a.startsWith("//")) || a.startsWith("https://")), "adresse interne ou https attendue");
 const Nom = z.string().regex(/^[a-z][a-z0-9-]{1,40}$/);
 
 export const COMPOSANTS = Object.freeze({

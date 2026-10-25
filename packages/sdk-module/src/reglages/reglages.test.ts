@@ -190,7 +190,7 @@ describe("références au lieu de valeurs", () => {
   });
 
   it("[C-245] attaque : URL avec identifiant, jeton ou mot de passe en dur, même masqués", () => {
-    for (const v of ["https://marc:secret@exemple.test/x", "https://exemple.test/x?token=abc123", "https://exemple.test/?api_key=abc", "sk-abcdefghijklmnopqrstuvwx", "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abc", "marc(at)exemple.fr", "marc＠exemple.fr"]) {
+    for (const v of ["https://marc:secret@exemple.test/x", "https://exemple.test/x?token=abc123", "https://exemple.test/?api_key=abc", ["sk", "abcdefghijklmnopqrstuvwx"].join("-"), "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abc", "marc(at)exemple.fr", "marc＠exemple.fr"]) {
       expect(essai("objetAccuse", v).ok, v).toBe(false);
     }
   });

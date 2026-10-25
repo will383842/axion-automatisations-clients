@@ -23,7 +23,7 @@ export function migrerReglages(module: ModuleSdk, depuis: string, reglages: unkn
   if (!SEMVER.test(depuis) || comparer(depuis, module.version) > 0) throw new MigrationRefusee(`version de départ « ${String(depuis).slice(0, 20)} » inconnue`);
   if (!estObjet(reglages)) throw new MigrationRefusee("les réglages du client ne sont pas un groupe de valeurs");
   const pas = versions.filter((v) => SEMVER.test(v) && comparer(v, depuis) > 0 && comparer(v, module.version) <= 0).sort(comparer);
-  if (!pas.length && comparer(depuis, module.version) < 0) pas.push(module.version);
+  if (comparer(depuis, module.version) < 0 && !pas.includes(module.version)) pas.push(module.version);
   let courant: unknown;
   let version = depuis;
   try {

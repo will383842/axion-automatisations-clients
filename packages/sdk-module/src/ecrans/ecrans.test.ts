@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import { COMPOSANTS, validerEcrans } from "../index.ts";
+import { TEINTES } from "./composants.ts";
 
 const ok = (e: unknown) => validerEcrans(e as never);
 const refuse = (e: unknown) => {
@@ -73,6 +75,18 @@ describe("validerEcrans", () => {
     expect(lien("https://exemple.test/aide")).toBe(true);
     expect(lien("//exemple.test")).toBe(false);
     expect(lien("http://exemple.test")).toBe(false);
+  });
+
+  it("[B-171] attaque : barre oblique inverse, tabulation ou caractère de contrôle dans une adresse interne", () => {
+    const lien = (adresse: string) => ok([{ composant: "Lien", proprietes: { libelle: "Voir", adresse } }]).ok;
+    for (const a of ["/\\exemple.test", "/\t/exemple.test", "/\n/exemple.test", "/a b", "/a\u0000b", "/\\\\exemple.test", "https://exemple.test/\t"]) expect(lien(a), JSON.stringify(a)).toBe(false);
+  });
+
+  it("[B-170] chaque teinte du SDK a ses quatre jetons dans jetons.css, et « violet » est accepté", () => {
+    const css = readFileSync(new URL("../../../design/src/jetons.css", import.meta.url), "utf8");
+    for (const t of TEINTES) for (const p of ["fond", "bordure", "liseret", "titre"]) expect(css, `${t}-${p}`).toContain(`--couleur-teinte-${t}-${p}:`);
+    expect(ok(carte({ titre: "A", ton: "violet" })).ok).toBe(true);
+    refuse(carte({ titre: "A", ton: "prune" }));
   });
 
   it("[B-171] attaque : du code dans un texte (modèle, expression, fonction)", () => {

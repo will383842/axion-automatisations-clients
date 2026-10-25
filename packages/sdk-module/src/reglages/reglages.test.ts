@@ -96,6 +96,12 @@ describe("migrerReglages", () => {
     expect(r.signature).toEqual({ nom: "L'équipe" });
   });
 
+  it("[B-354] la chaîne finit toujours par la version du module, même si elle manque dans la liste", () => {
+    const heures = fabrique({ migrer: (v: string, a: unknown) => (v === "1.1.0" ? { ...(a as object), delaiHeures: (a as { delaiHeures: number }).delaiHeures * 60 } : a) });
+    const r = migrerReglages(heures, "1.0.0", { delaiHeures: 2, resumeActif: true }, ["1.0.0", "1.1.0"]);
+    expect(r.delaiHeures).toBe(120);
+  });
+
   it("[B-354] attaque : l'objet du client n'est jamais modifié", () => {
     const entree = Object.freeze({ sujet: "Merci", resumeActif: false });
     expect(() => migrerReglages(module12, "1.0.0", entree)).not.toThrow();

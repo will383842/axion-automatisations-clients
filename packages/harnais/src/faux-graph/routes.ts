@@ -15,21 +15,38 @@ type CorpsMessage = { subject?: string; body?: { contentType?: string; content?:
 export function routesGraph(app: FastifyInstance, etat: EtatGraph, mailpit: ClientMailpit): void {
   const transport = nodemailer.createTransport({ host: mailpit.smtp.host, port: mailpit.smtp.port, secure: false, ignoreTLS: true });
 
-  app.post("/oauth2/v2.0/token", async (req, rep) => {
+  const jeton = async (req: FastifyRequest<{ Params: { tenant?: string } }>, rep: FastifyReply) => {
     if (etat.mode === "panne_generale") return rep.code(503).send({ error: { code: "ServiceUnavailable" } });
-    if (etat.mode === "consentement_admin_requis") {
-      return rep.code(400).send({
-        error: "invalid_grant",
-        error_description: "AADSTS65001: L'administrateur n'a pas donné son consentement à l'application.",
-      });
-    }
     const corps = (req.body ?? {}) as Record<string, string>;
-    return { token_type: "Bearer", expires_in: 3599, access_token: `faux.${corps["client_id"] ?? "inconnu@exemple.fr"}` };
+    const client = corps["client_id"] ?? "inconnu@exemple.fr";
+    // Azure ignore la casse du locataire.
+    const locataire = (req.params.tenant ?? "common").toLowerCase();
+    // « Mauvais compte Microsoft » : mode de pilotage, le vrai connecteur n'envoie aucun paramètre de test.
+    if (etat.mode === "mauvais_compte") {
+      return rep.code(400).send({ error: "invalid_request", error_description: "AADSTS50020: Le compte utilisateur appartient à un autre locataire." });
+    }
+    const exige = etat.mode === "consentement_admin_requis" || (etat.consentementRequis && !etat.consentements.has(`${client}|${locataire}`));
+    if (exige) {
+      return rep.code(400).send({ error: "invalid_grant", error_description: "AADSTS65001: L'administrateur n'a pas donné son consentement à l'application." });
+    }
+    return { token_type: "Bearer", expires_in: 3599, access_token: `faux.${client}` };
+  };
+  app.post("/oauth2/v2.0/token", jeton);
+  app.post("/:tenant/oauth2/v2.0/token", jeton);
+
+  // Simulation de l'accord de l'administrateur du client.
+  app.get("/adminconsent", async (req, rep) => {
+    if (process.env["NODE_ENV"] !== "test") return rep.code(403).send({ error: "controle_refuse" });
+    const { client_id, tenant } = req.query as Record<string, string | undefined>;
+    if (!client_id || !tenant) return rep.code(400).send({ error: "invalid_request" });
+    etat.consentements.add(`${client_id}|${tenant.toLowerCase()}`);
+    return { admin_consent: true, tenant };
   });
 
   // Pannes communes à toutes les routes /v1.0, pour tous les comptes.
   app.addHook("preHandler", async (req, rep) => {
-    if (!req.url.startsWith("/v1.0/")) return;
+    // La route reconnue par le routeur, pas l'URL brute : un chemin encodé atteint la même route.
+    if (!req.routeOptions.url?.startsWith("/v1.0/")) return;
     if (etat.mode === "panne_generale") return rep.code(503).send({ error: { code: "ServiceUnavailable" } });
     if (etat.mode === "quota") return rep.code(429).header("Retry-After", "2").send({ error: { code: "TooManyRequests" } });
   });

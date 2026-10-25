@@ -1,4 +1,5 @@
 export * from "./connecteurs.ts";
+export * from "./contexte.ts";
 export * from "./declencheurs.ts";
 export * from "./effets.ts";
 export * from "./erreurs.ts";

@@ -1,5 +1,4 @@
-import type { defineAutomation } from "@axion-auto/sdk-module";
-import { lierEtapes, type EtapeExecutable } from "./etape.ts";
+import type { ContexteEtape, defineAutomation } from "@axion-auto/sdk-module";
 import { ATrancher, effet, IntentionEnCours } from "./intention.ts";
 import { classer, decider, ErreurConnecteur } from "./politique-erreurs.ts";
 import { CoupureProcessus, type Ports } from "./ports.ts";
@@ -10,9 +9,7 @@ export type Statut = "terminee" | "a_trancher" | "echec" | "pause" | "ignoree" |
 
 // Machine rejouable : une étape inscrite « faite » est sautée ; tout effet passe par une intention écrite avant.
 export class Machine {
-  constructor(private o: { module: Module; etapes: Record<string, EtapeExecutable>; ports: Ports }) {
-    lierEtapes(o.module, o.etapes);
-  }
+  constructor(private o: { module: Module; ports: Ports }) {}
 
   async lancer(instanceId: string, executionId: string): Promise<{ statut: Statut; etape?: string }> {
     const { module, ports } = this.o;
@@ -38,7 +35,7 @@ export class Machine {
       if (encore.etat !== "actif") return { statut: "ignoree", etape: decl.nom };
       const base = { instanceId, executionId, etape: decl.nom, connecteurs: module.connecteurs };
       for (let essai = 1; ; essai++) {
-        const issue = await this.tenter(decl.nom, decl.delaiMaxSecondes ?? 120, { ...base, reglages }, () => elements++);
+        const issue = await this.tenter(decl.nom, decl.delaiMaxSecondes ?? 120, decl.executer, { ...base, reglages }, () => elements++);
         const inscrire = (statut: "faite" | "echec" | "a_trancher") =>
           journal.inscrire({ instanceId, executionId, etape: decl.nom, statut, essai, a: new Date(horloge.maintenant()).toISOString() });
         if (issue === undefined) {
@@ -74,13 +71,13 @@ export class Machine {
   }
 
   // Rend undefined si l'étape a réussi, sinon l'erreur ; seule une coupure de processus traverse.
-  private async tenter(nom: string, delaiSecondes: number, base: Parameters<Machine["contexte"]>[0], compter: () => void): Promise<unknown> {
+  private async tenter(nom: string, delaiSecondes: number, executer: (ctx: ContexteEtape) => Promise<void>, base: Parameters<Machine["contexte"]>[0], compter: () => void): Promise<unknown> {
     const ac = new AbortController();
     const { horloge } = this.o.ports;
     const delaiMs = Math.min(delaiSecondes, DELAI_MAX_SECONDES) * 1000;
     const finEtape = horloge.maintenant() + delaiMs;
     try {
-      const travail = this.o.etapes[nom]!.executer(this.contexte(base, nom, ac.signal, finEtape, compter));
+      const travail = executer(this.contexte(base, nom, ac.signal, finEtape, compter));
       travail.catch(() => undefined);
       const delai = horloge.attendre(delaiMs, ac.signal).then(() => {
         throw new ErreurConnecteur("passagere", "delai_depasse");
@@ -101,14 +98,18 @@ export class Machine {
     signal: AbortSignal,
     finEtape: number,
     compter: () => void,
-  ) {
+  ): ContexteEtape {
     const effetBase = { ...base, signal, finEtape, classer: (a: string) => this.o.module.classerAction(base.reglages as { actionsAutomatiquesAutorisees: string[] }, a) };
+    const { ia, motifs } = this.o.ports;
     return {
-      instanceId: base.instanceId,
-      executionId: base.executionId,
-      etape: nom,
       reglages: base.reglages,
       signal,
+      ia: ia ?? {
+        completer: async () => {
+          throw new ErreurConnecteur("definitive", "ia_indisponible");
+        },
+      },
+      noterMotif: (texte: string) => motifs?.noter(base.instanceId, base.executionId, nom, texte),
       effet: async (action: string, element: string, entree?: unknown) => {
         if (await effet(this.o.ports, effetBase, action, element, entree)) compter();
       },

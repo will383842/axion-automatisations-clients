@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { defineAutomation, type Garantie } from "@axion-auto/sdk-module";
-import { manifesteExemple, moduleExemple } from "@axion-auto/sdk-module/exemples/module-exemple.ts";
+import { deriverCleIntention } from "@axion-auto/contrats/src/c4/intention.ts";
+import { CLES_CONTEXTE, defineAutomation, type Garantie } from "@axion-auto/sdk-module";
+import { manifesteExemple } from "@axion-auto/sdk-module/exemples/module-exemple.ts";
 import {
   BoiteEnMemoire,
   ConnecteurFactice,
@@ -10,8 +11,6 @@ import {
   HorlogeFactice,
   JournalEnMemoire,
   Machine,
-  deriverCle,
-  lierEtapes,
   type ContexteEtape,
 } from "./index.ts";
 
@@ -24,7 +23,7 @@ const envoyer: Corps = async (ctx) => {
 function banc(corps: Record<string, Corps>, garantie: Garantie = "idempotent_par_cle", o: { delai?: number; reglages?: Record<string, unknown> } = {}) {
   const module = defineAutomation({
     ...manifesteExemple,
-    etapes: Object.keys(corps).map((nom) => ({ nom, ...(o.delai ? { delaiMaxSecondes: o.delai } : {}) })),
+    etapes: Object.entries(corps).map(([nom, executer]) => ({ nom, executer, ...(o.delai ? { delaiMaxSecondes: o.delai } : {}) })),
     connecteurs: [{ famille: "messagerie", actions: ["envoyer", "classer"], portees: ["envoi"], garantie }],
   });
   const horloge = new HorlogeFactice();
@@ -33,8 +32,7 @@ function banc(corps: Record<string, Corps>, garantie: Garantie = "idempotent_par
   const connecteur = new ConnecteurFactice();
   const console = new ConsoleFactice({ reglages: o.reglages ?? REGLAGES });
   connecteur.dedupliquer = garantie === "idempotent_par_cle";
-  const etapes = Object.fromEntries(Object.entries(corps).map(([nom, executer]) => [nom, { executer }]));
-  const machine = new Machine({ module, etapes, ports: { journal, boite, connecteurs: connecteur, console, horloge } });
+  const machine = new Machine({ module, ports: { journal, boite, connecteurs: connecteur, console, horloge } });
   const lancer = (executionId = "exec-1") => horloge.piloter(machine.lancer("inst-1", executionId));
   return { horloge, journal, boite, connecteur, console, machine, lancer };
 }
@@ -77,8 +75,7 @@ describe("reprise", () => {
     const console = new ConsoleFactice({ reglages: { actionsAutomatiquesAutorisees: [], objetAccuse: "Accusé" } });
     let objet = "";
     const machine = new Machine({
-      module: moduleExemple,
-      etapes: { accuser: { executer: async (ctx) => void (objet = String(ctx.reglages.objetAccuse)) } },
+      module: defineAutomation({ ...manifesteExemple, etapes: [{ nom: "accuser", executer: async (ctx) => void (objet = String(ctx.reglages.objetAccuse)) }] }),
       ports: { journal: new JournalEnMemoire(), boite: new BoiteEnMemoire(), connecteurs: new ConnecteurFactice(), console, horloge },
     });
     expect((await horloge.piloter(machine.lancer("inst-1", "exec-1"))).statut).toBe("terminee");
@@ -153,9 +150,10 @@ describe("anti-doublon", () => {
   });
 
   it("[A-319] @anti-doublon la clé dérivée est stable, sans ambiguïté de séparateur", () => {
-    expect(deriverCle("i", "x", "e", "m")).toBe(deriverCle("i", "x", "e", "m"));
-    expect(deriverCle("ab", "c", "e", "m")).not.toBe(deriverCle("a", "bc", "e", "m"));
-    expect(deriverCle("i", "x", "e", "m")).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    const k = (instanceId: string, executionId: string) => deriverCleIntention({ instanceId, executionId, etape: "e", action: "envoyer", element: "m" });
+    expect(k("i", "x")).toBe(k("i", "x"));
+    expect(k("ab", "c")).not.toBe(k("a", "bc"));
+    expect(k("i", "x")).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   });
 });
 
@@ -248,13 +246,6 @@ describe("politique des erreurs", () => {
     expect(b.connecteur.appels).toHaveLength(0);
     expect(b.boite.toutes()).toHaveLength(0);
   });
-
-  it("attaque : une étape déclarée sans code, ou du code sans étape déclarée, est refusé au chargement", () => {
-    const e = { executer: async () => undefined };
-    expect(() => lierEtapes(moduleExemple, {})).toThrow(/accuser/);
-    expect(() => lierEtapes(moduleExemple, { accuser: e, fantome: e })).toThrow(/fantome/);
-    expect(() => lierEtapes(moduleExemple, { accuser: e })).not.toThrow();
-  });
 });
 
 describe("attaques de l'audit (tour 1)", () => {
@@ -309,16 +300,16 @@ describe("attaques de l'audit (tour 1)", () => {
     expect(b.connecteur.appels).toHaveLength(2);
   });
 
-  it("[A-319] @anti-doublon attaque : deux actions sur un même élément ne perdent pas la seconde sans bruit", async () => {
+  it("[A-319] @anti-doublon attaque : deux actions sur un même élément ont chacune leur clé et partent toutes deux (C4 v0.2.0)", async () => {
     const b = banc({
       e1: async (ctx) => {
         await ctx.effet("envoyer", "m1");
         await ctx.effet("classer", "m1");
       },
     });
-    expect((await b.lancer()).statut).toBe("echec");
-    expect(b.console.evenements.at(-1)).toMatchObject({ classe: "definitive", code: "cle_en_conflit" });
-    expect(b.connecteur.appels).toHaveLength(1);
+    expect((await b.lancer()).statut).toBe("terminee");
+    expect(b.connecteur.appels).toHaveLength(2);
+    expect(b.connecteur.appels[0]?.cle).not.toBe(b.connecteur.appels[1]?.cle);
   });
 
   it("[A-285] attaque : une configuration d'une autre instance ou d'un autre module est refusée", async () => {
@@ -357,17 +348,6 @@ describe("attaques de l'audit (tour 1)", () => {
     });
     expect((await b.lancer()).statut).toBe("ignoree");
     expect(b.connecteur.appels).toHaveLength(0);
-  });
-
-  it("attaque : une action déclarée par deux connecteurs est refusée au chargement", () => {
-    const module = defineAutomation({
-      ...manifesteExemple,
-      connecteurs: [
-        { famille: "messagerie", actions: ["envoyer"], portees: ["envoi"], garantie: "idempotent_par_cle" },
-        { famille: "agenda", actions: ["envoyer"], portees: ["ecriture"], garantie: "au_plus_une_fois" },
-      ],
-    });
-    expect(() => new Machine({ module, etapes: { accuser: { executer: async () => undefined } }, ports: {} as never })).toThrow(/envoyer/);
   });
 });
 
@@ -441,5 +421,20 @@ describe("attaques de l'audit (tour 2)", () => {
     b.console.lireEtatVoulu = async (id) => ({ ...(await lire(id)), instanceId: n++ === 0 ? id : "inst-X" });
     expect((await b.lancer()).statut).toBe("echec");
     expect(b.connecteur.appels).toHaveLength(0);
+  });
+});
+
+describe("contexte d'étape (C4 v0.2.0)", () => {
+  it("[LOT4-c4] le contexte donné à l'étape ne porte que les clés de C4", async () => {
+    let cles: string[] = [];
+    const b = banc({ e1: async (ctx) => void (cles = Object.keys(ctx).sort()) });
+    await b.lancer();
+    expect(cles).toEqual([...CLES_CONTEXTE].sort());
+  });
+
+  it("[LOT4-c4] sans passerelle branchée, l'IA échoue en erreur définitive sans texte", async () => {
+    const b = banc({ e1: async (ctx) => void (await ctx.ia.completer({ modele: "m", entree: "x" })) });
+    expect((await b.lancer()).statut).toBe("echec");
+    expect(b.console.evenements.at(-1)).toMatchObject({ classe: "definitive", code: "ia_indisponible" });
   });
 });

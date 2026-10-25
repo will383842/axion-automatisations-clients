@@ -1,0 +1,12 @@
+{
+  "nom": "openbao",
+  "image": "openbao/openbao",
+  "version": "2.6.4",
+  "empreinte": "sha256:cf2340fc9a22cb9358ca0defd1f39b65673836bd23fe2bb8984a07e11fe13ef4",
+  "licence": "MPL-2.0",
+  "livree": false,
+  "lieu": "local",
+  "source": "https://openbao.org/",
+  "verifie_le": "2026-10-25",
+  "note": "Coffre des identifiants des clients (KV v2) et moteur transit. Mode serveur, jamais en mode développement."
+}

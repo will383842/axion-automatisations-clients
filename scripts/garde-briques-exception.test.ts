@@ -1,5 +1,7 @@
-import { execFileSync } from "node:child_process";
-import { readdirSync, readFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { load } from "js-yaml";
 import { describe, expect, it } from "vitest";
@@ -32,7 +34,7 @@ const brique = (surcharge: Record<string, unknown> = {}) => ({
   exception_trivy: exception(),
   ...surcharge,
 });
-const verifier = (surcharge: Record<string, unknown> = {}, composes = [{ nom: ESSAI, texte: composeDe("exemple/echo:1.0.0") }], adrs = ["0013-exception-trivy-images-essai.md"]) =>
+const verifier = (surcharge: Record<string, unknown> = {}, composes = [{ nom: ESSAI, texte: composeDe("exemple/echo:1.0.0") }], adrs = [{ nom: "0013-exception-trivy-images-essai.md", texte: "Exception Trivy de echo, image d'essai." }]) =>
   verifierBriques([{ fichier: "ops/briques/echo.json", contenu: brique(surcharge) }], composes, { adrs, maintenant: MAINTENANT });
 const v = (id: string, jours: number, severite = "HIGH") => ({
   VulnerabilityID: id,
@@ -89,6 +91,9 @@ describe("garde-briques : exception Trivy des images d'essai", () => {
     refuse({ decidee_le: "2026-02-30" }, "date impossible");
     refuse({ expire_le: undefined }, "expire_le absent");
     refuse({ adr: "0099" }, "ADR absent");
+    refuse({ adr: "0013-exception" }, "ADR mal écrit");
+    refuse({ adr: "0001" }, "ADR sans rapport");
+    refuse({ decidee_le: "2026-11-02", expire_le: "2026-11-30" }, "décidée dans le futur");
     refuse({ inconnu: 1 }, "clé inconnue");
     expect(verifier({ exception_trivy: "oui" })).not.toEqual([]);
     expect(verifier({}, undefined, [])).not.toEqual([]);
@@ -105,7 +110,7 @@ describe("garde-briques : exception Trivy des images d'essai", () => {
     expect(avecException.map((b) => b.nom)).toEqual(["whoami"]);
     for (const b of briques) if (production.has(String(b.image))) expect(b.exception_trivy, String(b.nom)).toBeUndefined();
     expect(avecException.every((b) => !production.has(String(b.image)) && b.livree === false)).toBe(true);
-    const adrs = readdirSync(racine("docs/adr"));
+    const adrs = readdirSync(racine("docs/adr")).map((nom) => ({ nom, texte: lire(`docs/adr/${nom}`) }));
     const composes = nomsCompose.map((nom) => ({ nom, texte: lire(nom) }));
     expect(verifierBriques(briques.map((contenu) => ({ fichier: `ops/briques/${String(contenu.nom)}.json`, contenu })), composes, { adrs, maintenant: new Date("2026-10-26T00:00:00Z") })).toEqual([]);
   });
@@ -114,6 +119,31 @@ describe("garde-briques : exception Trivy des images d'essai", () => {
     expect([...b.exception_trivy.avis].sort()).toEqual(
       ["CVE-2026-33818", "CVE-2026-39821", "CVE-2026-46600", "CVE-2026-56853", "CVE-2026-56858", "CVE-2026-56859", "CVE-2026-56860", "CVE-2026-56862", "CVE-2026-84304", "CVE-2026-84445"],
     );
+  });
+  it("[A-381] exception Trivy : le mode --trivy revérifie l'exception (expirée, ADR absent) avant de l'appliquer", () => {
+    const dossier = mkdtempSync(join(tmpdir(), "garde-"));
+    try {
+      for (const d of ["ops/briques", "ops/socle", "docs/adr"]) cpSync(racine(d), join(dossier, d), { recursive: true });
+      cpSync(racine("ops/compose.test.yml"), join(dossier, "ops/compose.test.yml"));
+      const rapportOk = join(dossier, "r.json");
+      writeFileSync(rapportOk, JSON.stringify(rapport(v("CVE-2026-33818", 90), v("CVE-2026-84304", 90))));
+      const lancer = () => spawnSync("node", [racine("scripts/garde-briques.ts"), "--trivy", rapportOk, "traefik/whoami"], { cwd: dossier, encoding: "utf8" });
+      const brique = JSON.parse(readFileSync(join(dossier, "ops/briques/whoami.json"), "utf8")) as { exception_trivy: Record<string, string> };
+      const ecrire = (ex: Record<string, string>) => writeFileSync(join(dossier, "ops/briques/whoami.json"), JSON.stringify({ ...brique, exception_trivy: ex }));
+      const aujourdhui = new Date();
+      const iso = (jours: number) => new Date(aujourdhui.getTime() + jours * 86_400_000).toISOString().slice(0, 10);
+      ecrire({ ...brique.exception_trivy, decidee_le: iso(-1), expire_le: iso(10) });
+      expect(lancer().status).toBe(0);
+      ecrire({ ...brique.exception_trivy, decidee_le: iso(-40), expire_le: iso(-10) });
+      const expiree = lancer();
+      expect(expiree.status).toBe(1);
+      expect(expiree.stderr).toMatch(/expirée/);
+      ecrire({ ...brique.exception_trivy, decidee_le: iso(-1), expire_le: iso(10) });
+      rmSync(join(dossier, "docs/adr/0013-exception-trivy-images-essai.md"));
+      expect(lancer().status).toBe(1);
+    } finally {
+      rmSync(dossier, { recursive: true, force: true });
+    }
   });
   it("[A-381] garde-briques.yml n'utilise ni .trivyignore, ni --ignorefile, ni --skip-files/--skip-dirs, ni --ignore-unfixed, ni --severity, et le dépôt ne contient aucun fichier .trivyignore*", () => {
     const doc = load(lire(".github/workflows/garde-briques.yml")) as { jobs: Record<string, { steps: Array<{ run?: string }> }> };

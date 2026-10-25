@@ -46,7 +46,7 @@ export interface ExceptionTrivy {
   motif: string;
 }
 export interface Options {
-  adrs?: string[];
+  adrs?: Array<{ nom: string; texte: string }>;
   maintenant?: Date;
 }
 interface Fichier {
@@ -123,7 +123,7 @@ function verifierBrique(fichier: string, contenu: unknown): string[] {
 }
 
 // Une exception n'est valable que pour une image citée par des fragments d'essai et par rien d'autre (statut déduit des composes, jamais déclaré).
-function verifierException(fichier: string, b: Record<string, unknown>, composes: Compose[], options: Options): string[] {
+function verifierException(fichier: string, b: Record<string, unknown>, composes: Compose[], options: Options, toutes: unknown[] = []): string[] {
   const ex = b.exception_trivy;
   const erreurs: string[] = [];
   const echec = (msg: string) => erreurs.push(`${fichier} : exception_trivy : ${msg}`);
@@ -133,15 +133,35 @@ function verifierException(fichier: string, b: Record<string, unknown>, composes
   if (!Array.isArray(avis) || !avis.length || !avis.every((a) => typeof a === "string" && AVIS.test(a))) echec("« avis » : liste non vide d'identifiants CVE-… ou GHSA-…");
   else if (new Set(avis).size !== avis.length) echec("« avis » : doublon");
   for (const cle of ["motif", "adr"]) if (typeof ex[cle] !== "string" || !ex[cle].trim()) echec(`« ${cle} » doit être un texte non vide`);
-  if (typeof ex.adr === "string" && !(options.adrs ?? []).some((a) => /^\d{4}-.+\.md$/.test(a) && a.startsWith(`${ex.adr}-`))) echec(`ADR « ${ex.adr} » absent de docs/adr`);
+  if (typeof ex.adr === "string") {
+    const adr = /^\d{4}$/.test(ex.adr) ? (options.adrs ?? []).find((a) => a.nom.startsWith(`${ex.adr}-`) && a.nom.endsWith(".md")) : undefined;
+    if (!adr) echec(`ADR « ${ex.adr} » : quatre chiffres, et un fichier docs/adr/<numéro>-….md`);
+    else if (!adr.texte.includes(String(b.nom)) || !adr.texte.includes("Trivy")) echec(`l'ADR ${ex.adr} ne traite pas de « ${String(b.nom)} » et de Trivy`);
+  }
   const [decidee, expire] = ["decidee_le", "expire_le"].map((c) => (typeof ex[c] === "string" && dateReelle(ex[c]) ? Date.parse(`${ex[c]}T00:00:00Z`) : Number.NaN)) as [number, number];
   if (Number.isNaN(decidee) || Number.isNaN(expire)) echec("« decidee_le » et « expire_le » : dates AAAA-MM-JJ réelles");
   else {
     if (expire <= decidee || (expire - decidee) / JOUR > DUREE_MAX_JOURS) echec(`la durée doit être de 1 à ${DUREE_MAX_JOURS} jours (30 jours au plus)`);
+    if (decidee > Date.parse(`${(options.maintenant ?? new Date()).toISOString().slice(0, 10)}T00:00:00Z`)) echec("« decidee_le » est dans le futur");
     if (!exceptionValable(ex as unknown as ExceptionTrivy, options.maintenant ?? new Date())) echec("expirée : expire_le est atteint ; renouveler par une nouvelle PR et un nouvel ADR");
   }
   if (b.livree !== false) echec("refusée sur une brique livrée");
   const depot = lireImage(String(b.image)).depot;
+  // Une seule brique par dépôt d'image : l'exception ne peut pas déborder sur une autre version (le CLI ne reçoit que le dépôt).
+  const memeDepot = toutes.filter((o) => estObjet(o) && o !== b && lireImage(String(o.image)).depot === depot);
+  if (memeDepot.length) echec("refusée : une autre brique inscrite porte le même dépôt d'image");
+  for (const c of composes) {
+    let doc: unknown;
+    try {
+      doc = load(c.texte);
+    } catch {
+      continue;
+    }
+    const services = estObjet(doc) && estObjet(doc.services) ? Object.values(doc.services) : [];
+    if (estObjet(doc) && "include" in doc) echec(`refusée : ${c.nom} utilise include, image non vérifiable`);
+    if (services.some((s) => estObjet(s) && ("build" in s || "extends" in s))) echec(`refusée : ${c.nom} utilise build ou extends, image non vérifiable`);
+    if (imagesDuCompose(c).erreurs.length && c.texte.toLowerCase().includes(depot)) echec(`refusée : ${c.nom} cite l'image par une variable`);
+  }
   const citent = composes.filter((c) => imagesDuCompose(c).images.some((i) => lireImage(i).depot === depot));
   if (!citent.length) echec("refusée : aucun compose ne cite l'image");
   for (const c of citent) if (!FRAGMENT_ESSAI.test(c.nom)) echec(`refusée : l'image est citée par ${c.nom}, qui n'est pas un fragment d'essai`);
@@ -168,8 +188,8 @@ function imagesDuCompose(c: Compose): { images: string[]; erreurs: string[] } {
 
 export function verifierBriques(fichiers: Fichier[], composes: Compose[], options: Options = {}): string[] {
   const erreurs = fichiers.flatMap((f) => verifierBrique(f.fichier, f.contenu));
-  for (const f of fichiers) if (estObjet(f.contenu) && "exception_trivy" in f.contenu) erreurs.push(...verifierException(f.fichier, f.contenu, composes, options));
   const briques = fichiers.map((f) => f.contenu).filter(estObjet) as unknown as Brique[];
+  for (const f of fichiers) if (estObjet(f.contenu) && "exception_trivy" in f.contenu) erreurs.push(...verifierException(f.fichier, f.contenu, composes, options, briques));
   const parCle = new Map<string, Set<string>>();
   for (const b of briques) {
     const cle = `${lireImage(String(b.image)).depot}:${String(b.version)}`;
@@ -243,6 +263,10 @@ function lireBriques(dossier: string): Fichier[] {
     });
 }
 
+function lireAdrs() {
+  return readdirSync("docs/adr").filter((f) => f.endsWith(".md")).map((nom) => ({ nom, texte: readFileSync(join("docs/adr", nom), "utf8") }));
+}
+
 function lireComposes(): Compose[] {
   return [
     ...readdirSync("ops/socle").filter((f) => /^compose.*\.ya?ml$/.test(f)).sort().map((f) => join("ops/socle", f)),
@@ -256,7 +280,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const briques = lireBriques("ops/briques");
   let erreurs: string[];
   if (mode === "--lister") {
-    erreurs = verifierBriques(briques, lireComposes(), { adrs: readdirSync("docs/adr"), maintenant: new Date() });
+    erreurs = verifierBriques(briques, lireComposes(), { adrs: lireAdrs(), maintenant: new Date() });
     if (!erreurs.length) for (const i of listerImages(briques.map((b) => b.contenu as Brique))) console.log(i);
   } else if (mode === "--trivy") {
     try {
@@ -266,7 +290,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       let exception: ExceptionTrivy | undefined;
       erreurs = [];
       if (estObjet(trouvee) && "exception_trivy" in trouvee) {
-        erreurs = verifierException(String(trouvee.nom), trouvee, lireComposes(), { adrs: readdirSync("docs/adr"), maintenant });
+        erreurs = verifierException(String(trouvee.nom), trouvee, lireComposes(), { adrs: lireAdrs(), maintenant }, briques.map((b) => b.contenu));
         if (!erreurs.length) exception = (trouvee as unknown as Brique).exception_trivy;
       }
       erreurs.push(...evaluerTrivy(JSON.parse(readFileSync(rapport ?? "", "utf8")), brique ?? "brique-inconnue", maintenant, exception));
@@ -274,7 +298,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       erreurs = [`rapport Trivy illisible pour ${brique ?? "brique-inconnue"}`];
     }
   } else {
-    erreurs = [...verifierBriques(briques, lireComposes(), { adrs: readdirSync("docs/adr"), maintenant: new Date() }), ...verifierVerrou(readFileSync("pnpm-lock.yaml", "utf8"))];
+    erreurs = [...verifierBriques(briques, lireComposes(), { adrs: lireAdrs(), maintenant: new Date() }), ...verifierVerrou(readFileSync("pnpm-lock.yaml", "utf8"))];
   }
   for (const e of erreurs) console.error(e);
   process.exit(erreurs.length ? 1 : 0);

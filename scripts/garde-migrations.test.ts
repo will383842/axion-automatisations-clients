@@ -127,6 +127,30 @@ describe("garde des migrations", () => {
     expect(gardeMigrations(racine).join("\n")).toContain("journal illisible");
   });
 
+  it("[A-233] B6 : la garde découpe comme drizzle sur --> statement-breakpoint et analyse chaque morceau (N1, N1b, N1c)", () => {
+    expect(analyser("CREATE TABLE u(id int);\n--> statement-breakpoint DROP TABLE t;")).toEqual(["m.sql:1: instruction interdite : DROP"]);
+    expect(analyser("CREATE TABLE u(id int); -- x --> statement-breakpoint TRUNCATE t;")).toEqual(["m.sql:1: instruction interdite : TRUNCATE"]);
+    expect(analyser("SELECT E'\\\\';--> statement-breakpointDROP TABLE t;")).toEqual(["m.sql:1: instruction interdite : DROP"]);
+    // Le numéro de ligne part du début du morceau ; un morceau vide est ignoré.
+    expect(analyser("CREATE TABLE u(id int);\n--> statement-breakpoint\n\nDROP TABLE t;\n--> statement-breakpoint\n")).toEqual(["m.sql:3: instruction interdite : DROP"]);
+  });
+
+  it("[A-233] B7 : tout SET, set_config, ALTER DATABASE/ROLE … SET sont refusés (N2, N2b, N2d)", () => {
+    const sql = "SET standard_conforming_strings = off;\n--> statement-breakpoint\nSELECT '\\''; DROP TABLE t; --';";
+    expect(analyser(sql)).toContain("m.sql:1: instruction interdite : SET");
+    expect(analyser("SELECT set_config('standard_conforming_strings','off',false);")).toEqual(["m.sql:1: instruction interdite : set_config"]);
+    expect(analyser("SELECT pg_catalog.SET_CONFIG('backslash_quote','on',false);")).toEqual(["m.sql:1: instruction interdite : set_config"]);
+    expect(analyser("ALTER DATABASE essai SET standard_conforming_strings = off;")).toEqual(["m.sql:1: instruction interdite : ALTER DATABASE SET"]);
+    expect(analyser("ALTER ROLE console_app SET escape_string_warning = off;")).toEqual(["m.sql:1: instruction interdite : ALTER ROLE SET"]);
+    expect(analyser("SET search_path = x;")).toEqual(["m.sql:1: instruction interdite : SET"]);
+  });
+
+  it("[A-233] B8 : ALTER TYPE … RENAME VALUE et ALTER DOMAIN … DROP CONSTRAINT sont refusés (N3, N4)", () => {
+    expect(analyser("ALTER TYPE e RENAME VALUE 'a' TO 'z';")).toEqual(["m.sql:1: instruction interdite : RENAME"]);
+    expect(analyser("ALTER DOMAIN d DROP CONSTRAINT pos;")).toEqual(["m.sql:1: instruction interdite : DROP"]);
+    expect(analyser("ALTER DOMAIN d ADD CONSTRAINT pos CHECK (VALUE > 0);\nALTER DOMAIN d SET DEFAULT 1;")).toEqual([]);
+  });
+
   it("[A-233] des fichiers SQL sans journal sont refusés", () => {
     const racine = mkdtempSync(join(tmpdir(), "garde-sj-"));
     mkdirSync(join(racine, "apps/api/drizzle"), { recursive: true });

@@ -64,4 +64,23 @@ describe("migrer, avec le socle", () => {
     const mauvais = `postgres://console_migration:${motDePasseDe("console_app")}@${DIRECT()}/console`;
     await expect(migrer({ url: mauvais, dossier: dossierEssai() })).rejects.toThrow();
   });
+
+  it("[A-233] B7 : migrer impose standard_conforming_strings = on, même si le serveur le règle sur off", async () => {
+    const dossier = mkdtempSync(join(tmpdir(), "migrer-"));
+    mkdirSync(join(dossier, "meta"));
+    writeFileSync(join(dossier, "0000_scs.sql"), "CREATE TABLE essai_scs_a233 (id integer);\n--> statement-breakpoint\nCOMMENT ON TABLE essai_scs_a233 IS 'a\\';\n");
+    writeFileSync(join(dossier, "meta/_journal.json"), JSON.stringify({ version: "7", dialect: "postgresql", entries: [{ idx: 0, version: "7", when: 1700000000001, tag: "0000_scs", breakpoints: true }] }));
+    const avant = process.env["PGOPTIONS"];
+    process.env["PGOPTIONS"] = "-c standard_conforming_strings=off";
+    try {
+      await migrer({ url: urlDe("console_migration", DIRECT()), dossier });
+    } finally {
+      if (avant === undefined) delete process.env["PGOPTIONS"];
+      else process.env["PGOPTIONS"] = avant;
+      const nettoyage = new pg.Client({ connectionString: urlDe("console_migration", DIRECT()) });
+      await nettoyage.connect();
+      await nettoyage.query("DROP TABLE IF EXISTS public.essai_scs_a233; DROP SCHEMA IF EXISTS drizzle CASCADE").catch(() => undefined);
+      await nettoyage.end();
+    }
+  });
 });

@@ -78,6 +78,7 @@ function analyserWorkflow(doc: Obj): string[] {
   if (estObj(on) && Object.keys(on).sort().join(",") !== "pull_request,push,schedule,workflow_dispatch") erreurs.push("déclencheurs exacts : pull_request, push, schedule, workflow_dispatch");
   if (!estObj(on) || !("pull_request" in on)) erreurs.push("construction attendue sur pull_request");
   if (/secrets\./.test(texte)) erreurs.push("secrets.* interdit");
+  if (JSON.stringify(on) !== JSON.stringify(ON)) erreurs.push("déclencheurs figés : paths pull_request et push = images, workflow, évaluateur, .nvmrc, package.json ; push sur main seulement");
   const nomsJobs = Object.keys(jobs).sort().join(",");
   if (nomsJobs !== "construire,publier") erreurs.push(`jobs attendus : construire et publier (trouvé : ${nomsJobs})`);
   for (const [nom, job] of Object.entries(jobs)) {
@@ -116,6 +117,14 @@ function analyserWorkflow(doc: Obj): string[] {
   if (trouver(construire, "releve-trivy.ts --garde") < 0 || trouver(construire, "aquasecurity/trivy") < 0 || trouver(construire, "pg_isready") < 0) erreurs.push("construire : fumée, Trivy et évaluateur exigés");
   return [...erreurs, ...analyserForme(jobs)];
 }
+
+const CHEMINS = ["ops/images/**", ".github/workflows/images-derivees.yml", "scripts/releve-trivy.ts", ".nvmrc", "package.json"];
+const ON = { pull_request: { paths: CHEMINS }, push: { branches: ["main"], paths: CHEMINS }, schedule: [{ cron: "41 4 * * 1" }], workflow_dispatch: null };
+const EVALUATEUR = "scripts/releve-trivy.ts";
+const EMPREINTE_EVALUATEUR = "a-remplir";
+const sha = (texte: string) => createHash("sha256").update(texte).digest("hex");
+// L'évaluateur décide seul si Trivy passe : son contenu est figé comme les blocs run.
+const analyserEvaluateur = (texte: string): string[] => (sha(texte) === EMPREINTE_EVALUATEUR ? [] : ["releve-trivy.ts : empreinte différente de celle figée"]);
 
 const empreinteRun = (e: Obj) => createHash("sha256").update(String(e.run).trim()).digest("hex");
 const suite = (job: unknown) => etapes(job).map((e) => (typeof e.uses === "string" ? e.uses : empreinteRun(e)));
@@ -233,6 +242,12 @@ describe("images dérivées : workflow", () => {
     const push = etapes(publier)[pousser ?? 0] ?? {};
     expect((etapes(publier)[attester]?.with as Obj)["subject-digest"]).toBe(`\${{ steps.${String(push.id)}.outputs.empreinte }}`);
   });
+  it("[A-381] releve-trivy.ts : l'évaluateur est figé par empreinte sha256, et le workflow se lance quand il change", () => {
+    expect(analyserEvaluateur(lire(EVALUATEUR))).toEqual([]);
+    const on = reel().on as Obj;
+    expect(on).toEqual(ON);
+    for (const d of ["pull_request", "push"]) expect((on[d] as Obj).paths).toContain(EVALUATEUR);
+  });
   it("[A-381] images-derivees.yml : un seul docker push dans tout le fichier", () => {
     expect(lire(WORKFLOW).match(/docker push/g)?.length).toBe(1);
   });
@@ -285,9 +300,32 @@ describe("images dérivées : workflow", () => {
       ["étape ajoutée dans construire", (d) => pas(d, "construire").push({ run: "pnpm install" })],
       ["push avant Trivy", (d) => { const s = pas(d, "publier"); const t = s.splice(trouver(job(d, "publier"), "aquasecurity/trivy"), 1)[0]!; s.push(t); }],
     ];
+    attaques.push(
+      ["paths de pull_request sans l'évaluateur [E1]", (d) => ((d.on as Obj).pull_request = { paths: CHEMINS.filter((c) => c !== EVALUATEUR) })],
+      ["paths de push sans l'évaluateur [E1]", (d) => (((d.on as Obj).push as Obj).paths = CHEMINS.filter((c) => c !== EVALUATEUR))],
+      ["pull_request sans paths", (d) => ((d.on as Obj).pull_request = null)],
+      ["push sur toute branche", (d) => (((d.on as Obj).push as Obj).branches = ["**"])],
+      ["cron changé", (d) => ((d.on as Obj).schedule = [{ cron: "0 0 * * *" }])],
+      ["chemin en trop dans paths", (d) => (((d.on as Obj).push as Obj).paths = [...CHEMINS, "docs/**"])],
+    );
     it.each(attaques)("[A-381] workflow refusé : %s", (_nom, f) => {
       expect(modif(f)).not.toEqual([]);
     });
+  });
+});
+
+describe("images dérivées : évaluateur figé", () => {
+  const ok = lire(EVALUATEUR);
+  const attaques: [string, string][] = [
+    ["E1 : sortie toujours 0", ok.replace("process.exit(erreurs.length ? 1 : 0)", "process.exit(0)")],
+    ["E2 : exception pour postgres-derivee", ok.replace("export function evaluer(rapport: unknown, image: string, maintenant: Date): string[] {", 'export function evaluer(rapport: unknown, image: string, maintenant: Date): string[] {\n  if (image === "postgres-derivee") return [];')],
+    ["seuil critique relevé", ok.replace("CRITICAL: 7", "CRITICAL: 70")],
+    ["rapport illisible toléré", ok.replace("process.exit(1);\n  }\n  if (mode", "rapport = { Results: [] };\n  }\n  if (mode")],
+    ["espace en trop", `${ok} `],
+  ];
+  it.each(attaques)("[A-381] evaluateur refusé : %s", (_nom, texte) => {
+    expect(texte).not.toBe(ok);
+    expect(analyserEvaluateur(texte)).not.toEqual([]);
   });
 });
 

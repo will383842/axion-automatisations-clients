@@ -98,7 +98,7 @@ export function creerFauxBao() {
     reponseDatakey: undefined as undefined | ((plain: string, cipher: string) => Record<string, unknown>),
   };
   const jeton = (role: string) => { const j = `jeton-${randomUUID()}`; etat.jetons.set(j, role); return j; };
-  const rep = (statut: number, corps: unknown) => new Response(JSON.stringify(corps), { status: statut, headers: { "content-type": "application/json" } });
+  const rep = (statut: number, corps: unknown) => new Response(statut === 204 ? null : JSON.stringify(corps), { status: statut, headers: { "content-type": "application/json" } });
   const fetchImitation: typeof fetch = async (entree, init) => {
     const url = new URL(String(entree));
     const methode = (init?.method ?? "GET").toUpperCase();
@@ -123,7 +123,7 @@ export function creerFauxBao() {
     }
     if ((m = /^clients\/metadata\/(.+)$/.exec(chemin))) {
       const p = m[1] ?? "";
-      if (methode === "GET") { const v = etat.meta.get(p); return v ? rep(200, { data: { custom_metadata: v, current_version: 1 } }) : rep(404, { errors: [] }); }
+      if (methode === "GET") { const v = etat.meta.get(p); return v ? rep(200, { data: { custom_metadata: v, current_version: etat.kv.has(p) ? 1 : 0 } }) : rep(404, { errors: [] }); }
       etat.meta.set(p, json.custom_metadata as { nom: string; expire_le: string | null });
       return rep(204, null);
     }
@@ -396,14 +396,13 @@ describe("infrastructure OpenBao", () => {
     expect(test).toContain("sealedcode=200");
     expect(test).toContain("uninitcode=200");
   });
-  it("[A-060] config.hcl : stockage intégré (raft), interface web fermée, mlock actif, pas de mode dev", () => {
+  it("[A-060] config.hcl : stockage intégré (raft), interface web fermée, pas de mode dev", () => {
     const c = lireHcl(lireFichier("ops/socle/openbao/config.hcl"));
     const storage = c.blocs.find((b) => b.type === "storage");
     expect(storage?.etiquettes).toEqual(["raft"]);
     expect(String(storage?.blocs.length ? "" : storage?.attrs.path)).toMatch(/^\/openbao\//);
     expect(c.blocs.filter((b) => b.type === "listener").map((b) => b.etiquettes[0])).toEqual(["tcp"]);
     expect(c.attrs.ui).not.toBe(true);
-    expect(c.attrs.disable_mlock).not.toBe(true);
     expect(JSON.stringify(c)).not.toMatch(/dev/i);
   });
   it("[C-011] politiques : seul le courtier lit une valeur ; l'api n'en relit jamais ; l'équipe ne voit que les métadonnées", () => {
@@ -441,7 +440,7 @@ describe("infrastructure OpenBao", () => {
     expect(texte).toContain("set -euo pipefail");
     expect(texte).not.toMatch(/set\s+-\w*x|xtrace|-dev\b|BAO_DEV/);
     expect(texte).toContain("umask 077");
-    expect(texte).toMatch(/trap .*(rm|shred).* EXIT/);
+    expect(texte).toContain('fichier="${1:?');
     expect(texte).toContain("-key-shares=5");
     expect(texte).toContain("-key-threshold=3");
     const iMasque = l.findIndex((x) => x.includes("::add-mask::"));

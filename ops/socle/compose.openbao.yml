@@ -1,0 +1,21 @@
+# OpenBao en MODE SERVEUR (stockage intégré sur volume) : le coffre démarre scellé et non initialisé,
+# ce qui permet de tester le scellement. Réseau interne seulement, aucun port publié.
+# L'initialisation (parts de déverrouillage, jetons des rôles) est faite par openbao/initialiser.sh.
+services:
+  openbao:
+    image: openbao/openbao:2.6.4@sha256:cf2340fc9a22cb9358ca0defd1f39b65673836bd23fe2bb8984a07e11fe13ef4
+    restart: "no"
+    command:
+      - server
+      - -config=/openbao/config
+    volumes:
+      - ./openbao:/openbao/config:ro
+      - openbao-donnees:/openbao/file
+    networks: [interne]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null 'http://127.0.0.1:8200/v1/sys/health?sealedcode=200&uninitcode=200&standbyok=true'"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+volumes:
+  openbao-donnees: {}

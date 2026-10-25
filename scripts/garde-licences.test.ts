@@ -182,7 +182,7 @@ describe("garde-licences : liste blanche des workflows", () => {
     expect(ok([{ run: "pnpm install --frozen-lockfile\n" }])).toEqual([]);
   });
   const installRefusee = [
-    ...["pnpm install", "pnpm i", "pnpm  install --frozen-lockfile", "pnpm install  --frozen-lockfile", "pnpm install --frozen-lockfile=false", "pnpm install --no-frozen-lockfile", "pnpm install --frozen-lockfile --force", "pnpm install --frozen-lockfile=true", "pnpm install --frozen-lockfile ", "PNPM install --frozen-lockfile", "pnpm install --frozen-lockfile # x"],
+    ...["pnpm install", "pnpm i", "pnpm  install --frozen-lockfile", "pnpm install  --frozen-lockfile", "pnpm install --frozen-lockfile=false", "pnpm install --no-frozen-lockfile", "pnpm install --frozen-lockfile --force", "pnpm install --frozen-lockfile=true", "PNPM install --frozen-lockfile", "pnpm install --frozen-lockfile # x"],
     ...["if true; then pnpm install; fi", "for i in 1; do pnpm install; done", "{ pnpm install; }", "(pnpm install)", "! pnpm install", "while true; do pnpm install; done", "case x in x) pnpm install;; esac"],
     ...["timeout 600 pnpm install", "nice pnpm install", "nohup pnpm install", "env -i pnpm install", "sudo -E pnpm install", "time -p pnpm install", "exec pnpm install", "command pnpm install", "xargs pnpm install", "setsid pnpm install"],
     ...["corepack pnpm@9.0.0 install", "P=pnpm; $P install", "p\\npm install", "'pnpm' install", '"pnpm" install', "pn''pm install", "/usr/bin/pnpm install", "./node_modules/.bin/pnpm install"],

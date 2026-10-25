@@ -10,7 +10,8 @@ Il faut savoir à tout moment quelle brique tourne, en quelle version exacte, so
 - **MPL-2.0** : seulement dans ce qui n'est JAMAIS livré (`apps/api`, `apps/console`, `apps/portail`, `ops/`). Cela RESTREINT la règle de T0-08, qui la permettait dans `apps/executeur`.
 - **AGPL, SSPL, GPL, BUSL, « fair-code »** : jamais livrés. Une brique serveur sous l'une d'elles n'est admise que si elle est inscrite `livree: false` ET nommée dans la liste fermée : `stockage-objet` (si MinIO est retenu, T1A-11), `openbao` (MPL-2.0), `litellm` (MIT pour le cœur, aucune fonction `enterprise/`).
 - Un fichier par brique dans `ops/briques/<brique>.json`. `scripts/garde-briques.ts` refuse : image sans fichier ou à empreinte différente, version sans empreinte, `latest`, image `redis` (Valkey seulement), `bullmq-pro` dans `pnpm-lock.yaml`.
-- Les fichiers sont lus par de vrais analyseurs (JSON, YAML), jamais par expression régulière. Dépendance ajoutée pour cela : `js-yaml` (MIT), déjà présent dans le verrou comme dépendance indirecte.
+- Les fichiers sont lus par de vrais analyseurs (JSON, YAML), jamais par expression régulière. Aucune dépendance ajoutée : `js-yaml` (MIT) est déjà une dépendance directe de développement sur `main`.
+- C-019 et C-020 fonctionnent par liste blanche : un workflow, une action composite ou un script de `package.json` n'est accepté que dans une forme exactement connue (étapes, actions épinglées et leurs réglages, texte exact des commandes). Toute autre forme est refusée par défaut ; ajouter une forme demande de modifier la liste dans `scripts/garde-licences.ts`.
 
 ## Conséquences
 Toute nouvelle brique demande son fichier (procédure : `ops/procedure-nouvelle-dependance.md`).

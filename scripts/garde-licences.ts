@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -99,131 +100,80 @@ function lireWorkflow(f: Fichier): Obj | string {
   }
 }
 
-// Contenu des $( … ) (parenthèses équilibrées) et des `…` : ces commandes s'exécutent aussi.
-function substitutions(t: string): string[] {
-  const internes: string[] = [];
-  for (let i = 0; i < t.length; i++) {
-    if (t[i] === "`") {
-      const fin = t.indexOf("`", i + 1);
-      internes.push(t.slice(i + 1, fin < 0 ? t.length : fin));
-      i = fin < 0 ? t.length : fin;
-    } else if (t[i] === "$" && t[i + 1] === "(") {
-      let profondeur = 1;
-      let j = i + 2;
-      for (; j < t.length && profondeur > 0; j++) profondeur += t[j] === "(" ? 1 : t[j] === ")" ? -1 : 0;
-      internes.push(t.slice(i + 2, j - 1));
-    }
+// Liste blanche (C-019, C-020) : un fichier n'est accepté que dans une forme EXACTEMENT connue, tout le reste est refusé par défaut.
+// On ne cherche pas à reconnaître les contournements : ajouter une action, une commande ou un réglage = modifier ces listes (relecture de l'architecte).
+const SHA = "[0-9a-f]{40}";
+const canon = (v: unknown): string => String(JSON.stringify(v, (_k, x) => (estObj(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : 1))) : x)));
+const cles = (o: Obj, ok: string[]) => Object.keys(o).every((k) => ok.includes(k));
+const PERSIST = { "persist-credentials": false };
+const NODE = { "node-version-file": ".nvmrc" };
+const ACTIONS: [RegExp, unknown[]][] = [
+  [new RegExp(`^actions/checkout@${SHA}$`), [undefined, PERSIST, { ...PERSIST, "fetch-depth": 0 }, { ...PERSIST, ref: "${{ github.event.repository.default_branch }}" }]],
+  [new RegExp(`^actions/setup-node@${SHA}$`), [NODE]],
+  [new RegExp(`^actions/upload-artifact@${SHA}$`), [{ name: "rapport-couverture", path: "rapport-couverture.json" }]],
+  [new RegExp(`^github/codeql-action/init@${SHA}$`), [{ languages: "javascript-typescript", "build-mode": "none" }]],
+  [new RegExp(`^github/codeql-action/analyze@${SHA}$`), [undefined]],
+  [new RegExp(`^gitleaks/gitleaks-action@${SHA}$`), [undefined]],
+];
+const INSTALLER = "pnpm install --frozen-lockfile";
+const GARDE = "node scripts/garde-licences.ts";
+// Commandes d'une ligne, texte exact.
+const RUN_OK = new Set([
+  "corepack enable", INSTALLER, GARDE, "pnpm -r typecheck", "pnpm lint", "pnpm test", "pnpm test:compter", "pnpm test --project packages/harnais",
+  "pnpm vitest run --reporter=json --outputFile=rapport-vitest.json", "pnpm exec vitest run --project integration --reporter=json --outputFile=rapport-integration.json",
+  'pnpm audit --json > "$RUNNER_TEMP/audit.json" || true', 'node scripts/audit-dependances.ts "$RUNNER_TEMP/audit.json"', "node scripts/garde-workflows.ts .github/workflows",
+  "node scripts/compter-tests.ts rapport-tests.json", "node scripts/compter-tests.ts --rapport rapport-integration.json --reference spec/compte-tests-integration.json",
+  "node scripts/couverture-req.ts rapport-vitest.json rapport-playwright.json", "node scripts/garde-couleurs.ts", "node scripts/garde-donnees-reelles.ts",
+  'node scripts/scanner-journaux.ts "$RUNNER_TEMP/texte"', "git fetch --no-tags origin main:refs/remotes/origin/main", "ops/socle/lancer.sh", "ops/socle/arreter.sh",
+]);
+// Blocs de plusieurs lignes : empreinte SHA-256 du texte (controle-journaux ×2, nuit, socle-integration, squelettes-web).
+const BLOCS = new Set([
+  "91d880b8d946344fb442e64a8f8ff4c6eb2e25266d2d4323be61ae56e8cbcfc0", "5cd6fd64e4938d39c80bac4b7d85814c9c830b5c1af5f0b7ce439360ae98e36c", "e2650042d59f0d28585d19828302efac1a54e9b198fe25ec140de1ce00e69b2e",
+  "0fd60f11b15695a31240caf38b0dc6261a44d31e6e69d3b3efb7a109e0d33917", "1ee1fc7af3202d9908c3dff871f61c9ad720a975cdfec88cf13c6d5eae58d11c",
+]);
+const ENV_OK = ["GH_TOKEN", "DEPOT", "RUN_ID", "CORPS_PR", "GITHUB_TOKEN", "SOCLE_INTEGRATION", "NODE_ENV", "MAILPIT_API", "MAILPIT_SMTP_HOTE", "MAILPIT_SMTP_PORT", "NEXT_TELEMETRY_DISABLED"];
+const envOk = (o: unknown) => o === undefined || (estObj(o) && cles(o, ENV_OK));
+
+function etapeConnue(e: Obj, composite: boolean): string | undefined {
+  if (!cles(e, ["name", "id", "if", "continue-on-error", "env", "uses", "with", "run", ...(composite ? ["shell"] : [])]) || !envOk(e.env)) return "étape de forme inconnue";
+  if ((e.uses === undefined) === (e.run === undefined)) return "étape : « uses » ou « run », un seul";
+  if (typeof e.uses === "string") {
+    const uses = e.uses;
+    const action = ACTIONS.find(([re]) => re.test(uses));
+    return e.shell === undefined && action?.[1].some((w) => canon(w) === canon(e.with)) ? undefined : `action « ${uses} » ou ses réglages hors liste blanche`;
   }
-  return internes;
+  const run = typeof e.run === "string" ? e.run.trim() : "";
+  if (e.with !== undefined || e.shell !== (composite ? "bash" : undefined)) return "étape « run » avec réglage de shell ou « with » inconnu";
+  if (run === INSTALLER && (e.if !== undefined || e["continue-on-error"] !== undefined)) return "l'installation figée ne peut être ni conditionnelle ni tolérée";
+  return RUN_OK.has(run) || BLOCS.has(createHash("sha256").update(run).digest("hex")) ? undefined : `commande hors liste blanche : ${run.split("\n")[0]?.slice(0, 80)}`;
 }
 
-// Découpe un « run: » en commandes (guillemets, commentaires, && || ; |, lignes continuées). « tolere » : la commande est suivie de « || ».
-function commandes(script: string): { mots: string[]; tolere: boolean }[] {
-  const sorties: { mots: string[]; tolere: boolean }[] = [];
-  let mots: string[] = [];
-  let mot = "";
-  let guillemet = "";
-  let present = false;
-  const finMot = () => {
-    if (present) mots.push(mot);
-    mot = "";
-    present = false;
-  };
-  const finCommande = (tolere: boolean) => {
-    finMot();
-    if (mots.length) sorties.push({ mots, tolere });
-    mots = [];
-  };
-  const t = script.replace(/\\\r?\n/g, " ");
-  for (const interne of substitutions(t)) sorties.push(...commandes(interne));
-  for (let i = 0; i < t.length; i++) {
-    const c = t[i] ?? "";
-    const suivant = t[i + 1] ?? "";
-    if (guillemet) {
-      if (c === guillemet) guillemet = "";
-      else mot += c;
-    } else if (c === '"' || c === "'") {
-      guillemet = c;
-      present = true;
-    } else if (c === "#" && !present) {
-      while (i < t.length && t[i] !== "\n") i++;
-      finCommande(false);
-    } else if (c === "|" && suivant === "|") {
-      i++;
-      finCommande(true);
-    } else if (c === "&" && suivant === "&") {
-      i++;
-      finCommande(false);
-    } else if (c === ";" || c === "|" || c === "\n" || c === "&") finCommande(false);
-    else if (/\s/.test(c)) finMot();
-    else {
-      mot += c;
-      present = true;
-    }
+// Forme connue d'un workflow ou d'une action composite (le nom « action.yml » désigne une action composite).
+function formeConnue(f: Fichier, doc: Obj): string[] {
+  const composite = /(^|\/)action\.ya?ml$/.test(f.nom);
+  let jobs: unknown[];
+  if (composite) {
+    if (!cles(doc, ["name", "description", "runs"]) || !estObj(doc.runs) || doc.runs.using !== "composite" || !cles(doc.runs, ["using", "steps"])) return [`${f.nom} : action de forme inconnue`];
+    jobs = [doc.runs];
+  } else {
+    if (!cles(doc, ["name", "on", "permissions", "jobs"]) || !estObj(doc.jobs) || !Object.keys(doc.jobs).length) return [`${f.nom} : workflow de forme inconnue`];
+    jobs = Object.values(doc.jobs);
   }
-  finCommande(false);
-  return sorties;
+  const clesJob = composite ? ["using", "steps"] : ["name", "runs-on", "permissions", "services", "env", "steps", "needs", "if", "timeout-minutes"];
+  return jobs.flatMap((job) => {
+    if (!estObj(job) || !cles(job, clesJob) || !envOk(job.env) || !Array.isArray(job.steps) || !job.steps.length) return [`${f.nom} : job de forme inconnue`];
+    return job.steps.map((e) => (estObj(e) ? etapeConnue(e, composite) : "étape illisible")).filter((m) => m).map((m) => `${f.nom} : ${m}`);
+  });
 }
 
-const PREFIXES = new Set(["corepack", "env", "sudo", "time", "exec", "command"]);
-const outil = (mots: string[]): number => mots.findIndex((m) => !PREFIXES.has(m) && !/^\w+=/.test(m));
-const FIGE = /^--frozen-lockfile(?:=true)?$/;
-const INCONNU = "forme non lisible, refusée par prudence";
-const LANCEURS = new Set(["npx", "pnpx", "bunx", "eval", "xargs", "source", "."]);
-const SANS_VALEUR = new Set(["-r", "--recursive", "-w", "--workspace-root", "-s", "--silent", "--stream", "--offline", "--prefer-offline", "--color", "--no-color", "--if-present", "--frozen-lockfile", "--ignore-scripts"]);
-const AVEC_VALEUR = new Set(["--filter", "-F", "--dir", "-C", "--reporter", "--loglevel", "--prefix", "--cwd", "--workspace", "--registry"]);
-
-// Premier mot qui n'est pas une option ; une option inconnue avant lui rend la forme illisible (undefined).
-function verbeDe(reste: string[]): { verbe: string; apres: string[] } | undefined {
-  for (let k = 0; k < reste.length; k++) {
-    const m = reste[k] ?? "";
-    if (!m.startsWith("-")) return { verbe: m, apres: reste.slice(k + 1) };
-    const [nom = ""] = m.split("=");
-    if (AVEC_VALEUR.has(nom)) k += m.includes("=") ? 0 : 1;
-    else if (!SANS_VALEUR.has(nom)) return undefined;
-  }
-  return { verbe: "", apres: [] };
-}
-
-function installOk(mots: string[]): string | undefined {
-  const i = outil(mots);
-  const chemin = mots[i] ?? "";
-  const nom = chemin.split("/").pop() ?? "";
-  const reste = mots.slice(i + 1);
-  if (LANCEURS.has(nom) || chemin.startsWith("./") || chemin.startsWith("/")) return `« ${nom} » : ${INCONNU}`;
-  if (nom === "bash" || nom === "sh") {
-    const options = reste.filter((m) => m.startsWith("-"));
-    const script = reste.find((m) => !m.startsWith("-"));
-    if (script === undefined || !options.some((m) => /^-[a-z]*c[a-z]*$/.test(m))) return `« ${nom} » sans -c : script non lu`;
-    return commandes(script).map((c) => installOk(c.mots)).find(Boolean);
-  }
-  if (nom === "pnpm") {
-    const v = verbeDe(reste);
-    if (!v) return `pnpm : option inconnue avant le verbe (${INCONNU})`;
-    const { verbe } = v;
-    if (["add", "update", "up", "upgrade", "dedupe", "link", "remove", "rm"].includes(verbe)) return `« pnpm ${verbe} » modifie le verrou`;
-    if (verbe === "exec") return installOk(v.apres.filter((m) => !m.startsWith("-")));
-    if (["it", "install-test", "dlx", "x", "create", "env", "self-update"].includes(verbe)) return `« pnpm ${verbe} » : ${INCONNU}`;
-    if (verbe !== "install" && verbe !== "i") return undefined;
-    if (reste.some((m) => /^--no-frozen-lockfile$|^--frozen-lockfile=(?!true$)/.test(m)) || !reste.some((m) => FIGE.test(m))) return "pnpm install sans --frozen-lockfile";
-    return undefined;
-  }
-  if (nom === "npm") {
-    const v = verbeDe(reste);
-    if (!v) return `npm : option inconnue avant le verbe (${INCONNU})`;
-    return ["install", "i", "add", "update", "install-test", "it", "exec", "x"].includes(v.verbe) ? "npm install sans verrou (utiliser npm ci)" : undefined;
-  }
-  if (nom === "yarn" || nom === "bun") {
-    const v = verbeDe(reste);
-    if (!v) return `${nom} : option inconnue avant le verbe (${INCONNU})`;
-    const verbe = v.verbe || "install";
-    if (verbe === "add" || verbe === "upgrade") return `« ${nom} ${verbe} » modifie le verrou`;
-    return verbe === "install" && !reste.some((m) => m === "--frozen-lockfile" || m === "--immutable") ? `${nom} install sans verrou figé` : undefined;
-  }
-  return undefined;
-}
-
-// Scripts de package.json : ils s'exécutent par « pnpm <script> » et doivent respecter la même règle.
+// Scripts de package.json : texte exact seulement (ils s'exécutent par « pnpm <script> », y compris prepare, preinstall, postinstall).
+const SCRIPTS_OK = new Set([
+  "tsc --noEmit -p tsconfig.json", "tsc --noEmit -p tsconfig.json --allowImportingTsExtensions", "tsc --noEmit -p tsconfig.json --jsx react-jsx --lib ES2023,DOM,DOM.Iterable",
+  "NEXT_TELEMETRY_DISABLED=1 next dev", "NEXT_TELEMETRY_DISABLED=1 next build", "NEXT_TELEMETRY_DISABLED=1 node .next/standalone/apps/console/server.js", "NEXT_TELEMETRY_DISABLED=1 node .next/standalone/apps/portail/server.js",
+  "pnpm -r typecheck && pnpm lint && pnpm test", "eslint .", "vitest run", "vitest run --reporter=json --outputFile=rapport-tests.json",
+  "git rev-parse --git-dir >/dev/null 2>&1 && git config core.hooksPath .githooks || true", "cd ../.. && vitest run --project packages/contrats", "cd ../.. && vitest run --project packages/sdk-module",
+  "node scripts/signer-fixtures.ts && node scripts/empreinte.ts", "node scripts/generer-css.ts",
+]);
 export function verifierScriptsPaquets(fichiers: Fichier[]): string[] {
   const erreurs: string[] = [];
   for (const f of fichiers) {
@@ -234,45 +184,18 @@ export function verifierScriptsPaquets(fichiers: Fichier[]): string[] {
       erreurs.push(`${f.nom} : illisible`);
       continue;
     }
-    for (const [cle, cmd] of Object.entries(estObj(scripts) ? scripts : {})) {
-      for (const c of typeof cmd === "string" ? commandes(cmd) : []) {
-        const e = installOk(c.mots);
-        if (e) erreurs.push(`${f.nom} (script ${cle}) : ${e}`);
-      }
-    }
+    if (scripts !== undefined && !estObj(scripts)) erreurs.push(`${f.nom} : « scripts » de forme inconnue`);
+    for (const [cle, cmd] of Object.entries(estObj(scripts) ? scripts : {})) if (typeof cmd !== "string" || !SCRIPTS_OK.has(cmd)) erreurs.push(`${f.nom} (script ${cle}) : commande hors liste blanche`);
   }
   return erreurs;
 }
 
-const etapes = (doc: Obj): { job: Obj; etape: Obj }[] => {
-  const jobs = estObj(doc.jobs) ? Object.values(doc.jobs) : estObj(doc.runs) ? [doc.runs] : []; // action composite : « runs.steps »
-  return jobs.flatMap((job) => (estObj(job) && Array.isArray(job.steps) ? job.steps.filter(estObj).map((etape) => ({ job, etape })) : []));
-};
-
-// C-020 : chaque installation de chaque workflow passe par --frozen-lockfile.
+// C-020 : toute forme de workflow ou d'action est refusée si elle n'est pas dans la liste blanche, donc aucune installation hors « pnpm install --frozen-lockfile ».
 export function verifierInstallationsFigees(workflows: Fichier[]): string[] {
-  const erreurs: string[] = [];
-  for (const f of workflows) {
+  return workflows.flatMap((f) => {
     const doc = lireWorkflow(f);
-    if (typeof doc === "string") {
-      erreurs.push(doc);
-      continue;
-    }
-    for (const { etape } of etapes(doc)) {
-      if (typeof etape.run === "string") {
-        for (const c of commandes(etape.run)) {
-          const e = installOk(c.mots);
-          if (e) erreurs.push(`${f.nom} : ${e}`);
-        }
-      }
-      if (typeof etape.uses === "string" && /^pnpm\/action-setup@/i.test(etape.uses)) {
-        const cle = Object.keys(estObj(etape.with) ? etape.with : {}).find((k) => k.toLowerCase() === "run_install");
-        const run = cle === undefined ? undefined : (etape.with as Obj)[cle];
-        if (run !== undefined && String(run).toLowerCase() !== "false") erreurs.push(`${f.nom} : pnpm/action-setup run_install doit rester faux`);
-      }
-    }
-  }
-  return erreurs;
+    return typeof doc === "string" ? [doc] : formeConnue(f, doc);
+  });
 }
 
 const FILTRES_PR = ["branches", "branches-ignore", "paths", "paths-ignore", "types"];
@@ -285,21 +208,18 @@ function surChaquePr(doc: Obj): boolean {
   return pr === null || (estObj(pr) && FILTRES_PR.every((k) => !(k in pr)));
 }
 
-// C-019 : la garde tourne à chaque PR, sous sa seule forme exacte, sans rien qui change le shell, le dossier, l'environnement ou l'ordre des jobs.
-const GARDE = "node scripts/garde-licences.ts";
-const AVANT_OK = ["corepack enable", "pnpm install --frozen-lockfile"];
-const ACTIONS_OK = /^(actions\/checkout|actions\/setup-node|pnpm\/action-setup)@/i;
-const intact = (o: Obj, cles: string[]) => cles.every((k) => o[k] === undefined);
-const sansReglage = (o: unknown) => !estObj(o) || (o.defaults === undefined && o.env === undefined);
-
-function jobLanceGarde(job: Obj): boolean {
-  if (!intact(job, ["if", "continue-on-error", "needs", "env", "defaults", "container", "strategy"]) || !Array.isArray(job.steps)) return false;
-  const liste = job.steps.filter(estObj);
-  const k = liste.findIndex((e) => typeof e.run === "string" && e.run.trim() === GARDE);
-  const etape = liste[k];
-  if (!etape || !intact(etape, ["if", "continue-on-error", "shell", "working-directory", "env"])) return false;
-  return liste.slice(0, k).every((e) => intact(e, ["if", "continue-on-error", "shell", "working-directory", "env"]) && (typeof e.run === "string" ? AVANT_OK.includes(e.run.trim()) : typeof e.uses === "string" && ACTIONS_OK.test(e.uses)));
-}
+// C-019 : le job de la garde a EXACTEMENT cette forme : mêmes étapes, même ordre, rien de plus (ni with, ni shell, ni env, ni needs, ni defaults).
+const CHECKOUT = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1";
+const SETUP_NODE = "actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1";
+const MODELE_GARDE: ((e: Obj) => boolean)[] = [
+  (e) => cles(e, ["uses", "with"]) && e.uses === CHECKOUT && [undefined, PERSIST].some((w) => canon(w) === canon(e.with)),
+  (e) => cles(e, ["uses", "with"]) && e.uses === SETUP_NODE && canon(e.with) === canon(NODE),
+  ...["corepack enable", INSTALLER, GARDE].map((cmd) => (e: Obj) => cles(e, ["run"]) && typeof e.run === "string" && e.run.trim() === cmd),
+];
+const jobLanceGarde = (job: Obj): boolean => {
+  const steps = job.steps;
+  return cles(job, ["name", "runs-on", "steps"]) && job["runs-on"] === "ubuntu-latest" && Array.isArray(steps) && steps.length === MODELE_GARDE.length && MODELE_GARDE.every((ok, k) => estObj(steps[k]) && ok(steps[k]));
+};
 
 export function verifierWorkflowsLicences(workflows: Fichier[]): string[] {
   const erreurs: string[] = [];
@@ -310,10 +230,10 @@ export function verifierWorkflowsLicences(workflows: Fichier[]): string[] {
       erreurs.push(doc);
       continue;
     }
-    if (!surChaquePr(doc) || !sansReglage(doc)) continue;
+    if (!surChaquePr(doc) || !cles(doc, ["name", "on", "permissions", "jobs"])) continue;
     if (Object.values(estObj(doc.jobs) ? doc.jobs : {}).some((job) => estObj(job) && jobLanceGarde(job))) trouve = true;
   }
-  if (!trouve) erreurs.push("aucun workflow ne lance exactement « node scripts/garde-licences.ts » sur chaque PR, sans condition, tolérance ni réglage");
+  if (!trouve) erreurs.push("aucun workflow ne lance « node scripts/garde-licences.ts » sur chaque PR dans la forme exacte attendue");
   return erreurs;
 }
 

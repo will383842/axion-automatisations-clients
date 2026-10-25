@@ -109,15 +109,16 @@ const textes = (n: unknown): string[] => (typeof n === "string" ? [n] : Array.is
 const dans = (n: unknown, ...cles: string[]): unknown => cles.reduce<unknown>((x, c) => (estObjet(x) ? x[c] : undefined), n);
 
 function verifierChaine(nom: string, texte: string): string[] {
-  let doc: unknown;
+  let documents: unknown[];
   try {
-    doc = loadAll(texte)[0];
+    documents = loadAll(texte);
   } catch {
     return [];
   }
+  const doc = documents[0];
   if (!estObjet(doc)) return [];
   const erreurs: string[] = [];
-  const tous = entrees(doc);
+  const tous = documents.flatMap((d) => entrees(d));
   const declencheur = doc.on;
   const noms = typeof declencheur === "string" ? [declencheur] : Array.isArray(declencheur) ? declencheur.map(String) : estObjet(declencheur) ? Object.keys(declencheur) : [];
   for (const [chemin, valeur] of tous) if (chemin.at(-1) === "secrets" && valeur === "inherit") erreurs.push("secrets: inherit interdit");

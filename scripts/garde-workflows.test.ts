@@ -221,6 +221,10 @@ describe("chaîne de déploiement protégée (T1A-16)", () => {
       expect(verifierWorkflow("autre.yml", `${base}    ${env}\n    steps:\n      - run: echo ok\n`).join("\n"), env).toContain("environment");
     }
   });
+  it("[C-388] un environment production caché dans un second document YAML est refusé", () => {
+    const deux = "name: x\non:\n  push:\n    branches: [main]\npermissions:\n  contents: read\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ok\n---\njobs:\n  b:\n    environment: production\n";
+    expect(verifierWorkflow("autre.yml", deux).join("\n")).toContain("environment");
+  });
   it("[C-388] un autre workflow ne peut pas lancer deploiement.yml", () => {
     const lance = "name: x\non:\n  push:\n    branches: [main]\npermissions:\n  contents: read\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - run: gh workflow run deploiement.yml -f cible=production\n";
     expect(verifierWorkflow("autre.yml", lance).join("\n")).toContain("deploiement.yml");

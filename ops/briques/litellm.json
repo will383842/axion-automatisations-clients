@@ -1,8 +1,8 @@
 {
   "nom": "litellm",
-  "image": "ghcr.io/berriai/litellm",
+  "image": "ghcr.io/berriai/litellm-non_root",
   "version": "main-v1.83.14-stable.patch.3",
-  "empreinte": "sha256:f12d528d4a05add56cb09e54c5126088f2edc6bdf3a2f943bcd3a32b08769da2",
+  "empreinte": "sha256:6da3c89855a0fd1c92258651e01b57f3d1ccb028afef0b4c62c9b89422dc2b77",
   "licence": "MIT",
   "livree": false,
   "lieu": "local",

@@ -30,7 +30,7 @@ services:
       KC_HEALTH_ENABLED: "true"
     ports: ["127.0.0.1:${SONDE_PORT_KEYCLOAK:-9000}:9000"]
   litellm:
-    image: ghcr.io/berriai/litellm:main-v1.83.14-stable.patch.3@sha256:f12d528d4a05add56cb09e54c5126088f2edc6bdf3a2f943bcd3a32b08769da2
+    image: ghcr.io/berriai/litellm-non_root:main-v1.83.14-stable.patch.3@sha256:6da3c89855a0fd1c92258651e01b57f3d1ccb028afef0b4c62c9b89422dc2b77
     ports: ["127.0.0.1:${SONDE_PORT_LITELLM:-4000}:4000"]
   mailpit:
     image: axllent/mailpit:v1.32.0@sha256:0790692be935ea4420d085694f7985b1f692ca6a8771ab0e0bd8ba75ac180498

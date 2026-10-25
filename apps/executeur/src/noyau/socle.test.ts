@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { CLES_JOURNAL, ErreurConnecteur, HorlogeFactice, JournalEnMemoire, classer, decider } from "./index.ts";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { BoiteEnMemoire, CLES_JOURNAL, ErreurConnecteur, HorlogeFactice, HorlogeSysteme, JournalEnMemoire, classer, decider } from "./index.ts";
 
 describe("politique des erreurs", () => {
   it("[A-320] passagere : 5 essais au plus, attentes croissantes, aléa borné", () => {
@@ -55,5 +55,51 @@ describe("journal", () => {
     await j.inscrire(entree);
     expect(await j.lire("inst-B", "x")).toEqual([]);
     expect(await j.lire("inst-A", "x")).toHaveLength(1);
+  });
+});
+
+describe("boîte d'envoi", () => {
+  const base = { cle: "k1", instanceId: "i", executionId: "x", etape: "e", element: "m", action: "envoyer", garantie: "verifiable_apres_coup" } as const;
+  const bail = (proprietaire: string, jusqua = 1_000) => ({ proprietaire, jusqua });
+
+  it("[A-316] @anti-doublon attaque : une intention « écrite » au bail vivant n'est pas rendue à un autre propriétaire", async () => {
+    const b = new BoiteEnMemoire();
+    expect(await b.ecrire(base, bail("a"), 0)).toMatchObject({ creee: true, occupee: false });
+    expect(await b.ecrire(base, bail("b"), 500)).toMatchObject({ creee: false, occupee: true });
+    expect(await b.ecrire(base, bail("b", 2_000), 1_000)).toMatchObject({ creee: false, occupee: false });
+  });
+
+  it("[A-316] @anti-doublon un bail libéré peut être repris tout de suite", async () => {
+    const b = new BoiteEnMemoire();
+    await b.ecrire(base, bail("a"), 0);
+    await b.liberer("k1", "a");
+    expect(await b.ecrire(base, bail("b"), 10)).toMatchObject({ occupee: false });
+  });
+
+  it("[A-319] @anti-doublon attaque : les transitions ne partent que de « écrite » et pour le propriétaire du bail", async () => {
+    const b = new BoiteEnMemoire();
+    await b.ecrire(base, bail("a"), 0);
+    expect(await b.marquerFaite("k1", "autre")).toBe(false);
+    expect(await b.marquerATrancher("k1", "a")).toBe(true);
+    expect(await b.marquerFaite("k1", "a")).toBe(false);
+    expect((await b.lire("k1"))?.etat).toBe("a_trancher");
+  });
+});
+
+describe("horloge système", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("[A-324] attaque : une attente de plus de 2^31 ms est découpée, jamais coupée tout de suite", async () => {
+    vi.useFakeTimers();
+    const delais: number[] = [];
+    const reel = globalThis.setTimeout;
+    vi.spyOn(globalThis, "setTimeout").mockImplementation(((f: () => void, ms: number) => (delais.push(ms), reel(f, ms))) as never);
+    let fini = false;
+    void new HorlogeSysteme().attendre(3_000_000_000).then(() => void (fini = true));
+    await vi.advanceTimersByTimeAsync(2 ** 31);
+    expect(fini).toBe(false);
+    await vi.advanceTimersByTimeAsync(3_000_000_000 - 2 ** 31);
+    expect(fini).toBe(true);
+    expect(delais.every((d) => d <= 2 ** 31 - 1)).toBe(true);
   });
 });

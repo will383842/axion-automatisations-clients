@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 const chemin = (c: string) => fileURLToPath(new URL(`../${c}`, import.meta.url));
 const lire = (c: string) => (existsSync(chemin(c)) ? readFileSync(chemin(c), "utf8") : "");
 const DOSSIER = "ops/images/litellm-derivee";
-const AMONT = "ghcr.io/berriai/litellm-non_root:main-v1.83.14-stable.patch.3@sha256:6da3c89855a0fd1c92258651e01b57f3d1ccb028afef0b4c62c9b89422dc2b77";
+const AMONT = "ghcr.io/berriai/litellm-non_root:v1.106.3@sha256:4fe2270c8b66d25654514744ee6629445c255c0303c292fcbd2d973117a04207";
 const TRIVY = "ghcr.io/aquasecurity/trivy@sha256:665030f4d33a82c1e8d9d5e0453365842236723c1ee5cc3becca698268e66a56";
 const IMAGE = "ghcr.io/will383842/axion-automatisations-clients/litellm-derivee";
 const CONDITION_PUBLIER = "github.event_name != 'pull_request' && github.ref == 'refs/heads/main'";
@@ -135,7 +135,7 @@ const pas = (d: Obj, n: string, m: string) => etapes(job(d, n))[trouver(job(d, n
 describe("image dérivée litellm : Dockerfile", () => {
   it("[A-381] image dérivée litellm : FROM égal à l'amont épinglé, même tag que la brique d'origine", () => {
     expect(instructions(lire(`${DOSSIER}/Dockerfile`)).filter((i) => i.cmd === "FROM").map((i) => i.arg)).toEqual([AMONT]);
-    expect(AMONT).toContain("main-v1.83.14-stable.patch.3@sha256:");
+    expect(AMONT).toContain("v1.106.3@sha256:");
   });
   it("[A-381] image dérivée litellm : pip install --no-deps --require-hashes puis pip check, et l'utilisateur final n'est pas root", () => {
     expect(analyserDockerfile(lire(`${DOSSIER}/Dockerfile`))).toEqual([]);
@@ -145,12 +145,12 @@ describe("image dérivée litellm : Dockerfile", () => {
   });
   it("[A-381] image dérivée litellm : fumee.sh vérifie l'utilisateur, pip check, la version et la santé", () => {
     const f = lire(`${DOSSIER}/fumee.sh`);
-    for (const m of ["set -eu", "1.83.14", "/health/liveliness", "Config.User"]) expect(f).toContain(m);
+    for (const m of ["set -eu", "1.106.3", "/health/liveliness", "Config.User"]) expect(f).toContain(m);
   });
   describe("attaques refusées", () => {
     const ok = lire(`${DOSSIER}/Dockerfile`);
     const attaques: [string, string][] = [
-      ["FROM sur une étiquette seule", ok.replace(/^FROM .*$/m, "FROM ghcr.io/berriai/litellm-non_root:main-v1.83.14-stable.patch.3")],
+      ["FROM sur une étiquette seule", ok.replace(/^FROM .*$/m, "FROM ghcr.io/berriai/litellm-non_root:v1.106.3")],
       ["FROM sur latest", ok.replace(/^FROM .*$/m, "FROM ghcr.io/berriai/litellm-non_root:latest")],
       ["FROM d'une autre empreinte", ok.replace(/@sha256:[0-9a-f]{64}/, `@sha256:${"0".repeat(64)}`)],
       ["deuxième FROM", `${ok}\nFROM alpine:3.20`],
@@ -186,7 +186,7 @@ describe("image dérivée litellm : Dockerfile", () => {
       ["URL directe", "https://exemple.test/x.whl"],
       ["dépôt git", "git+https://exemple.test/x.git#egg=x"],
       ["index détourné", "--extra-index-url https://exemple.test/simple"],
-      ["remplacement de litellm", `litellm==1.83.14 --hash=sha256:${h}`],
+      ["remplacement de litellm", `litellm==1.106.3 --hash=sha256:${h}`],
       ["remplacement par un nom normalisé", `LiteLLM==1.99.0 --hash=sha256:${h}`],
       ["doublon", `setuptools==84.2.1 --hash=sha256:${h}\nSetuptools==83.0.0 --hash=sha256:${h}`],
       ["fichier vide", "# rien"],

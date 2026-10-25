@@ -178,7 +178,8 @@ describe("garde-briques : service construit sur place (R2)", () => {
 
 describe("garde-briques : brique du dépôt GHCR sans clé derivee (R2)", () => {
   it("[A-381] brique dont l'image est sous ghcr.io/will383842/axion-automatisations-clients/ : derivee obligatoire", () => {
-    const { derivee: _d, ...sans } = brique() as Record<string, unknown>;
+    const sans: Record<string, unknown> = brique();
+    delete sans.derivee;
     expect(verifierBriques([{ fichier: "ops/briques/postgres.json", contenu: sans }], []).join("\n")).toMatch(/derivee.*obligatoire/);
   });
 });

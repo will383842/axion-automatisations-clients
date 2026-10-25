@@ -201,6 +201,7 @@ function verifierBrique(fichier: string, contenu: unknown, options: Options = {}
   if (source && !sourceSure(source)) echec("source : adresse https d'un projet, sans adresse IP ni hôte interne");
   if (verifie && !dateReelle(verifie)) echec(`verifie_le « ${verifie} » n'est pas une date AAAA-MM-JJ réelle`);
   if ("derivee" in contenu) erreurs.push(...verifierDerivee(fichier, contenu, options));
+  else if (image.startsWith(DEPOT_DERIVEES)) echec("derivee obligatoire pour une image de notre dépôt GHCR : l'attestation ne se vérifie que par elle (ADR 0016)");
   return erreurs;
 }
 
@@ -214,7 +215,14 @@ function imagesDuCompose(c: Compose): { images: string[]; erreurs: string[] } {
   const entrees = estObjet(doc) && estObjet(doc.services) ? Object.entries(doc.services) : [];
   const images = entrees.flatMap(([, s]) => (estObjet(s) && typeof s.image === "string" ? [s.image] : []));
   const erreurs = images.filter((i) => i.includes("$")).map((i) => `${c.nom} : image « ${i} » donnée par une variable, non vérifiable`);
-  // Un service construit sur place échappe à la garde et à Trivy : il doit citer une image publiée.
+  // Un service construit sur place, ou venu d'un autre fichier, échappe à la garde et à Trivy : il doit citer une image publiée.
+  if (estObjet(doc) && "include" in doc) erreurs.push(`${c.nom} : include: refusé, la garde ne lit pas le fichier inclus (A-381)`);
+  for (const [nom, s] of entrees) {
+    if (!estObjet(s)) continue;
+    if ("build" in s) erreurs.push(`${c.nom} : service « ${nom} » : build: refusé, une image se tire du registre (A-381)`);
+    if (s.pull_policy !== undefined && s.pull_policy !== "always" && s.pull_policy !== "missing") erreurs.push(`${c.nom} : service « ${nom} » : pull_policy « ${String(s.pull_policy)} » refusé (always ou missing)`);
+    if (estObjet(s.extends) && "file" in s.extends) erreurs.push(`${c.nom} : service « ${nom} » : extends.file refusé, la garde ne lit pas le fichier cité`);
+  }
   for (const [nom, s] of entrees) if (estObjet(s) && "build" in s && !(typeof s.image === "string" && s.image)) erreurs.push(`${c.nom} : service « ${nom} » construit avec build: sans image: publiée (A-381)`);
   return { images: images.filter((i) => !i.includes("$")), erreurs };
 }

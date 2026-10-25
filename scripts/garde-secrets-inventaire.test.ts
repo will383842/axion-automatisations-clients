@@ -51,13 +51,8 @@ function lancerDeverrouillage(parts: string[]) {
     bao,
     `#!/usr/bin/env bash
 etat="${dossier}/etat"; n=$(cat "$etat" 2>/dev/null || echo 0)
-case "$2$1" in
-  *unseal) cat >/dev/null; n=$((n+1)); echo "$n" >"$etat" ;;
-esac
-if [ "$1" = status ] || [ "$1" = operator ]; then
-  if [ "$n" -ge 3 ]; then echo '{"sealed":false,"progress":0,"t":3}'; else echo "{\\"sealed\\":true,\\"progress\\":$n,\\"t\\":3}"; fi
-  [ "$n" -ge 3 ] || exit 2
-fi
+if [ "$1 $2" = "operator unseal" ]; then cat >/dev/null; n=$((n+1)); echo "$n" >"$etat"; exit 0; fi
+if [ "$n" -ge 3 ]; then echo '{"sealed":false,"progress":0,"t":3}'; else echo "{\\"sealed\\":true,\\"progress\\":$n,\\"t\\":3}"; exit 2; fi
 `,
   );
   chmodSync(bao, 0o755);

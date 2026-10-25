@@ -36,6 +36,16 @@ function creerFauxTransit() {
       etat.cle = { privee: privateKey, publique: publicKey, exportable: json.exportable, sauvegarde: json.allow_plaintext_backup };
       return rep(204, null);
     }
+    if (action === "restore") {
+      try {
+        const { pem } = JSON.parse(Buffer.from(String(json.backup), "base64").toString()) as { pem: string };
+        const privee = createPrivateKey(pem);
+        etat.cle = { privee, publique: createPublicKey(privee), exportable: false, sauvegarde: true };
+        return rep(204, null);
+      } catch {
+        return rep(400, { errors: ["invalid backup"] });
+      }
+    }
     if (!etat.cle) return rep(404, { errors: [] });
     if (action === "keys") return rep(200, { data: { type: "ed25519", exportable: etat.cle.exportable, allow_plaintext_backup: etat.cle.sauvegarde } });
     if (action === "sign") return rep(200, { data: { signature: `vault:v1:${sign(null, Buffer.from(String(json.input), "base64"), etat.cle.privee).toString("base64")}` } });
@@ -46,16 +56,6 @@ function creerFauxTransit() {
     if (action === "backup") {
       if (etat.cle.sauvegarde !== true) return rep(400, { errors: ["plaintext backup is disallowed"] });
       return rep(200, { data: { backup: Buffer.from(JSON.stringify({ pem: etat.cle.privee.export({ type: "pkcs8", format: "pem" }) })).toString("base64") } });
-    }
-    if (action === "restore") {
-      try {
-        const { pem } = JSON.parse(Buffer.from(String(json.backup), "base64").toString()) as { pem: string };
-        const privee = createPrivateKey(pem);
-        etat.cle = { privee, publique: createPublicKey(privee), exportable: false, sauvegarde: true };
-        return rep(204, null);
-      } catch {
-        return rep(400, { errors: ["invalid backup"] });
-      }
     }
     return rep(404, { errors: [] });
   };

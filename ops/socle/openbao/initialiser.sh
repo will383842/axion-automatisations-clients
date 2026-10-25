@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Initialise l'OpenBao du socle (POUR LE TEST) : Shamir 5 parts / seuil 3, montages clients/ (KV v2) et transit/,
-# politiques, jetons des rôles api, courtier et equipe, puis révocation du jeton racine.
+# clé de signature des modules, politiques, jetons des rôles api, courtier, equipe, signature, echanges et secours, puis révocation du jeton racine.
 #   initialiser.sh <fichier-de-sortie>   le fichier reçoit les parts et les jetons des rôles (droits 600), jamais la sortie standard
 # Les parts et les jetons restent dans des variables : masqués avant tout usage, jamais affichés, jamais versionnés.
 set -euo pipefail
@@ -31,7 +31,10 @@ export BAO_TOKEN="$racine"
 unset racine
 bao secrets enable -path=clients -version=2 kv >/dev/null
 bao secrets enable transit >/dev/null
-for role in api courtier equipe; do
+bao secrets enable -path=technique -version=2 kv >/dev/null
+# Clé de signature des modules (A-193) : jamais exportable ; la copie de secours (A-303) reste possible et ne se retire plus jamais.
+bao write -f transit/keys/modules-signature type=ed25519 exportable=false allow_plaintext_backup=true >/dev/null
+for role in api courtier equipe signature echanges secours; do
   bao policy write "$role" - <"$dossier/politiques/$role.hcl" >/dev/null
   jeton="$(bao token create -policy="$role" -no-default-policy -orphan -period=768h -format=json | jq -r '.auth.client_token')"
   masquer "$jeton"

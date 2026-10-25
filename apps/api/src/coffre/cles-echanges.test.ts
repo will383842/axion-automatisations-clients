@@ -34,7 +34,8 @@ function lireDroits(texte: string): Droits {
   }
   return sortie;
 }
-const politique = (role: string) => lireDroits(lire(`ops/socle/openbao/politiques/${role}.hcl`));
+const ROLES = new Set(["api", "courtier", "equipe", "signature", "echanges", "secours"]);
+const politique = (role: string): Droits => (ROLES.has(role) ? lireDroits(lire(`ops/socle/openbao/politiques/${role}.hcl`)) : []);
 function correspond(modele: string, chemin: string): boolean {
   const m = modele.split("/"), c = chemin.split("/");
   for (let i = 0; i < m.length; i++) {
@@ -198,7 +199,9 @@ describe("politiques OpenBao de la fiche T1A-07", () => {
     ]);
   });
   it("[C-015] @isolation aucune politique ne donne sudo, suppression, export ni chemin large ; courtier, equipe et api ne touchent pas technique/", () => {
-    for (const role of ["signature", "echanges", "secours", "courtier", "equipe", "api"]) expect(interdits(politique(role)), role).toEqual([]);
+    for (const role of ["signature", "echanges", "secours", "courtier", "equipe"]) expect(interdits(politique(role)), role).toEqual([]);
+    // L'API garde seulement la destruction d'une clé client (T1A-06) : jamais sudo, jamais sys/, jamais le chemin racine.
+    expect(interdits(politique("api")).filter((d) => d.capacites.includes("sudo") || !d.chemin.startsWith("transit/keys/cli-"))).toEqual([]);
     for (const role of ["courtier", "equipe", "api"]) expect(politique(role).filter((d) => d.chemin.startsWith("technique") || d.chemin.includes("modules-signature")), role).toEqual([]);
   });
   it("[A-193] initialiser.sh : monte technique/ (KV v2), crée la clé ed25519 non exportable avec copie permise, écrit les trois politiques et leurs jetons", () => {

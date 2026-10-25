@@ -7,7 +7,11 @@ import { expressionPermise, LIVRE } from "./garde-licences.ts";
 // Garde des briques (A-375, A-378, A-379, A-381, A-326, C-493). Lecture des fichiers par de vrais analyseurs (JSON.parse, js-yaml) : aucune expression régulière pour lire un format.
 
 const CLES = ["nom", "image", "version", "empreinte", "licence", "livree", "lieu", "source", "verifie_le"];
-const OPTIONNELLES = ["note"];
+const OPTIONNELLES = ["note", "exception_trivy"];
+const CLES_EXCEPTION = ["avis", "adr", "decidee_le", "expire_le", "motif"];
+const AVIS = /^(?:CVE-\d{4}-\d{4,}|GHSA(?:-[23456789cfghjmpqrvwx]{4}){3})$/;
+const DUREE_MAX_JOURS = 30;
+const FRAGMENT_ESSAI = /^ops\/socle\/compose\.zz-essai-[^/]*\.ya?ml$/;
 const LIEUX = new Set(["UE", "hors UE", "local"]);
 // Liste fermée (ADR 0012, A-379) : seules briques serveur admises sous une licence hors livre, et seulement non livrées.
 const LISTE_FERMEE = new Set(["stockage-objet", "openbao", "litellm"]);
@@ -31,6 +35,19 @@ export interface Brique {
   source: string;
   verifie_le: string;
   note?: string;
+  exception_trivy?: ExceptionTrivy;
+}
+// Exception nommée, datée, qui expire d'elle-même (ADR 0013) : réservée aux images d'essai.
+export interface ExceptionTrivy {
+  avis: string[];
+  adr: string;
+  decidee_le: string;
+  expire_le: string;
+  motif: string;
+}
+export interface Options {
+  adrs?: string[];
+  maintenant?: Date;
 }
 interface Fichier {
   fichier: string;
@@ -105,6 +122,37 @@ function verifierBrique(fichier: string, contenu: unknown): string[] {
   return erreurs;
 }
 
+// Une exception n'est valable que pour une image citée par des fragments d'essai et par rien d'autre (statut déduit des composes, jamais déclaré).
+function verifierException(fichier: string, b: Record<string, unknown>, composes: Compose[], options: Options): string[] {
+  const ex = b.exception_trivy;
+  const erreurs: string[] = [];
+  const echec = (msg: string) => erreurs.push(`${fichier} : exception_trivy : ${msg}`);
+  if (!estObjet(ex)) return [`${fichier} : exception_trivy : doit être un objet`];
+  for (const cle of Object.keys(ex)) if (!CLES_EXCEPTION.includes(cle)) echec(`clé inconnue « ${cle} »`);
+  const avis = ex.avis;
+  if (!Array.isArray(avis) || !avis.length || !avis.every((a) => typeof a === "string" && AVIS.test(a))) echec("« avis » : liste non vide d'identifiants CVE-… ou GHSA-…");
+  else if (new Set(avis).size !== avis.length) echec("« avis » : doublon");
+  for (const cle of ["motif", "adr"]) if (typeof ex[cle] !== "string" || !ex[cle].trim()) echec(`« ${cle} » doit être un texte non vide`);
+  if (typeof ex.adr === "string" && !(options.adrs ?? []).some((a) => /^\d{4}-.+\.md$/.test(a) && a.startsWith(`${ex.adr}-`))) echec(`ADR « ${ex.adr} » absent de docs/adr`);
+  const [decidee, expire] = ["decidee_le", "expire_le"].map((c) => (typeof ex[c] === "string" && dateReelle(ex[c]) ? Date.parse(`${ex[c]}T00:00:00Z`) : Number.NaN)) as [number, number];
+  if (Number.isNaN(decidee) || Number.isNaN(expire)) echec("« decidee_le » et « expire_le » : dates AAAA-MM-JJ réelles");
+  else {
+    if (expire <= decidee || (expire - decidee) / JOUR > DUREE_MAX_JOURS) echec(`la durée doit être de 1 à ${DUREE_MAX_JOURS} jours (30 jours au plus)`);
+    if (!exceptionValable(ex as unknown as ExceptionTrivy, options.maintenant ?? new Date())) echec("expirée : expire_le est atteint ; renouveler par une nouvelle PR et un nouvel ADR");
+  }
+  if (b.livree !== false) echec("refusée sur une brique livrée");
+  const depot = lireImage(String(b.image)).depot;
+  const citent = composes.filter((c) => imagesDuCompose(c).images.some((i) => lireImage(i).depot === depot));
+  if (!citent.length) echec("refusée : aucun compose ne cite l'image");
+  for (const c of citent) if (!FRAGMENT_ESSAI.test(c.nom)) echec(`refusée : l'image est citée par ${c.nom}, qui n'est pas un fragment d'essai`);
+  return erreurs;
+}
+
+export function exceptionValable(ex: ExceptionTrivy, maintenant: Date): boolean {
+  const aujourdhui = Date.parse(`${maintenant.toISOString().slice(0, 10)}T00:00:00Z`);
+  return aujourdhui < Date.parse(`${ex.expire_le}T00:00:00Z`);
+}
+
 function imagesDuCompose(c: Compose): { images: string[]; erreurs: string[] } {
   let doc: unknown;
   try {
@@ -118,8 +166,9 @@ function imagesDuCompose(c: Compose): { images: string[]; erreurs: string[] } {
   return { images: images.filter((i) => !i.includes("$")), erreurs };
 }
 
-export function verifierBriques(fichiers: Fichier[], composes: Compose[]): string[] {
+export function verifierBriques(fichiers: Fichier[], composes: Compose[], options: Options = {}): string[] {
   const erreurs = fichiers.flatMap((f) => verifierBrique(f.fichier, f.contenu));
+  for (const f of fichiers) if (estObjet(f.contenu) && "exception_trivy" in f.contenu) erreurs.push(...verifierException(f.fichier, f.contenu, composes, options));
   const briques = fichiers.map((f) => f.contenu).filter(estObjet) as unknown as Brique[];
   const parCle = new Map<string, Set<string>>();
   for (const b of briques) {
@@ -159,13 +208,15 @@ export function verifierVerrou(texte: string): string[] {
 }
 
 // Même règle que l'audit des dépendances : critique corrigeable sous 7 jours, haute sous 30 jours. Ne sort que « identifiant brique ».
-export function evaluerTrivy(rapport: unknown, brique: string, maintenant: Date): string[] {
+export function evaluerTrivy(rapport: unknown, brique: string, maintenant: Date, exception?: ExceptionTrivy): string[] {
+  const exemptes = new Set(exception && exceptionValable(exception, maintenant) ? exception.avis : []);
   if (!estObjet(rapport) || !Array.isArray(rapport.Results)) return [`rapport Trivy invalide pour ${brique}`];
   const sorties = new Set<string>();
   for (const r of rapport.Results) {
     const vulns = estObjet(r) && Array.isArray(r.Vulnerabilities) ? r.Vulnerabilities : [];
     for (const v of vulns) {
       if (!estObjet(v)) continue;
+      if (exemptes.has(String(v.VulnerabilityID))) continue;
       const delai = DELAIS_JOURS[String(v.Severity)];
       if (delai === undefined || !v.FixedVersion) continue;
       const publie = Date.parse(String(v.PublishedDate));
@@ -192,26 +243,38 @@ function lireBriques(dossier: string): Fichier[] {
     });
 }
 
+function lireComposes(): Compose[] {
+  return [
+    ...readdirSync("ops/socle").filter((f) => /^compose.*\.ya?ml$/.test(f)).sort().map((f) => join("ops/socle", f)),
+    "ops/compose.test.yml",
+  ].map((nom) => ({ nom, texte: readFileSync(nom, "utf8") }));
+}
+
 // Usage : node scripts/garde-briques.ts | --lister | --trivy <rapport.json> <brique>
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const [mode, rapport, brique] = process.argv.slice(2);
   const briques = lireBriques("ops/briques");
   let erreurs: string[];
   if (mode === "--lister") {
-    erreurs = verifierBriques(briques, []);
+    erreurs = verifierBriques(briques, lireComposes(), { adrs: readdirSync("docs/adr"), maintenant: new Date() });
     if (!erreurs.length) for (const i of listerImages(briques.map((b) => b.contenu as Brique))) console.log(i);
   } else if (mode === "--trivy") {
     try {
-      erreurs = evaluerTrivy(JSON.parse(readFileSync(rapport ?? "", "utf8")), brique ?? "brique-inconnue", new Date());
+      // Ne fait pas confiance à l'étape précédente : les composes et l'ADR sont revérifiés avant d'appliquer une exception.
+      const maintenant = new Date();
+      const trouvee = briques.map((b) => b.contenu).find((c) => estObjet(c) && c.image === brique);
+      let exception: ExceptionTrivy | undefined;
+      erreurs = [];
+      if (estObjet(trouvee) && "exception_trivy" in trouvee) {
+        erreurs = verifierException(String(trouvee.nom), trouvee, lireComposes(), { adrs: readdirSync("docs/adr"), maintenant });
+        if (!erreurs.length) exception = (trouvee as unknown as Brique).exception_trivy;
+      }
+      erreurs.push(...evaluerTrivy(JSON.parse(readFileSync(rapport ?? "", "utf8")), brique ?? "brique-inconnue", maintenant, exception));
     } catch {
       erreurs = [`rapport Trivy illisible pour ${brique ?? "brique-inconnue"}`];
     }
   } else {
-    const composes = [
-      ...readdirSync("ops/socle").filter((f) => /^compose.*\.ya?ml$/.test(f)).sort().map((f) => join("ops/socle", f)),
-      "ops/compose.test.yml",
-    ].map((nom) => ({ nom, texte: readFileSync(nom, "utf8") }));
-    erreurs = [...verifierBriques(briques, composes), ...verifierVerrou(readFileSync("pnpm-lock.yaml", "utf8"))];
+    erreurs = [...verifierBriques(briques, lireComposes(), { adrs: readdirSync("docs/adr"), maintenant: new Date() }), ...verifierVerrou(readFileSync("pnpm-lock.yaml", "utf8"))];
   }
   for (const e of erreurs) console.error(e);
   process.exit(erreurs.length ? 1 : 0);

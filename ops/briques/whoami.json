@@ -7,5 +7,23 @@
   "livree": false,
   "lieu": "local",
   "source": "https://github.com/traefik/whoami",
-  "verifie_le": "2026-10-25"
+  "verifie_le": "2026-10-25",
+  "exception_trivy": {
+    "avis": [
+      "CVE-2026-33818",
+      "CVE-2026-39821",
+      "CVE-2026-46600",
+      "CVE-2026-56853",
+      "CVE-2026-56858",
+      "CVE-2026-56859",
+      "CVE-2026-56860",
+      "CVE-2026-56862",
+      "CVE-2026-84304",
+      "CVE-2026-84445"
+    ],
+    "adr": "0013",
+    "decidee_le": "2026-10-25",
+    "expire_le": "2026-11-24",
+    "motif": "Image d'écho de test, jamais déployée ; bibliothèque standard de Go, dernier tag publié sans correctif."
+  }
 }

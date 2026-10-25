@@ -16,3 +16,4 @@ Format court : contexte, décision, conséquences, date. Un ADR par décision, n
 | 0010 | `sharp` exclu des applications Next.js |
 | 0011 | Exception de licence CC-BY-4.0 pour caniuse-lite (dépendance de production) |
 | 0012 | Licences du livre et inventaire des briques |
+| 0013 | Exception Trivy nommée et datée pour l'image d'essai whoami |

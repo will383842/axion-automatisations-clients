@@ -107,7 +107,7 @@ describe("garde-briques : exception Trivy des images d'essai", () => {
     expect(avecException.every((b) => !production.has(String(b.image)) && b.livree === false)).toBe(true);
     const adrs = readdirSync(racine("docs/adr"));
     const composes = nomsCompose.map((nom) => ({ nom, texte: lire(nom) }));
-    expect(verifierBriques(briques.map((contenu, i) => ({ fichier: `ops/briques/${String(contenu.nom)}.json`, contenu })), composes, { adrs, maintenant: new Date("2026-10-26T00:00:00Z") })).toEqual([]);
+    expect(verifierBriques(briques.map((contenu) => ({ fichier: `ops/briques/${String(contenu.nom)}.json`, contenu })), composes, { adrs, maintenant: new Date("2026-10-26T00:00:00Z") })).toEqual([]);
   });
   it("[A-381] exception Trivy : whoami nomme exactement les 10 avis du plan", () => {
     const b = JSON.parse(lire("ops/briques/whoami.json")) as { exception_trivy: { avis: string[] } };

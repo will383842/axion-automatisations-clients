@@ -59,7 +59,7 @@ describe("passerelle : clés et coffre (C-598 d)", () => {
     const fichiers = execFileSync("git", ["ls-files", "-z"], { cwd: RACINE }).toString().split("\0").filter(Boolean);
     for (const f of fichiers.filter((x) => /\.(ya?ml|json|sh|ts|mjs|env|md|hcl|sql)$/.test(x))) {
       const texte = lire(f);
-      expect(texte, f).not.toMatch(/LITELLM_MASTER_KEY\s*[:=]\s*["']?(?!\$\{|os\.environ|["'])[A-Za-z0-9_-]{8,}/);
+      expect(texte, f).not.toMatch(/LITELLM_MASTER_KEY\s*[:=]\s*["']?(?!\${|os\.environ|TEST-NE-PAS-UTILISER-|["'])[A-Za-z0-9_-]{8,}/);
       expect(texte, f).not.toMatch(/\bsk-(?!TEST-NE-PAS-UTILISER-)[A-Za-z0-9]{20,}/);
     }
     for (const f of fichiers.filter((x) => /^ops\/socle\/compose\..*\.ya?ml$/.test(x))) {

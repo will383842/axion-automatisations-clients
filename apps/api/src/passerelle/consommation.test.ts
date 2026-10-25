@@ -47,6 +47,7 @@ describe("passerelle : consommation d'un client", () => {
   });
   it("[A-059] @argent attaque : l'erreur d'arrondi des flottants ne décale jamais un montant (0,1 + 0,2)", async () => {
     info = () => infoDe(A, 0.1 + 0.2);
+    journal = () => [{ api_key: EMPREINTE_A, spend: 0.1 + 0.2, prompt_tokens: 1, completion_tokens: 1 }];
     expect((await c().lire(A, REF_A)).coutMicroCentimes).toBe(30_000_000);
   });
   it("[A-059] @argent attaque : dépense négative, absente, texte, infinie ou hors entier sûr → refusée", async () => {
@@ -78,7 +79,7 @@ describe("passerelle : consommation d'un client", () => {
   it("[A-059] @isolation attaque : la passerelle répond avec la dépense d'un autre client (metadata ou alias) → refusée", async () => {
     info = () => infoDe(B, 9);
     await refus(c().lire(A, REF_A), "client_different");
-    info = () => ({ info: { spend: 1, metadata: { tenant_id: A }, key_alias: `cli-${B}` } });
+    info = () => ({ info: { token: EMPREINTE_A, spend: 1, metadata: { tenant_id: A }, key_alias: `cli-${B}` } });
     await refus(c().lire(A, REF_A), "client_different");
   });
   it("[A-059] @isolation attaque : une ligne du journal qui porte la clé d'un autre client est refusée, le journal est demandé pour la seule empreinte de A", async () => {

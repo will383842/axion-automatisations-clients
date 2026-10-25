@@ -1,3 +1,2 @@
-# Versions corrigées relevées dans le rapport Trivy de la CI (champ FixedVersion, la plus haute par paquet) ; empreintes des roues Linux compatibles relevées sur PyPI.
-# Amont litellm 1.106.3 : correctifs à relever depuis le rapport Trivy de la CI (étape en cours).
+# PROVISOIRE (ADR 0015) : amont changé en v1.106.3, liste à refaire d'après le rapport Trivy de la CI.
 setuptools==84.2.1 --hash=sha256:ca140b45d5325a9478f880e351484f62fef15f336462e449ca0c03c873d589c2

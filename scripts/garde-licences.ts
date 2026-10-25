@@ -136,7 +136,7 @@ const RUN_OK = new Set([
   "pnpm vitest run --reporter=json --outputFile=rapport-vitest.json", "pnpm exec vitest run --project integration --reporter=json --outputFile=rapport-integration.json",
   'pnpm audit --json > "$RUNNER_TEMP/audit.json" || true', 'node scripts/audit-dependances.ts "$RUNNER_TEMP/audit.json"', "node scripts/garde-workflows.ts .github/workflows",
   "node scripts/compter-tests.ts rapport-tests.json", "node scripts/compter-tests.ts --rapport rapport-integration.json --reference spec/compte-tests-integration.json",
-  "node scripts/couverture-req.ts rapport-vitest.json rapport-playwright.json", "node scripts/garde-couleurs.ts", "node scripts/garde-donnees-reelles.ts",
+  "node scripts/couverture-req.ts rapport-vitest.json rapport-playwright.json", "node scripts/garde-couleurs.ts", "node scripts/garde-donnees-reelles.ts", "node scripts/garde-migrations.ts",
   'node scripts/scanner-journaux.ts "$RUNNER_TEMP/texte"', "git fetch --no-tags origin main:refs/remotes/origin/main", "ops/socle/lancer.sh", "ops/socle/arreter.sh",
 ]);
 // Blocs de plusieurs lignes : empreinte SHA-256 du texte (controle-journaux ×2, nuit, socle-integration, squelettes-web).

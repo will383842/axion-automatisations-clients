@@ -1,2 +1,2 @@
-# PROVISOIRE (ADR 0015) : amont changé en v1.106.3, liste à refaire d'après le rapport Trivy de la CI.
+# Amont litellm v1.106.3 (ADR 0015) : le rapport Trivy de la CI ne dépasse aucun seuil (7/30 jours) ; seul setuptools est remonté (FixedVersion Trivy, empreinte relevée sur PyPI). Aucun litellm ni aiohttp ici.
 setuptools==84.2.1 --hash=sha256:ca140b45d5325a9478f880e351484f62fef15f336462e449ca0c03c873d589c2

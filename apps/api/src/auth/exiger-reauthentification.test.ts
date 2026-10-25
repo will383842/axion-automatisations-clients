@@ -1,4 +1,4 @@
-import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
+import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT, type CryptoKey } from "jose";
 import { beforeAll, describe, expect, it } from "vitest";
 import Fastify from "fastify";
 import { exigerJeton } from "./oidc.ts";

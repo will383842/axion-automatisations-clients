@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { verifierRoyaume } from "./garde-royaumes.ts";
 
+// Royaume de test : on casse des champs au hasard, la forme exacte n'importe pas ici.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Royaume = Record<string, any>;
 const lire = (nom: string) => readFileSync(new URL(`../ops/socle/keycloak/${nom}`, import.meta.url), "utf8");
 

@@ -1,4 +1,4 @@
-import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT, type JWK } from "jose";
+import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT, type CryptoKey, type JWK } from "jose";
 import { beforeAll, describe, expect, it } from "vitest";
 import { creerVerificateur, type Verificateur } from "./oidc.ts";
 

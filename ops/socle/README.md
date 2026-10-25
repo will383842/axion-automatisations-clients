@@ -19,7 +19,7 @@ Règles (vérifiées par `scripts/garde-compose.ts`) :
 
 ## Variables
 - Noms d'hôte : `DOMAINE_CONSOLE`, `DOMAINE_PORTAIL`, `DOMAINE_API`, `DOMAINE_SSO` (par défaut `console.socle.test`, `client.socle.test`, `api.socle.test`, `sso.socle.test`).
-- Mots de passe de test générés au lancement : `SOCLE_PG_MOT_DE_PASSE`, `SOCLE_VALKEY_MOT_DE_PASSE`, `SOCLE_KEYCLOAK_ADMIN_MOT_DE_PASSE`, `SOCLE_STOCKAGE_MOT_DE_PASSE`, `SOCLE_LITELLM_CLE_MAITRE`. Une valeur déjà présente dans l'environnement est conservée.
+- Mots de passe de test générés au lancement (`SOCLE_PG_MOT_DE_PASSE` est un secret dont PostgreSQL et PgBouncer tirent un mot de passe par rôle, superutilisateur compris : SHA-256 de « secret/rôle »), `SOCLE_VALKEY_MOT_DE_PASSE`, `SOCLE_KEYCLOAK_ADMIN_MOT_DE_PASSE`, `SOCLE_STOCKAGE_MOT_DE_PASSE`, `SOCLE_LITELLM_CLE_MAITRE`. Une valeur déjà présente dans l'environnement est conservée.
 - `SOCLE_CERTS` : dossier du certificat (rempli par `lancer.sh`).
 
 ## Tests d'intégration

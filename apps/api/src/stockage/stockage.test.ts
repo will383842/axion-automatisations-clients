@@ -36,12 +36,8 @@ function coffreMemoire() {
   const m = new Map<string, { tenantId: string; id: IdentifiantsS3 }>();
   return {
     m,
-    async ranger(tenantId: string, id: IdentifiantsS3) { const r = `bao:clients/${tenantId}/${randomUUID()}`; m.set(r, { tenantId, id }); return r; },
-    async lire(tenantId: string, ref: string) {
-      const e = m.get(ref);
-      if (!e || e.tenantId !== tenantId) throw new Error("introuvable");
-      return e.id;
-    },
+    async ranger(tenantId: string, id: IdentifiantsS3) { m.set(`bao:clients/${tenantId}/${randomUUID()}`, { tenantId, id }); },
+    async lire(tenantId: string) { return [...m.values()].find((e) => e.tenantId === tenantId)?.id; },
   };
 }
 

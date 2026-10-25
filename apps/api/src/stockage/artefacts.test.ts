@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { creerArtefacts, ErreurArtefact } from "./artefacts.js";
-import type { IdentifiantsS3, PortS3 } from "./stockage.js";
+import type { PortS3 } from "./stockage.js";
 
 // Imitation S3 réduite au compartiment commun « artefacts ».
 function imitationS3() {

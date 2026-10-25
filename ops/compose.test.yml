@@ -20,7 +20,7 @@ services:
     image: valkey/valkey:8.1.10@sha256:640c5e62cea04b6d6f2084232651d0cc70362d31f4f805e7be94dbed6855e8f2
     ports: ["127.0.0.1:${SONDE_PORT_VALKEY:-6379}:6379"]
   openbao:
-    image: openbao/openbao:2.7.1@sha256:6d2b93856e3fcf7b18ad855a0b51eaba474dc8b79cf554379ea32034797d2acf
+    image: openbao/openbao:2.6.4@sha256:cf2340fc9a22cb9358ca0defd1f39b65673836bd23fe2bb8984a07e11fe13ef4
     command: ["server", "-dev", "-dev-listen-address=0.0.0.0:8200"]
     ports: ["127.0.0.1:${SONDE_PORT_OPENBAO:-8200}:8200"]
   keycloak:

@@ -67,7 +67,7 @@ describe("garde-briques : licences et lieu de livraison", () => {
     expect(verifier({ lieu: "ailleurs" })).not.toEqual([]);
     expect(verifier({ verifie_le: "2026-02-31" })).not.toEqual([]);
     expect(verifier({ source: "http://exemple.test" })).not.toEqual([]);
-    expect(verifier({ source: "https://10.0.0.1/p" })).not.toEqual([]);
+    expect(verifier({ source: "https://192.0.2.1/p" })).not.toEqual([]);
   });
   it("[A-375] garde-briques refuse un contenu qui n'est pas un objet", () => {
     for (const contenu of [null, [], "x", 3]) expect(verifierBriques([{ fichier: "ops/briques/x.json", contenu }], []), String(contenu)).not.toEqual([]);
@@ -89,6 +89,11 @@ describe("garde-briques : redis, valkey, empreintes", () => {
     const r = verifierBriques([{ fichier: "ops/briques/valkey.json", contenu: valkey }], [{ nom: "compose-valkey.yml", texte: fixture("compose-valkey.yml") }]);
     expect(r).toEqual([]);
   });
+  it("[A-381] garde-briques refuse une image de compose sans empreinte", () => {
+    const valkey = brique({ nom: "valkey", image: "valkey/valkey", version: "8.1.10", licence: "BSD-3-Clause" });
+    const r = verifierBriques([{ fichier: "ops/briques/valkey.json", contenu: valkey }], [{ nom: "c.yml", texte: composeDe("valkey/valkey:8.1.10") }]);
+    expect(r.join("\n")).toMatch(/valkey.*empreinte/);
+  });
   it("[A-381] garde-briques refuse une image sans empreinte", () => {
     for (const empreinte of [undefined, "", "sha256:abc", `sha256:${"A".repeat(64)}`, `md5:${"a".repeat(32)}`, `sha256:${"a".repeat(64)} `]) {
       expect(verifier({ empreinte }), String(empreinte)).not.toEqual([]);
@@ -107,7 +112,7 @@ describe("garde-briques : redis, valkey, empreintes", () => {
     const compose = composeDe(`exemple/exemple:1.0.0@sha256:${"b".repeat(64)}`);
     expect(verifier({}, compose).join("\n")).toMatch(/empreinte/);
     expect(verifier({}, composeDe(`exemple/exemple:1.0.0@${EMP}`))).toEqual([]);
-    expect(verifier({}, composeDe("exemple/exemple:1.0.0"))).toEqual([]);
+    expect(verifier({}, composeDe("exemple/exemple:1.0.0")).join("\n")).toMatch(/empreinte/);
   });
   it("[A-381] garde-briques refuse une version du compose différente de celle de la brique", () => {
     expect(verifier({}, composeDe(`exemple/exemple:2.0.0@${EMP}`))).not.toEqual([]);

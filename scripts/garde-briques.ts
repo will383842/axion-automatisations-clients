@@ -133,6 +133,7 @@ export function verifierBriques(fichiers: Fichier[], composes: Compose[]): strin
       if (estRedis(image.depot)) erreurs.push(`${c.nom} : image « ${ref} » : redis interdit, Valkey seulement (A-378, C-493)`);
       const candidates = briques.filter((b) => lireImage(String(b.image)).depot === image.depot && (!image.version || b.version === image.version));
       if (!candidates.length) erreurs.push(`${c.nom} : image « ${image.depot}${image.version ? `:${image.version}` : ""} » : aucune brique inscrite dans ops/briques`);
+      else if (!image.empreinte) erreurs.push(`${c.nom} : image « ${image.depot} » : empreinte @sha256 absente (A-381)`);
       else if (image.empreinte && !candidates.some((b) => b.empreinte === image.empreinte)) erreurs.push(`${c.nom} : image « ${image.depot} » : empreinte différente de celle de la brique`);
     }
   }

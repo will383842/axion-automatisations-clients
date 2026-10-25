@@ -105,6 +105,9 @@ describe("OpenBao réel : clé de signature, copie de secours et clés HMAC", ()
     expect(await s.verifier(Buffer.from("autre"), signature)).toBe(false);
   });
   it("[A-303] l'instantané raft restauré dans un second OpenBao neuf vérifie une signature faite avant ; le jeton de signature ne peut pas le prendre", async () => {
+    try { await a303(); } catch (e) { console.log(`::error::DIAG-TEMP ${(e as Error).message.slice(0, 300).replace(/\n/g, " ")}`); throw e; }
+  });
+  const a303 = async () => {
     const premier = await lancerRaft();
     const admin = { url: premier.url, jeton: premier.racine };
     await appelerAdmin(admin, "POST", "sys/mounts/transit", { type: "transit" });
@@ -122,7 +125,7 @@ describe("OpenBao réel : clé de signature, copie de secours et clés HMAC", ()
     await deverrouiller({ ...second, part: premier.part });
     const restaure = { ...second, racine: premier.racine };
     expect(await creerSignature(await jetonRole(restaure, "signature")).verifier(m, signature)).toBe(true);
-  });
+  };
   it("[C-015] @isolation la clé HMAC c1 est lue par la politique echanges et refusée aux politiques courtier et equipe", async () => {
     const bao = await lancer();
     const e = creerClesEchanges(await bao.jeton("echanges"));

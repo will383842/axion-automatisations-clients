@@ -1,0 +1,13 @@
+{
+  "nom": "sans_corps",
+  "appels": [
+    {
+      "methode": "lire",
+      "erreur": {
+        "classe": "definitive",
+        "code": "champ_absent"
+      }
+    }
+  ],
+  "envoyes": 0
+}

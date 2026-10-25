@@ -154,6 +154,10 @@ describe("images dérivées : Dockerfile postgres", () => {
       ["USER root puis RUN puis USER postgres", `${ok.replace("USER postgres", "")}\nUSER root\nRUN true\nUSER postgres`],
       ["téléchargement par nc sans mot interdit", `${ok.replace("USER postgres", "")}\nRUN nc exemple.test 80 > /usr/local/bin/x\nUSER postgres`],
       ["rm d'un fichier en plus", ok.replace("su-exec", "su-exec /usr/local/bin/docker-entrypoint.sh")],
+      ["directive syntax en première ligne [N16]", `# syntax=docker.io/exemple/frontend:latest\n${ok}`],
+      ["directive syntax à la place du commentaire [N16b]", ok.replace(/^#.*$/m, "# syntax=docker.io/exemple/frontend:latest")],
+      ["directive escape en tête [N17]", `# escape=\`\n${ok}`],
+      ["directive check avec espaces", `#  check = skip=all\n${ok}`],
       ["ARG nommé comme un secret", `${ok.replace("USER postgres", "")}\nARG TOKEN_DEPOT\nUSER postgres`],
     ];
     it.each(attaques)("[A-381] Dockerfile refusé : %s", (_nom, texte) => {
@@ -243,6 +247,13 @@ describe("images dérivées : workflow", () => {
       ["Trivy d'une autre empreinte", (d) => (etapes(job(d, "publier"))[trouver(job(d, "publier"), "aquasecurity/trivy")]!.run = "docker run trivy:latest image x")],
       ["attestation sur une autre empreinte", (d) => ((etapes(job(d, "publier")).at(-1)!.with as Obj)["subject-digest"] = "sha256:inventee")],
       ["attestation avant le push", (d) => { const s = pas(d, "publier"); const a = s.pop()!; s.splice(trouver(job(d, "publier"), "docker push"), 0, a); }],
+      ["pnpm install, test et corepack entre le push et l'attestation [N1]", (d) => pas(d, "publier").splice(-1, 0, { run: "corepack enable" }, { run: "pnpm install --frozen-lockfile" }, { run: "pnpm test" })],
+      ["env de job avec le jeton et pnpm install avant le push [N2]", (d) => { job(d, "publier").env = { GITHUB_TOKEN: "${{ github.token }}" }; pas(d, "publier").splice(trouver(job(d, "publier"), "docker push"), 0, { run: "pnpm install" }); }],
+      ["script du socle avant le push [N3]", (d) => pas(d, "publier").splice(trouver(job(d, "publier"), "docker push"), 0, { run: "ops/socle/lancer.sh" })],
+      ["bloc de construction recopié avant le push [N4]", (d) => { const s = pas(d, "publier"); s.splice(trouver(job(d, "publier"), "docker push"), 0, copie(s[2]!)); }],
+      ["env de job dans publier [N15]", (d) => (job(d, "publier").env = { NODE_ENV: "${{ github.event.pull_request.title }}" })],
+      ["timeout-minutes dans publier [N15]", (d) => (job(d, "publier")["timeout-minutes"] = 1)],
+      ["étape ajoutée dans construire", (d) => pas(d, "construire").push({ run: "pnpm install" })],
       ["push avant Trivy", (d) => { const s = pas(d, "publier"); const t = s.splice(trouver(job(d, "publier"), "aquasecurity/trivy"), 1)[0]!; s.push(t); }],
     ];
     it.each(attaques)("[A-381] workflow refusé : %s", (_nom, f) => {

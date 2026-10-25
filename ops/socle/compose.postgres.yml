@@ -2,8 +2,7 @@
 # Un secret de test unique vient de lancer.sh ; chaque rôle (superutilisateur compris) a son mot de passe : SHA-256 de « secret/rôle ». PgBouncer n'ouvre que les quatre rôles « app » et « équipe » : ni le superutilisateur, ni le propriétaire, ni la migration.
 services:
   postgres:
-    build:
-      context: ../images/postgres
+    image: ghcr.io/will383842/axion-automatisations-clients/postgres-socle:16-r41@sha256:c5fd480db4b8537bfaf082b5b73cd6e288994309b4ac0bf8cc58694f6757e2ce
     restart: "no"
     environment:
       SOCLE_PG_MOT_DE_PASSE: ${SOCLE_PG_MOT_DE_PASSE:?mot de passe de test absent}

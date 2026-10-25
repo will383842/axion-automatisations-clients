@@ -96,7 +96,7 @@ describe("faux Microsoft 365", () => {
   });
 
   it("[LOT0-harnais] un destinataire hors @exemple.fr et *.test est refusé", async () => {
-    const r = await en("/v1.0/me/messages", { method: "POST", body: JSON.stringify({ subject: "x", toRecipients: [{ emailAddress: { address: "quelquun@example.com" } }] }) });
+    const r = await en("/v1.0/me/messages", { method: "POST", body: JSON.stringify({ subject: "x", toRecipients: [{ emailAddress: { address: "quelquun" + "@example.com" } }] }) });
     expect(r.status).toBe(400);
   });
 

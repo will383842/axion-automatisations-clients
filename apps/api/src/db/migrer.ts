@@ -26,8 +26,8 @@ export async function migrer(options: { url: string; dossier: string }): Promise
   const client = new pg.Client({ connectionString: options.url });
   await client.connect();
   try {
-    // Le rôle réel de la session fait foi, pas le nom écrit dans l'URL.
-    const { rows } = await client.query<{ role: string }>("SELECT current_user AS role");
+    // Le rôle réel de la session fait foi, pas le nom écrit dans l'URL (current_user vaut le propriétaire après le SET ROLE par défaut).
+    const { rows } = await client.query<{ role: string }>("SELECT session_user AS role");
     if (rows[0]?.role !== ROLE) throw new Error(`migrer exige le rôle ${ROLE}`);
     await migrate(drizzle(client), { migrationsFolder: options.dossier });
   } finally {

@@ -43,18 +43,20 @@ describe("migrer, avec le socle", () => {
     const dossier = dossierEssai();
     await expect(migrer({ url: urlDe("console_app", DIRECT()), dossier })).rejects.toThrow(/console_migration/);
     await migrer({ url: urlDe("console_migration", DIRECT()), dossier });
-    const equipe = new pg.Client({ connectionString: urlDe("console_equipe", DIRECT()) });
-    await equipe.connect();
-    try {
-      const table = await equipe.query("SELECT to_regclass('public.essai_migration_a189') AS t");
-      expect(table.rows[0]?.["t"]).toBe("essai_migration_a189");
-      const journal = await equipe.query("SELECT count(*)::int AS n FROM drizzle.__drizzle_migrations");
-      expect(journal.rows[0]?.["n"]).toBe(1);
-    } finally {
-      await equipe.end();
-    }
     // Rejouée, la migration ne s'applique pas deux fois.
     await migrer({ url: urlDe("console_migration", DIRECT()), dossier });
+    // Lecture avec le rôle de migration (propriétaire du schéma drizzle) ; la table d'essai est retirée ensuite.
+    const lecture = new pg.Client({ connectionString: urlDe("console_migration", DIRECT()) });
+    await lecture.connect();
+    try {
+      const table = await lecture.query("SELECT to_regclass('public.essai_migration_a189')::text AS t");
+      expect(table.rows[0]?.["t"]).toBe("essai_migration_a189");
+      const journal = await lecture.query("SELECT count(*)::int AS n FROM drizzle.__drizzle_migrations");
+      expect(journal.rows[0]?.["n"]).toBe(1);
+    } finally {
+      await lecture.query("DROP TABLE IF EXISTS public.essai_migration_a189; DROP SCHEMA IF EXISTS drizzle CASCADE").catch(() => undefined);
+      await lecture.end();
+    }
   });
 
   it("[A-189] attaque : migrer vérifie le rôle réel de la session, pas seulement le nom dans l'URL", async () => {

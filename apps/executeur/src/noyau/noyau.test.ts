@@ -174,7 +174,7 @@ describe("politique des erreurs", () => {
       expect(ms).toBeGreaterThanOrEqual(base);
       expect(ms).toBeLessThanOrEqual(base * 1.5);
     });
-    expect(b.console.evenements.at(-2)).toMatchObject({ type: "erreur", classe: "passagere", code: "essais_epuises" });
+    expect(b.console.evenements.at(-1)).toMatchObject({ type: "erreur", classe: "passagere", code: "essais_epuises" });
   });
 
   it("[A-321] quota : attente jusqu'à la date donnée par l'outil", async () => {

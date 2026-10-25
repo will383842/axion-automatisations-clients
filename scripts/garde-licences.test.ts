@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { verifierInstallationsFigees, verifierLicences, verifierLicencesLivrees, verifierWorkflowsLicences } from "./garde-licences.js";
+import { verifierInstallationsFigees, verifierLicences, verifierLicencesLivrees, verifierScriptsPaquets, verifierWorkflowsLicences } from "./garde-licences.js";
 
 const lire = (chemin: string) => readFileSync(fileURLToPath(new URL(`../${chemin}`, import.meta.url)), "utf8");
 const fixture = (nom: string) => lire(`scripts/__fixtures__/briques/${nom}`);
@@ -111,7 +111,7 @@ describe("garde-licences : lecture des workflows", () => {
   const wf = (corps: string, declencheur = "on:\n  pull_request:\n") => `name: x\n${declencheur}permissions:\n  contents: read\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@${sha}\n${corps}`;
   const dossier = () => {
     const base = fileURLToPath(new URL("../.github/workflows", import.meta.url));
-    return readdirSync(base).filter((f) => f.endsWith(".yml")).map((f) => ({ nom: f, texte: readFileSync(`${base}/${f}`, "utf8") }));
+    return readdirSync(base).filter((f) => /\.ya?ml$/.test(f)).map((f) => ({ nom: f, texte: readFileSync(`${base}/${f}`, "utf8") }));
   };
   it("[C-019] garde-licences tourne sur chaque PR", () => {
     expect(verifierWorkflowsLicences(dossier())).toEqual([]);
@@ -164,6 +164,58 @@ describe("garde-licences : lecture des workflows", () => {
     expect(verifierInstallationsFigees([{ nom: "w.yml", texte: bloc }])).not.toEqual([]);
     const action = wf("      - uses: pnpm/action-setup@" + sha + "\n        with:\n          run_install: true\n");
     expect(verifierInstallationsFigees([{ nom: "w.yml", texte: action }])).not.toEqual([]);
+  });
+  it("[C-019] la garde n'accepte que la forme exacte, sans option, redirection, shell, dossier, env ni dépendance", () => {
+    const run = (t: string) => verifierWorkflowsLicences([{ nom: "w.yml", texte: t }]);
+    const garde = "node scripts/garde-licences.ts";
+    for (const mauvais of ["node --check scripts/garde-licences.ts", "node -e 0 scripts/garde-licences.ts", `${garde} &`, `${garde} | cat`, `${garde} x`, `${garde}\n          true`]) {
+      expect(run(wf(`      - run: |\n          ${mauvais}\n`)), mauvais).not.toEqual([]);
+    }
+    const sup = (extra: string) => run(wf(`      - ${extra}\n        run: ${garde}\n`));
+    expect(sup('shell: "bash {0}"')).not.toEqual([]);
+    expect(sup("working-directory: docs")).not.toEqual([]);
+    expect(sup("env:\n          NODE_OPTIONS: --x")).not.toEqual([]);
+    expect(run(wf(`      - run: ${garde}\n`).replace("    steps:", "    needs: [absent]\n    steps:"))).not.toEqual([]);
+    expect(run(wf(`      - run: ${garde}\n`).replace("    steps:", "    env:\n      NODE_OPTIONS: --x\n    steps:"))).not.toEqual([]);
+    expect(run(wf(`      - run: ${garde}\n`).replace("permissions:", "defaults:\n  run:\n    shell: bash {0}\npermissions:"))).not.toEqual([]);
+    expect(run(wf(`      - run: ${garde}\n`).replace("    steps:", "    defaults:\n      run:\n        working-directory: docs\n    steps:"))).not.toEqual([]);
+    expect(run(wf(`      - run: echo ok > scripts/garde-licences.ts\n      - run: ${garde}\n`))).not.toEqual([]);
+  });
+  it("[C-020] la garde des installations refuse les lanceurs, options et formes inconnues", () => {
+    const run = (cmd: string) => verifierInstallationsFigees([{ nom: "w.yml", texte: wf(`      - run: ${JSON.stringify(cmd)}\n`) }]);
+    for (const mauvais of [
+      "pnpm --reporter silent install",
+      "pnpm --loglevel error install",
+      "pnpm --inconnue install",
+      "pnpm it",
+      "pnpm install-test",
+      "pnpm exec pnpm install",
+      "pnpm dlx x",
+      "npx pnpm install",
+      "bash -ec 'pnpm install'",
+      "sh -xc 'pnpm install'",
+      "eval 'pnpm install'",
+      "echo $(pnpm install)",
+      "echo `pnpm install`",
+      "npm --prefix x install",
+      "yarn --cwd x install",
+      "bash installer.sh",
+      "./installer.sh",
+    ]) {
+      expect(run(mauvais), mauvais).not.toEqual([]);
+    }
+    expect(run("pnpm --reporter silent install --frozen-lockfile")).toEqual([]);
+    expect(run("bash -ec 'pnpm install --frozen-lockfile'")).toEqual([]);
+  });
+  it("[C-020] uses et with ne tiennent pas compte de la casse ; les actions composites et les scripts de package.json sont lus", () => {
+    const action = (uses: string, cle: string) => verifierInstallationsFigees([{ nom: "w.yml", texte: wf(`      - uses: ${uses}@${sha}\n        with:\n          ${cle}: true\n`) }]);
+    expect(action("PNPM/action-setup", "run_install")).not.toEqual([]);
+    expect(action("pnpm/action-setup", "Run_Install")).not.toEqual([]);
+    const composite = "name: x\nruns:\n  using: composite\n  steps:\n    - run: pnpm install\n      shell: bash\n";
+    expect(verifierInstallationsFigees([{ nom: "action.yml", texte: composite }])).not.toEqual([]);
+    expect(verifierScriptsPaquets([{ nom: "package.json", texte: '{"scripts":{"prepare":"pnpm install"}}' }])).not.toEqual([]);
+    expect(verifierScriptsPaquets([{ nom: "package.json", texte: '{"scripts":{"test":"vitest run"}}' }])).toEqual([]);
+    expect(verifierScriptsPaquets([{ nom: "package.json", texte: "{" }])).not.toEqual([]);
   });
   it("[C-020] un workflow illisible est refusé (échec fermé)", () => {
     expect(verifierInstallationsFigees([{ nom: "w.yml", texte: "jobs: [" }])).not.toEqual([]);

@@ -2,7 +2,7 @@
 
 Document de preuve : pour chaque brique et chaque fournisseur, le lieu des données. Pas d'avis juridique ici.
 
-## Briques inscrites (`ops/briques/`)
+## Briques prévues (`ops/briques/`)
 Toutes tournent chez AXION IA (lieu `local`) ; aucune n'est livrée chez un client à ce stade.
 
 | Brique | Rôle | Lieu des données |

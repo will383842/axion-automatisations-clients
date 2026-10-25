@@ -13,6 +13,6 @@ Il faut savoir à tout moment quelle brique tourne, en quelle version exacte, so
 - Les fichiers sont lus par de vrais analyseurs (JSON, YAML), jamais par expression régulière. Dépendance ajoutée pour cela : `js-yaml` (MIT), déjà présent dans le verrou comme dépendance indirecte.
 
 ## Conséquences
-Toute nouvelle brique demande son fichier (procédure : `ops/procedure-nouvelle-dependance.md`). Les images d'`ops/compose.test.yml` sans empreinte sont acceptées tant que la brique porte la sienne ; l'épinglage dans le compose reste à faire par T0-12.
+Toute nouvelle brique demande son fichier (procédure : `ops/procedure-nouvelle-dependance.md`).
 
 2026-10-24

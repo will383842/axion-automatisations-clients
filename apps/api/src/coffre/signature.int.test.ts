@@ -64,9 +64,13 @@ async function lancerRaft(): Promise<InstanceRaft> {
   return instance;
 }
 async function deverrouiller(i: InstanceRaft): Promise<void> {
-  await appelerAdmin({ url: i.url, jeton: "" }, "POST", "sys/unseal", { key: i.part });
   for (let n = 0; ; n++) {
-    try { if ((await fetch(`${i.url}/v1/sys/health`)).status === 200) return; } catch { /* attente */ }
+    // Après une restauration, OpenBao se rescelle et relance son écoute : on réessaie jusqu'à ce qu'il réponde.
+    try {
+      const sante = (await fetch(`${i.url}/v1/sys/health`)).status;
+      if (sante === 200) return;
+      if (sante === 503) await appelerAdmin({ url: i.url, jeton: "" }, "POST", "sys/unseal", { key: i.part });
+    } catch { /* attente */ }
     if (n > 60) throw new Error("OpenBao raft de test non déverrouillé");
     await new Promise((ok) => setTimeout(ok, 500));
   }

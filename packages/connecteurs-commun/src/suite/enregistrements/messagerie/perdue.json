@@ -1,0 +1,13 @@
+{
+  "nom": "perdue",
+  "appels": [
+    {
+      "methode": "envoyer",
+      "erreur": {
+        "classe": "passagere",
+        "code": "reponse_perdue"
+      }
+    }
+  ],
+  "envoyes": 1
+}

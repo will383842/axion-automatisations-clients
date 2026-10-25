@@ -1,0 +1,13 @@
+{
+  "nom": "lecture",
+  "appels": [
+    {
+      "methode": "lire",
+      "reponse": {
+        "id": "m-1",
+        "objet": "Sujet 1"
+      }
+    }
+  ],
+  "envoyes": 0
+}

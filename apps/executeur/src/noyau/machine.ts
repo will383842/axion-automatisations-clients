@@ -5,6 +5,7 @@ import { classer, decider, ErreurConnecteur } from "./politique-erreurs.ts";
 import { CoupureProcessus, type Ports } from "./ports.ts";
 
 type Module = ReturnType<typeof defineAutomation>;
+const DELAI_MAX_SECONDES = 3600;
 export type Statut = "terminee" | "a_trancher" | "echec" | "pause" | "ignoree";
 
 // Machine rejouable : une étape inscrite « faite » est sautée ; tout effet passe par une intention écrite avant.
@@ -16,10 +17,15 @@ export class Machine {
   async lancer(instanceId: string, executionId: string): Promise<{ statut: Statut; etape?: string }> {
     const { module, ports } = this.o;
     const { console, journal, horloge } = ports;
-    if ((await console.lireEtatVoulu(instanceId)).etat !== "actif") return { statut: "ignoree" };
+    const voulu = await console.lireEtatVoulu(instanceId);
+    if (voulu.instanceId !== instanceId) return this.incoherente(instanceId, executionId);
+    if (voulu.etat !== "actif") return { statut: "ignoree" };
     const config = await console.lireConfiguration(instanceId);
+    if (config.instanceId !== instanceId || config.moduleCode !== module.code) return this.incoherente(instanceId, executionId);
     const reglages = module.instancier(config.reglages);
-    const deja = await journal.lire(executionId);
+    const deja = await journal.lire(instanceId, executionId);
+    const perdue = deja.find((e) => e.statut === "echec");
+    if (perdue) return { statut: "echec", etape: perdue.etape }; // échec final déjà dit à la console : ni rejeu ni nouvel événement
     const debut = horloge.maintenant();
     await console.envoyer({ type: "debut", instanceId, executionId, a: new Date(debut).toISOString() });
     let elements = 0;
@@ -27,6 +33,7 @@ export class Machine {
       const trace = deja.filter((e) => e.etape === decl.nom);
       if (trace.some((e) => e.statut === "faite")) continue;
       if (trace.some((e) => e.statut === "a_trancher")) return { statut: "a_trancher", etape: decl.nom };
+      if ((await console.lireEtatVoulu(instanceId)).etat !== "actif") return { statut: "ignoree", etape: decl.nom };
       const base = { instanceId, executionId, etape: decl.nom, connecteurs: module.connecteurs };
       for (let essai = 1; ; essai++) {
         const issue = await this.tenter(decl.nom, decl.delaiMaxSecondes ?? 120, { ...base, reglages }, () => elements++);
@@ -48,7 +55,7 @@ export class Machine {
         const e = classer(issue);
         const classe = d.action === "echec" ? d.classe : "identification";
         await console.envoyer({ type: "erreur", instanceId, executionId, classe, code: d.action === "echec" ? d.code : e.code });
-        await inscrire("echec");
+        if (d.action !== "pause") await inscrire("echec");
         if (d.action === "pause") await console.mettreEnPause(instanceId);
         return { statut: d.action === "pause" ? "pause" : "echec", etape: decl.nom };
       }
@@ -58,14 +65,20 @@ export class Machine {
     return { statut: "terminee" };
   }
 
+  private async incoherente(instanceId: string, executionId: string): Promise<{ statut: Statut }> {
+    await this.o.ports.console.envoyer({ type: "erreur", instanceId, executionId, classe: "definitive", code: "configuration_incoherente" });
+    return { statut: "echec" };
+  }
+
   // Rend undefined si l'étape a réussi, sinon l'erreur ; seule une coupure de processus traverse.
   private async tenter(nom: string, delaiSecondes: number, base: Parameters<Machine["contexte"]>[0], compter: () => void): Promise<unknown> {
     const ac = new AbortController();
     const { horloge } = this.o.ports;
+    const delaiMs = Math.min(delaiSecondes, DELAI_MAX_SECONDES) * 1000;
     try {
-      const travail = this.o.etapes[nom]!.executer(this.contexte(base, nom, ac.signal, compter));
+      const travail = this.o.etapes[nom]!.executer(this.contexte(base, nom, ac.signal, delaiMs, compter));
       travail.catch(() => undefined);
-      const delai = horloge.attendre(delaiSecondes * 1000, ac.signal).then(() => {
+      const delai = horloge.attendre(delaiMs, ac.signal).then(() => {
         throw new ErreurConnecteur("passagere", "delai_depasse");
       });
       await Promise.race([travail, delai]);
@@ -82,8 +95,10 @@ export class Machine {
     base: { instanceId: string; executionId: string; etape: string; connecteurs: Module["connecteurs"]; reglages: Readonly<Record<string, unknown>> },
     nom: string,
     signal: AbortSignal,
+    bailMs: number,
     compter: () => void,
   ) {
+    const effetBase = { ...base, signal, bailMs, classer: (a: string) => this.o.module.classerAction(base.reglages as { actionsAutomatiquesAutorisees: string[] }, a) };
     return {
       instanceId: base.instanceId,
       executionId: base.executionId,
@@ -91,7 +106,7 @@ export class Machine {
       reglages: base.reglages,
       signal,
       effet: async (action: string, element: string, entree?: unknown) => {
-        if (await effet(this.o.ports, base, action, element, entree)) compter();
+        if (await effet(this.o.ports, effetBase, action, element, entree)) compter();
       },
     };
   }

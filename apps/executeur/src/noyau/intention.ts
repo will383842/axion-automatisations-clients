@@ -1,7 +1,7 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { Connecteur } from "@axion-auto/sdk-module";
 import { ErreurConnecteur } from "./politique-erreurs.ts";
-import type { Ports } from "./ports.ts";
+import { CoupureProcessus, type Ports } from "./ports.ts";
 
 // Stopper sans renvoyer : l'effet est peut-être parti, un humain tranche.
 export class ATrancher extends Error {}
@@ -21,34 +21,53 @@ export interface BaseEffet {
   executionId: string;
   etape: string;
   connecteurs: readonly Connecteur[];
+  // Liste du client (C-539) : « brouillon » ne part jamais en automatique.
+  classer(action: string): "automatique" | "brouillon";
+  signal: AbortSignal;
+  bailMs: number;
 }
 
-// Rend vrai si l'effet est acquis maintenant (compté comme élément). Une intention est écrite AVANT tout appel ; la garantie du connecteur décide de la suite après une coupure.
+const coupee = () => new ErreurConnecteur("passagere", "delai_depasse");
+
+// Rend vrai si l'effet est acquis maintenant (compté comme élément). Une intention est écrite AVANT tout appel, sous un bail ; la garantie du connecteur décide de la suite après une coupure.
 export async function effet(ports: Ports, base: BaseEffet, action: string, element: string, entree: unknown): Promise<boolean> {
+  if (base.signal.aborted) throw coupee();
   const decl = base.connecteurs.find((c) => c.actions.includes(action));
   if (!decl) throw new ErreurConnecteur("definitive", "action_non_declaree");
+  if (base.classer(action) === "brouillon") throw new ErreurConnecteur("definitive", "action_non_autorisee");
   const cle = deriverCle(base.instanceId, base.executionId, base.etape, element);
-  const { boite, connecteurs } = ports;
-  const { intention, creee } = await boite.ecrire({ cle, instanceId: base.instanceId, executionId: base.executionId, etape: base.etape, element, action, garantie: decl.garantie });
+  const { boite, connecteurs, horloge } = ports;
+  const proprietaire = randomUUID();
+  const bail = { proprietaire, jusqua: horloge.maintenant() + base.bailMs };
+  const { intention, creee, occupee } = await boite.ecrire({ cle, instanceId: base.instanceId, executionId: base.executionId, etape: base.etape, element, action, garantie: decl.garantie }, bail, horloge.maintenant());
+  if (intention.action !== action) throw new ErreurConnecteur("definitive", "cle_en_conflit");
   if (intention.etat === "faite") return false;
   if (intention.etat === "a_trancher") throw new ATrancher();
-  if (!creee) {
-    if (decl.garantie === "au_plus_une_fois") return aTrancher(ports, cle);
-    if (decl.garantie === "verifiable_apres_coup") {
-      const v = await connecteurs.verifier(action, cle);
-      if (v === "inconnue") return aTrancher(ports, cle);
-      if (v === "trouvee") {
-        await boite.marquerFaite(cle);
-        return true;
+  if (occupee) throw new ErreurConnecteur("passagere", "intention_en_cours");
+  try {
+    if (!creee) {
+      if (decl.garantie === "au_plus_une_fois") return await aTrancher(ports, cle, proprietaire);
+      if (decl.garantie === "verifiable_apres_coup") {
+        const v = await connecteurs.verifier(action, cle);
+        if (v === "inconnue") return await aTrancher(ports, cle, proprietaire);
+        if (v === "trouvee") {
+          await boite.marquerFaite(cle, proprietaire);
+          return true;
+        }
       }
     }
+    if (base.signal.aborted) throw coupee();
+    await connecteurs.appeler(action, { cle, element, entree, signal: base.signal });
+  } catch (e) {
+    // Une coupure laisse le bail jusqu'à son échéance ; tout autre arrêt est connu, le bail est rendu.
+    if (!(e instanceof CoupureProcessus) && !(e instanceof ATrancher)) await boite.liberer(cle, proprietaire);
+    throw e;
   }
-  await connecteurs.appeler(action, { cle, element, entree });
-  await boite.marquerFaite(cle);
+  await boite.marquerFaite(cle, proprietaire);
   return true;
 }
 
-async function aTrancher(ports: Ports, cle: string): Promise<never> {
-  await ports.boite.marquerATrancher(cle);
+async function aTrancher(ports: Ports, cle: string, proprietaire: string): Promise<never> {
+  await ports.boite.marquerATrancher(cle, proprietaire);
   throw new ATrancher();
 }

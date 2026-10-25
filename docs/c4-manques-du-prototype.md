@@ -19,9 +19,19 @@ Le prototype ne change pas le contrat : T4-03 applique ces corrections.
 | 11 | `Console` | Aucune route pour mettre une instance en pause après une erreur d'identification. Le prototype a `mettreEnPause`. | Route C4 ou événement qui demande la pause, avec effet sur `EtatVoulu`. | Additif |
 | 12 | `Evenement` `fin` | `elements` et `minutesGagnees` sont comptés par le noyau, mais `jetons` et `coutIaMicroCentimes` n'ont pas de source tant que l'IA n'est pas dans le contexte. | Voir manque 2. | Additif |
 | 13 | Délai par étape | `delaiMaxSecondes` existe, mais la coupure d'une étape déjà partie ne peut pas annuler un effet en vol. Le prototype passe un signal d'arrêt. | Écrire dans C4 que le délai coupe l'attente, pas l'effet, et que l'étape suivante passe par la garantie. | Additif |
+| 14 | Reprise d'une exécution | `debut` est renvoyé à chaque reprise et `fin` ne compte que les éléments de la dernière reprise. | Identifiant d'événement, ou règle d'idempotence côté console. | Additif |
+| 15 | Port `Connecteurs` | Une panne de port (réseau, base) est une erreur simple, classée `definitive`. Seule `CoupureProcessus` reprend. | Erreur de port distincte, classée `passagere`, prévue pour 4B. | Additif |
+| 16 | Garantie `au_plus_une_fois` | Après une erreur classée de l'outil (quota, identification), l'envoi n'est certainement pas parti, mais le prototype rend « à trancher ». | État « non partie » dans l'intention. | Additif |
+| 17 | `executionId` | Une relivraison sous un autre `executionId` refait l'effet. | Écrire que `executionId` est dérivé de façon déterministe du déclencheur. | Additif |
+| 18 | Réglages du client (C-539) | Une action hors de la liste du client est refusée (`action_non_autorisee`). La voie « brouillon » n'existe pas. | Voie brouillon dans le contexte d'étape. | Additif |
+| 19 | Actions de connecteurs | Une action déclarée par deux connecteurs est refusée au chargement (`lierEtapes`), pas par le SDK. | Contrôle dans `defineAutomation`. | Additif |
 
 ## Choix du prototype
 - Une étape qui lève une erreur non classée sort en `definitive`, sans renvoi.
 - Un code d'erreur hors du motif `^[a-z][a-z0-9_]{2,63}$` devient `erreur_inconnue` ; le message n'est jamais envoyé (A-323).
 - Les attentes sont bornées à 24 h ; une date de quota absente, infinie ou passée ne donne jamais d'attente négative ni infinie.
 - Les intentions sont propres à une exécution : deux exécutions d'une même instance ne se lisent pas.
+- Un appel en vol tient un bail (durée de l'étape) : un autre lancement de la même intention attend, il ne rappelle pas l'outil. Une coupure de processus laisse le bail jusqu'à son échéance.
+- Un échec définitif déjà journalisé n'est pas rejoué et n'émet aucun nouvel événement. La pause (identification) n'est pas un échec final.
+- Le journal est lu par (instance, exécution). La configuration et l'état voulu doivent porter l'instance demandée, et la configuration le code du module.
+- Le délai d'une étape est borné à une heure ; l'état voulu est relu avant chaque étape.

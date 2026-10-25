@@ -2,8 +2,8 @@ import { execFileSync } from "node:child_process";
 import { Queue, Worker } from "bullmq";
 import { Redis } from "ioredis";
 import { afterAll, describe, expect, it } from "vitest";
-import { ouvrirConnexion } from "./connexion.js";
-import { creerFile, deposer } from "./files.js";
+import { analyserInfo, ouvrirConnexion } from "./connexion.js";
+import { creerFile, deposer, idTache, PREFIXE } from "./files.js";
 
 // Tests contre le Valkey du socle lancé par ops/socle/lancer.sh (job socle-integration).
 // Le réseau « interne » n'ouvre aucun port : depuis l'hôte Linux, on joint l'adresse du conteneur lue avec docker inspect.
@@ -33,20 +33,23 @@ async function attendreSante() {
   throw new Error("Valkey n'est pas redevenu sain");
 }
 
+// Les files et les workers se ferment avant les connexions qu'ils utilisent.
 const ouverts: { quit: () => Promise<unknown> | unknown }[] = [];
+const connexions: { quit: () => Promise<unknown> | unknown }[] = [];
 afterAll(async () => {
   for (const o of ouverts) await o.quit();
+  for (const c of connexions) await c.quit();
 });
 
 describe("Valkey du socle", () => {
   it("[A-051] une tâche BullMQ est déposée puis traitée, et le serveur se déclare Valkey (INFO server)", async () => {
     const connexion = await ouvrirConnexion(parametres());
-    ouverts.push(connexion);
-    expect(await connexion.info("server")).toMatch(/^server_name:valkey\r?$/m);
+    connexions.push(connexion);
+    expect(analyserInfo(await connexion.info("server")).get("server_name")).toBe("valkey");
 
     const file = creerFile("essai-traite", connexion.client);
     const traite = new Promise<string>((ok) => {
-      const w = new Worker("essai-traite", (job) => Promise.resolve(ok(String(job.data.tenantId))), { connection: connexion.client.duplicate({ maxRetriesPerRequest: null }), prefix: "axion" });
+      const w = new Worker("essai-traite", (job) => Promise.resolve(ok(String(job.data.tenantId))), { connection: connexion.client.duplicate({ maxRetriesPerRequest: null }), prefix: PREFIXE });
       ouverts.push({ quit: () => w.close() });
     });
     await deposer(file, { tenantId: TENANT, type: "essai", cle: `traite-${Date.now()}` }, {});
@@ -56,7 +59,7 @@ describe("Valkey du socle", () => {
 
   it("[A-051] la connexion refuse de démarrer si maxmemory-policy n'est pas noeviction", async () => {
     const admin = new Redis(parametres());
-    ouverts.push(admin);
+    connexions.push(admin);
     await admin.config("SET", "maxmemory-policy", "allkeys-lru");
     try {
       await expect(ouvrirConnexion(parametres())).rejects.toThrow(/maxmemory-policy/);
@@ -64,12 +67,12 @@ describe("Valkey du socle", () => {
       await admin.config("SET", "maxmemory-policy", "noeviction");
     }
     const bonne = await ouvrirConnexion(parametres());
-    ouverts.push(bonne);
+    connexions.push(bonne);
   });
 
   it("[LOT1-files] @anti-doublon deux dépôts avec le même jobId donnent une seule tâche", async () => {
     const connexion = await ouvrirConnexion(parametres());
-    ouverts.push(connexion);
+    connexions.push(connexion);
     const nom = `essai-doublon-${Date.now()}`;
     const file = creerFile(nom, connexion.client);
     ouverts.push({ quit: () => file.close() });
@@ -86,23 +89,29 @@ describe("Valkey du socle", () => {
     const file: Queue = creerFile(nom, connexion.client);
     const intention = { tenantId: TENANT, type: "survie", cle: "dossier-99" };
     await deposer(file, intention, { n: 1 });
+    // Sans AOF, le test ne prouverait rien : on l'exige d'abord, lu clé par clé.
+    expect(analyserInfo(await connexion.client.info("persistence")).get("aof_enabled")).toBe("1");
     // appendfsync everysec : on attend que le journal soit écrit sur disque avant de couper (borné à 10 s).
     for (let i = 0; i < 20; i++) {
-      const p = await connexion.client.info("persistence");
-      if (/aof_enabled:1/.test(p) && /aof_pending_bio_fsync:0/.test(p) && /aof_rewrite_in_progress:0/.test(p)) break;
+      const p = analyserInfo(await connexion.client.info("persistence"));
+      if (p.get("aof_pending_bio_fsync") === "0" && p.get("aof_rewrite_in_progress") === "0") break;
       await attendre(500);
     }
     await attendre(1500);
     await file.close();
     await connexion.quit();
 
-    docker("restart", conteneur());
+    // Arrêt brutal (SIGKILL) : pas d'instantané RDB à l'arrêt, seul le journal AOF peut garder la tâche.
+    const id = conteneur();
+    docker("kill", "-s", "KILL", id);
+    docker("start", id);
     await attendreSante();
 
     const apres = await ouvrirConnexion(parametres());
-    ouverts.push(apres);
+    connexions.push(apres);
     const file2 = creerFile(nom, apres.client);
     ouverts.push({ quit: () => file2.close() });
-    expect((await file2.getJobs(["wait"])).length).toBe(1);
+    const attente = await file2.getJobs(["wait"]);
+    expect(attente.map((j) => j.id)).toEqual([idTache(intention)]);
   });
 });

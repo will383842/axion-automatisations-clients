@@ -1,0 +1,72 @@
+import { createHash } from "node:crypto";
+import { describe, expect, it } from "vitest";
+import { creerArtefacts, ErreurArtefact } from "./artefacts.js";
+import type { IdentifiantsS3, PortS3 } from "./stockage.js";
+
+// Imitation S3 réduite au compartiment commun « artefacts ».
+function imitationS3() {
+  const compartiments = new Map<string, Map<string, Uint8Array>>();
+  const port: PortS3 = {
+    async creerCompartiment(nom) { compartiments.set(nom, compartiments.get(nom) ?? new Map()); },
+    async creerUtilisateur(c) { return { cleAcces: "TEST-NE-PAS-UTILISER-a", secret: "TEST-NE-PAS-UTILISER-b", compartiment: c }; },
+    async deposer(id, c, cle, o) { if (!id) throw new Error("403"); compartiments.get(c)!.set(cle, o); },
+    async lire(id, c, cle) { if (!id) throw new Error("403"); return compartiments.get(c)!.get(cle); },
+    async signer() { throw new Error("inutile"); },
+  };
+  return { port, compartiments };
+}
+
+const sha = (o: Uint8Array) => createHash("sha256").update(o).digest("hex");
+const code = async (p: Promise<unknown>) => p.then(() => "ok", (e: unknown) => (e instanceof ErreurArtefact ? e.code : "autre"));
+
+async function monter() {
+  const im = imitationS3();
+  await im.port.creerCompartiment("artefacts");
+  const service = await im.port.creerUtilisateur("artefacts");
+  let ecritures = 0;
+  const port = { ...im.port, deposer: async (...a: Parameters<typeof im.port.deposer>) => { ecritures++; return im.port.deposer(...a); } };
+  return { im, art: creerArtefacts({ s3: port, identifiants: service }), ecritures: () => ecritures };
+}
+
+describe("artefacts adressés par empreinte", () => {
+  it("[A-061] un artefact est rangé sous son empreinte SHA-256 ; un second dépôt identique ne crée rien", async () => {
+    const { im, art, ecritures } = await monter();
+    const o = new TextEncoder().encode("contenu signé");
+    expect(await art.deposerArtefact(o)).toBe(sha(o));
+    expect(await art.deposerArtefact(o)).toBe(sha(o));
+    expect(ecritures()).toBe(1);
+    expect([...im.compartiments.get("artefacts")!.keys()]).toEqual([sha(o)]);
+  });
+
+  it("[A-061] un contenu différent sous une empreinte existante est refusé et l'original reste intact", async () => {
+    const { im, art } = await monter();
+    const o = new TextEncoder().encode("original");
+    const h = await art.deposerArtefact(o);
+    im.compartiments.get("artefacts")!.set(h, new TextEncoder().encode("altéré"));
+    expect(await code(art.deposerArtefact(o))).toBe("empreinte_occupee");
+    expect(im.compartiments.get("artefacts")!.get(h)).toEqual(new TextEncoder().encode("altéré"));
+  });
+
+  it("[A-061] lire un artefact vérifie l'empreinte : un objet non adressé par son contenu est refusé", async () => {
+    const { im, art } = await monter();
+    const o = new TextEncoder().encode("bon");
+    const h = await art.deposerArtefact(o);
+    expect(await art.lireArtefact(h)).toEqual(o);
+    im.compartiments.get("artefacts")!.set(h, new TextEncoder().encode("mauvais"));
+    expect(await code(art.lireArtefact(h))).toBe("empreinte_incorrecte");
+  });
+
+  it("[A-061] une empreinte mal formée ou une traversée de chemin est refusée à la lecture", async () => {
+    const { art } = await monter();
+    for (const h of ["", "../cli-x/y", "ABC", "a".repeat(63), "A".repeat(64), `${"a".repeat(64)}/x`]) {
+      expect(await code(art.lireArtefact(h))).toBe("empreinte_invalide");
+    }
+  });
+
+  it("[A-061] un artefact vide ou absent est signalé sans écriture", async () => {
+    const { art, ecritures } = await monter();
+    expect(await code(art.deposerArtefact(new Uint8Array()))).toBe("artefact_vide");
+    expect(await code(art.lireArtefact("a".repeat(64)))).toBe("introuvable");
+    expect(ecritures()).toBe(0);
+  });
+});

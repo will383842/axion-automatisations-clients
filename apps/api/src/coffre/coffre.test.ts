@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, it } from "vitest";
 import { verifierCompose, lireYaml } from "../../../../scripts/garde-compose.js";
-import { creerCoffre, ErreurCoffre } from "./coffre.js";
+import { appeler, creerCoffre, ErreurCoffre } from "./coffre.js";
 import { creerEnveloppe } from "./enveloppe.js";
 
 // Imitation d'OpenBao : les droits de chaque rôle sont lus dans les VRAIS fichiers de politiques,
@@ -281,6 +281,23 @@ describe("coffre : identifiants des clients (KV v2)", () => {
   });
 });
 
+describe("coffre : requêtes au serveur", () => {
+  it("[C-011] une redirection n'est jamais suivie : le jeton et la valeur ne partent pas vers une autre adresse", async () => {
+    const vus: (RequestInit | undefined)[] = [];
+    const c = creerCoffre({ url: URL_BAO, jeton: "jeton-x", fetch: async (_u, init) => { vus.push(init); return new Response(null, { status: 307, headers: { location: "http://autre.test/" } }); } });
+    await refus(c.rangerIdentifiant(A, "x", "v"));
+    expect(vus.length).toBeGreaterThan(0);
+    for (const init of vus) expect(init?.redirect).toBe("error");
+  });
+  it.each(["clients/data/../metadata/x", "clients/data/x?version=1", "clients/data/x#y", "clients/%2e%2e/x", "/clients/x", "clients//x", "clients/x/", "clients/data/x\n", "sys/seal", "clients/Data/x"])(
+    "[C-011] @isolation chemin non conforme refusé avant tout appel : %j",
+    async (chemin) => {
+      await refus(appeler({ url: URL_BAO, jeton: bao.jeton("api"), fetch: bao.fetch }, "GET", chemin), "requete_refusee");
+      expect(bao.etat.appels).toEqual([]);
+    },
+  );
+});
+
 describe("enveloppe : une clé par client (C-012)", () => {
   it("[C-012] deux chiffrements du même texte donnent deux clés de données différentes", async () => {
     const e = enveloppe();
@@ -441,6 +458,8 @@ describe("infrastructure OpenBao", () => {
     expect(texte).not.toMatch(/set\s+-\w*x|xtrace|-dev\b|BAO_DEV/);
     expect(texte).toContain("umask 077");
     expect(texte).toContain('fichier="${1:?');
+    expect(texte).toContain("set -o noclobber");
+    expect(texte).toMatch(/-e "\$fichier".*-L "\$fichier"|-L "\$fichier".*-e "\$fichier"/);
     expect(texte).toContain("-key-shares=5");
     expect(texte).toContain("-key-threshold=3");
     const iMasque = l.findIndex((x) => x.includes("::add-mask::"));

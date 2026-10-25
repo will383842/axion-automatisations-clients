@@ -5,10 +5,12 @@
 # Les parts et les jetons restent dans des variables : masqués avant tout usage, jamais affichés, jamais versionnés.
 set -euo pipefail
 umask 077
+set -o noclobber
 
 dossier="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 fichier="${1:?chemin du fichier de sortie absent}"
 export BAO_ADDR="http://127.0.0.1:8200"
+if [ -e "$fichier" ] || [ -L "$fichier" ]; then echo "fichier de sortie déjà présent : refusé" >&2; exit 1; fi
 : >"$fichier"
 trap 'unset BAO_TOKEN' EXIT
 

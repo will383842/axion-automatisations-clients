@@ -32,6 +32,8 @@ export interface OptionsBao {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const DELAI_MS = 5000;
+// Seuls les montages clients/ et transit/, en segments simples : ni « .. », ni « ? », ni « % », ni barre double.
+const CHEMIN = /^(?:clients|transit)(?:\/[a-z0-9-]+)+$/;
 
 export function validerTenant(tenantId: string): string {
   if (typeof tenantId !== "string" || !UUID.test(tenantId)) throw new ErreurCoffre("tenant_invalide");
@@ -39,12 +41,14 @@ export function validerTenant(tenantId: string): string {
 }
 
 export async function appeler(o: OptionsBao, methode: "GET" | "POST" | "DELETE", chemin: string, corps?: unknown): Promise<unknown> {
+  if (!CHEMIN.test(chemin)) throw new ErreurCoffre("requete_refusee");
   let reponse: Response;
   try {
     reponse = await (o.fetch ?? fetch)(`${o.url}/v1/${chemin}`, {
       method: methode,
       headers: { "X-Vault-Token": o.jeton, ...(corps === undefined ? {} : { "Content-Type": "application/json" }) },
       ...(corps === undefined ? {} : { body: JSON.stringify(corps) }),
+      redirect: "error", // X-Vault-Token et le corps ne suivent jamais une redirection
       signal: AbortSignal.timeout(DELAI_MS),
     });
   } catch {
@@ -57,7 +61,7 @@ export async function appeler(o: OptionsBao, methode: "GET" | "POST" | "DELETE",
   if (reponse.status === 403) throw new ErreurCoffre("refuse");
   if (reponse.status === 404) throw new ErreurCoffre("introuvable");
   if (reponse.status >= 500) throw new ErreurCoffre("coffre_indisponible");
-  if (reponse.status >= 400) throw new ErreurCoffre("requete_refusee");
+  if (reponse.status >= 300) throw new ErreurCoffre("requete_refusee");
   const texte = await reponse.text().catch(() => "");
   if (!texte) return undefined;
   try {

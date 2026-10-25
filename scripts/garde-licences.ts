@@ -102,19 +102,27 @@ function lireWorkflow(f: Fichier): Obj | string {
 
 // Liste blanche (C-019, C-020) : un fichier n'est accepté que dans une forme EXACTEMENT connue, tout le reste est refusé par défaut.
 // On ne cherche pas à reconnaître les contournements : ajouter une action, une commande ou un réglage = modifier ces listes (relecture de l'architecte).
-const SHA = "[0-9a-f]{40}";
 const canon = (v: unknown): string => String(JSON.stringify(v, (_k, x) => (estObj(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : 1))) : x)));
 const cles = (o: Obj, ok: string[]) => Object.keys(o).every((k) => ok.includes(k));
 const PERSIST = { "persist-credentials": false };
 const NODE = { "node-version-file": ".nvmrc" };
-const ACTIONS: [RegExp, unknown[]][] = [
-  [new RegExp(`^actions/checkout@${SHA}$`), [undefined, PERSIST, { ...PERSIST, "fetch-depth": 0 }, { ...PERSIST, ref: "${{ github.event.repository.default_branch }}" }]],
-  [new RegExp(`^actions/setup-node@${SHA}$`), [NODE]],
-  [new RegExp(`^actions/upload-artifact@${SHA}$`), [{ name: "rapport-couverture", path: "rapport-couverture.json" }]],
-  [new RegExp(`^github/codeql-action/init@${SHA}$`), [{ languages: "javascript-typescript", "build-mode": "none" }]],
-  [new RegExp(`^github/codeql-action/analyze@${SHA}$`), [undefined]],
-  [new RegExp(`^gitleaks/gitleaks-action@${SHA}$`), [undefined]],
+// « uses » : texte EXACT connu (jamais de motif : un SHA inconnu peut venir d'un fork, « commit imposteur »).
+const ACTIONS: [string, unknown[]][] = [
+  ["actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1", [undefined, PERSIST, { ...PERSIST, "fetch-depth": 0 }, { ...PERSIST, ref: "${{ github.event.repository.default_branch }}" }]],
+  ["actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1", [NODE]],
+  ["actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a", [{ name: "rapport-couverture", path: "rapport-couverture.json" }]],
+  ["github/codeql-action/init@8498dc4c2b27cdd99baf0f87955b29ebbf30c78d", [{ languages: "javascript-typescript", "build-mode": "none" }]],
+  ["github/codeql-action/analyze@8498dc4c2b27cdd99baf0f87955b29ebbf30c78d", [undefined]],
+  ["gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7", [undefined]],
 ];
+// Seul bloc « services » connu : le Mailpit de harnais.yml, comparé en forme canonique.
+const SERVICES = canon({
+  mailpit: {
+    image: "axllent/mailpit:v1.20.4@sha256:ff82a613c735f4e8a3ddfdf7ee4e18cb934c721e72a340ecbbb7ec0ca7fbd057",
+    ports: ["127.0.0.1:8025:8025", "127.0.0.1:1025:1025"],
+    options: '--health-cmd "/mailpit readyz" --health-interval 2s --health-timeout 3s --health-retries 30',
+  },
+});
 const INSTALLER = "pnpm install --frozen-lockfile";
 const GARDE = "node scripts/garde-licences.ts";
 // Commandes d'une ligne, texte exact.
@@ -139,7 +147,7 @@ function etapeConnue(e: Obj, composite: boolean): string | undefined {
   if ((e.uses === undefined) === (e.run === undefined)) return "étape : « uses » ou « run », un seul";
   if (typeof e.uses === "string") {
     const uses = e.uses;
-    const action = ACTIONS.find(([re]) => re.test(uses));
+    const action = ACTIONS.find(([connu]) => connu === uses);
     return e.shell === undefined && action?.[1].some((w) => canon(w) === canon(e.with)) ? undefined : `action « ${uses} » ou ses réglages hors liste blanche`;
   }
   const run = typeof e.run === "string" ? e.run.trim() : "";
@@ -161,7 +169,7 @@ function formeConnue(f: Fichier, doc: Obj): string[] {
   }
   const clesJob = composite ? ["using", "steps"] : ["name", "runs-on", "permissions", "services", "env", "steps", "needs", "if", "timeout-minutes"];
   return jobs.flatMap((job) => {
-    if (!estObj(job) || !cles(job, clesJob) || !envOk(job.env) || !Array.isArray(job.steps) || !job.steps.length) return [`${f.nom} : job de forme inconnue`];
+    if (!estObj(job) || !cles(job, clesJob) || !envOk(job.env) || (!composite && (job["runs-on"] !== "ubuntu-latest" || (job.services !== undefined && canon(job.services) !== SERVICES))) || !Array.isArray(job.steps) || !job.steps.length) return [`${f.nom} : job de forme inconnue`];
     return job.steps.map((e) => (estObj(e) ? etapeConnue(e, composite) : "étape illisible")).filter((m) => m).map((m) => `${f.nom} : ${m}`);
   });
 }

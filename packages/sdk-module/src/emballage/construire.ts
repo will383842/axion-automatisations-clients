@@ -12,8 +12,10 @@ import { sbom } from "./sbom.ts";
 
 // Message lisible : la règle et le paquet fautif, jamais le contenu du fichier.
 export class ErreurEmballage extends Error {
-  constructor(readonly violations: Violation[]) {
+  readonly violations: Violation[];
+  constructor(violations: Violation[]) {
     super(violations.map((v) => `emballage refusé : ${v.paquet ? `${v.paquet} : ` : ""}règle ${MESSAGES[v.regle]}`).join(" ; "));
+    this.violations = violations;
   }
 }
 const MESSAGES: Record<Violation["regle"], string> = {
@@ -28,6 +30,7 @@ const MESSAGES: Record<Violation["regle"], string> = {
 const DEFINE = "emballage refusé : le module n'exporte pas un manifeste produit par defineAutomation";
 
 // Un paquet emballé = un dossier node_modules/<nom> dont un fichier est dans le graphe d'esbuild.
+// Indexé par le chemin réel du dossier : deux versions du même nom sont deux paquets, chacun vérifié et listé.
 function paquetsEmballes(entrees: string[], violations: Violation[]): Paquet[] {
   const dossiers = new Map<string, string>();
   for (const f of entrees) {
@@ -35,9 +38,9 @@ function paquetsEmballes(entrees: string[], violations: Violation[]): Paquet[] {
     const i = morceaux.lastIndexOf("node_modules");
     if (i < 0) continue;
     const portee = morceaux[i + 1]?.startsWith("@") ? 2 : 1;
-    dossiers.set(morceaux.slice(i + 1, i + 1 + portee).join("/"), morceaux.slice(0, i + 1 + portee).join(sep));
+    dossiers.set(morceaux.slice(0, i + 1 + portee).join(sep), morceaux.slice(i + 1, i + 1 + portee).join("/"));
   }
-  return [...dossiers].map(([dossier, chemin]) => {
+  return [...dossiers].map(([chemin, dossier]) => {
     const pkg = JSON.parse(readFileSync(join(chemin, "package.json"), "utf8")) as { name?: string; version?: string; license?: unknown };
     if (pkg.name !== dossier) violations.push({ regle: "nom", paquet: dossier });
     return { nom: dossier, version: String(pkg.version ?? "0.0.0"), licence: typeof pkg.license === "string" ? pkg.license : undefined };

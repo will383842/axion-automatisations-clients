@@ -70,7 +70,7 @@ describe("passerelle : clés virtuelles des clients", () => {
     expect(f.etat.appels).toEqual([]);
   });
   it("[A-058] @isolation attaque : identifiant de client forgé (chemin, alias, injection) refusé sans appel", async () => {
-    for (const t of ["", "../x", `${A}/../${B}`, `${A}\",\"models\":[]`, "cli-x", A.toUpperCase().slice(0, 30), ` ${A}`]) {
+    for (const t of ["", "../x", `${A}/../${B}`, `${A}","models":[]`, "cli-x", A.toUpperCase().slice(0, 30), ` ${A}`]) {
       await refus(f.cles.creerCleClient(t, { modelesPermis: ["claude-standard"] }), "tenant_invalide");
       await refus(f.cles.revoquerCle(t), "tenant_invalide");
     }

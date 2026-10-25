@@ -5,13 +5,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
-import yaml from "js-yaml";
 import { lireYaml } from "../../../../scripts/garde-compose.js";
 
 const RACINE = fileURLToPath(new URL("../../../../", import.meta.url));
 const lire = (chemin: string) => readFileSync(join(RACINE, chemin), "utf8");
 type Obj = Record<string, unknown>;
-const config = () => yaml.load(lire("ops/socle/litellm/config.yaml")) as Obj;
+const config = () => lireYaml(lire("ops/socle/litellm/config.yaml")) as Obj;
 const sect = (nom: string) => (config()[nom] ?? {}) as Obj;
 const FAMILLES = ["claude-standard", "mistral-souverain", "gpt-option"];
 
@@ -21,21 +20,21 @@ describe("passerelle : configuration (C-024, A-058)", () => {
     expect(modeles.map((m) => m.model_name)).toEqual(FAMILLES);
     for (const m of modeles) {
       expect(String(m.litellm_params.api_base)).toMatch(/^http:\/\/faux-fournisseur\.test:\d+\/v1$/);
-      expect(m.litellm_params.input_cost_per_token).toBe(0.0001);
-      expect(m.litellm_params.output_cost_per_token).toBe(0.0001);
+      expect(m.litellm_params.input_cost_per_token).toBe("0.0001");
+      expect(m.litellm_params.output_cost_per_token).toBe("0.0001");
       expect(String(m.litellm_params.api_key)).toMatch(/^os\.environ\/FOURNISSEUR_/);
     }
     expect(lire("ops/socle/litellm/config.yaml")).toContain("fictif");
   });
   it("[C-024] attaque : le texte des échanges n'est gardé ni dans les journaux ni dans la base", () => {
-    expect(sect("litellm_settings").turn_off_message_logging).toBe(true);
-    expect(sect("general_settings").store_prompts_in_spend_logs).toBe(false);
-    expect(sect("litellm_settings").set_verbose).not.toBe(true);
-    expect(sect("general_settings").disable_spend_logs).not.toBe(true);
+    expect(sect("litellm_settings").turn_off_message_logging).toBe("true");
+    expect(sect("general_settings").store_prompts_in_spend_logs).toBe("false");
+    expect(sect("litellm_settings").set_verbose).not.toBe("true");
+    expect(sect("general_settings").disable_spend_logs).not.toBe("true");
   });
   it("[C-024] attaque : aucun cache, aucun rappel vers un service tiers", () => {
     const l = sect("litellm_settings");
-    expect(l.cache).toBe(false);
+    expect(l.cache).toBe("false");
     for (const k of ["success_callback", "failure_callback", "callbacks", "service_callback"]) expect(l[k] ?? []).toEqual([]);
     expect(JSON.stringify(config())).not.toMatch(/langfuse|otel|opentelemetry|datadog|sentry|prometheus|s3_callback|logging_only/i);
   });

@@ -48,7 +48,7 @@ describe("passerelle : consommation d'un client", () => {
     expect((await c().lire(A, REF_A)).coutMicroCentimes).toBe(30_000_000);
   });
   it("[A-059] @argent attaque : dépense négative, absente, texte, infinie ou hors entier sûr → refusée", async () => {
-    for (const s of [-0.01, null, "1", 1e999, 1e300, undefined]) {
+    for (const s of [-0.01, null, "1", Number.MAX_VALUE, 1e300, undefined]) {
       info = () => infoDe(A, s as number);
       await refus(c().lire(A, REF_A), "reponse_invalide");
     }

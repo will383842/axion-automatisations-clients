@@ -1,3 +1,4 @@
+/* global Buffer, process, console */
 // Faux fournisseur d'IA (CI seulement) : format « chat completions », usage déterministe, compteur d'appels.
 // Il n'écrit JAMAIS le contenu reçu : la seule sortie est la ligne « ECOUTE <port> ».
 import { createServer } from "node:http";

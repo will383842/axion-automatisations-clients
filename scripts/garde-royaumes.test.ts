@@ -161,6 +161,12 @@ describe("garde-royaumes : double facteur", () => {
       expect(verifier(r).join(), a).toMatch(new RegExp(a));
     }
   });
+  it("[C-002] refuse un sous-flux conforme mais inaccessible depuis le flux de navigateur", () => {
+    const r = equipe();
+    const f = cible(r, "navigateur-equipe");
+    f.authenticationExecutions[1] = { authenticator: "auth-username-password-form", requirement: "REQUIRED" };
+    expect(verifier(r).join()).toMatch(/double facteur/);
+  });
   it("[C-002] refuse un flux de navigateur introuvable ou non déclaré", () => {
     const r = equipe();
     r.browserFlow = "browser";

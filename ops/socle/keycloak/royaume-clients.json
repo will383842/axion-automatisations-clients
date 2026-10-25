@@ -1,0 +1,30 @@
+{
+  "realm": "clients",
+  "enabled": true,
+  "registrationAllowed": false,
+  "ssoSessionMaxLifespan": 28800,
+  "ssoSessionIdleTimeout": 1800,
+  "accessTokenLifespan": 300,
+  "clients": [
+    {
+      "clientId": "portail",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "${env.KC_SECRET_PORTAIL}",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+      "attributes": { "pkce.code.challenge.method": "S256" },
+      "protocolMappers": [
+        {
+          "name": "audience-api-clients",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": { "included.custom.audience": "api-clients", "access.token.claim": "true", "id.token.claim": "false" }
+        }
+      ]
+    }
+  ]
+}

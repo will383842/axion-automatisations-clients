@@ -1,0 +1,12 @@
+{
+  "nom": "envoi",
+  "appels": [
+    {
+      "methode": "envoyer",
+      "reponse": {
+        "id": "envoye-1"
+      }
+    }
+  ],
+  "envoyes": 1
+}

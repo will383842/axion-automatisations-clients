@@ -1,0 +1,14 @@
+{
+  "nom": "quota",
+  "appels": [
+    {
+      "methode": "lire",
+      "erreur": {
+        "classe": "quota",
+        "code": "quota_depasse",
+        "reprise": "2026-11-01T08:00:00Z"
+      }
+    }
+  ],
+  "envoyes": 0
+}

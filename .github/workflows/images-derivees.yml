@@ -6,11 +6,17 @@ on:
     paths:
       - ops/images/**
       - .github/workflows/images-derivees.yml
+      - scripts/releve-trivy.ts
+      - .nvmrc
+      - package.json
   push:
     branches: [main]
     paths:
       - ops/images/**
       - .github/workflows/images-derivees.yml
+      - scripts/releve-trivy.ts
+      - .nvmrc
+      - package.json
   schedule:
     - cron: "41 4 * * 1"
   workflow_dispatch:

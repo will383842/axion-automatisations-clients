@@ -121,7 +121,7 @@ function analyserWorkflow(doc: Obj): string[] {
 const CHEMINS = ["ops/images/**", ".github/workflows/images-derivees.yml", "scripts/releve-trivy.ts", ".nvmrc", "package.json"];
 const ON = { pull_request: { paths: CHEMINS }, push: { branches: ["main"], paths: CHEMINS }, schedule: [{ cron: "41 4 * * 1" }], workflow_dispatch: null };
 const EVALUATEUR = "scripts/releve-trivy.ts";
-const EMPREINTE_EVALUATEUR = "a-remplir";
+const EMPREINTE_EVALUATEUR = "5139964208674ab07dfb3e96c2a7941985bddd739f571d5e199260ef52a27da9";
 const sha = (texte: string) => createHash("sha256").update(texte).digest("hex");
 // L'évaluateur décide seul si Trivy passe : son contenu est figé comme les blocs run.
 const analyserEvaluateur = (texte: string): string[] => (sha(texte) === EMPREINTE_EVALUATEUR ? [] : ["releve-trivy.ts : empreinte différente de celle figée"]);

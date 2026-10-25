@@ -10,9 +10,9 @@ const SOCLE = new Set(["mailpit", "recepteurs"]);
 describe("garde des destinations", () => {
   it("[C-533] @envoi garde-destinations refuse graph.microsoft.com et n'affiche que le nom de la variable", () => {
     expect(verifierDestinations({ GRAPH_URL: "https://graph.microsoft.com/v1.0" }, SOCLE)).toEqual(["GRAPH_URL"]);
-    const erreurs = verifierDestinations({ GRAPH_URL: "https://jeton-ne-pas-afficher" + "@example.com/v1.0" }, SOCLE);
+    const erreurs = verifierDestinations({ GRAPH_URL: "https://jeton-ne-pas-afficher@exemple.com/v1.0" }, SOCLE);
     expect(erreurs).toEqual(["GRAPH_URL"]);
-    expect(JSON.stringify(erreurs)).not.toContain("example.com");
+    expect(JSON.stringify(erreurs)).not.toContain("exemple.com");
     expect(JSON.stringify(erreurs)).not.toContain("jeton-ne-pas-afficher");
   });
 
@@ -42,7 +42,7 @@ describe("garde des destinations", () => {
   it("[C-533] @envoi contournements : identifiant trompeur, sous-domaine piégé, hôte vide, URL illisible, majuscules", () => {
     const erreurs = verifierDestinations(
       {
-        GRAPH_URL: "http://localhost" + "@example.com/",
+        GRAPH_URL: "http://localhost@exemple.com/",
         GMAIL_URL: "http://localhost.example.com/",
         TELEGRAM_URL: "http://",
         MAILWIZZ_URL: "pas une url",
@@ -76,12 +76,12 @@ describe("garde des destinations", () => {
   });
 
   it("[C-533] @envoi contournement : SMTP_HOTE avec schéma, identifiant ou espace est refusé", () => {
-    const erreurs = verifierDestinations({ SMTP_HOTE: "smtps://smtp.example.com:465", WEBHOOK_C: "mailpit" + "@example.com", GRAPH_URL: "mailpit smtp.example.com" }, SOCLE);
+    const erreurs = verifierDestinations({ SMTP_HOTE: "smtps://smtp.example.com:465", WEBHOOK_C: "mailpit@exemple.com", GRAPH_URL: "mailpit smtp.example.com" }, SOCLE);
     expect(erreurs.sort()).toEqual(["GRAPH_URL", "SMTP_HOTE", "WEBHOOK_C"]);
   });
 
   it("[C-533] @envoi refuse aussi les variables *_ENDPOINT et *_DSN vers l'extérieur", () => {
-    expect(verifierDestinations({ API_ENDPOINT: "https://api.example.com/", ERREURS_DSN: "https://cle" + "@example.com/1" }, SOCLE)).toEqual([
+    expect(verifierDestinations({ API_ENDPOINT: "https://api.example.com/", ERREURS_DSN: "https://cle@exemple.com/1" }, SOCLE)).toEqual([
       "API_ENDPOINT",
       "ERREURS_DSN",
     ]);

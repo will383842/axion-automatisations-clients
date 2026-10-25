@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { load } from "js-yaml";
@@ -43,6 +44,7 @@ function instructions(texte: string): Instruction[] {
 function analyserDockerfile(texte: string): string[] {
   const erreurs: string[] = [];
   const liste = instructions(texte);
+  if (texte.split("\n").some((l) => /^\s*#\s*[A-Za-z]+\s*=/.test(l))) erreurs.push("directive d'analyse (syntax, escape, check) interdite");
   const from = liste.filter((i) => i.cmd === "FROM");
   if (from.length !== 1) erreurs.push("un seul FROM exigé");
   if (from[0]?.arg !== AMONT) erreurs.push("FROM différent de l'amont épinglé par empreinte");
@@ -112,6 +114,24 @@ function analyserWorkflow(doc: Obj): string[] {
   else if (!estObj(attestation?.with) || attestation.with["subject-digest"] !== `\${{ steps.${id}.outputs.empreinte }}` || attestation.with["subject-name"] !== IMAGE || attestation.with["push-to-registry"] !== true) erreurs.push("attestation : doit porter l'empreinte poussée");
   const construire = jobs.construire;
   if (trouver(construire, "releve-trivy.ts --garde") < 0 || trouver(construire, "aquasecurity/trivy") < 0 || trouver(construire, "pg_isready") < 0) erreurs.push("construire : fumée, Trivy et évaluateur exigés");
+  return [...erreurs, ...analyserForme(jobs)];
+}
+
+const empreinteRun = (e: Obj) => createHash("sha256").update(String(e.run).trim()).digest("hex");
+const suite = (job: unknown) => etapes(job).map((e) => (typeof e.uses === "string" ? e.uses : empreinteRun(e)));
+const CHECKOUT = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1";
+const SETUP_NODE = "actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1";
+const ATTESTATION = "actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8";
+const SUITE_CONSTRUIRE = [CHECKOUT, SETUP_NODE, "2cc82b403c67a4e486037fa8bca9d916b741363c20a1d849a3f7b53ca77beb75", "2b4e7f6c62e6037dcd3066d1bfdf04198fdb53ba15ad1155d64f01436d6fbf28", "141ad4b7e734456991654ae2e26f05ec4899efb2ad3828e0b77650ceec614614", "95587cf550dce1fbc69f7e8d88b456602526e53d79e7102cded09b33f724b58f"];
+const SUITE_PUBLIER = [...SUITE_CONSTRUIRE, "89dd0a51528b351200f20dee084db620976d939f9eda0c815e52b9fba10202bd", ATTESTATION];
+
+function analyserForme(jobs: Obj): string[] {
+  const erreurs: string[] = [];
+  if (JSON.stringify(suite(jobs.construire)) !== JSON.stringify(SUITE_CONSTRUIRE)) erreurs.push("construire : suite exacte des étapes attendue");
+  if (JSON.stringify(suite(jobs.publier)) !== JSON.stringify(SUITE_PUBLIER)) erreurs.push("publier : suite exacte des étapes attendue (aucune étape ajoutée, retirée ni modifiée)");
+  const clefs = (j: unknown) => (estObj(j) ? Object.keys(j).sort().join(",") : "");
+  if (clefs(jobs.publier) !== "if,name,needs,permissions,runs-on,steps") erreurs.push("publier : clés exactes if, name, needs, permissions, runs-on, steps (ni env ni timeout-minutes)");
+  if (clefs(jobs.construire) !== "name,permissions,runs-on,steps") erreurs.push("construire : clés exactes name, permissions, runs-on, steps");
   return erreurs;
 }
 

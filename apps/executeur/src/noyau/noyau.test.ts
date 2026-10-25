@@ -50,8 +50,8 @@ function couperUneFois(b: ReturnType<typeof banc>) {
   };
 }
 
-// Un processus mort laisse son bail : la reprise attend qu'il expire (120 s par défaut).
-const apresCoupure = (b: ReturnType<typeof banc>) => b.horloge.regler(b.horloge.maintenant() + 121_000);
+// Un processus mort laisse son bail : la reprise attend qu'il expire (fin de l'étape + marge de 60 s).
+const apresCoupure = (b: ReturnType<typeof banc>) => b.horloge.regler(b.horloge.maintenant() + 181_000);
 
 describe("reprise", () => {
   it("[A-315] une exécution coupée après l'étape 2 reprend à l'étape 3", async () => {
@@ -368,5 +368,78 @@ describe("attaques de l'audit (tour 1)", () => {
       ],
     });
     expect(() => new Machine({ module, etapes: { accuser: { executer: async () => undefined } }, ports: {} as never })).toThrow(/envoyer/);
+  });
+});
+
+describe("attaques de l'audit (tour 2)", () => {
+  const garanties: Garantie[] = ["idempotent_par_cle", "verifiable_apres_coup", "au_plus_une_fois"];
+  const longue = (b: ReturnType<typeof banc>, ms: number) => {
+    b.connecteur.surAppel = async () => void (await b.horloge.attendre(ms));
+  };
+
+  it.each(garanties)("[A-316] @anti-doublon un appel en vol plus long que l'étape garde son bail : le nouvel essai ne rappelle pas l'outil (%s)", async (g) => {
+    const b = banc({ e1: envoyer }, g, { delai: 10 });
+    longue(b, 30_000);
+    expect((await b.lancer()).statut).toBe("en_cours");
+    expect(b.connecteur.appels).toHaveLength(1);
+    await b.horloge.piloter(b.horloge.attendre(25_000));
+    expect(b.connecteur.appels).toHaveLength(1);
+  });
+
+  it("[A-316] @anti-doublon un appel coupé par le signal ne rend pas son bail", async () => {
+    const b = banc({ e1: envoyer }, "verifiable_apres_coup", { delai: 10 });
+    let liberations = 0;
+    const liberer = b.boite.liberer.bind(b.boite);
+    b.boite.liberer = async (cle, proprietaire) => void (liberations++, await liberer(cle, proprietaire));
+    b.connecteur.surAppel = async () => {
+      await b.horloge.attendre(30_000);
+      throw new ErreurConnecteur("passagere", "coupe");
+    };
+    expect((await b.lancer()).statut).toBe("en_cours");
+    await b.horloge.piloter(b.horloge.attendre(25_000));
+    expect(liberations).toBe(0);
+    expect(b.boite.toutes()[0]?.bail).toBeDefined();
+  });
+
+  it.each(garanties)("[A-316] @anti-doublon un lancement perdant n'inscrit aucun échec et n'envoie ni erreur ni fin (%s)", async (g) => {
+    const b = banc({ e1: envoyer }, g);
+    longue(b, 60_000);
+    const statuts = (await Promise.all([b.lancer(), b.lancer()])).map((r) => r.statut).sort();
+    expect(statuts).toEqual(["en_cours", "terminee"]);
+    expect((await b.journal.lire("inst-1", "exec-1")).filter((e) => e.statut === "echec")).toHaveLength(0);
+    expect(b.console.evenements.filter((e) => e.type === "erreur")).toHaveLength(0);
+    expect(b.console.evenements.filter((e) => e.type === "fin")).toHaveLength(1);
+    expect(b.connecteur.appels).toHaveLength(1);
+  });
+
+  it("[A-315] le gagnant coupé à l'étape 2 : la reprise finit, le perdant n'a rien empoisonné", async () => {
+    let coupure = true;
+    const b = banc({
+      e1: envoyer,
+      e2: async () => {
+        if (coupure) throw new CoupureProcessus();
+      },
+    });
+    longue(b, 60_000);
+    const r = await Promise.allSettled([b.lancer(), b.lancer()]);
+    expect(r.filter((x) => x.status === "rejected")).toHaveLength(1);
+    apresCoupure(b);
+    coupure = false;
+    expect((await b.lancer()).statut).toBe("terminee");
+  });
+
+  it("[A-319] @anti-doublon un bail repris par un autre : l'effet n'est pas compté, l'intention reste à trancher", async () => {
+    const b = banc({ e1: envoyer }, "idempotent_par_cle");
+    b.boite.marquerFaite = async () => false;
+    expect((await b.lancer()).statut).toBe("a_trancher");
+  });
+
+  it("[A-285] attaque : l'état voulu relu avant une étape doit porter l'instance demandée", async () => {
+    const b = banc({ e1: async () => undefined, e2: envoyer });
+    const lire = b.console.lireEtatVoulu.bind(b.console);
+    let n = 0;
+    b.console.lireEtatVoulu = async (id) => ({ ...(await lire(id)), instanceId: n++ === 0 ? id : "inst-X" });
+    expect((await b.lancer()).statut).toBe("echec");
+    expect(b.connecteur.appels).toHaveLength(0);
   });
 });

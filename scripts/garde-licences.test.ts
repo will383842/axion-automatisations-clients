@@ -221,4 +221,58 @@ describe("garde-licences : lecture des workflows", () => {
     expect(verifierInstallationsFigees([{ nom: "w.yml", texte: "jobs: [" }])).not.toEqual([]);
     expect(verifierWorkflowsLicences([{ nom: "w.yml", texte: "jobs: [" }])).not.toEqual([]);
   });
+describe("garde-licences : exception CC-BY-4.0 nommée pour caniuse-lite (ADR 0011)", () => {
+  const prod = new Set(["caniuse-lite"]);
+  const verifier = (licence: string, nom: string, production: Set<string> = prod) => verifierLicences({ [licence]: paquet(nom) }, new Set(), production);
+
+  it("[A-047] accepte caniuse-lite en CC-BY-4.0 quand c'est une dépendance de production", () => {
+    expect(verifier("CC-BY-4.0", "caniuse-lite")).toEqual([]);
+  });
+  it("[A-047] refuse caniuse-lite en CC-BY-4.0 hors production", () => {
+    expect(verifier("CC-BY-4.0", "caniuse-lite", new Set())).toHaveLength(1);
+  });
+  it("[A-047] refuse un autre paquet en CC-BY-4.0, même en production", () => {
+    expect(verifier("CC-BY-4.0", "autre", new Set(["autre"]))).toHaveLength(1);
+  });
+  it("[A-047] refuse un nom usurpé : autre portée ou nom proche", () => {
+    for (const nom of ["@evil/caniuse-lite", "@types/caniuse-lite", "caniuse-lite2", "caniuse-lit", "Caniuse-Lite"]) {
+      expect(verifier("CC-BY-4.0", nom, new Set([nom]))).toHaveLength(1);
+    }
+  });
+  it("[A-047] refuse une autre licence ou une autre version de licence sur caniuse-lite", () => {
+    for (const licence of ["CC-BY-3.0", "CC-BY-2.5", "CC-BY-NC-4.0", "CC-BY-NC", "CC-BY-SA-4.0", "CC-BY-SA", "CC-BY-ND-4.0", "CC0-1.0", "CC-BY-4.0-only", "GPL-3.0"]) {
+      expect(verifier(licence, "caniuse-lite")).toHaveLength(1);
+    }
+  });
+  it("[A-047] refuse les variantes de casse ou d'écriture de la licence", () => {
+    for (const licence of ["cc-by-4.0", "Cc-By-4.0", "CC-BY-4.0 ", " CC-BY-4.0", "CC-BY-4.0+", "CC BY 4.0"]) {
+      expect(verifier(licence, "caniuse-lite")).toHaveLength(1);
+    }
+  });
+  it("[A-047] refuse un SPDX composite contenant CC-BY-4.0", () => {
+    for (const licence of ["CC-BY-4.0 AND MIT", "MIT AND CC-BY-4.0", "(CC-BY-4.0)", "(CC-BY-4.0 AND MIT)", "CC-BY-4.0 AND CC-BY-NC-4.0", "CC-BY-4.0 OR GPL-3.0", "GPL-3.0 OR CC-BY-4.0", "CC-BY-4.0 AND (MIT OR ISC)"]) {
+      expect(verifier(licence, "caniuse-lite")).toHaveLength(1);
+    }
+  });
+  it("[A-047] l'exception ne rend pas CC-BY-4.0 permise pour les autres paquets d'une même liste", () => {
+    const erreurs = verifierLicences({ "CC-BY-4.0": [...paquet("caniuse-lite"), ...paquet("autre")] }, new Set(), new Set(["caniuse-lite", "autre"]));
+    expect(erreurs).toHaveLength(1);
+    expect(erreurs[0]).toContain("autre");
+  });
+});
+
+describe("attribution CC-BY-4.0 de caniuse-lite (ADR 0011)", () => {
+  const racine = fileURLToPath(new URL("..", import.meta.url));
+  for (const app of ["console", "portail"]) {
+    it(`[A-047] apps/${app}/public/attributions.txt cite la source, l'auteur et la licence`, () => {
+      const texte = readFileSync(`${racine}apps/${app}/public/attributions.txt`, "utf8");
+      expect(texte).toContain("caniuse-lite");
+      expect(texte).toContain("https://github.com/browserslist/caniuse-lite");
+      expect(texte).toContain("https://caniuse.com");
+      expect(texte).toContain("https://creativecommons.org/licenses/by/4.0/");
+      expect(texte).toContain("CC-BY-4.0");
+      expect(texte).toContain("Alexis Deveria");
+      expect(texte).toContain("Ben Briggs");
+    });
+  }
 });

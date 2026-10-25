@@ -176,7 +176,8 @@ describe("clés HMAC des échanges (C-015)", () => {
 });
 
 describe("politiques OpenBao de la fiche T1A-07", () => {
-  const interdits = (d: Droits) => d.filter((x) => x.capacites.some((c) => ["sudo", "delete"].includes(c)) || x.chemin === "*" || x.chemin.startsWith("sys/") || x.chemin.includes("export"));
+  // Seule exception, nommée : l'instantané raft du rôle secours (ADR 0017). Tout autre chemin sys/ reste interdit, pour tous les rôles.
+  const interdits = (d: Droits, role = "") => d.filter((x) => x.capacites.some((c) => ["sudo", "delete"].includes(c)) || x.chemin === "*" || (x.chemin.startsWith("sys/") && !(role === "secours" && x.chemin === "sys/storage/raft/snapshot")) || x.chemin.includes("export"));
   it("[C-015] @isolation echanges : lecture, écriture et liste de technique/…/echanges seulement ; rien d'autre", () => {
     expect(politique("echanges")).toEqual([
       { chemin: "technique/data/echanges/*", capacites: ["create", "update", "read"] },
@@ -190,24 +191,20 @@ describe("politiques OpenBao de la fiche T1A-07", () => {
       { chemin: "transit/keys/modules-signature", capacites: ["read"] },
     ]);
   });
-  it("[A-303] secours : copie de la clé de signature et lecture des clés HMAC, sans signer ni écrire", () => {
-    expect(politique("secours")).toEqual([
-      { chemin: "transit/backup/modules-signature", capacites: ["read"] },
-      { chemin: "transit/keys/modules-signature", capacites: ["read"] },
-      { chemin: "technique/data/echanges/*", capacites: ["read"] },
-      { chemin: "technique/metadata/echanges/*", capacites: ["list"] },
-    ]);
+  it("[A-303] secours : instantané raft de tout OpenBao en lecture, rien d'autre", () => {
+    expect(politique("secours")).toEqual([{ chemin: "sys/storage/raft/snapshot", capacites: ["read"] }]);
   });
   it("[C-015] @isolation aucune politique ne donne sudo, suppression, export ni chemin large ; courtier, equipe et api ne touchent pas technique/", () => {
-    for (const role of ["signature", "echanges", "secours", "courtier", "equipe"]) expect(interdits(politique(role)), role).toEqual([]);
+    for (const role of ["signature", "echanges", "secours", "courtier", "equipe"]) expect(interdits(politique(role), role), role).toEqual([]);
     // L'API garde seulement la destruction d'une clé client (T1A-06) : jamais sudo, jamais sys/, jamais le chemin racine.
     expect(interdits(politique("api")).filter((d) => d.capacites.includes("sudo") || !d.chemin.startsWith("transit/keys/cli-"))).toEqual([]);
     for (const role of ["courtier", "equipe", "api"]) expect(politique(role).filter((d) => d.chemin.startsWith("technique") || d.chemin.includes("modules-signature")), role).toEqual([]);
   });
-  it("[A-193] initialiser.sh : monte technique/ (KV v2), crée la clé ed25519 non exportable avec copie permise, écrit les trois politiques et leurs jetons", () => {
+  it("[A-193] initialiser.sh : monte technique/ (KV v2), crée la clé ed25519 non exportable sans copie transit, écrit les trois politiques et leurs jetons", () => {
     const s = lire("ops/socle/openbao/initialiser.sh");
     expect(s).toContain("secrets enable -path=technique -version=2 kv");
-    expect(s).toContain("transit/keys/modules-signature type=ed25519 exportable=false allow_plaintext_backup=true");
+    expect(s).toContain("transit/keys/modules-signature type=ed25519 exportable=false");
+    expect(s).not.toContain("allow_plaintext_backup");
     expect(s).toContain("for role in api courtier equipe signature echanges secours; do");
     expect(s).not.toContain("transit/export");
     expect(s).not.toMatch(/echo[^\n]*(jeton|part)/);

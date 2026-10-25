@@ -32,8 +32,8 @@ unset racine
 bao secrets enable -path=clients -version=2 kv >/dev/null
 bao secrets enable transit >/dev/null
 bao secrets enable -path=technique -version=2 kv >/dev/null
-# Clé de signature des modules (A-193) : jamais exportable ; la copie de secours (A-303) reste possible et ne se retire plus jamais.
-bao write -f transit/keys/modules-signature type=ed25519 exportable=false allow_plaintext_backup=true >/dev/null
+# Clé de signature des modules (A-193) : jamais exportable, pas de copie transit ; le secours (A-303) se fait par instantané raft (ADR 0017).
+bao write -f transit/keys/modules-signature type=ed25519 exportable=false >/dev/null
 for role in api courtier equipe signature echanges secours; do
   bao policy write "$role" - <"$dossier/politiques/$role.hcl" >/dev/null
   jeton="$(bao token create -policy="$role" -no-default-policy -orphan -period=768h -format=json | jq -r '.auth.client_token')"

@@ -9,7 +9,6 @@ import { creerSignature } from "./signature.js";
 // Droits par rôle : ils sont comparés aux vrais fichiers de politiques dans cles-echanges.test.ts.
 const DROITS: Record<string, string[]> = {
   signature: ["POST sign", "POST verify", "GET keys"],
-  secours: ["GET backup", "GET keys"],
   api: [],
 };
 const URL_BAO = "http://openbao.test:8200";
@@ -36,16 +35,6 @@ function creerFauxTransit() {
       etat.cle = { privee: privateKey, publique: publicKey, exportable: json.exportable, sauvegarde: json.allow_plaintext_backup };
       return rep(204, null);
     }
-    if (action === "restore") {
-      try {
-        const { pem } = JSON.parse(Buffer.from(String(json.backup), "base64").toString()) as { pem: string };
-        const privee = createPrivateKey(pem);
-        etat.cle = { privee, publique: createPublicKey(privee), exportable: false, sauvegarde: true };
-        return rep(204, null);
-      } catch {
-        return rep(400, { errors: ["invalid backup"] });
-      }
-    }
     if (!etat.cle) return rep(404, { errors: [] });
     if (action === "keys") return rep(200, { data: { type: "ed25519", exportable: etat.cle.exportable, allow_plaintext_backup: etat.cle.sauvegarde } });
     if (action === "sign") return rep(200, { data: { signature: `vault:v1:${sign(null, Buffer.from(String(json.input), "base64"), etat.cle.privee).toString("base64")}` } });
@@ -53,10 +42,7 @@ function creerFauxTransit() {
       const s = String(json.signature).replace(/^vault:v1:/, "");
       return rep(200, { data: { valid: verify(null, Buffer.from(String(json.input), "base64"), etat.cle.publique, Buffer.from(s, "base64")) } });
     }
-    if (action === "backup") {
-      if (etat.cle.sauvegarde !== true) return rep(400, { errors: ["plaintext backup is disallowed"] });
-      return rep(200, { data: { backup: Buffer.from(JSON.stringify({ pem: etat.cle.privee.export({ type: "pkcs8", format: "pem" }) })).toString("base64") } });
-    }
+    if (action === "backup") return rep(500, { errors: ["1 error occurred:\n\t* exporting is disallowed on the policy"] });
     return rep(404, { errors: [] });
   };
   return { etat, jeton, fetch: f };
@@ -74,11 +60,26 @@ const refus = async (p: Promise<unknown>, code?: string) => {
 const octets = () => Buffer.from(`module-${randomUUID()}`);
 
 describe("signature des modules : clé Ed25519 dans OpenBao", () => {
-  it("[A-193] la clé est créée en ed25519, non exportable, avec copie de secours permise", async () => {
+  it("[A-193] la clé est créée en ed25519, non exportable, sans copie en clair", async () => {
     await creerSignature({ url: URL_BAO, jeton: "racine", fetch: bao.fetch }).creerCle();
     const c = JSON.parse(bao.etat.appels[0]?.corps ?? "{}") as Record<string, unknown>;
-    expect(c).toMatchObject({ type: "ed25519", exportable: false, allow_plaintext_backup: true });
-    expect(await signataire("signature").etatCle()).toEqual({ type: "ed25519", exportable: false, sauvegardePossible: true });
+    expect(c).toEqual({ type: "ed25519", exportable: false });
+    expect(c).not.toHaveProperty("allow_plaintext_backup");
+    expect(await signataire("signature").etatCle()).toEqual({ type: "ed25519", exportable: false, sauvegardeEnClair: false });
+  });
+  it("[A-193] etatCle refuse une clé exportable ou avec copie en clair", async () => {
+    await creerSignature({ url: URL_BAO, jeton: "racine", fetch: bao.fetch }).creerCle();
+    for (const [exportable, sauvegarde] of [[true, undefined], [false, true], [true, true]]) {
+      bao.etat.cle!.exportable = exportable;
+      bao.etat.cle!.sauvegarde = sauvegarde;
+      await refus(signataire("signature").etatCle(), "coffre_indisponible");
+    }
+  });
+  it("[A-193] le transit refuse la sauvegarde d'une clé non exportable : le paquet en clair est impossible", async () => {
+    await creerSignature({ url: URL_BAO, jeton: "racine", fetch: bao.fetch }).creerCle();
+    const r = await bao.fetch(`${URL_BAO}/v1/transit/backup/modules-signature`, { headers: { "x-vault-token": "racine" } });
+    expect(r.status).toBe(500);
+    expect(JSON.stringify(await r.json())).toContain("exporting is disallowed");
   });
   it("[A-193] le code n'appelle jamais l'export de la clé privée et refuse de créer une clé exportable", async () => {
     const source = readFileSync(fileURLToPath(new URL("./signature.ts", import.meta.url)), "utf8");
@@ -115,44 +116,5 @@ describe("signature des modules : clé Ed25519 dans OpenBao", () => {
     bao.etat.scelle = true;
     await refus(signataire("signature").signer(octets()), "coffre_scelle");
     await refus(signataire("signature").verifier(octets(), "vault:v1:AAAA"), "coffre_scelle");
-  });
-});
-
-describe("copie de secours de la clé de signature", () => {
-  it("[A-303] @isolation le jeton de signature ne sort pas la copie, le jeton de secours ne signe pas", async () => {
-    await creerSignature({ url: URL_BAO, jeton: "racine", fetch: bao.fetch }).creerCle();
-    await refus(signataire("signature").exporterSecours(), "refuse");
-    await refus(signataire("api").exporterSecours(), "refuse");
-    await refus(signataire("secours").signer(octets()), "refuse");
-    expect((await signataire("secours").exporterSecours()).length).toBeGreaterThan(0);
-  });
-  it("[A-303] le paquet de secours restauré dans un second OpenBao neuf vérifie une signature faite avant", async () => {
-    await creerSignature({ url: URL_BAO, jeton: "racine", fetch: bao.fetch }).creerCle();
-    const m = octets(), signature = await signataire("signature").signer(m);
-    const paquet = await signataire("secours").exporterSecours();
-    const second = creerFauxTransit();
-    second.etat.jetons.set("racine", "racine");
-    await creerSignature({ url: URL_BAO, jeton: "racine", fetch: second.fetch }).restaurerSecours(paquet);
-    const s2 = creerSignature({ url: URL_BAO, jeton: second.jeton("signature"), fetch: second.fetch });
-    expect(await s2.verifier(m, signature)).toBe(true);
-  });
-  it("[A-303] un paquet altéré ou vide est refusé à la restauration", async () => {
-    await creerSignature({ url: URL_BAO, jeton: "racine", fetch: bao.fetch }).creerCle();
-    const paquet = await signataire("secours").exporterSecours();
-    paquet[3] = (paquet[3] ?? 0) ^ 0xff;
-    const racine = creerSignature({ url: URL_BAO, jeton: "racine", fetch: creerFauxTransit().fetch });
-    await refus(racine.restaurerSecours(paquet));
-    await refus(racine.restaurerSecours(Buffer.alloc(0)), "requete_refusee");
-  });
-  it("[A-303] la copie sans permission, scellée ou mal formée ne recopie jamais le paquet dans l'erreur", async () => {
-    await creerSignature({ url: URL_BAO, jeton: "racine", fetch: bao.fetch }).creerCle();
-    const paquet = (await signataire("secours").exporterSecours()).toString("base64");
-    const erreurs = [await refus(signataire("signature").exporterSecours())];
-    bao.etat.forcer = () => ({ data: { backup: "%%pas du base64%%" } });
-    erreurs.push(await refus(signataire("secours").exporterSecours(), "coffre_indisponible"));
-    bao.etat.forcer = undefined;
-    bao.etat.scelle = true;
-    erreurs.push(await refus(signataire("secours").exporterSecours(), "coffre_scelle"));
-    for (const e of erreurs) expect(`${e.message}${e.stack ?? ""}`).not.toContain(paquet);
   });
 });

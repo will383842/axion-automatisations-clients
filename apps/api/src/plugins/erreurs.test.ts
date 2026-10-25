@@ -32,7 +32,7 @@ describe("format d'erreur commun", () => {
   it("[LOT1-api] attaque : on peut jeter autre chose qu'une Error sans casser le format", async () => {
     const serveur = construireServeur();
     serveur.get("/essai", async () => {
-      throw "texte brut"; // eslint-disable-line @typescript-eslint/only-throw-error
+      throw "texte brut";
     });
     const reponse = await serveur.inject({ method: "GET", url: "/essai" });
     expect(reponse.statusCode).toBe(500);

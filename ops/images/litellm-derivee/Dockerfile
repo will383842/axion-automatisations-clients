@@ -3,4 +3,4 @@ FROM ghcr.io/berriai/litellm-non_root:main-v1.83.14-stable.patch.3@sha256:6da3c8
 USER root
 COPY correctifs.txt /tmp/correctifs.txt
 RUN python -m ensurepip && python -m pip install --no-cache-dir --no-deps --require-hashes -r /tmp/correctifs.txt && python -m pip check && python -c "import importlib.metadata as m; assert m.version('litellm') == '1.83.14'" && python -m pip uninstall -y pip && rm /tmp/correctifs.txt
-USER nonroot
+USER 65534

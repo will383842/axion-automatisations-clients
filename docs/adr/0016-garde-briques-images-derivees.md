@@ -1,6 +1,6 @@
 # ADR 0016 — Garde des briques : images dérivées et attestation
 
-Numéro 0016 : 0015 est réservé à la construction de l'image dérivée LiteLLM. Complète l'ADR 0014.
+Numéro 0016 : le 0015 est pris par le stockage d'objets. Complète l'ADR 0014.
 
 ## Contexte
 L'ADR 0014 fait publier par la CI des images dérivées temporaires. La garde des briques doit pouvoir les inscrire sans qu'une empreinte inventée, poussée à la main ou venue d'une autre source puisse passer.

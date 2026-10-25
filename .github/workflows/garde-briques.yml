@@ -33,6 +33,6 @@ jobs:
           for ref in $(node scripts/garde-briques.ts --derivees); do
             fichier="$RUNNER_TEMP/attestation-$(printf '%s' "${ref%%@*}" | tr '/:' '--').json"
             gh attestation verify "oci://$ref" --repo will383842/axion-automatisations-clients --signer-workflow will383842/axion-automatisations-clients/.github/workflows/images-derivees.yml --format json > "$fichier" || { echo "Attestation introuvable ou refusée pour ${ref%%@*}" >&2; statut=1; continue; }
-            node scripts/garde-briques.ts --attestation "$fichier" "$ref" || statut=1
+            node scripts/garde-briques.ts --attestation "$fichier" "$ref" && echo "attestation vérifiée : $ref" || statut=1
           done
           exit "$statut"

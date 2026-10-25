@@ -10,6 +10,7 @@ const CLES = ["nom", "image", "version", "empreinte", "licence", "livree", "lieu
 const OPTIONNELLES = ["note", "derivee"];
 // Image dérivée (ADR 0014, ADR 0016) : publiée par notre CI seulement, attestée par images-derivees.yml sur main.
 const DEPOT_DERIVEES = "ghcr.io/will383842/axion-automatisations-clients/";
+const COMPTE_GHCR = "ghcr.io/will383842";
 const DEPOT_GITHUB = "https://github.com/will383842/axion-automatisations-clients";
 const SIGNATAIRE = `${DEPOT_GITHUB}/.github/workflows/images-derivees.yml@refs/heads/main`;
 const AMONT_EPINGLE = /^[^\s@]+@sha256:[0-9a-f]{64}$/;
@@ -50,6 +51,12 @@ interface Compose {
   nom: string;
   texte: string;
 }
+
+// Tout le compte, racine et autres paquets compris : une image poussée à la main ou par une branche n'a pas de provenance.
+const estDuCompte = (image: string) => {
+  const { depot } = lireImage(image);
+  return depot === COMPTE_GHCR || depot.startsWith(`${COMPTE_GHCR}/`);
+};
 
 export function lireImage(ref: string): Image {
   const [nom = "", empreinte = ""] = ref.split("@") as [string, string?];
@@ -162,8 +169,11 @@ export function verifierAttestation(sortie: string, image: string, empreinte: st
     const st = estObjet(a) && estObjet(a.verificationResult) ? a.verificationResult.statement : undefined;
     return estObjet(st) && Array.isArray(st.subject) ? st.subject : [];
   };
-  const bon = signees.some((a) => sujets(a).some((s) => estObjet(s) && estObjet(s.digest) && `sha256:${String(s.digest.sha256)}` === empreinte));
-  return bon ? [] : echec(`empreinte attestée différente de ${empreinte}`);
+  const memeEmpreinte = (s: unknown) => estObjet(s) && estObjet(s.digest) && `sha256:${String(s.digest.sha256)}` === empreinte;
+  const sujetsBons = signees.flatMap(sujets).filter(memeEmpreinte);
+  if (!sujetsBons.length) return echec(`empreinte attestée différente de ${empreinte}`);
+  const depot = lireImage(image).depot;
+  return sujetsBons.some((s) => estObjet(s) && typeof s.name === "string" && lireImage(s.name).depot === depot) ? [] : echec(`nom du sujet attesté différent de ${depot}`);
 }
 
 export function listerDerivees(briques: Brique[]): string[] {
@@ -201,8 +211,9 @@ function verifierBrique(fichier: string, contenu: unknown, options: Options = {}
   if (source && !sourceSure(source)) echec("source : adresse https d'un projet, sans adresse IP ni hôte interne");
   if (verifie && !dateReelle(verifie)) echec(`verifie_le « ${verifie} » n'est pas une date AAAA-MM-JJ réelle`);
   if (image && (image.split("/")[0] ?? "").includes(":")) echec("image : port interdit dans le nom d'hôte du registre (A-381)");
+  if (image && ((image.split("/")[0] ?? "").endsWith(".") || image.split("@")[0]?.includes("//"))) echec("image : hôte terminé par un point ou double barre interdits (A-381)");
   if ("derivee" in contenu) erreurs.push(...verifierDerivee(fichier, contenu, options));
-  else if (image.startsWith(DEPOT_DERIVEES)) echec("derivee obligatoire pour une image de notre dépôt GHCR : l'attestation ne se vérifie que par elle (ADR 0016)");
+  else if (estDuCompte(image)) echec("derivee obligatoire pour toute image du compte GHCR will383842 : l'attestation ne se vérifie que par elle (ADR 0016)");
   return erreurs;
 }
 

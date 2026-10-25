@@ -227,3 +227,36 @@ describe("briques réelles : images dérivées publiées par images-derivees.yml
     expect(sortie.status).toBe(0);
   });
 });
+
+describe("garde-briques : audit tour 2/2 — images de notre compte GHCR (R2)", () => {
+  const sansDerivee = (image: string) => {
+    const b: Record<string, unknown> = brique({ image });
+    delete b.derivee;
+    return verifierBriques([{ fichier: "ops/briques/postgres.json", contenu: b }], []).join("\n");
+  };
+  it("[A-381] brique : la racine du dépôt GHCR, sans barre finale, exige derivee", () => {
+    expect(sansDerivee("ghcr.io/will383842/axion-automatisations-clients")).toMatch(/derivee.*obligatoire/);
+  });
+  it("[A-381] brique : tout autre paquet du compte will383842 exige derivee, même en majuscules", () => {
+    for (const image of ["ghcr.io/will383842/autre-paquet", "ghcr.io/will383842", "ghcr.io/Will383842/Autre", "ghcr.io/will383842/a/b"]) expect(sansDerivee(image), image).toMatch(/derivee.*obligatoire/);
+  });
+  it("[A-381] brique : une image amont d'un autre compte reste admise sans derivee", () => {
+    expect(sansDerivee("ghcr.io/will3838420/x")).not.toMatch(/derivee/);
+    expect(sansDerivee("postgres")).not.toMatch(/derivee/);
+  });
+  it("[A-381] brique : un hôte terminé par un point ou une double barre est refusé", () => {
+    for (const image of ["ghcr.io./will383842/axion-automatisations-clients/x", "ghcr.io//will383842/axion-automatisations-clients/x", "ghcr.io/will383842//x", "postgres//x"]) expect(sansDerivee(image), image).toMatch(/image/);
+  });
+  it("[A-381] attestation : le nom du sujet doit être l'image de la brique", () => {
+    const autre = [{ name: "ghcr.io/will383842/axion-automatisations-clients/autre", digest: { sha256: "c".repeat(64) } }];
+    expect(attester([attestation({ sujets: autre })])).toMatch(/nom/);
+    expect(attester([attestation({ sujets: [{ digest: { sha256: "c".repeat(64) } }] })])).toMatch(/nom/);
+  });
+  it("[A-381] garde-briques.yml : une ligne « attestation vérifiée : image@empreinte » par image", () => {
+    expect(etapeAtt()).toContain("attestation vérifiée : $ref");
+  });
+});
+function etapeAtt(): string {
+  const d = load(lire(".github/workflows/garde-briques.yml")) as { jobs: Record<string, { steps: Array<{ run?: string }> }> };
+  return d.jobs["garde-briques"]?.steps.find((e) => e.run?.includes("gh attestation verify"))?.run ?? "";
+}

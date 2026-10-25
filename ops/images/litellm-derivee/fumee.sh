@@ -4,6 +4,7 @@ set -eu
 image=$1
 amont=$2
 docker pull --quiet "$amont" >/dev/null
+echo "utilisateur amont : [$(docker inspect --format '{{.Config.User}}' "$amont")] ; dérivée : [$(docker inspect --format '{{.Config.User}}' "$image")]"
 test "$(docker inspect --format '{{.Config.User}}' "$image")" = "$(docker inspect --format '{{.Config.User}}' "$amont")"
 test -n "$(docker inspect --format '{{.Config.User}}' "$image")"
 test "$(docker inspect --format '{{.Config.User}}' "$image")" != root

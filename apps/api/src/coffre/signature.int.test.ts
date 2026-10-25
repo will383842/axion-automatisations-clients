@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
 import { lireYaml } from "../../../../scripts/garde-compose.js";
@@ -105,7 +105,7 @@ describe("OpenBao réel : clé de signature, copie de secours et clés HMAC", ()
     expect(await s.verifier(Buffer.from("autre"), signature)).toBe(false);
   });
   it("[A-303] l'instantané raft restauré dans un second OpenBao neuf vérifie une signature faite avant ; le jeton de signature ne peut pas le prendre", async () => {
-    try { await a303(); } catch (e) { console.log(`::error::DIAG-TEMP ${(e as Error).message.slice(0, 300).replace(/\n/g, " ")}`); throw e; }
+    try { await a303(); } catch (e) { writeSync(2, `\n::error::DIAG-TEMP ${(e as Error).message.slice(0, 300).replace(/\n/g, " ")}\n`); throw e; }
   });
   const a303 = async () => {
     const premier = await lancerRaft();

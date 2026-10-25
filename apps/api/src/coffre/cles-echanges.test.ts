@@ -153,6 +153,42 @@ describe("clés HMAC des échanges (C-015)", () => {
     horloge += 24 * HEURE;
     await echanges().tourner("c3", "emission");
   });
+  it("[C-015] deux rotations en parallèle après le chevauchement : au plus deux clés acceptées, dont l'active", async () => {
+    await echanges().tourner("c1", "emission");
+    horloge += HEURE;
+    await echanges().tourner("c1", "emission");
+    horloge += 25 * HEURE;
+    await Promise.allSettled([echanges().tourner("c1", "emission"), echanges().tourner("c1", "emission")]);
+    const acceptees = (await echanges().clesAcceptees("c1", "emission")).map((c) => c.kid);
+    expect(acceptees.length).toBeLessThanOrEqual(2);
+    expect(acceptees).toContain((await echanges().cleActive("c1", "emission")).kid);
+  });
+  it("[C-015] arrêt entre la création et le retrait, puis une rotation : au plus deux clés acceptées, dont l'active", async () => {
+    await echanges().tourner("c1", "emission");
+    horloge += HEURE;
+    await echanges().tourner("c1", "emission");
+    horloge += 25 * HEURE;
+    let posts = 0;
+    const coupe: typeof fetch = async (entree, init) => {
+      if ((init?.method ?? "GET").toUpperCase() === "POST" && ++posts === 2) throw new Error("réseau coupé");
+      return bao.fetch(entree, init);
+    };
+    await refus(creerClesEchanges({ url: URL_BAO, jeton: bao.jeton("echanges"), fetch: coupe, maintenant: () => horloge }).tourner("c1", "emission"));
+    expect((await echanges().clesAcceptees("c1", "emission")).length).toBeLessThanOrEqual(2);
+    horloge += HEURE;
+    await echanges().tourner("c1", "emission");
+    const acceptees = (await echanges().clesAcceptees("c1", "emission")).map((c) => c.kid);
+    expect(acceptees.length).toBeLessThanOrEqual(2);
+    expect(acceptees).toContain((await echanges().cleActive("c1", "emission")).kid);
+  });
+  it("[C-015] deux clés actives posées dans le coffre : la plus récente (puis le kid le plus grand) est l'active, et seule elle est acceptée", async () => {
+    const meme = { sens: "emission", cree_le: horloge, retiree_le: null };
+    const secret = () => randomBytes(32).toString("base64");
+    bao.etat.kv.set("echanges/c1/emi-a", { version: 1, data: { ...meme, secret: secret() } });
+    bao.etat.kv.set("echanges/c1/emi-b", { version: 1, data: { ...meme, secret: secret() } });
+    expect((await echanges().cleActive("c1", "emission")).kid).toBe("emi-b");
+    expect((await echanges().clesAcceptees("c1", "emission")).map((c) => c.kid)).toEqual(["emi-b"]);
+  });
   it.each([
     ["trop courte", () => randomBytes(16).toString("base64")],
     ["pas en base64", () => "%%%"],

@@ -17,3 +17,12 @@ OpenBao refuse `transit/backup` pour une clé non exportable (« exporting is di
 - Rendre la clé exportable ou élargir une politique demande déjà l'accès en écriture au dépôt (`initialiser.sh`, `politiques/`) : ce contournement n'est pas traité ici.
 
 2026-10-25
+
+## Points non bloquants relevés à l'audit (tour 1), à traiter
+- `etatCle` (`signature.ts`) doit aussi refuser `imported_key === true` et `deletion_allowed === true`.
+- `initialiser.sh` : ajouter `bao write technique/config cas_required=true` après le montage, pour imposer la création seule côté coffre.
+- `cles-echanges.ts` : borner `retireeLe` à `maintenant()` en défense en profondeur.
+- `initialiser.sh` : relire `transit/keys/modules-signature` après création et s'arrêter si `exportable` n'est pas `false`.
+- `initialiser.sh` : les jetons `-no-default-policy` ne peuvent pas se renouveler (`renew-self`) ; le jeton `secours` expirerait après 32 jours (à vérifier en PR 2/2).
+- `initialiser.sh` : parts Shamir et jeton `secours` sont écrits dans le même fichier ; la procédure de la PR 2/2 doit les séparer.
+- Description de la PR : cocher la case « moins de 400 lignes » (199 lignes hors tests).

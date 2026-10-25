@@ -87,15 +87,21 @@ export function creerClesEchanges(o: OptionsEchanges) {
   }
 
   const acceptee = (k: Enregistrement) => k.retireeLe === null || maintenant() < k.retireeLe + CHEVAUCHEMENT_MS;
+  // Choix déterministe de l'active : création la plus récente, puis kid le plus grand.
+  const plusRecente = (a: Enregistrement, b: Enregistrement) => b.creeLe - a.creeLe || (a.kid < b.kid ? 1 : a.kid > b.kid ? -1 : 0);
+  const actives = (cles: Enregistrement[]) => cles.filter((k) => k.retireeLe === null).sort(plusRecente);
 
   return {
     async cleActive(c: string, sens: Sens): Promise<CleEchange> {
-      const active = (await toutes(canal(c, sens), sens)).filter((k) => k.retireeLe === null).sort((a, b) => b.creeLe - a.creeLe)[0];
+      const active = actives(await toutes(canal(c, sens), sens))[0];
       if (!active) throw new ErreurCoffre("introuvable");
       return { kid: active.kid, secret: active.secret };
     },
+    // Jamais plus de deux clés : l'active, et la dernière retirée encore dans les 24 h (les autres, venues d'une rotation concurrente ou interrompue, sont ignorées).
     async clesAcceptees(c: string, sens: Sens): Promise<CleEchange[]> {
-      return (await toutes(canal(c, sens), sens)).filter(acceptee).map(({ kid, secret }) => ({ kid, secret }));
+      const cles = await toutes(canal(c, sens), sens);
+      const retiree = cles.filter((k) => k.retireeLe !== null && acceptee(k)).sort((a, b) => (b.retireeLe ?? 0) - (a.retireeLe ?? 0) || plusRecente(a, b))[0];
+      return [actives(cles)[0], retiree].filter((k): k is Enregistrement => k !== undefined).map(({ kid, secret }) => ({ kid, secret }));
     },
     // Rotation : l'active devient « retirée » (acceptée 24 h), une nouvelle clé prend sa place. Pas plus de deux clés acceptées.
     async tourner(c: string, sens: Sens): Promise<CleEchange> {

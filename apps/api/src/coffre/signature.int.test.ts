@@ -18,6 +18,11 @@ const IMAGE = compose.services.openbao.image;
 const lancés: string[] = [];
 afterAll(() => { for (const id of lancés) try { docker("rm", "-f", id); } catch { /* déjà arrêté */ } });
 
+// Diagnostic : le rapport JSON de la CI n'est pas affiché, on écrit donc la cause (code ou message, jamais un jeton).
+const diag = (f: () => Promise<void>) => async () => {
+  try { await f(); } catch (e) { console.error("DIAG", e instanceof ErreurCoffre ? `ErreurCoffre ${e.code}` : String(e instanceof Error ? e.message : e).replace(/TEST-NE-PAS-UTILISER-\w+/g, "[jeton]")); throw e; }
+};
+
 interface Instance { racine: OptionsBao; jeton: (role: string) => Promise<OptionsBao> }
 
 async function lancer(): Promise<Instance> {
@@ -28,7 +33,7 @@ async function lancer(): Promise<Instance> {
   const url = `http://${ip}:8200`;
   for (let i = 0; ; i++) {
     try { if ((await fetch(`${url}/v1/sys/health`)).status === 200) break; } catch { /* démarrage */ }
-    if (i > 60) throw new Error("OpenBao de test non démarré");
+    if (i > 60) throw new Error(`OpenBao de test non démarré : ${docker("logs", id).split("\n").filter((l) => /err|fail|unknown|flag/i.test(l) && !/token/i.test(l)).slice(0, 5).join(" | ")}`);
     await new Promise((ok) => setTimeout(ok, 500));
   }
   const racine: OptionsBao = { url, jeton: jetonRacine };
@@ -55,22 +60,22 @@ async function appelerAdmin(o: OptionsBao, methode: string, chemin: string, corp
 }
 
 describe("OpenBao réel : clé de signature, copie de secours et clés HMAC", () => {
-  it("[A-193] la clé de signature des modules est dans OpenBao et n'est pas exportable", async () => {
+  it("[A-193] la clé de signature des modules est dans OpenBao et n'est pas exportable", diag(async () => {
     const bao = await lancer();
     await creerSignature(bao.racine).creerCle();
     expect(await creerSignature(await bao.jeton("signature")).etatCle()).toEqual({ type: "ed25519", exportable: false, sauvegardePossible: true });
     const e = await appeler(bao.racine, "GET", "transit/export/signing-key/modules-signature").then(() => undefined, (x: unknown) => x);
     expect(e).toBeInstanceOf(ErreurCoffre);
-  });
-  it("[A-193] signer puis vérifier une signature Ed25519 par OpenBao", async () => {
+  }));
+  it("[A-193] signer puis vérifier une signature Ed25519 par OpenBao", diag(async () => {
     const bao = await lancer();
     await creerSignature(bao.racine).creerCle();
     const s = creerSignature(await bao.jeton("signature")), m = Buffer.from(randomUUID());
     const signature = await s.signer(m);
     expect(await s.verifier(m, signature)).toBe(true);
     expect(await s.verifier(Buffer.from("autre"), signature)).toBe(false);
-  });
-  it("[A-303] le paquet de secours restauré dans un second OpenBao neuf vérifie une signature faite avant", async () => {
+  }));
+  it("[A-303] le paquet de secours restauré dans un second OpenBao neuf vérifie une signature faite avant", diag(async () => {
     const premier = await lancer();
     await creerSignature(premier.racine).creerCle();
     const m = Buffer.from(randomUUID()), signature = await creerSignature(await premier.jeton("signature")).signer(m);
@@ -78,8 +83,8 @@ describe("OpenBao réel : clé de signature, copie de secours et clés HMAC", ()
     const second = await lancer();
     await creerSignature(second.racine).restaurerSecours(paquet);
     expect(await creerSignature(await second.jeton("signature")).verifier(m, signature)).toBe(true);
-  });
-  it("[C-015] @isolation la clé HMAC c1 est lue par la politique echanges et refusée aux politiques courtier et equipe", async () => {
+  }));
+  it("[C-015] @isolation la clé HMAC c1 est lue par la politique echanges et refusée aux politiques courtier et equipe", diag(async () => {
     const bao = await lancer();
     const e = creerClesEchanges(await bao.jeton("echanges"));
     const cle = await e.tourner("c1", "emission");
@@ -88,5 +93,5 @@ describe("OpenBao réel : clé de signature, copie de secours et clés HMAC", ()
       const autre = creerClesEchanges(await bao.jeton(role));
       await expect(autre.cleActive("c1", "emission")).rejects.toMatchObject({ code: "refuse" });
     }
-  });
+  }));
 });

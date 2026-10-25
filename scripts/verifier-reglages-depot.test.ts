@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 const script = fileURLToPath(new URL("../ops/verifier-reglages-depot.sh", import.meta.url));
 
 // Faux « gh » : l'appel à /installation échoue (401 réel), le reste répond comme un dépôt bien réglé.
-function lancer(installation: "echec" | "read" | "write", reglages: { approbation?: string; dependabot?: string; fusionAuto?: string; sansGardeFusion?: boolean; workflows?: string; env?: Record<string, string> } = {}) {
+function lancer(installation: "echec" | "read" | "write", reglages: { approbation?: string; dependabot?: string; fusionAuto?: string; sansGardeFusion?: boolean; reviseurs?: string; brancheProduction?: string; brancheRecette?: string; secretsDepot?: string; workflows?: string; env?: Record<string, string> } = {}) {
   const dossier = mkdtempSync(join(tmpdir(), "faux-gh-"));
   const gh = join(dossier, "gh");
   writeFileSync(
@@ -17,6 +17,10 @@ function lancer(installation: "echec" | "read" | "write", reglages: { approbatio
 case "$*" in
   */installation*) ${installation === "echec" ? "exit 1" : `echo ${installation}`} ;;
   *required_status_checks*) printf '%s\\n' "Aucun secret dans le dépôt (Gitleaks)" types lint tests garde-workflows compter-tests licences couverture-req ${reglages.sansGardeFusion ? "garde-noms" : "garde-fusion"} garde-couleurs harnais contrats-pg visuel-design ;;
+  *environments/production/deployment-branch-policies*) echo ${reglages.brancheProduction ?? "main"} ;;
+  *environments/recette/deployment-branch-policies*) echo ${reglages.brancheRecette ?? "main"} ;;
+  *environments/production*) echo ${reglages.reviseurs ?? "1"} ;;
+  *actions/secrets*) echo ${reglages.secretsDepot ?? "0"} ;;
   *allow_auto_merge*) echo ${reglages.fusionAuto ?? "false"} ;;
   *fork-pr-contributor-approval*) echo ${reglages.approbation ?? "all_external_contributors"} ;;
   *actions/permissions/workflow*) echo read ;;
@@ -105,5 +109,26 @@ describe("ops/verifier-reglages-depot.sh", () => {
     expect(r.stdout).not.toMatch(/OK\s+aucun workflow/);
     expect(r.stdout).toMatch(/À CORRIGER.*non vérifiable|À CORRIGER.*aucun workflow/);
     expect(r.stdout).not.toContain("self-hosted");
+  });
+  it("[C-389] verifier-reglages-depot.sh signale À CORRIGER si production n'a pas de réviseur", () => {
+    const r = lancer("read", { reviseurs: "0" });
+    expect(r.status).not.toBe(0);
+    expect(r.stdout).toMatch(/À CORRIGER.*production.*réviseur/);
+    expect(lancer("read").stdout).toMatch(/OK\s+l'environnement production exige un réviseur/);
+  });
+  it("[C-389] verifier-reglages-depot.sh signale À CORRIGER si production ou recette n'est pas limité à main", () => {
+    expect(lancer("read", { brancheProduction: "main,essai" }).stdout).toMatch(/À CORRIGER.*production.*main/);
+    expect(lancer("read", { brancheProduction: "" }).stdout).toMatch(/À CORRIGER.*production.*main/);
+    expect(lancer("read", { brancheRecette: "*" }).stdout).toMatch(/À CORRIGER.*recette.*main/);
+  });
+  it("[C-389] verifier-reglages-depot.sh signale À CORRIGER si un secret de déploiement existe au niveau du dépôt", () => {
+    const r = lancer("read", { secretsDepot: "1" });
+    expect(r.status).not.toBe(0);
+    expect(r.stdout).toMatch(/À CORRIGER.*secret de déploiement.*dépôt/);
+  });
+  it("[C-389] verifier-reglages-depot.sh échoue quand les environnements ne sont pas lisibles (jamais de OK par défaut)", () => {
+    const r = lancer("read", { reviseurs: "", secretsDepot: "" });
+    expect(r.stdout).toMatch(/À CORRIGER.*production.*réviseur/);
+    expect(r.stdout).toMatch(/À CORRIGER.*secret de déploiement/);
   });
 });

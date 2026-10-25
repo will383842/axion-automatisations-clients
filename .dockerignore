@@ -1,0 +1,15 @@
+# Contexte de construction strict : ni secret, ni historique, ni dépendances locales.
+.env
+.env.*
+*.pem
+*.key
+.git
+.github
+node_modules
+**/node_modules
+.next
+**/.next
+coverage
+dist
+*.log
+rapport-tests*.json

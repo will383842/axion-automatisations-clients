@@ -20,6 +20,9 @@ importers:
       js-yaml:
         specifier: 4.3.2
         version: 4.3.2
+      libpg-query:
+        specifier: 17.8.1
+        version: 17.8.1
       typescript:
         specifier: ^5.6.0
         version: 5.9.3
@@ -817,6 +820,9 @@ packages:
     engines: {node: '>= 10'}
     cpu: [x64]
     os: [win32]
+
+  '@pgsql/types@17.6.2':
+    resolution: {integrity: sha512-1UtbELdbqNdyOShhrVfSz3a1gDi0s9XXiQemx+6QqtsrXe62a6zOGU+vjb2GRfG5jeEokI1zBBcfD42enRv0Rw==}
 
   '@pinojs/redact@0.4.0':
     resolution: {integrity: sha512-k2ENnmBugE/rzQfEcdWHcCY+/FM3VLzH9cYEsbdsoqrvzAKRhUZeRNhAZvB8OitQJ1TBed3yqWtdjzS6wJKBwg==}
@@ -1665,6 +1671,9 @@ packages:
   libmime@5.6.3:
     resolution: {integrity: sha512-cuTUW/Jybvh5O4/U9p61gyutHOjDtZyGQYuY99+bfnaFwqcDf2Nb+R6hMHY6DDen2H9wLKQSMpofWUgn2TI5JQ==}
     engines: {node: '>=20.0.0'}
+
+  libpg-query@17.8.1:
+    resolution: {integrity: sha512-nlJ/6yxrK0u1oHFTiqX5xIXsqPv5jXGcleC4mv3gE/Yf/KwL84T4z0i1FZ0T9j0njbFGF8tjS4OUMtnpj2PjOw==}
 
   libqp@3.0.1:
     resolution: {integrity: sha512-7QZxpPX25pga1WiMueduWxmrHMVBFrZPH6ZUaozGYa/H98JH6NVBSET3qVw+4NxzoraIW7rJ81YxSU9IalvCpg==}
@@ -2608,6 +2617,8 @@ snapshots:
   '@next/swc-win32-x64-msvc@16.4.3':
     optional: true
 
+  '@pgsql/types@17.6.2': {}
+
   '@pinojs/redact@0.4.0': {}
 
   '@rollup/rollup-android-arm-eabi@4.65.0':
@@ -3431,6 +3442,10 @@ snapshots:
       iconv-lite: 0.7.3
       libbase64: 1.4.1
       libqp: 3.0.1
+
+  libpg-query@17.8.1:
+    dependencies:
+      '@pgsql/types': 17.6.2
 
   libqp@3.0.1: {}
 

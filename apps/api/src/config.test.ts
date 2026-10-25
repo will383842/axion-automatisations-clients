@@ -61,6 +61,23 @@ describe("configuration", () => {
     refus(prod({ LITELLM_SALT_KEY: "x" }));
   });
 
+  it("[C-391] sonde 6 : GOOGLE_API_KEY, CO_API_KEY, HF_TOKEN, AZURE_API_KEY et les suffixes _KEY/_TOKEN/_APIKEY (avec chiffres) sont refusés", () => {
+    for (const nom of ["GOOGLE_API_KEY", "CO_API_KEY", "HF_TOKEN", "AZURE_API_KEY", "ANTHROPIC_API_KEY_2", "OPENAI_APIKEY", "CLAUDE_API_KEY", "AWS_BEARER_TOKEN_BEDROCK", "VOYAGE_API_KEY", "LITELLM_API_KEY", "MA_CLE_APIKEY3", "MON_JETON_TOKEN_12"]) {
+      expect(refus(prod({ [nom]: "x" })), nom).toContain(nom);
+    }
+  });
+
+  it("[C-391] sonde 7 : une valeur qui ressemble à une clé d'IA (sk-ant-, sk-, AIza…) est refusée sans jamais être affichée", () => {
+    const valeurs = ["sk-ant-api03-" + "a".repeat(30), "sk-" + "b".repeat(30), "AIza" + "c".repeat(35)];
+    for (const valeur of valeurs) {
+      const message = refus(prod({ MA_CLE: valeur }));
+      expect(message).toContain("MA_CLE");
+      expect(message).not.toContain(valeur);
+    }
+    refus(prod({ PORT_PUBLIC: "sk-ant-x" }));
+    expect(chargerConfig(prod({ AUTRE: "ask-me-sk-ant" }), dossier()).env).toBe("production");
+  });
+
   it("[C-391] attaque : le message de refus ne contient jamais la valeur du secret", () => {
     const secret = "x".repeat(20);
     expect(refus(prod({ ANTHROPIC_API_KEY: secret }))).not.toContain(secret);

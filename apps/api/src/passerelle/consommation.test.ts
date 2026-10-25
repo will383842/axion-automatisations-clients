@@ -26,8 +26,10 @@ const fetchImitation: typeof fetch = async (entree, init) => {
   const corps = String(entree).startsWith(`${URL_P}/key/info`) ? info() : journal();
   return new Response(JSON.stringify(corps), { status: 200 });
 };
-const lignes = (n: number, entree: number, sortie: number) => Array.from({ length: n }, () => ({ prompt_tokens: entree, completion_tokens: sortie }));
-const infoDe = (tenant: string, spend: number) => ({ info: { spend, metadata: { tenant_id: tenant }, key_alias: `cli-${tenant}` } });
+const EMPREINTE_A = "a".repeat(64); // empreinte de la clé de A telle que la passerelle la connaît (jamais la clé elle-même)
+const lignes = (n: number, entree: number, sortie: number, cle = EMPREINTE_A) =>
+  Array.from({ length: n }, () => ({ api_key: cle, spend: (entree + sortie) * TAUX_FICTIF, prompt_tokens: entree, completion_tokens: sortie }));
+const infoDe = (tenant: string, spend: number) => ({ info: { token: EMPREINTE_A, spend, metadata: { tenant_id: tenant }, key_alias: `cli-${tenant}` } });
 const c = () => creerConsommation({ url: URL_P, coffre, fetch: fetchImitation });
 const refus = async (p: Promise<unknown>, code: string) => {
   const e = await p.then(() => undefined, (x: unknown) => x);
@@ -54,7 +56,7 @@ describe("passerelle : consommation d'un client", () => {
     }
   });
   it("[A-059] @argent attaque : jetons négatifs, décimaux ou textes → refusés (aucun total qui baisse)", async () => {
-    for (const l of [{ prompt_tokens: -5, completion_tokens: 1 }, { prompt_tokens: 1.5, completion_tokens: 1 }, { prompt_tokens: "9", completion_tokens: 1 }, { prompt_tokens: 1 }]) {
+    for (const l of [{ prompt_tokens: -5, completion_tokens: 1 }, { prompt_tokens: 1.5, completion_tokens: 1 }, { prompt_tokens: "9", completion_tokens: 1 }, { prompt_tokens: 1 }].map((x) => ({ api_key: EMPREINTE_A, spend: 0, ...x }))) {
       journal = () => [l];
       await refus(c().lire(A, REF_A), "reponse_invalide");
     }
@@ -78,6 +80,25 @@ describe("passerelle : consommation d'un client", () => {
     await refus(c().lire(A, REF_A), "client_different");
     info = () => ({ info: { spend: 1, metadata: { tenant_id: A }, key_alias: `cli-${B}` } });
     await refus(c().lire(A, REF_A), "client_different");
+  });
+  it("[A-059] @isolation attaque : une ligne du journal qui porte la clé d'un autre client est refusée, le journal est demandé pour la seule empreinte de A", async () => {
+    journal = () => [...lignes(3, 10, 5), ...lignes(1, 10, 5, "b".repeat(64))];
+    await refus(c().lire(A, REF_A), "client_different");
+    expect(appels.some((a) => a.url.includes(`/spend/logs?`) && a.url.includes(`api_key=${EMPREINTE_A}`))).toBe(true);
+    expect(appels.every((a) => !a.url.includes(CLE_A))).toBe(true);
+  });
+  it("[A-059] @argent attaque : journal tronqué, paginé ou purgé (jetons en dessous de la dépense) → refusé, jamais un total trop bas", async () => {
+    journal = () => lignes(2, 10, 5); // la dépense dit 3 appels
+    await refus(c().lire(A, REF_A), "journal_incomplet");
+    journal = () => lignes(4, 10, 5); // plus que la dépense : refusé aussi
+    await refus(c().lire(A, REF_A), "journal_incomplet");
+  });
+  it("[A-059] @argent les demi-cas ne s'arrondissent pas à l'envers (1,5e-8 → 2 ; 2,95e-7 → 30)", async () => {
+    for (const [d, attendu] of [[1.5e-8, 2], [2.95e-7, 30]] as const) {
+      info = () => infoDe(A, d);
+      journal = () => [{ api_key: EMPREINTE_A, spend: d, prompt_tokens: 1, completion_tokens: 1 }];
+      expect((await c().lire(A, REF_A)).coutMicroCentimes).toBe(attendu);
+    }
   });
   it("[A-059] @isolation attaque : identifiant de client forgé refusé sans appel", async () => {
     await refus(c().lire("../x", REF_A), "tenant_invalide");

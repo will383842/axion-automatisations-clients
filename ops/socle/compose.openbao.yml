@@ -1,5 +1,6 @@
 # OpenBao en MODE SERVEUR (stockage intégré sur volume) : le coffre démarre scellé et non initialisé,
 # ce qui permet de tester le scellement. Réseau interne seulement, aucun port publié.
+# Le script d'entrée de l'image ajoute lui-même -config=/openbao/config : un second -config chargerait le dossier deux fois.
 # L'initialisation (parts de déverrouillage, jetons des rôles) est faite par openbao/initialiser.sh.
 services:
   openbao:
@@ -7,7 +8,6 @@ services:
     restart: "no"
     command:
       - server
-      - -config=/openbao/config
     volumes:
       - ./openbao:/openbao/config:ro
       - openbao-donnees:/openbao/file

@@ -12,7 +12,7 @@ const LIEUX = new Set(["UE", "hors UE", "local"]);
 // Liste fermée (ADR 0012, A-379) : seules briques serveur admises sous une licence hors livre, et seulement non livrées.
 const LISTE_FERMEE = new Set(["stockage-objet", "openbao", "litellm"]);
 const EMPREINTE = /^sha256:[0-9a-f]{64}$/;
-const DELAIS_JOURS: Record<string, number> = { CRITICAL: 7, HIGH: 30 };
+export const DELAIS_JOURS: Record<string, number> = { CRITICAL: 7, HIGH: 30 };
 const JOUR = 86_400_000;
 
 export interface Image {

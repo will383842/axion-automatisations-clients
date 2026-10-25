@@ -2,7 +2,7 @@
 # Versions épinglées (jamais « latest ») ; à confirmer au premier essai mesuré (T0-12).
 services:
   postgres:
-    image: postgres:16.15@sha256:9e2cf6287f25c3151f4c9421ccce2b17f3e60061c111a29165e0d2cdd9ff0a97
+    image: postgres:16.15-alpine@sha256:f4610795587492cd4fb887c2dc3de301b813278bb6f616992061141b5f15ac36
     environment:
       POSTGRES_PASSWORD: test
     ports: ["127.0.0.1:${SONDE_PORT_POSTGRES:-5432}:5432"]
@@ -24,13 +24,13 @@ services:
     command: ["server", "-dev", "-dev-listen-address=0.0.0.0:8200"]
     ports: ["127.0.0.1:${SONDE_PORT_OPENBAO:-8200}:8200"]
   keycloak:
-    image: quay.io/keycloak/keycloak:25.0.6
+    image: quay.io/keycloak/keycloak:26.8.1@sha256:a78d6b79572168cb25886b80a8b5b8d4ed4390743e3eecb810538683e209dd6b
     command: ["start-dev"]
     environment:
       KC_HEALTH_ENABLED: "true"
     ports: ["127.0.0.1:${SONDE_PORT_KEYCLOAK:-9000}:9000"]
   litellm:
-    image: ghcr.io/berriai/litellm:main-v1.83.14-stable@sha256:c81eb79cd4333c6cfe374c0ec929110fd23f0ee5f7fd198855a6fbddc77b83ba
+    image: ghcr.io/berriai/litellm:main-v1.83.14-stable.patch.3@sha256:f12d528d4a05add56cb09e54c5126088f2edc6bdf3a2f943bcd3a32b08769da2
     ports: ["127.0.0.1:${SONDE_PORT_LITELLM:-4000}:4000"]
   mailpit:
     image: axllent/mailpit:v1.32.0@sha256:0790692be935ea4420d085694f7985b1f692ca6a8771ab0e0bd8ba75ac180498

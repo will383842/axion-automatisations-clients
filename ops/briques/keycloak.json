@@ -1,8 +1,8 @@
 {
   "nom": "keycloak",
   "image": "quay.io/keycloak/keycloak",
-  "version": "25.0.6",
-  "empreinte": "sha256:82c5b7a110456dbd42b86ea572e728878549954cc8bd03cd65410d75328095d2",
+  "version": "26.8.1",
+  "empreinte": "sha256:a78d6b79572168cb25886b80a8b5b8d4ed4390743e3eecb810538683e209dd6b",
   "licence": "Apache-2.0",
   "livree": false,
   "lieu": "local",

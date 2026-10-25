@@ -1,5 +1,5 @@
 // Stockage d'objets (A-061, C-522) : un compartiment cli-<tenantId> par client, avec des identifiants limités à ce compartiment
-// et rangés dans le coffre. Le code ne parle que le port S3 (ADR 0008) ; l'adaptateur de la brique retenue vient à l'étape 2.
+// et rangés dans le coffre. Le code ne parle que le port S3 (ADR 0015) ; l'adaptateur de la brique retenue vient à l'étape 2.
 // Un message d'erreur est le code seul : aucun identifiant ni secret n'y entre.
 
 export interface IdentifiantsS3 {

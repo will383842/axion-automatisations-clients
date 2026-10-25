@@ -4,9 +4,10 @@ Une image dérivée est une image amont (épinglée par empreinte) avec le stric
 
 | Dossier | Amont | Correction |
 |---|---|---|
+| `postgres/` (`postgres-socle`) | `postgres:16@sha256:9e2c…` (Debian, avec pg_partman) | retire `gosu` ; démarre en utilisateur `postgres` (uid 999) |
 | `postgres-derivee/` | `postgres:16.15-alpine@sha256:f461…` | retire `gosu` et `su-exec` (binaire Go vulnérable) ; démarre en utilisateur `postgres` |
 
-L'image du socle de développement (`ops/images/postgres/`, avec pg_partman) est un autre fichier et n'est pas touchée.
+L'image du socle de développement (`ops/images/postgres/`, avec pg_partman) est construite, scannée (Trivy 7/30 jours, aucune exemption) et publiée sous le nom `postgres-socle` par le même workflow, avec la même attestation. `ops/socle/compose.postgres.yml` la construit encore (`build:`) ; il passera à `image: …@sha256:` avec l'empreinte lue dans le résumé du job `publier` sur `main`.
 
 ## Construction et publication
 - `.github/workflows/images-derivees.yml`. Sur une PR : construction, test de fumée, Trivy, évaluateur. Aucune publication.

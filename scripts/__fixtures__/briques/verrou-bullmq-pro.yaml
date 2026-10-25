@@ -1,0 +1,10 @@
+lockfileVersion: '9.0'
+importers:
+  .:
+    dependencies:
+      bullmq:
+        specifier: npm:@taskforcesh/bullmq-pro@7.0.0
+        version: '@taskforcesh/bullmq-pro@7.0.0'
+packages:
+  '@taskforcesh/bullmq-pro@7.0.0':
+    resolution: {integrity: sha512-bbbb}

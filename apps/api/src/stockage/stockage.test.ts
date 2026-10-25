@@ -55,8 +55,8 @@ beforeEach(() => {
 const code = async (p: Promise<unknown>) => p.then(() => "ok", (e: unknown) => (e instanceof ErreurStockage ? e.code : "autre"));
 
 describe("stockage S3 par client", () => {
-  it("[C-522] l'ADR 0008 existe, date et sources citées, la brique retenue y est nommée", () => {
-    const f = racine("docs/adr/0008-stockage-objets.md");
+  it("[C-522] l'ADR 0015 existe, date et sources citées, la brique retenue y est nommée", () => {
+    const f = racine("docs/adr/0015-stockage-objets.md");
     expect(existsSync(f)).toBe(true);
     const t = readFileSync(f, "utf8");
     expect(t).toContain("2026-10-25");

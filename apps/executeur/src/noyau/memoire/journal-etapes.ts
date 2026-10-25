@@ -7,7 +7,7 @@ export class JournalEnMemoire implements JournalEtapes {
     if (inconnue) throw new Error(`clé interdite dans le journal : ${inconnue}`);
     this.#entrees.push({ ...entree });
   }
-  async lire(executionId: string): Promise<readonly EntreeJournal[]> {
-    return this.#entrees.filter((e) => e.executionId === executionId).map((e) => ({ ...e }));
+  async lire(instanceId: string, executionId: string): Promise<readonly EntreeJournal[]> {
+    return this.#entrees.filter((e) => e.instanceId === instanceId && e.executionId === executionId).map((e) => ({ ...e }));
   }
 }

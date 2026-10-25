@@ -20,7 +20,7 @@ export interface EntreeJournal {
 }
 export interface JournalEtapes {
   inscrire(entree: EntreeJournal): Promise<void>;
-  lire(executionId: string): Promise<readonly EntreeJournal[]>;
+  lire(instanceId: string, executionId: string): Promise<readonly EntreeJournal[]>;
 }
 
 export interface Intention {
@@ -32,18 +32,27 @@ export interface Intention {
   action: string;
   garantie: Garantie;
   etat: "ecrite" | "faite" | "a_trancher";
+  bail?: Bail;
+}
+// Un appel en vol tient un bail : tant qu'il est vivant, un autre propriétaire ne rappelle pas l'outil.
+export interface Bail {
+  proprietaire: string;
+  jusqua: number;
 }
 export interface BoiteEnvoi {
-  // Atomique : si la clé existe, rend l'intention déjà là avec creee = false.
-  ecrire(intention: Omit<Intention, "etat">): Promise<{ intention: Intention; creee: boolean }>;
+  // Atomique : crée l'intention, ou rend celle qui existe (creee = false). occupee = vrai si un autre propriétaire tient un bail vivant ; sinon le bail est repris.
+  ecrire(intention: Omit<Intention, "etat" | "bail">, bail: Bail, maintenant: number): Promise<{ intention: Intention; creee: boolean; occupee: boolean }>;
   lire(cle: string): Promise<Intention | undefined>;
-  marquerFaite(cle: string): Promise<void>;
-  marquerATrancher(cle: string): Promise<void>;
+  // Comparer-et-échanger : seulement depuis « ecrite », pour le propriétaire du bail ; rend faux sinon.
+  marquerFaite(cle: string, proprietaire: string): Promise<boolean>;
+  marquerATrancher(cle: string, proprietaire: string): Promise<boolean>;
+  // L'appel est fini sans effet certain : le bail est rendu.
+  liberer(cle: string, proprietaire: string): Promise<void>;
 }
 
 export type Verification = "trouvee" | "absente" | "inconnue";
 export interface Connecteurs {
-  appeler(action: string, demande: { cle: string; element: string; entree: unknown }): Promise<unknown>;
+  appeler(action: string, demande: { cle: string; element: string; entree: unknown; signal: AbortSignal }): Promise<unknown>;
   verifier(action: string, cle: string): Promise<Verification>;
 }
 

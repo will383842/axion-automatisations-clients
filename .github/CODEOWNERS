@@ -1,0 +1,8 @@
+# Fichiers qui pilotent la CI, l'installation et les gardes : relecture obligatoire du propriétaire du dépôt.
+/scripts/ @will383842
+/ops/ @will383842
+/.github/ @will383842
+package.json @will383842
+/.npmrc @will383842
+/.nvmrc @will383842
+/.pnpmfile.cjs @will383842

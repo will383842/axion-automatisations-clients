@@ -15,3 +15,4 @@ Format court : contexte, décision, conséquences, date. Un ADR par décision, n
 | 0009 | Garde des permissions statuses et checks : limite de fond |
 | 0010 | `sharp` exclu des applications Next.js |
 | 0011 | Exception de licence CC-BY-4.0 pour caniuse-lite (dépendance de production) |
+| 0012 | Licences du livre et inventaire des briques |

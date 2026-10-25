@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       mailpit:
-        image: axllent/mailpit:v1.20.4@sha256:ff82a613c735f4e8a3ddfdf7ee4e18cb934c721e72a340ecbbb7ec0ca7fbd057
+        image: axllent/mailpit:v1.32.0@sha256:0790692be935ea4420d085694f7985b1f692ca6a8771ab0e0bd8ba75ac180498
         ports:
           - 127.0.0.1:8025:8025
           - 127.0.0.1:1025:1025

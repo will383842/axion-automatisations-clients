@@ -1,12 +1,12 @@
 {
   "nom": "pgbouncer",
   "image": "edoburu/pgbouncer",
-  "version": "v1.23.1-p2",
-  "empreinte": "sha256:122bac472cfb0b92dca81a72421c93c3c5a840899e2002690a39742427cfcd49",
+  "version": "v1.26.1-p0",
+  "empreinte": "sha256:488422e38cff912895d0d65d8963fcd306e6ac589a724398b6eb8e294e94d624",
   "licence": "ISC",
   "livree": false,
   "lieu": "local",
   "source": "https://www.pgbouncer.org",
-  "verifie_le": "2026-10-24",
+  "verifie_le": "2026-10-25",
   "note": "Licence de PgBouncer ; l'image est un assemblage tiers à relire."
 }

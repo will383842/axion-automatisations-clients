@@ -1,11 +1,11 @@
 {
   "nom": "postgres",
   "image": "postgres",
-  "version": "16.4",
-  "empreinte": "sha256:e62fbf9d3e2b49816a32c400ed2dba83e3b361e6833e624024309c35d334b412",
+  "version": "16.15",
+  "empreinte": "sha256:9e2cf6287f25c3151f4c9421ccce2b17f3e60061c111a29165e0d2cdd9ff0a97",
   "licence": "PostgreSQL",
   "livree": false,
   "lieu": "local",
   "source": "https://www.postgresql.org",
-  "verifie_le": "2026-10-24"
+  "verifie_le": "2026-10-25"
 }

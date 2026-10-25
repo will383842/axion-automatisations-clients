@@ -1,11 +1,11 @@
 {
   "nom": "mailpit",
   "image": "axllent/mailpit",
-  "version": "v1.20.4",
-  "empreinte": "sha256:ff82a613c735f4e8a3ddfdf7ee4e18cb934c721e72a340ecbbb7ec0ca7fbd057",
+  "version": "v1.32.0",
+  "empreinte": "sha256:0790692be935ea4420d085694f7985b1f692ca6a8771ab0e0bd8ba75ac180498",
   "licence": "MIT",
   "livree": false,
   "lieu": "local",
   "source": "https://github.com/axllent/mailpit",
-  "verifie_le": "2026-10-24"
+  "verifie_le": "2026-10-25"
 }

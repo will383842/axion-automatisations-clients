@@ -1,12 +1,12 @@
 {
   "nom": "litellm",
   "image": "ghcr.io/berriai/litellm",
-  "version": "main-v1.48.0",
-  "empreinte": "sha256:77bcd3f9158d63369d3a1a8a747db011135bada4e69d7d6a381aaf43d87fdb89",
+  "version": "main-v1.83.14-stable",
+  "empreinte": "sha256:c81eb79cd4333c6cfe374c0ec929110fd23f0ee5f7fd198855a6fbddc77b83ba",
   "licence": "MIT",
   "livree": false,
   "lieu": "local",
   "source": "https://github.com/BerriAI/litellm",
-  "verifie_le": "2026-10-24",
+  "verifie_le": "2026-10-25",
   "note": "MIT (cœur) ; le dossier enterprise/ est commercial : aucune fonction enterprise (vérifié en T1A-09)."
 }

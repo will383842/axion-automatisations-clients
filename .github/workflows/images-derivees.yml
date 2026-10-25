@@ -147,7 +147,7 @@ jobs:
           trivy() { docker run --rm -v "$RUNNER_TEMP/trivy:/sortie" ghcr.io/aquasecurity/trivy@sha256:665030f4d33a82c1e8d9d5e0453365842236723c1ee5cc3becca698268e66a56 image --scanners vuln --format json --quiet "$@"; }
           trivy --input /sortie/image.tar --output /sortie/derivee.json
           trivy --output /sortie/amont.json "$amont" || echo '{}' > "$RUNNER_TEMP/trivy/amont.json"
-          { echo "### Amont : $amont"; node scripts/releve-trivy.ts --releve "$RUNNER_TEMP/trivy/amont.json"; echo "### Image dérivée"; node scripts/releve-trivy.ts --releve "$RUNNER_TEMP/trivy/derivee.json"; } >> "$GITHUB_STEP_SUMMARY"
+          { echo "### Amont : $amont"; node scripts/releve-trivy.ts --releve "$RUNNER_TEMP/trivy/amont.json"; echo "### Image dérivée"; node scripts/releve-trivy.ts --releve "$RUNNER_TEMP/trivy/derivee.json"; } | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Évaluateur (critique 7 jours, haute 30 jours, aucune exception)
         run: node scripts/releve-trivy.ts --garde "$RUNNER_TEMP/trivy/derivee.json" litellm-derivee
   publier-litellm:
@@ -180,7 +180,7 @@ jobs:
           trivy() { docker run --rm -v "$RUNNER_TEMP/trivy:/sortie" ghcr.io/aquasecurity/trivy@sha256:665030f4d33a82c1e8d9d5e0453365842236723c1ee5cc3becca698268e66a56 image --scanners vuln --format json --quiet "$@"; }
           trivy --input /sortie/image.tar --output /sortie/derivee.json
           trivy --output /sortie/amont.json "$amont" || echo '{}' > "$RUNNER_TEMP/trivy/amont.json"
-          { echo "### Amont : $amont"; node scripts/releve-trivy.ts --releve "$RUNNER_TEMP/trivy/amont.json"; echo "### Image dérivée"; node scripts/releve-trivy.ts --releve "$RUNNER_TEMP/trivy/derivee.json"; } >> "$GITHUB_STEP_SUMMARY"
+          { echo "### Amont : $amont"; node scripts/releve-trivy.ts --releve "$RUNNER_TEMP/trivy/amont.json"; echo "### Image dérivée"; node scripts/releve-trivy.ts --releve "$RUNNER_TEMP/trivy/derivee.json"; } | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Évaluateur (critique 7 jours, haute 30 jours, aucune exception)
         run: node scripts/releve-trivy.ts --garde "$RUNNER_TEMP/trivy/derivee.json" litellm-derivee
       - name: Pousser l'image et lire son empreinte

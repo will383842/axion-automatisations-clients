@@ -1,4 +1,4 @@
-import { createPrivateKey, createPublicKey, generateKeyPairSync, sign, verify, randomUUID, type KeyObject } from "node:crypto";
+import { generateKeyPairSync, sign, verify, randomUUID, type KeyObject } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, it } from "vitest";

@@ -1,16 +1,11 @@
 {
   "nom": "valkey",
-  "role": "file de tâches de l'API (BullMQ), journal sur disque",
-  "image": "valkey/valkey:8.0.11@sha256:4436c94fc34ce4af0354b9379d433a1f258998fb955f995c89822f98c14a8cab",
+  "image": "valkey/valkey",
+  "version": "8.1.10",
+  "empreinte": "sha256:640c5e62cea04b6d6f2084232651d0cc70362d31f4f805e7be94dbed6855e8f2",
   "licence": "BSD-3-Clause",
-  "reseau": "interne",
-  "reglages": {
-    "appendonly": "yes",
-    "appendfsync": "everysec",
-    "maxmemory-policy": "noeviction"
-  },
-  "clients": [
-    { "paquet": "bullmq", "licence": "MIT" },
-    { "paquet": "ioredis", "licence": "MIT" }
-  ]
+  "livree": false,
+  "lieu": "local",
+  "source": "https://github.com/valkey-io/valkey",
+  "verifie_le": "2026-10-25"
 }

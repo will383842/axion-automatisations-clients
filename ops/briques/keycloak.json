@@ -1,0 +1,11 @@
+{
+  "nom": "keycloak",
+  "image": "quay.io/keycloak/keycloak",
+  "version": "26.8.1",
+  "empreinte": "sha256:a78d6b79572168cb25886b80a8b5b8d4ed4390743e3eecb810538683e209dd6b",
+  "licence": "Apache-2.0",
+  "livree": false,
+  "lieu": "local",
+  "source": "https://github.com/keycloak/keycloak",
+  "verifie_le": "2026-10-25"
+}

@@ -2,7 +2,7 @@
 # Une brique réelle remplace l'écho correspondant en reprenant son nom de réseau.
 services:
   essai-console:
-    image: traefik/whoami:v1.10.3@sha256:43a68d10b9dfcfc3ffbfe4dd42100dc9aeaf29b3a5636c856337a5940f1b4f1c
+    image: traefik/whoami:v1.12.0@sha256:c4717a8d1f0134a7444e24f881160e033991f23027c6c5a9a3f8fd22e70d1d44
     restart: "no"
     environment:
       WHOAMI_NAME: console
@@ -11,7 +11,7 @@ services:
       entree:
         aliases: [console]
   essai-portail:
-    image: traefik/whoami:v1.10.3@sha256:43a68d10b9dfcfc3ffbfe4dd42100dc9aeaf29b3a5636c856337a5940f1b4f1c
+    image: traefik/whoami:v1.12.0@sha256:c4717a8d1f0134a7444e24f881160e033991f23027c6c5a9a3f8fd22e70d1d44
     restart: "no"
     environment:
       WHOAMI_NAME: portail
@@ -20,7 +20,7 @@ services:
       entree:
         aliases: [portail]
   essai-api:
-    image: traefik/whoami:v1.10.3@sha256:43a68d10b9dfcfc3ffbfe4dd42100dc9aeaf29b3a5636c856337a5940f1b4f1c
+    image: traefik/whoami:v1.12.0@sha256:c4717a8d1f0134a7444e24f881160e033991f23027c6c5a9a3f8fd22e70d1d44
     restart: "no"
     environment:
       WHOAMI_NAME: api
@@ -29,7 +29,7 @@ services:
       entree:
         aliases: [api]
   essai-keycloak:
-    image: traefik/whoami:v1.10.3@sha256:43a68d10b9dfcfc3ffbfe4dd42100dc9aeaf29b3a5636c856337a5940f1b4f1c
+    image: traefik/whoami:v1.12.0@sha256:c4717a8d1f0134a7444e24f881160e033991f23027c6c5a9a3f8fd22e70d1d44
     restart: "no"
     environment:
       WHOAMI_NAME: keycloak

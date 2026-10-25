@@ -184,6 +184,18 @@ describe("garde-briques : brique du dépôt GHCR sans clé derivee (R2)", () => 
   });
 });
 
+describe("garde-briques : audit tour 2 (R2)", () => {
+  it("[A-381] brique : un port dans le nom d'hôte de l'image est refusé (ghcr.io:443 contournait derivee)", () => {
+    const sans: Record<string, unknown> = brique({ image: "ghcr.io:443/will383842/axion-automatisations-clients/x" });
+    delete sans.derivee;
+    expect(verifierBriques([{ fichier: "ops/briques/postgres.json", contenu: sans }], []).join("\n")).toMatch(/port/);
+  });
+  it("[A-381] compose : provider: et image qui n'est pas un texte sont refusés", () => {
+    expect(compose("services:\n  a:\n    provider:\n      type: x\n")).toMatch(/provider/);
+    for (const image of ["5", "[x]"]) expect(compose(`services:\n  a:\n    image: ${image}\n`), image).toMatch(/image/);
+  });
+});
+
 describe("briques réelles : images dérivées publiées par images-derivees.yml (R2)", () => {
   const brique = (nom: string) => JSON.parse(lire(`ops/briques/${nom}.json`)) as { image: string; version: string; empreinte: string; derivee: { amont: string; dockerfile: string } };
   const cas = [

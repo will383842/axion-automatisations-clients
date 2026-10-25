@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, join, posix } from "node:path";
 import { fileURLToPath } from "node:url";
 import { load } from "js-yaml";
 import { expressionPermise, LIVRE } from "./garde-licences.ts";
@@ -7,7 +7,15 @@ import { expressionPermise, LIVRE } from "./garde-licences.ts";
 // Garde des briques (A-375, A-378, A-379, A-381, A-326, C-493). Lecture des fichiers par de vrais analyseurs (JSON.parse, js-yaml) : aucune expression régulière pour lire un format.
 
 const CLES = ["nom", "image", "version", "empreinte", "licence", "livree", "lieu", "source", "verifie_le"];
-const OPTIONNELLES = ["note", "exception_trivy"];
+const OPTIONNELLES = ["note", "exception_trivy", "derivee"];
+// Image dérivée (ADR 0014, ADR 0016) : publiée par notre CI seulement, attestée par images-derivees.yml sur main.
+const DEPOT_DERIVEES = "ghcr.io/will383842/axion-automatisations-clients/";
+const DEPOT_GITHUB = "https://github.com/will383842/axion-automatisations-clients";
+const SIGNATAIRE = `${DEPOT_GITHUB}/.github/workflows/images-derivees.yml@refs/heads/main`;
+const AMONT_EPINGLE = /^[^\s@]+@sha256:[0-9a-f]{64}$/;
+const SEGMENT = /^[a-z0-9][a-z0-9._-]*$/;
+const NOM_SECRET = /TOKEN|KEY|SECRET|PASSWORD/i;
+const TELECHARGE = /\b(?:curl|wget)\b|\|\s*(?:ba|z|da)?sh\b/i;
 const CLES_EXCEPTION = ["avis", "adr", "decidee_le", "expire_le", "motif"];
 const AVIS = /^(?:CVE-\d{4}-\d{4,}|GHSA(?:-[23456789cfghjmpqrvwx]{4}){3})$/;
 const DUREE_MAX_JOURS = 30;
@@ -36,6 +44,7 @@ export interface Brique {
   verifie_le: string;
   note?: string;
   exception_trivy?: ExceptionTrivy;
+  derivee?: { amont: string; dockerfile: string };
 }
 // Exception nommée, datée, qui expire d'elle-même (ADR 0013) : réservée aux images d'essai.
 export interface ExceptionTrivy {
@@ -47,6 +56,7 @@ export interface ExceptionTrivy {
 }
 export interface Options {
   adrs?: Array<{ nom: string; texte: string }>;
+  dockerfiles?: Array<{ chemin: string; texte: string }>;
   maintenant?: Date;
 }
 interface Fichier {
@@ -89,7 +99,96 @@ function dateReelle(s: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(d.getTime()) && d.toISOString().startsWith(s);
 }
 
-function verifierBrique(fichier: string, contenu: unknown): string[] {
+// Instructions d'un Dockerfile : retours à la ligne échappés recollés (comme Docker), commentaires et lignes vides ignorés.
+function instructions(texte: string): string[] {
+  const sortie: string[] = [];
+  let cours = "";
+  for (const ligne of texte.split(/\r?\n/)) {
+    if (cours === "" && (ligne.trim() === "" || ligne.trim().startsWith("#"))) continue;
+    if (cours !== "" && ligne.trim().startsWith("#")) continue;
+    if (ligne.endsWith("\\")) cours += ligne.slice(0, -1);
+    else {
+      sortie.push((cours + ligne).trim());
+      cours = "";
+    }
+  }
+  if (cours.trim()) sortie.push(cours.trim());
+  return sortie;
+}
+
+function verifierDockerfile(fichier: string, amont: string, texte: string): string[] {
+  const erreurs: string[] = [];
+  const echec = (msg: string) => erreurs.push(`${fichier} : derivee : Dockerfile : ${msg}`);
+  const liste = instructions(texte);
+  const froms = liste.filter((i) => i.split(/\s+/)[0]?.toUpperCase() === "FROM");
+  if (froms.length !== 1) echec(`un seul FROM attendu, ${froms.length} trouvé(s)`);
+  else if (froms[0]?.split(/\s+/).length !== 2 || froms[0].split(/\s+/)[1] !== amont) echec("le FROM doit être exactement amont, épinglé par empreinte");
+  for (const i of liste) {
+    const [mot = "", ...reste] = i.split(/\s+/);
+    const M = mot.toUpperCase();
+    if (M === "ADD" && i.includes("://")) echec("ADD d'une adresse interdit");
+    if (M === "COPY" && reste.some((r) => r.toLowerCase().startsWith("--from"))) echec("COPY --from interdit (source non épinglée)");
+    if (TELECHARGE.test(i)) echec("téléchargement ou « | sh » interdit");
+    if (M === "ARG" || M === "ENV") {
+      const noms = M === "ENV" && !reste[0]?.includes("=") ? reste.slice(0, 1) : reste.map((r) => r.split("=")[0] ?? "");
+      if (noms.some((n) => NOM_SECRET.test(n))) echec(`${M} avec un nom de secret (TOKEN, KEY, SECRET, PASSWORD) interdit`);
+    }
+  }
+  return erreurs;
+}
+
+function verifierDerivee(fichier: string, b: Record<string, unknown>, options: Options): string[] {
+  const d = b.derivee;
+  const echec = (msg: string) => `${fichier} : derivee : ${msg}`;
+  if (!estObjet(d)) return [echec("doit être un objet")];
+  const erreurs: string[] = [];
+  for (const cle of Object.keys(d)) if (cle !== "amont" && cle !== "dockerfile") erreurs.push(echec(`clé inconnue « ${cle} »`));
+  const { amont, dockerfile } = d;
+  const image = String(b.image);
+  const reste = image.startsWith(DEPOT_DERIVEES) ? image.slice(DEPOT_DERIVEES.length) : "";
+  if (!reste || !reste.split("/").every((s) => SEGMENT.test(s))) erreurs.push(echec(`image hors ${DEPOT_DERIVEES}`));
+  if ("exception_trivy" in b) erreurs.push(echec("exception_trivy refusée sur une image dérivée (aucun assouplissement)"));
+  if (typeof amont !== "string" || !AMONT_EPINGLE.test(amont)) erreurs.push(echec("amont doit être épinglé par @sha256: (64 signes hexadécimaux en minuscules)"));
+  else if (amont.endsWith(String(b.empreinte))) erreurs.push(echec("amont a la même empreinte que la brique : image non modifiée"));
+  if (typeof dockerfile !== "string" || posix.normalize(dockerfile) !== dockerfile || !dockerfile.startsWith("ops/images/") || basename(dockerfile) !== "Dockerfile") {
+    erreurs.push(echec("dockerfile : chemin ops/images/<dossier>/Dockerfile, normalisé"));
+    return erreurs;
+  }
+  const trouve = options.dockerfiles?.find((f) => f.chemin === dockerfile);
+  if (!trouve) erreurs.push(echec(`Dockerfile « ${dockerfile} » absent`));
+  else if (typeof amont === "string") erreurs.push(...verifierDockerfile(fichier, amont, trouve.texte));
+  return erreurs;
+}
+
+// Attestation Sigstore lue dans la sortie JSON de « gh attestation verify » : l'empreinte et le workflow signataire sont revérifiés ici.
+export function verifierAttestation(sortie: string, image: string, empreinte: string): string[] {
+  const echec = (msg: string) => [`${image} : attestation : ${msg}`];
+  let doc: unknown;
+  try {
+    doc = JSON.parse(sortie);
+  } catch {
+    return echec("illisible");
+  }
+  if (!Array.isArray(doc) || !doc.length) return echec("absente");
+  const signees = doc.filter((a) => {
+    const r = estObjet(a) ? a.verificationResult : undefined;
+    const cert = estObjet(r) && estObjet(r.signature) ? r.signature.certificate : undefined;
+    return estObjet(cert) && cert.buildSignerURI === SIGNATAIRE && cert.sourceRepositoryURI === DEPOT_GITHUB;
+  });
+  if (!signees.length) return echec(`signataire attendu : ${SIGNATAIRE}`);
+  const sujets = (a: unknown) => {
+    const st = estObjet(a) && estObjet(a.verificationResult) ? a.verificationResult.statement : undefined;
+    return estObjet(st) && Array.isArray(st.subject) ? st.subject : [];
+  };
+  const bon = signees.some((a) => sujets(a).some((s) => estObjet(s) && estObjet(s.digest) && `sha256:${String(s.digest.sha256)}` === empreinte));
+  return bon ? [] : echec(`empreinte attestée différente de ${empreinte}`);
+}
+
+export function listerDerivees(briques: Brique[]): string[] {
+  return briques.filter((b) => b.derivee !== undefined).map((b) => `${b.image}@${b.empreinte}`);
+}
+
+function verifierBrique(fichier: string, contenu: unknown, options: Options = {}): string[] {
   if (!estObjet(contenu)) return [`${fichier} : le contenu doit être un objet`];
   const erreurs: string[] = [];
   const echec = (msg: string) => erreurs.push(`${fichier} : ${msg}`);
@@ -119,6 +218,7 @@ function verifierBrique(fichier: string, contenu: unknown): string[] {
   if (lieu && !LIEUX.has(lieu)) echec(`lieu « ${lieu} » inconnu (UE, hors UE, local)`);
   if (source && !sourceSure(source)) echec("source : adresse https d'un projet, sans adresse IP ni hôte interne");
   if (verifie && !dateReelle(verifie)) echec(`verifie_le « ${verifie} » n'est pas une date AAAA-MM-JJ réelle`);
+  if ("derivee" in contenu) erreurs.push(...verifierDerivee(fichier, contenu, options));
   return erreurs;
 }
 
@@ -187,7 +287,7 @@ function imagesDuCompose(c: Compose): { images: string[]; erreurs: string[] } {
 }
 
 export function verifierBriques(fichiers: Fichier[], composes: Compose[], options: Options = {}): string[] {
-  const erreurs = fichiers.flatMap((f) => verifierBrique(f.fichier, f.contenu));
+  const erreurs = fichiers.flatMap((f) => verifierBrique(f.fichier, f.contenu, options));
   const briques = fichiers.map((f) => f.contenu).filter(estObjet) as unknown as Brique[];
   for (const f of fichiers) if (estObjet(f.contenu) && "exception_trivy" in f.contenu) erreurs.push(...verifierException(f.fichier, f.contenu, composes, options, briques));
   const parCle = new Map<string, Set<string>>();
@@ -263,6 +363,18 @@ function lireBriques(dossier: string): Fichier[] {
     });
 }
 
+function lireDockerfiles(briques: Fichier[]): Array<{ chemin: string; texte: string }> {
+  return briques.flatMap((b) => {
+    const d = estObjet(b.contenu) && estObjet(b.contenu.derivee) ? b.contenu.derivee.dockerfile : undefined;
+    if (typeof d !== "string" || posix.normalize(d) !== d || !d.startsWith("ops/images/")) return [];
+    try {
+      return [{ chemin: d, texte: readFileSync(d, "utf8") }];
+    } catch {
+      return [];
+    }
+  });
+}
+
 function lireAdrs() {
   return readdirSync("docs/adr").filter((f) => f.endsWith(".md")).map((nom) => ({ nom, texte: readFileSync(join("docs/adr", nom), "utf8") }));
 }
@@ -274,13 +386,24 @@ function lireComposes(): Compose[] {
   ].map((nom) => ({ nom, texte: readFileSync(nom, "utf8") }));
 }
 
-// Usage : node scripts/garde-briques.ts | --lister | --trivy <rapport.json> <brique>
+// Usage : node scripts/garde-briques.ts | --lister | --derivees | --attestation <sortie.json> <image@empreinte> | --trivy <rapport.json> <brique>
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const [mode, rapport, brique] = process.argv.slice(2);
   const briques = lireBriques("ops/briques");
   let erreurs: string[];
-  if (mode === "--lister") {
-    erreurs = verifierBriques(briques, lireComposes(), { adrs: lireAdrs(), maintenant: new Date() });
+  const options = { adrs: lireAdrs(), dockerfiles: lireDockerfiles(briques), maintenant: new Date() };
+  if (mode === "--derivees") {
+    erreurs = verifierBriques(briques, lireComposes(), options);
+    if (!erreurs.length) for (const i of listerDerivees(briques.map((b) => b.contenu as Brique))) console.log(i);
+  } else if (mode === "--attestation") {
+    const [image = "", empreinte = ""] = (brique ?? "").split("@");
+    try {
+      erreurs = verifierAttestation(readFileSync(rapport ?? "", "utf8"), image, empreinte);
+    } catch {
+      erreurs = [`${image} : attestation : fichier illisible`];
+    }
+  } else if (mode === "--lister") {
+    erreurs = verifierBriques(briques, lireComposes(), options);
     if (!erreurs.length) for (const i of listerImages(briques.map((b) => b.contenu as Brique))) console.log(i);
   } else if (mode === "--trivy") {
     try {
@@ -298,7 +421,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       erreurs = [`rapport Trivy illisible pour ${brique ?? "brique-inconnue"}`];
     }
   } else {
-    erreurs = [...verifierBriques(briques, lireComposes(), { adrs: lireAdrs(), maintenant: new Date() }), ...verifierVerrou(readFileSync("pnpm-lock.yaml", "utf8"))];
+    erreurs = [...verifierBriques(briques, lireComposes(), options), ...verifierVerrou(readFileSync("pnpm-lock.yaml", "utf8"))];
   }
   for (const e of erreurs) console.error(e);
   process.exit(erreurs.length ? 1 : 0);

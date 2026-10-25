@@ -132,6 +132,7 @@ const BLOCS = new Set([
   "91d880b8d946344fb442e64a8f8ff4c6eb2e25266d2d4323be61ae56e8cbcfc0", "5cd6fd64e4938d39c80bac4b7d85814c9c830b5c1af5f0b7ce439360ae98e36c", "e2650042d59f0d28585d19828302efac1a54e9b198fe25ec140de1ce00e69b2e",
   "0fd60f11b15695a31240caf38b0dc6261a44d31e6e69d3b3efb7a109e0d33917", "1ee1fc7af3202d9908c3dff871f61c9ad720a975cdfec88cf13c6d5eae58d11c",
   "1b6e78f3848dbe71ade26782b521b9fe840edb4c14538454f42856e97dfe49a5", // garde-briques : Trivy sur chaque image inscrite
+  "0113d785fe480586aaf075f7d5806ef34042a84316603777159c5a9ee3bf8843", // garde-briques : attestation de chaque image dérivée
 ]);
 const ENV_OK = ["GH_TOKEN", "DEPOT", "RUN_ID", "CORPS_PR", "GITHUB_TOKEN", "SOCLE_INTEGRATION", "NODE_ENV", "MAILPIT_API", "MAILPIT_SMTP_HOTE", "MAILPIT_SMTP_PORT", "NEXT_TELEMETRY_DISABLED"];
 const envOk = (o: unknown) => o === undefined || (estObj(o) && cles(o, ENV_OK));

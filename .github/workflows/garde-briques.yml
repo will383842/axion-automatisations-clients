@@ -1,5 +1,6 @@
 name: garde-briques
 # Sur chaque PR et chaque nuit : la garde des briques, puis Trivy sur chaque image inscrite.
+# Une image dérivée (ADR 0016) doit porter une attestation de provenance signée par images-derivees.yml de ce dépôt, sur l'empreinte inscrite.
 # Échec : critique corrigeable ouverte depuis plus de 7 jours, haute depuis plus de 30 jours. N'affiche que l'identifiant de l'avis et la brique. Aucun secret.
 on:
   pull_request:
@@ -8,6 +9,7 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+  attestations: read
 jobs:
   garde-briques:
     name: garde-briques
@@ -23,6 +25,18 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Garde des briques (fichiers, empreintes, licences, redis, verrou)
         run: node scripts/garde-briques.ts
+      - name: Attestation de provenance de chaque image dérivée (workflow signataire images-derivees.yml)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -u
+          statut=0
+          for ref in $(node scripts/garde-briques.ts --derivees); do
+            fichier="$RUNNER_TEMP/attestation-$(printf '%s' "${ref%%@*}" | tr '/:' '--').json"
+            gh attestation verify "oci://$ref" --repo will383842/axion-automatisations-clients --signer-workflow will383842/axion-automatisations-clients/.github/workflows/images-derivees.yml --format json > "$fichier" || { echo "Attestation introuvable ou refusée pour ${ref%%@*}" >&2; statut=1; continue; }
+            node scripts/garde-briques.ts --attestation "$fichier" "$ref" || statut=1
+          done
+          exit "$statut"
       - name: Trivy (Apache-2.0, 0.58.2 épinglé par empreinte) sur chaque image inscrite
         run: |
           set -u

@@ -12,6 +12,7 @@ await loadModule();
 const NOEUDS = new Map([
   ["DropStmt", "DROP"], ["DropOwnedStmt", "DROP"], ["DropRoleStmt", "DROP"], ["DropdbStmt", "DROP"], ["DropTableSpaceStmt", "DROP"], ["DropSubscriptionStmt", "DROP"], ["DropUserMappingStmt", "DROP"],
   ["RenameStmt", "RENAME"], ["TruncateStmt", "TRUNCATE"], ["AlterObjectSchemaStmt", "SET SCHEMA"],
+  ["VariableSetStmt", "SET"], ["AlterDatabaseSetStmt", "ALTER DATABASE SET"], ["AlterRoleSetStmt", "ALTER ROLE SET"],
   ["DoStmt", "DO"], ["CreateFunctionStmt", "CREATE FUNCTION"], ["CallStmt", "CALL"], ["ExecuteStmt", "EXECUTE"],
 ]);
 
@@ -26,11 +27,20 @@ function etiquettes(noeud: unknown, trouvees: string[]): void {
       if (sousType === "AT_AlterColumnType") trouvees.push("ALTER … TYPE");
       else if (sousType.startsWith("AT_Drop")) trouvees.push("DROP");
     }
+    if (cle === "AlterEnumStmt" && (valeur as { oldVal?: string }).oldVal) trouvees.push("RENAME");
+    if (cle === "AlterDomainStmt" && (valeur as { subtype?: string }).subtype === "X") trouvees.push("DROP");
+    if (cle === "FuncCall") {
+      const nom = (valeur as { funcname?: { String?: { sval?: string } }[] }).funcname?.at(-1)?.String?.sval;
+      if (nom?.toLowerCase() === "set_config") trouvees.push("set_config");
+    }
     etiquettes(valeur, trouvees);
   }
 }
 
-export function analyserSql(nom: string, texte: string): string[] {
+// Drizzle découpe le fichier sur ce marqueur et envoie chaque morceau séparément : la garde analyse les mêmes morceaux.
+const MARQUEUR = "--> statement-breakpoint";
+
+function analyserMorceau(nom: string, texte: string): string[] {
   let stmts: { stmt?: unknown; stmt_location?: number }[];
   try {
     stmts = parseSync(texte).stmts;
@@ -45,6 +55,10 @@ export function analyserSql(nom: string, texte: string): string[] {
     etiquettes(s.stmt, trouvees);
     return trouvees.map((t) => `${nom}:${ligne}: instruction interdite : ${t}`);
   });
+}
+
+export function analyserSql(nom: string, texte: string): string[] {
+  return texte.split(MARQUEUR).flatMap((morceau) => (morceau.trim() ? analyserMorceau(nom, morceau) : []));
 }
 
 // Drizzle applique exactement les fichiers `<tag>.sql` du journal : on analyse ces fichiers-là, et seulement des tags simples.

@@ -29,3 +29,5 @@ Les tests qui déposent dans Mailpit ne tournent que si `MAILPIT_API` est défin
 10. Garde : `exigerDestinationsDeTest(process.env, <services du compose assemblé>)` ; elle refuse tout hôte hors socle et n'affiche que le NOM de la variable. Pas encore appelée au démarrage de l'API (tâche suivante).
 Destinataires en `@exemple.fr` ou `*.test` seulement ; tous les serveurs écoutent sur 127.0.0.1.
 Le faux Gmail remet le message tel quel (pièces jointes, fil, Cc) sans la ligne Bcc ; `mailparser` sert à l'exécution : l'image du harnais devra installer les dépendances de développement.
+
+Reste à faire (C-533) : le test « dans le compose assemblé du socle » est retiré, car le compose actuel ne porte aucune variable d'envoi et il passait sans rien prouver. Il revient avec `ops/socle/compose.harnais.yml`, avec un compteur de variables contrôlées supérieur à 0.

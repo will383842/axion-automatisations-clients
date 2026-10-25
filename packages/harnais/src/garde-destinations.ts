@@ -2,7 +2,7 @@
 // Elle ne renvoie que le NOM des variables fautives, jamais leur valeur.
 
 // Toute variable qui désigne une adresse ou un hôte (casse ignorée), pas seulement une liste fermée de noms.
-const VARIABLE = /(?:_URL|_HOTE|_HOST)$|^WEBHOOK_/i;
+const VARIABLE = /(?:_URL|_HOTE|_HOST|_ENDPOINT|_DSN)$|^WEBHOOK_/i;
 // Hôtes locaux ou en .test ; un nom à une seule étiquette doit être un service du socle (voir verifierDestinations).
 const HOTE_LOCAL = /^(?:localhost|127\.0\.0\.1|\[::1\]|(?:[a-z0-9-]+\.)+test)$/;
 const UNE_ETIQUETTE = /^[a-z][a-z0-9-]*$/;

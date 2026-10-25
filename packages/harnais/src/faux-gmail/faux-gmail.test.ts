@@ -139,7 +139,7 @@ describe("faux Gmail", () => {
     expect((await envoyer("f1@faux-gmail.test", "client@exemple.fr", "vrai-jeton")).status).toBe(401);
     const sansRaw = await fetch(`${gmail.url}/gmail/v1/users/me/messages/send`, { method: "POST", headers: { authorization: `Bearer ${COMPTE}`, "content-type": "application/json" }, body: "{}" });
     expect(sansRaw.status).toBe(400);
-    expect((await envoyer("f2@faux-gmail.test", "quelquun@exemple.com")).status).toBe(400);
+    expect((await envoyer("f2@faux-gmail.test", "quelquun@example.com")).status).toBe(400);
     expect((await controle("n_importe_quoi")).status).toBe(400);
   });
 

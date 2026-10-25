@@ -30,6 +30,7 @@ const MESSAGES: Record<Violation["regle"], string> = {
 const DEFINE = "emballage refusé : le module n'exporte pas un manifeste produit par defineAutomation";
 
 // Un paquet emballé = un dossier node_modules/<nom> dont un fichier est dans le graphe d'esbuild.
+// Indexé par le chemin réel du dossier : deux versions du même nom sont deux paquets, chacun vérifié et listé.
 function paquetsEmballes(entrees: string[], violations: Violation[]): Paquet[] {
   // Clé = dossier réel du paquet : deux versions du même nom sont deux entrées, chacune vérifiée.
   const dossiers = new Map<string, string>();

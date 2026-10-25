@@ -44,11 +44,14 @@ const COURRIEL = /[A-Za-z0-9._%+-]+@([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]
 const URL_IDENTIFIANT = /\b[a-z][a-z0-9+.-]*:\/\/[^\s/@"'`]+:[^\s/@"'`]*@/i;
 const fictif = (domaine: string) => domaine.toLowerCase() === "exemple.fr" || domaine.toLowerCase().endsWith(".test");
 
-// Un chemin est cité en entier (suivi de « / » ou d'un caractère qui n'en fait pas partie) ; la racine « / » est ignorée.
-function contientChemin(texte: string, chemin: string): boolean {
-  const c = chemin.replace(/\/+$/, "");
-  if (!c) return false;
-  for (let i = texte.indexOf(c); i >= 0; i = texte.indexOf(c, i + 1)) if (!/[\w.-]/.test(texte[i + c.length] ?? "")) return true;
+// Le dossier doit finir au séparateur : « /tmp » ne désigne pas « /tmpfs ». Une racine « / » est ignorée.
+function contientChemin(texte: string, dossier: string): boolean {
+  let d = dossier;
+  while (d.endsWith("/")) d = d.slice(0, -1);
+  if (!d) return false;
+  for (let i = texte.indexOf(d); i >= 0; i = texte.indexOf(d, i + 1)) {
+    if (!/[\w.-]/.test(texte[i + d.length] ?? "")) return true;
+  }
   return false;
 }
 

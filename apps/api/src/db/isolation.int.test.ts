@@ -253,7 +253,7 @@ describe.each(BASES)("isolation entre clients sur la base %s", (b) => {
   });
 
   it(`[${id("A-163")}] @isolation un droit en trop (PUBLIC, TRUNCATE, REFERENCES, TRIGGER) est retiré au rejeu du modèle : ${b}_app garde SELECT, INSERT, UPDATE, DELETE et ne peut pas vider la table`, async () => {
-    await migration.query(`GRANT ALL ON essai_isolation.dossiers TO PUBLIC; GRANT TRUNCATE, REFERENCES, TRIGGER ON essai_isolation.dossiers TO ${b}_app, ${b}_equipe`);
+    await migration.query(`GRANT ALL ON essai_isolation.dossiers TO PUBLIC; GRANT TRUNCATE, REFERENCES, TRIGGER ON essai_isolation.dossiers TO ${b}_app, ${b}_equipe; GRANT UPDATE (libelle) ON essai_isolation.dossiers TO PUBLIC`);
     // Preuve que l'attaque réussit avant le rejeu : le droit TRUNCATE ignore la RLS.
     expect(await droitsDe(`${b}_app`)).toContain("TRUNCATE");
     await appliquerModele(migration, b, "dossiers");
@@ -263,6 +263,8 @@ describe.each(BASES)("isolation entre clients sur la base %s", (b) => {
     const beneficiaires = await lignes(migration, `SELECT DISTINCT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE a.grantee::regrole::text END AS qui
       FROM pg_class c, aclexplode(c.relacl) a WHERE c.oid = 'essai_isolation.dossiers'::regclass AND a.grantee <> c.relowner ORDER BY 1`);
     expect(beneficiaires).toEqual([{ qui: `${b}_app` }, { qui: `${b}_equipe` }]);
+    // Aucun droit de colonne ne subsiste non plus.
+    expect(await lignes(migration, "SELECT attname FROM pg_attribute WHERE attrelid = 'essai_isolation.dossiers'::regclass AND attacl IS NOT NULL")).toEqual([]);
     expect(await codeRefus(app, "TRUNCATE essai_isolation.dossiers")).toBe("42501");
     expect(await codeRefus(equipe, "TRUNCATE essai_isolation.dossiers")).toBe("42501");
     expect(await lignes(equipe, "SELECT * FROM essai_isolation.dossiers")).toHaveLength(4);

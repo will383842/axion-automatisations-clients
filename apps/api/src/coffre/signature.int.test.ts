@@ -30,6 +30,15 @@ const diag = (f: () => Promise<void>) => async () => {
   try { await f(); } catch (e) { emettre(e instanceof ErreurCoffre ? `ErreurCoffre ${e.code}` : String(e instanceof Error ? e.message : e).replace(/TEST-NE-PAS-UTILISER-\w+/g, "[jeton]")); throw e; }
 };
 
+// Diagnostic TEMPORAIRE : trace chaque appel du coffre qui échoue (méthode, chemin, statut, début de réponse ; jamais le jeton).
+const tracant: typeof fetch = async (entree, init) => {
+  try {
+    const r = await fetch(entree, init);
+    if (r.status >= 300) emettre(`${init?.method} ${String(entree).replace(/^http:\/\/[^/]+/, "")} -> ${r.status} ${(await r.clone().text()).slice(0, 200)}`);
+    return r;
+  } catch (e) { emettre(`${init?.method} ${String(entree).replace(/^http:\/\/[^/]+/, "")} exception ${e instanceof Error ? `${e.message} ${String((e as { cause?: unknown }).cause)}` : e}`); throw e; }
+};
+
 interface Instance { racine: OptionsBao; jeton: (role: string) => Promise<OptionsBao> }
 
 async function lancer(): Promise<Instance> {
@@ -43,7 +52,7 @@ async function lancer(): Promise<Instance> {
     if (i > 60) throw new Error(`OpenBao de test non démarré : ${docker("logs", id).split("\n").filter((l) => /err|fail|unknown|flag/i.test(l) && !/token/i.test(l)).slice(0, 5).join(" | ")}`);
     await new Promise((ok) => setTimeout(ok, 500));
   }
-  const racine: OptionsBao = { url, jeton: jetonRacine };
+  const racine: OptionsBao = { url, jeton: jetonRacine, fetch: tracant };
   const admin = (methode: "POST", chemin: string, corps: unknown) => appelerAdmin(racine, methode, chemin, corps);
   await admin("POST", "sys/mounts/transit", { type: "transit" });
   await admin("POST", "sys/mounts/technique", { type: "kv", options: { version: "2" } });
@@ -53,7 +62,7 @@ async function lancer(): Promise<Instance> {
     racine,
     async jeton(role) {
       const r = (await admin("POST", "auth/token/create", { policies: [role], no_default_policy: true })) as { auth: { client_token: string } };
-      return { url, jeton: r.auth.client_token };
+      return { url, jeton: r.auth.client_token, fetch: tracant };
     },
   };
 }

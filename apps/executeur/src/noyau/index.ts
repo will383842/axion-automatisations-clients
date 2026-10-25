@@ -1,4 +1,7 @@
+export * from "./etape.ts";
 export * from "./horloge.ts";
+export * from "./intention.ts";
+export * from "./machine.ts";
 export * from "./memoire/boite-envoi.ts";
 export * from "./memoire/connecteur-factice.ts";
 export * from "./memoire/console-factice.ts";

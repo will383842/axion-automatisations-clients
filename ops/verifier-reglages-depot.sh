@@ -41,6 +41,13 @@ else
   mauvais=1
 fi
 
+# Environnements de déploiement (C-388, C-389). Une réponse vide ou illisible ne vaut jamais OK.
+api "/environments/production" --jq '[.protection_rules[]? | select(.type=="required_reviewers") | .reviewers[]?] | length' | grep -qE '^[1-9][0-9]*$' ; verdict "l'environnement production exige un réviseur" $?
+for env in production recette; do
+  api "/environments/$env/deployment-branch-policies" --jq '[.branch_policies[].name] | join(",")' | grep -qx main ; verdict "l'environnement $env est limité à la branche main" $?
+done
+api "/actions/secrets" --jq '[.secrets[].name | select(test("COOLIFY|DEPLOY|DEPLOI";"i"))] | length' | grep -qx 0 ; verdict "aucun secret de déploiement au niveau du dépôt (ils vivent dans les environnements)" $?
+
 # Aucun workflow du dépôt ne doit pouvoir poser un statut ou un contrôle : on relance la garde sur les fichiers présents (2e argument : dossier à lire).
 RACINE="$(cd "$(dirname "$0")/.." && pwd)"
 DOSSIER_WF="${2:-$RACINE/.github/workflows}"

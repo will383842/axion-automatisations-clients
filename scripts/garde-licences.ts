@@ -114,7 +114,10 @@ const ACTIONS: [string, unknown[]][] = [
   ["github/codeql-action/init@8498dc4c2b27cdd99baf0f87955b29ebbf30c78d", [{ languages: "javascript-typescript", "build-mode": "none" }]],
   ["github/codeql-action/analyze@8498dc4c2b27cdd99baf0f87955b29ebbf30c78d", [undefined]],
   ["gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7", [undefined]],
-  // ADR 0014 : attestation de provenance des images dérivées (job « publier » de images-derivees.yml seulement, par SHA du tag v4.2.2).
+];
+// ADR 0014 : attestation de provenance des images dérivées, par SHA du tag v4.2.2. Acceptée dans images-derivees.yml seulement.
+const FICHIER_IMAGES = "images-derivees.yml";
+const ACTIONS_IMAGES: [string, unknown[]][] = [
   ["actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8", [{ "subject-name": "ghcr.io/will383842/axion-automatisations-clients/postgres-derivee", "subject-digest": "${{ steps.pousser.outputs.empreinte }}", "push-to-registry": true }]],
 ];
 // Seul bloc « services » connu : le Mailpit de harnais.yml, comparé en forme canonique.
@@ -136,28 +139,31 @@ const RUN_OK = new Set([
   "node scripts/couverture-req.ts rapport-vitest.json rapport-playwright.json", "node scripts/garde-couleurs.ts", "node scripts/garde-donnees-reelles.ts",
   'node scripts/scanner-journaux.ts "$RUNNER_TEMP/texte"', "git fetch --no-tags origin main:refs/remotes/origin/main", "ops/socle/lancer.sh", "ops/socle/arreter.sh",
 ]);
-// Blocs de plusieurs lignes : empreinte SHA-256 du texte (controle-journaux ×2, nuit, socle-integration, squelettes-web, images-derivees ×5).
+// Blocs de plusieurs lignes : empreinte SHA-256 du texte (controle-journaux ×2, nuit, socle-integration, squelettes-web).
 const BLOCS = new Set([
   "91d880b8d946344fb442e64a8f8ff4c6eb2e25266d2d4323be61ae56e8cbcfc0", "5cd6fd64e4938d39c80bac4b7d85814c9c830b5c1af5f0b7ce439360ae98e36c", "e2650042d59f0d28585d19828302efac1a54e9b198fe25ec140de1ce00e69b2e",
   "0fd60f11b15695a31240caf38b0dc6261a44d31e6e69d3b3efb7a109e0d33917", "1ee1fc7af3202d9908c3dff871f61c9ad720a975cdfec88cf13c6d5eae58d11c",
+]);
+// Les cinq blocs de images-derivees.yml (ADR 0014) : acceptés dans ce fichier seulement.
+const BLOCS_IMAGES = new Set([
   "2cc82b403c67a4e486037fa8bca9d916b741363c20a1d849a3f7b53ca77beb75", "2b4e7f6c62e6037dcd3066d1bfdf04198fdb53ba15ad1155d64f01436d6fbf28", "141ad4b7e734456991654ae2e26f05ec4899efb2ad3828e0b77650ceec614614",
   "95587cf550dce1fbc69f7e8d88b456602526e53d79e7102cded09b33f724b58f", "89dd0a51528b351200f20dee084db620976d939f9eda0c815e52b9fba10202bd",
 ]);
 const ENV_OK = ["GH_TOKEN", "DEPOT", "RUN_ID", "CORPS_PR", "GITHUB_TOKEN", "SOCLE_INTEGRATION", "NODE_ENV", "MAILPIT_API", "MAILPIT_SMTP_HOTE", "MAILPIT_SMTP_PORT", "NEXT_TELEMETRY_DISABLED"];
 const envOk = (o: unknown) => o === undefined || (estObj(o) && cles(o, ENV_OK));
 
-function etapeConnue(e: Obj, composite: boolean): string | undefined {
+function etapeConnue(e: Obj, composite: boolean, fichier: string): string | undefined {
   if (!cles(e, ["name", "id", "if", "continue-on-error", "env", "uses", "with", "run", ...(composite ? ["shell"] : [])]) || !envOk(e.env)) return "étape de forme inconnue";
   if ((e.uses === undefined) === (e.run === undefined)) return "étape : « uses » ou « run », un seul";
   if (typeof e.uses === "string") {
     const uses = e.uses;
-    const action = ACTIONS.find(([connu]) => connu === uses);
+    const action = [...ACTIONS, ...(fichier === FICHIER_IMAGES ? ACTIONS_IMAGES : [])].find(([connu]) => connu === uses);
     return e.shell === undefined && action?.[1].some((w) => canon(w) === canon(e.with)) ? undefined : `action « ${uses} » ou ses réglages hors liste blanche`;
   }
   const run = typeof e.run === "string" ? e.run.trim() : "";
   if (e.with !== undefined || e.shell !== (composite ? "bash" : undefined)) return "étape « run » avec réglage de shell ou « with » inconnu";
   if (run === INSTALLER && (e.if !== undefined || e["continue-on-error"] !== undefined)) return "l'installation figée ne peut être ni conditionnelle ni tolérée";
-  return RUN_OK.has(run) || BLOCS.has(createHash("sha256").update(run).digest("hex")) ? undefined : `commande hors liste blanche : ${run.split("\n")[0]?.slice(0, 80)}`;
+  return RUN_OK.has(run) || BLOCS.has(createHash("sha256").update(run).digest("hex")) || (fichier === FICHIER_IMAGES && BLOCS_IMAGES.has(createHash("sha256").update(run).digest("hex"))) ? undefined : `commande hors liste blanche : ${run.split("\n")[0]?.slice(0, 80)}`;
 }
 
 // Forme connue d'un workflow ou d'une action composite (le nom « action.yml » désigne une action composite).
@@ -174,7 +180,7 @@ function formeConnue(f: Fichier, doc: Obj): string[] {
   const clesJob = composite ? ["using", "steps"] : ["name", "runs-on", "permissions", "services", "env", "steps", "needs", "if", "timeout-minutes"];
   return jobs.flatMap((job) => {
     if (!estObj(job) || !cles(job, clesJob) || !envOk(job.env) || (!composite && (job["runs-on"] !== "ubuntu-latest" || (job.services !== undefined && canon(job.services) !== SERVICES))) || !Array.isArray(job.steps) || !job.steps.length) return [`${f.nom} : job de forme inconnue`];
-    return job.steps.map((e) => (estObj(e) ? etapeConnue(e, composite) : "étape illisible")).filter((m) => m).map((m) => `${f.nom} : ${m}`);
+    return job.steps.map((e) => (estObj(e) ? etapeConnue(e, composite, f.nom) : "étape illisible")).filter((m) => m).map((m) => `${f.nom} : ${m}`);
   });
 }
 

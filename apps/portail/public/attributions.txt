@@ -1,0 +1,8 @@
+Attributions
+
+Données de compatibilité des navigateurs : paquet « caniuse-lite »
+- Données : Can I Use (https://caniuse.com), de Alexis Deveria et des contributeurs.
+- Paquet : caniuse-lite, de Ben Briggs et des contributeurs (https://github.com/browserslist/caniuse-lite).
+- Licence : CC-BY-4.0, Creative Commons Attribution 4.0 International (https://creativecommons.org/licenses/by/4.0/).
+- Modifications : les données sont réduites à l'essentiel par le paquet caniuse-lite ; nous ne les modifions pas.
+- Cette mention ne suggère aucune approbation de notre produit par les auteurs.

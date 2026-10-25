@@ -106,6 +106,15 @@ describe.each(BASES)("isolation entre clients sur la base %s", (b) => {
   });
   afterAll(nettoyer);
 
+  // Droits de table de `role` sur la table d'essai, lus par has_table_privilege.
+  const droitsDe = async (role: string) => {
+    const sortie: string[] = [];
+    for (const d of ["SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"]) {
+      if ((await lignes(migration, "SELECT has_table_privilege($1, 'essai_isolation.dossiers', $2) AS ok", [role, d]))[0]?.["ok"]) sortie.push(d);
+    }
+    return sortie;
+  };
+
   it(`[${id("A-163")}] @isolation la table d'essai conforme passe les invariants C5 sans écart ; une table sans FORCE est signalée`, async () => {
     const options = { rolesApplication: /^(console|moteur)_(app|equipe)$/ };
     // Le schéma partman (outil de partition) n'est pas une table métier : seul le schéma d'essai est jugé.
@@ -207,13 +216,6 @@ describe.each(BASES)("isolation entre clients sur la base %s", (b) => {
     await appliquerModele(migration, b, "dossiers");
     const politiques = await lignes(migration, "SELECT policyname, roles::text AS roles FROM pg_policies WHERE schemaname = 'essai_isolation' AND tablename = 'dossiers' ORDER BY policyname");
     expect(politiques).toEqual([{ policyname: "isolation_client", roles: `{${b}_app}` }, { policyname: "lecture_equipe", roles: `{${b}_equipe}` }]);
-    const droitsDe = async (role: string) => {
-      const sortie: string[] = [];
-      for (const d of ["SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"]) {
-        if ((await lignes(migration, "SELECT has_table_privilege($1, 'essai_isolation.dossiers', $2) AS ok", [role, d]))[0]?.["ok"]) sortie.push(d);
-      }
-      return sortie;
-    };
     expect(await droitsDe(`${b}_app`)).toEqual(["SELECT", "INSERT", "UPDATE", "DELETE"]);
     expect(await droitsDe(`${b}_equipe`)).toEqual(["SELECT"]);
   });
@@ -249,5 +251,20 @@ describe.each(BASES)("isolation entre clients sur la base %s", (b) => {
     expect(await lignes(app, "SELECT * FROM essai_isolation.dossiers")).toEqual([]);
     expect(await lignes(equipe, "SELECT * FROM essai_isolation.dossiers")).toHaveLength(4);
   });
-});
 
+  it(`[${id("A-163")}] @isolation un droit en trop (PUBLIC, TRUNCATE, REFERENCES, TRIGGER) est retiré au rejeu du modèle : ${b}_app garde SELECT, INSERT, UPDATE, DELETE et ne peut pas vider la table`, async () => {
+    await migration.query(`GRANT ALL ON essai_isolation.dossiers TO PUBLIC; GRANT TRUNCATE, REFERENCES, TRIGGER ON essai_isolation.dossiers TO ${b}_app, ${b}_equipe`);
+    // Preuve que l'attaque réussit avant le rejeu : le droit TRUNCATE ignore la RLS.
+    expect(await droitsDe(`${b}_app`)).toContain("TRUNCATE");
+    await appliquerModele(migration, b, "dossiers");
+    expect(await droitsDe(`${b}_app`)).toEqual(["SELECT", "INSERT", "UPDATE", "DELETE"]);
+    expect(await droitsDe(`${b}_equipe`)).toEqual(["SELECT"]);
+    // Aucun bénéficiaire hors propriétaire, app et équipe, lu dans l'ACL du catalogue (PUBLIC = grantee 0).
+    const beneficiaires = await lignes(migration, `SELECT DISTINCT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE a.grantee::regrole::text END AS qui
+      FROM pg_class c, aclexplode(c.relacl) a WHERE c.oid = 'essai_isolation.dossiers'::regclass AND a.grantee <> c.relowner ORDER BY 1`);
+    expect(beneficiaires).toEqual([{ qui: `${b}_app` }, { qui: `${b}_equipe` }]);
+    expect(await codeRefus(app, "TRUNCATE essai_isolation.dossiers")).toBe("42501");
+    expect(await codeRefus(equipe, "TRUNCATE essai_isolation.dossiers")).toBe("42501");
+    expect(await lignes(equipe, "SELECT * FROM essai_isolation.dossiers")).toHaveLength(4);
+  });
+});

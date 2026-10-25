@@ -1,0 +1,13 @@
+{
+  "nom": "inattendue",
+  "appels": [
+    {
+      "methode": "lire",
+      "erreur": {
+        "classe": "definitive",
+        "code": "inattendue"
+      }
+    }
+  ],
+  "envoyes": 0
+}

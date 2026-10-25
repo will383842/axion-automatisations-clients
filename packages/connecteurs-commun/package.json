@@ -6,8 +6,7 @@
   "type": "module",
   "main": "src/index.ts",
   "scripts": {
-    "typecheck": "tsc --noEmit -p tsconfig.json --allowImportingTsExtensions",
-    "test": "cd ../.. && vitest run --project packages/connecteurs-commun"
+    "typecheck": "tsc --noEmit -p tsconfig.json --allowImportingTsExtensions"
   },
   "dependencies": {
     "@axion-auto/sdk-module": "workspace:*",

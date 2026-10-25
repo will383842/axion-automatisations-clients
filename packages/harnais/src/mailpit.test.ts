@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,17 +14,23 @@ const racine = fileURLToPath(new URL("../../..", import.meta.url));
 beforeEach(async () => {
   if (!process.env["MAILPIT_API"]) return;
   await mailpit.attendrePret();
-  await mailpit.vider();
 });
 
 describe("piège Mailpit", () => {
-  itMailpit("[C-533] Mailpit est vidé entre deux tests", async () => {
-    await nodemailer
-      .createTransport({ host: "127.0.0.1", port: 1025, secure: false })
-      .sendMail({ from: "a@exemple.fr", to: "b@exemple.fr", subject: "essai", text: "x" });
-    expect(await mailpit.attendreMessages(1)).toHaveLength(1);
-    await mailpit.vider();
-    expect(await mailpit.lister()).toHaveLength(0);
+  // Les fichiers de test partagent un seul Mailpit : ce test ne vide pas tout, il supprime son propre message.
+  itMailpit("[C-533] Mailpit capte un message et le supprime par son identifiant", async () => {
+    const dest = `${randomUUID()}@exemple.fr`;
+    await nodemailer.createTransport({ host: "127.0.0.1", port: 1025, secure: false }).sendMail({ from: "a@exemple.fr", to: dest, subject: "essai", text: "x" });
+    const fin = Date.now() + 10_000;
+    let ids: string[] = [];
+    while (ids.length === 0 && Date.now() < fin) {
+      ids = (await mailpit.lister()).filter((m) => m.To.some((a) => a.Address === dest)).map((m) => m.ID);
+      if (ids.length === 0) await new Promise((ok) => setTimeout(ok, 100));
+    }
+    expect(ids).toHaveLength(1);
+    const api = process.env["MAILPIT_API"] ?? "http://127.0.0.1:8025";
+    await fetch(new URL("/api/v1/messages", api), { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ IDs: ids }) });
+    expect((await mailpit.lister()).some((m) => m.To.some((a) => a.Address === dest))).toBe(false);
   });
 
   it("[C-533] le client refuse un hôte qui n'est pas local", () => {

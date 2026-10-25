@@ -1,0 +1,118 @@
+name: images-derivees
+# Images dérivées temporaires (ADR 0014). Sur pull_request : construction, test de fumée et Trivy, jamais de publication.
+# Sur main seulement : publication sur GHCR avec le jeton automatique du job (aucun secret) et attestation de provenance.
+on:
+  pull_request:
+    paths:
+      - ops/images/**
+      - .github/workflows/images-derivees.yml
+  push:
+    branches: [main]
+    paths:
+      - ops/images/**
+      - .github/workflows/images-derivees.yml
+  schedule:
+    - cron: "41 4 * * 1"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  construire:
+    name: construire
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - name: Construire l'image (amd64, amont épinglé par empreinte)
+        run: docker build --pull --platform linux/amd64 --label org.opencontainers.image.source="https://github.com/$GITHUB_REPOSITORY" -t local/postgres-derivee ops/images/postgres-derivee
+      - name: Test de fumée
+        run: |
+          set -eu
+          cid=$(docker run -d -e POSTGRES_PASSWORD=test local/postgres-derivee)
+          trap 'docker rm -f "$cid" >/dev/null' EXIT
+          for i in $(seq 1 30); do docker exec "$cid" pg_isready -h localhost -U postgres >/dev/null && break; sleep 2; done
+          docker exec "$cid" pg_isready -h localhost -U postgres
+          test "$(docker exec "$cid" id -u)" = 70
+          docker exec "$cid" sh -c 'test ! -e /usr/local/bin/gosu && test ! -e /usr/local/bin/su-exec'
+          docker exec "$cid" postgres --version | grep -q '^postgres (PostgreSQL) 16\.15'
+      - name: Trivy (0.58.2 épinglé par empreinte) sur l'amont puis sur l'image dérivée
+        run: |
+          set -eu
+          mkdir -p "$RUNNER_TEMP/trivy"
+          amont=$(grep '^FROM ' ops/images/postgres-derivee/Dockerfile | cut -d' ' -f2)
+          docker save local/postgres-derivee -o "$RUNNER_TEMP/trivy/image.tar"
+          trivy() { docker run --rm -v "$RUNNER_TEMP/trivy:/sortie" ghcr.io/aquasecurity/trivy@sha256:665030f4d33a82c1e8d9d5e0453365842236723c1ee5cc3becca698268e66a56 image --scanners vuln --format json --quiet "$@"; }
+          trivy --input /sortie/image.tar --output /sortie/derivee.json
+          trivy --output /sortie/amont.json "$amont" || echo '{}' > "$RUNNER_TEMP/trivy/amont.json"
+          { echo "### Amont : $amont"; node scripts/releve-trivy.ts --releve "$RUNNER_TEMP/trivy/amont.json"; echo "### Image dérivée"; node scripts/releve-trivy.ts --releve "$RUNNER_TEMP/trivy/derivee.json"; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Évaluateur (critique 7 jours, haute 30 jours, aucune exception)
+        run: node scripts/releve-trivy.ts --garde "$RUNNER_TEMP/trivy/derivee.json" postgres-derivee
+  publier:
+    name: publier
+    needs: construire
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - name: Construire l'image (amd64, amont épinglé par empreinte)
+        run: docker build --pull --platform linux/amd64 --label org.opencontainers.image.source="https://github.com/$GITHUB_REPOSITORY" -t local/postgres-derivee ops/images/postgres-derivee
+      - name: Test de fumée
+        run: |
+          set -eu
+          cid=$(docker run -d -e POSTGRES_PASSWORD=test local/postgres-derivee)
+          trap 'docker rm -f "$cid" >/dev/null' EXIT
+          for i in $(seq 1 30); do docker exec "$cid" pg_isready -h localhost -U postgres >/dev/null && break; sleep 2; done
+          docker exec "$cid" pg_isready -h localhost -U postgres
+          test "$(docker exec "$cid" id -u)" = 70
+          docker exec "$cid" sh -c 'test ! -e /usr/local/bin/gosu && test ! -e /usr/local/bin/su-exec'
+          docker exec "$cid" postgres --version | grep -q '^postgres (PostgreSQL) 16\.15'
+      - name: Trivy (0.58.2 épinglé par empreinte) sur l'amont puis sur l'image dérivée
+        run: |
+          set -eu
+          mkdir -p "$RUNNER_TEMP/trivy"
+          amont=$(grep '^FROM ' ops/images/postgres-derivee/Dockerfile | cut -d' ' -f2)
+          docker save local/postgres-derivee -o "$RUNNER_TEMP/trivy/image.tar"
+          trivy() { docker run --rm -v "$RUNNER_TEMP/trivy:/sortie" ghcr.io/aquasecurity/trivy@sha256:665030f4d33a82c1e8d9d5e0453365842236723c1ee5cc3becca698268e66a56 image --scanners vuln --format json --quiet "$@"; }
+          trivy --input /sortie/image.tar --output /sortie/derivee.json
+          trivy --output /sortie/amont.json "$amont" || echo '{}' > "$RUNNER_TEMP/trivy/amont.json"
+          { echo "### Amont : $amont"; node scripts/releve-trivy.ts --releve "$RUNNER_TEMP/trivy/amont.json"; echo "### Image dérivée"; node scripts/releve-trivy.ts --releve "$RUNNER_TEMP/trivy/derivee.json"; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Évaluateur (critique 7 jours, haute 30 jours, aucune exception)
+        run: node scripts/releve-trivy.ts --garde "$RUNNER_TEMP/trivy/derivee.json" postgres-derivee
+      - name: Pousser l'image et lire son empreinte
+        id: pousser
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          image=ghcr.io/will383842/axion-automatisations-clients/postgres-derivee
+          amont=$(grep '^FROM ' ops/images/postgres-derivee/Dockerfile | cut -d' ' -f2)
+          version="${amont%%@*}"
+          etiquette="${version#*:}-r$GITHUB_RUN_NUMBER"
+          echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker tag local/postgres-derivee "$image:$etiquette"
+          docker push "$image:$etiquette"
+          empreinte=$(docker inspect --format '{{index .RepoDigests 0}}' "$image:$etiquette")
+          echo "empreinte=${empreinte#*@}" >> "$GITHUB_OUTPUT"
+          echo "### Publiée : $image:$etiquette@${empreinte#*@}" >> "$GITHUB_STEP_SUMMARY"
+      - name: Attestation de provenance (Sigstore, sans clé)
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/will383842/axion-automatisations-clients/postgres-derivee
+          subject-digest: ${{ steps.pousser.outputs.empreinte }}
+          push-to-registry: true

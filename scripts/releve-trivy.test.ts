@@ -5,7 +5,7 @@ const JOUR = 86_400_000;
 const maintenant = new Date("2026-10-25T00:00:00Z");
 const il_y_a = (jours: number) => new Date(maintenant.getTime() - jours * JOUR).toISOString();
 const rapport = (...vulns: object[]) => ({ Results: [{ Target: "x", Vulnerabilities: vulns }] });
-const avis = (id: string, Severity: string, jours: number, FixedVersion: string | undefined = "2.0") => ({
+const avis = (id: string, Severity: string, jours: number, FixedVersion: string | null = "2.0") => ({
   VulnerabilityID: id, Severity, PublishedDate: il_y_a(jours), FixedVersion, PkgName: "paquet", InstalledVersion: "1.0", PkgPath: "usr/local/bin/outil",
 });
 
@@ -19,7 +19,7 @@ describe("releve-trivy : évaluateur (mêmes seuils que la garde des briques)", 
     expect(evaluer(rapport(avis("CVE-B", "HIGH", 29)), "img", maintenant)).toEqual([]);
   });
   it("[A-381] sans correctif, ou moyenne : acceptée ; rapport invalide ou date illisible : refusé", () => {
-    expect(evaluer(rapport(avis("CVE-C", "CRITICAL", 90, undefined), avis("CVE-D", "MEDIUM", 90)), "img", maintenant)).toEqual([]);
+    expect(evaluer(rapport(avis("CVE-C", "CRITICAL", 90, null), avis("CVE-D", "MEDIUM", 90)), "img", maintenant)).toEqual([]);
     expect(evaluer({}, "img", maintenant)).toEqual(["rapport Trivy invalide pour img"]);
     expect(evaluer(rapport({ ...avis("CVE-E", "HIGH", 1), PublishedDate: "n'importe quoi" }), "img", maintenant)).toEqual(["CVE-E img"]);
   });
@@ -31,7 +31,7 @@ describe("releve-trivy : évaluateur (mêmes seuils que la garde des briques)", 
 describe("releve-trivy : relevé", () => {
   it("[A-381] une ligne par avis : paquet, version installée, version corrigée, chemin", () => {
     expect(relever(rapport(avis("CVE-A", "CRITICAL", 8), avis("CVE-A", "CRITICAL", 8)))).toEqual(["CVE-A CRITICAL paquet 1.0 → 2.0 (usr/local/bin/outil)"]);
-    expect(relever(rapport(avis("CVE-F", "HIGH", 8, undefined)))).toEqual(["CVE-F HIGH paquet 1.0 → aucune (usr/local/bin/outil)"]);
+    expect(relever(rapport(avis("CVE-F", "HIGH", 8, null)))).toEqual(["CVE-F HIGH paquet 1.0 → aucune (usr/local/bin/outil)"]);
     expect(relever(null)).toEqual([]);
   });
 });

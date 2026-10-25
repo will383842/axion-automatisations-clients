@@ -273,10 +273,10 @@ describe("garde-licences : liste blanche des workflows", () => {
     expect(nouvelles.length).toBeGreaterThanOrEqual(15);
     for (const cmd of nouvelles) expect(verifierInstallationsFigees(fich(wf([{ run: cmd }]))), cmd).not.toEqual([]);
   });
-  const SHA_CONNUS = ["3d3c42e5aac5ba805825da76410c181273ba90b1", "949feb2413d6458794dcd2491c4babbbce0c15c1", "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a", "8498dc4c2b27cdd99baf0f87955b29ebbf30c78d", "ff98106e4c7b2bc287b24eaf42907196329070c7"];
-  it("[C-020] tous les « uses » du dépôt sont l'un des 6 textes exacts connus", () => {
+  const SHA_CONNUS = ["3d3c42e5aac5ba805825da76410c181273ba90b1", "949feb2413d6458794dcd2491c4babbbce0c15c1", "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a", "8498dc4c2b27cdd99baf0f87955b29ebbf30c78d", "ff98106e4c7b2bc287b24eaf42907196329070c7", "4d101475d8b20a2381f78447822ac1eab6504dd8"];
+  it("[C-020] tous les « uses » du dépôt sont l'un des 7 textes exacts connus", () => {
     const usages = new Set(dossier().flatMap((f) => [...f.texte.matchAll(/^\s*-?\s*uses:\s*(\S+)/gm)].map((m) => m[1])));
-    expect(usages.size).toBe(6);
+    expect(usages.size).toBe(7);
     for (const u of usages) expect(SHA_CONNUS.some((sha) => u?.endsWith(`@${sha}`)), u).toBe(true);
   });
   const SHA_FORK = "1".repeat(40);

@@ -17,7 +17,7 @@ services:
     depends_on: [postgres]
     ports: ["127.0.0.1:${SONDE_PORT_PGBOUNCER:-6432}:5432"]
   valkey:
-    image: valkey/valkey:8.0.1
+    image: valkey/valkey:8.1.10@sha256:640c5e62cea04b6d6f2084232651d0cc70362d31f4f805e7be94dbed6855e8f2
     ports: ["127.0.0.1:${SONDE_PORT_VALKEY:-6379}:6379"]
   openbao:
     image: openbao/openbao:2.0.1

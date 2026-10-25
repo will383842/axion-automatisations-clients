@@ -1,11 +1,11 @@
 {
   "nom": "whoami",
   "image": "traefik/whoami",
-  "version": "v1.10.3",
-  "empreinte": "sha256:43a68d10b9dfcfc3ffbfe4dd42100dc9aeaf29b3a5636c856337a5940f1b4f1c",
+  "version": "v1.12.0",
+  "empreinte": "sha256:c4717a8d1f0134a7444e24f881160e033991f23027c6c5a9a3f8fd22e70d1d44",
   "licence": "Apache-2.0",
   "livree": false,
   "lieu": "local",
   "source": "https://github.com/traefik/whoami",
-  "verifie_le": "2026-10-24"
+  "verifie_le": "2026-10-25"
 }

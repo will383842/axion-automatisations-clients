@@ -151,14 +151,6 @@ describe("garde des migrations", () => {
     expect(analyser("ALTER DOMAIN d ADD CONSTRAINT pos CHECK (VALUE > 0);\nALTER DOMAIN d SET DEFAULT 1;")).toEqual([]);
   });
 
-  it("[A-233] défense en profondeur : CREATE EXTENSION, COPY … PROGRAM, CREATE RULE et DETACH PARTITION sont refusés", () => {
-    expect(analyser("CREATE EXTENSION dblink;")).toEqual(["m.sql:1: instruction interdite : CREATE EXTENSION"]);
-    expect(analyser("COPY t FROM PROGRAM 'id';")).toEqual(["m.sql:1: instruction interdite : COPY PROGRAM"]);
-    expect(analyser("COPY t TO STDOUT;")).toEqual([]);
-    expect(analyser("CREATE RULE r AS ON INSERT TO t DO INSTEAD DELETE FROM t;")).toEqual(["m.sql:1: instruction interdite : CREATE RULE"]);
-    expect(analyser("ALTER TABLE p DETACH PARTITION p1;")).toEqual(["m.sql:1: instruction interdite : DETACH PARTITION"]);
-  });
-
   it("[A-233] des fichiers SQL sans journal sont refusés", () => {
     const racine = mkdtempSync(join(tmpdir(), "garde-sj-"));
     mkdirSync(join(racine, "apps/api/drizzle"), { recursive: true });

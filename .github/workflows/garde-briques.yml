@@ -1,5 +1,6 @@
 name: garde-briques
-# Sur chaque PR et chaque nuit : la garde des fichiers de briques (empreintes, licences, redis, verrou). Aucun secret.
+# Sur chaque PR et chaque nuit : la garde des fichiers de briques (empreintes, licences, redis, verrou).
+# Une image dérivée (ADR 0016) doit porter une attestation de provenance signée par images-derivees.yml de ce dépôt, sur l'empreinte inscrite. Aucun secret.
 on:
   pull_request:
   schedule:
@@ -7,6 +8,7 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+  attestations: read
 jobs:
   garde-briques:
     name: garde-briques
@@ -22,3 +24,15 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Garde des briques (fichiers, empreintes, licences, redis, verrou)
         run: node scripts/garde-briques.ts
+      - name: Attestation de provenance de chaque image dérivée (workflow signataire images-derivees.yml)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -u
+          statut=0
+          for ref in $(node scripts/garde-briques.ts --derivees); do
+            fichier="$RUNNER_TEMP/attestation-$(printf '%s' "${ref%%@*}" | tr '/:' '--').json"
+            gh attestation verify "oci://$ref" --repo will383842/axion-automatisations-clients --signer-workflow will383842/axion-automatisations-clients/.github/workflows/images-derivees.yml --format json > "$fichier" || { echo "Attestation introuvable ou refusée pour ${ref%%@*}" >&2; statut=1; continue; }
+            node scripts/garde-briques.ts --attestation "$fichier" "$ref" || statut=1
+          done
+          exit "$statut"

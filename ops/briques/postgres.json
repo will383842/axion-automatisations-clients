@@ -1,11 +1,15 @@
 {
   "nom": "postgres",
-  "image": "postgres",
-  "version": "16.15-alpine",
-  "empreinte": "sha256:f4610795587492cd4fb887c2dc3de301b813278bb6f616992061141b5f15ac36",
+  "image": "ghcr.io/will383842/axion-automatisations-clients/postgres-derivee",
+  "version": "16.15-alpine-r41",
+  "empreinte": "sha256:5205d9a41b3095832ffd4b6a2be2cd73de7a4d6975a442ecf087f043d523c3a1",
   "licence": "PostgreSQL",
   "livree": false,
   "lieu": "local",
   "source": "https://www.postgresql.org",
-  "verifie_le": "2026-10-25"
+  "verifie_le": "2026-10-25",
+  "derivee": {
+    "amont": "postgres:16.15-alpine@sha256:f4610795587492cd4fb887c2dc3de301b813278bb6f616992061141b5f15ac36",
+    "dockerfile": "ops/images/postgres-derivee/Dockerfile"
+  }
 }

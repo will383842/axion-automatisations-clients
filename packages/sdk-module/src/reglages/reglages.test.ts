@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { defineAutomation, defauts, MigrationRefusee, migrerReglages, validerReglages, verifierMigrations, type Manifeste } from "../index.ts";
+import { defineAutomation, defauts, MigrationRefusee, migrerReglages, validerEcrans, validerReglages, verifierMigrations, type Manifeste } from "../index.ts";
 import { manifesteExemple } from "../../exemples/module-exemple.ts";
 
 const reglagesV12 = z.object({
@@ -217,5 +217,42 @@ describe("modules et clients", () => {
     for (const code of ["cli-12-accuse", "accuse-client", "accuse-123456789"]) {
       expect(() => defineAutomation({ ...manifesteExemple, code } as unknown as Manifeste), code).toThrow(/propre à un client/);
     }
+  });
+});
+
+describe("un modèle, des réglages par client", () => {
+  it("[A-029] deux clients utilisent le même module avec des réglages différents, sans copie", () => {
+    const a = validerReglages(module12, { resumeActif: true, objetAccuse: "Merci" });
+    const b = validerReglages(module12, { resumeActif: false, objetAccuse: "Bien reçu, à bientôt" });
+    expect(a.ok && b.ok).toBe(true);
+    if (a.ok && b.ok) expect(a.valeurs.objetAccuse).not.toBe(b.valeurs.objetAccuse);
+    expect(Object.isFrozen(module12)).toBe(true);
+  });
+
+  it("[A-290] le schéma exporté en JSON Schema 2020-12 donne les mêmes champs que les valeurs par défaut", () => {
+    const schema = module12.schemaReglages as { $schema: string; properties: Record<string, unknown> };
+    expect(schema.$schema).toBe("https://json-schema.org/draft/2020-12/schema");
+    expect(Object.keys(defauts(module12)).every((k) => k in schema.properties)).toBe(true);
+  });
+
+  it("[A-291] une action hors de la liste du client part en brouillon, une action listée part seule", () => {
+    const r = validerReglages(module12, { resumeActif: false, actionsAutomatiquesAutorisees: ["classer"] });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      const liste = r.valeurs as { actionsAutomatiquesAutorisees: string[] };
+      expect(module12.classerAction(liste, "classer")).toBe("automatique");
+      expect(module12.classerAction(liste, "envoyer")).toBe("brouillon");
+    }
+    expect(validerReglages(module12, { resumeActif: false, actionsAutomatiquesAutorisees: [3] }).ok).toBe(false);
+  });
+
+  it("[C-243] tout ce qui change d'un client à l'autre est dans le schéma exporté", () => {
+    const schema = module12.schemaReglages as { properties: Record<string, unknown> };
+    expect(Object.keys(schema.properties).sort()).toEqual(Object.keys(reglagesV12.shape).sort());
+  });
+
+  it("[C-244] les écrans et les tables du module sont déclarés et les écrans passent la validation", () => {
+    expect(validerEcrans(module12.ecrans)).toEqual({ ok: true, erreurs: [] });
+    expect(module12.tables.length).toBeGreaterThan(0);
   });
 });

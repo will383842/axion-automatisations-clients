@@ -62,7 +62,7 @@ describe("configuration", () => {
   });
 
   it("[C-391] attaque : le message de refus ne contient jamais la valeur du secret", () => {
-    const secret = "valeur-de-test-0123456789";
+    const secret = "x".repeat(20);
     expect(refus(prod({ ANTHROPIC_API_KEY: secret }))).not.toContain(secret);
   });
 

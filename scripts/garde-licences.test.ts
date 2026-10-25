@@ -273,6 +273,93 @@ describe("garde-licences : liste blanche des workflows", () => {
     expect(nouvelles.length).toBeGreaterThanOrEqual(15);
     for (const cmd of nouvelles) expect(verifierInstallationsFigees(fich(wf([{ run: cmd }]))), cmd).not.toEqual([]);
   });
+  const SHA_CONNUS = ["3d3c42e5aac5ba805825da76410c181273ba90b1", "949feb2413d6458794dcd2491c4babbbce0c15c1", "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a", "8498dc4c2b27cdd99baf0f87955b29ebbf30c78d", "ff98106e4c7b2bc287b24eaf42907196329070c7"];
+  it("[C-020] tous les « uses » du dépôt sont l'un des 6 textes exacts connus", () => {
+    const usages = new Set(dossier().flatMap((f) => [...f.texte.matchAll(/^\s*-?\s*uses:\s*(\S+)/gm)].map((m) => m[1])));
+    expect(usages.size).toBe(6);
+    for (const u of usages) expect(SHA_CONNUS.some((sha) => u?.endsWith(`@${sha}`)), u).toBe(true);
+  });
+  const SHA_FORK = "1".repeat(40);
+  const usesRefuse: [string, string, Obj | undefined][] = [
+    ["checkout sur un SHA inconnu (commit de fork)", `actions/checkout@${SHA_FORK}`, undefined],
+    ["setup-node sur un SHA inconnu (commit de fork)", `actions/setup-node@${SHA_FORK}`, { "node-version-file": ".nvmrc" }],
+    ["upload-artifact sur un SHA inconnu", `actions/upload-artifact@${SHA_FORK}`, { name: "rapport-couverture", path: "rapport-couverture.json" }],
+    ["codeql init sur un SHA inconnu", `github/codeql-action/init@${SHA_FORK}`, { languages: "javascript-typescript", "build-mode": "none" }],
+    ["codeql analyze sur un SHA inconnu", `github/codeql-action/analyze@${SHA_FORK}`, undefined],
+    ["gitleaks sur un SHA inconnu", `gitleaks/gitleaks-action@${SHA_FORK}`, undefined],
+    ["checkout sur une étiquette", "actions/checkout@v4", undefined],
+    ["checkout sur une branche", "actions/checkout@main", undefined],
+    ["checkout sur un SHA court", "actions/checkout@3d3c42e", undefined],
+    ["checkout avec le SHA connu en majuscules", `actions/checkout@${SHA_CONNUS[0]?.toUpperCase()}`, undefined],
+    ["checkout avec un SHA connu d'une autre action", `actions/checkout@${SHA_CONNUS[1]}`, undefined],
+    ["checkout avec un sous-chemin", `actions/checkout/sous@${SHA_CONNUS[0]}`, undefined],
+    ["checkout suivi d'une espace", `actions/checkout@${SHA_CONNUS[0]} `, undefined],
+    ["checkout d'un autre propriétaire", `autre/checkout@${SHA_CONNUS[0]}`, undefined],
+  ];
+  it.each(usesRefuse)("[C-020] refuse : %s", (_nom, uses, avec) => {
+    const e = avec === undefined ? { uses } : { uses, with: avec };
+    expect(verifierInstallationsFigees(fich(wf([e])))).not.toEqual([]);
+    expect(verifierInstallationsFigees([{ nom: "x/action.yml", texte: dump({ name: "x", runs: { using: "composite", steps: [e] } }) }])).not.toEqual([]);
+  });
+  it("[C-020] accepte chacun des textes exacts connus", () => {
+    const connus: [string, Obj | undefined][] = [
+      [CHECKOUT, undefined], [NODE, { "node-version-file": ".nvmrc" }], [`actions/upload-artifact@${SHA_CONNUS[2]}`, { name: "rapport-couverture", path: "rapport-couverture.json" }],
+      [`github/codeql-action/init@${SHA_CONNUS[3]}`, { languages: "javascript-typescript", "build-mode": "none" }], [`github/codeql-action/analyze@${SHA_CONNUS[3]}`, undefined], [`gitleaks/gitleaks-action@${SHA_CONNUS[4]}`, undefined],
+    ];
+    for (const [uses, avec] of connus) expect(verifierInstallationsFigees(fich(wf([avec === undefined ? { uses } : { uses, with: avec }]))), uses).toEqual([]);
+  });
+  const MAILPIT = {
+    mailpit: {
+      image: "axllent/mailpit:v1.20.4@sha256:ff82a613c735f4e8a3ddfdf7ee4e18cb934c721e72a340ecbbb7ec0ca7fbd057",
+      ports: ["127.0.0.1:8025:8025", "127.0.0.1:1025:1025"],
+      options: '--health-cmd "/mailpit readyz" --health-interval 2s --health-timeout 3s --health-retries 30',
+    },
+  };
+  const servicesRefuses: [string, unknown][] = [
+    ["image quelconque", { mailpit: { ...MAILPIT.mailpit, image: "autre/image:1" } }],
+    ["image en expression", { mailpit: { ...MAILPIT.mailpit, image: "${{ github.event.pull_request.title }}" } }],
+    ["image sans empreinte", { mailpit: { ...MAILPIT.mailpit, image: "axllent/mailpit:v1.20.4" } }],
+    ["--entrypoint dans options", { mailpit: { ...MAILPIT.mailpit, options: `${MAILPIT.mailpit.options} --entrypoint sh` } }],
+    ["volume sur l'espace de travail", { mailpit: { ...MAILPIT.mailpit, volumes: ["${{ github.workspace }}:/w"] } }],
+    ["env du service", { mailpit: { ...MAILPIT.mailpit, env: { X: "1" } } }],
+    ["credentials du service", { mailpit: { ...MAILPIT.mailpit, credentials: { username: "u", password: "p" } } }],
+    ["port en plus", { mailpit: { ...MAILPIT.mailpit, ports: [...MAILPIT.mailpit.ports, "0.0.0.0:22:22"] } }],
+    ["port ouvert à tous", { mailpit: { ...MAILPIT.mailpit, ports: ["8025:8025", "1025:1025"] } }],
+    ["second service", { ...MAILPIT, autre: MAILPIT.mailpit }],
+    ["service renommé", { autre: MAILPIT.mailpit }],
+    ["services vide", {}],
+    ["services nul", null],
+    ["services en liste", [MAILPIT.mailpit]],
+    ["services en texte", "mailpit"],
+  ];
+  it("[C-020] accepte « services » seulement s'il est égal au bloc Mailpit épinglé (ordre des clés libre)", () => {
+    expect(verifierInstallationsFigees(fich(wf([{ run: "pnpm lint" }], { services: MAILPIT })))).toEqual([]);
+    const m = MAILPIT.mailpit;
+    expect(verifierInstallationsFigees(fich(wf([{ run: "pnpm lint" }], { services: { mailpit: { options: m.options, ports: m.ports, image: m.image } } })))).toEqual([]);
+  });
+  it.each(servicesRefuses)("[C-020] refuse « services » : %s", (_nom, services) => {
+    expect(verifierInstallationsFigees(fich(wf([{ run: "pnpm lint" }], { services })))).not.toEqual([]);
+    expect(verifierInstallationsFigees(fich(wf(modele(), { services })))).not.toEqual([]);
+  });
+  const runsOnRefuse: [string, unknown][] = [
+    ["self-hosted", "self-hosted"], ["une liste", ["ubuntu-latest"]], ["ubuntu-24.04", "ubuntu-24.04"], ["windows-latest", "windows-latest"], ["une casse différente", "Ubuntu-Latest"],
+    ["une espace en plus", "ubuntu-latest "], ["une expression", "${{ matrix.os }}"], ["un groupe", { group: "g", labels: "self-hosted" }], ["rien", undefined],
+  ];
+  it.each(runsOnRefuse)("[C-020] refuse « runs-on » : %s", (_nom, valeur) => {
+    expect(verifierInstallationsFigees(fich(wf([{ run: "pnpm lint" }], { "runs-on": valeur })))).not.toEqual([]);
+  });
+  it("[C-020] refuse container, strategy et un job sans runs-on, même avec des étapes connues", () => {
+    for (const job of [{ container: { image: "node:20", options: "--entrypoint sh" } }, { strategy: { matrix: { os: ["self-hosted"] } } }, { "runs-on": "${{ fromJSON(github.event.pull_request.title) }}" }]) {
+      expect(verifierInstallationsFigees(fich(wf([{ run: "pnpm lint" }], job)))).not.toEqual([]);
+    }
+  });
+  it("[C-020] CODEOWNERS couvre scripts, ops, .github, package.json, .npmrc, .nvmrc et .pnpmfile.cjs", () => {
+    const texte = lire(".github/CODEOWNERS");
+    const lignes = texte.split("\n").filter((l) => l.trim() && !l.startsWith("#"));
+    for (const chemin of ["/scripts/", "/ops/", "/.github/", "package.json", "/.npmrc", "/.nvmrc", "/.pnpmfile.cjs"]) {
+      expect(lignes.some((l) => l.split(/\s+/)[0] === chemin && l.split(/\s+/).slice(1).every((o) => /^@will383842$/.test(o)) && l.split(/\s+/).length === 2), chemin).toBe(true);
+    }
+  });
   it("[C-020] un workflow illisible est refusé (échec fermé)", () => {
     expect(verifierInstallationsFigees([{ nom: "w.yml", texte: "jobs: [" }])).not.toEqual([]);
     expect(verifierWorkflowsLicences([{ nom: "w.yml", texte: "jobs: [" }])).not.toEqual([]);

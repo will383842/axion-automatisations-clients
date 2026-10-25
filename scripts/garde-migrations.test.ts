@@ -145,6 +145,24 @@ describe("garde des migrations", () => {
     expect(analyser("SET search_path = x;")).toEqual(["m.sql:1: instruction interdite : SET"]);
   });
 
+  it("[A-233] B9 : tout accès à pg_settings est refusé, UPDATE, ONLY, schéma, alias (R1, R2)", () => {
+    const refus = ["m.sql:1: instruction interdite : pg_settings"];
+    expect(analyser("UPDATE pg_settings SET setting = 'off' WHERE name = 'standard_conforming_strings';")).toEqual(refus);
+    expect(analyser("UPDATE ONLY pg_catalog.pg_settings AS s SET setting = 'GBK' WHERE s.name = 'client_encoding';")).toEqual(refus);
+    expect(analyser("UPDATE \"pg_settings\" SET setting = 'GBK' WHERE name = 'client_encoding';")).toEqual(refus);
+    expect(analyser("CREATE VIEW v AS SELECT * FROM pg_catalog.pg_settings;")).toEqual(refus);
+    expect(analyser("UPDATE pg_settings SET setting = 'GBK' WHERE name = 'client_encoding';\n--> statement-breakpoint\nSELECT E'\u20ac\\'; DROP TABLE t; --';")).toEqual(refus);
+    expect(analyser("SELECT * FROM pg_stat_activity;")).toEqual([]);
+  });
+
+  it("[A-233] B10 : COMMIT et ROLLBACK sont refusés, le lot drizzle tient dans une seule transaction (T1, T2)", () => {
+    const refus = ["m.sql:1: instruction interdite : COMMIT/ROLLBACK"];
+    expect(analyser("ROLLBACK;")).toEqual(refus);
+    expect(analyser("COMMIT;")).toEqual(refus);
+    expect(analyser("CREATE TABLE u(id int);\nCOMMIT;\nCREATE TABLE u(id int);").join("\n")).toContain("COMMIT/ROLLBACK");
+    expect(analyser("ROLLBACK; CREATE TABLE w(id int);")).toEqual(refus);
+  });
+
   it("[A-233] B8 : ALTER TYPE … RENAME VALUE et ALTER DOMAIN … DROP CONSTRAINT sont refusés (N3, N4)", () => {
     expect(analyser("ALTER TYPE e RENAME VALUE 'a' TO 'z';")).toEqual(["m.sql:1: instruction interdite : RENAME"]);
     expect(analyser("ALTER DOMAIN d DROP CONSTRAINT pos;")).toEqual(["m.sql:1: instruction interdite : DROP"]);

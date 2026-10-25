@@ -83,4 +83,12 @@ describe("migrer, avec le socle", () => {
       await nettoyage.end();
     }
   });
+
+  it("[A-233] B9 : migrer refuse UPDATE pg_settings (client_encoding GBK) avant toute connexion", async () => {
+    const dossier = mkdtempSync(join(tmpdir(), "migrer-"));
+    mkdirSync(join(dossier, "meta"));
+    writeFileSync(join(dossier, "0000_enc.sql"), "UPDATE pg_settings SET setting = 'GBK' WHERE name = 'client_encoding';\n--> statement-breakpoint\nSELECT E'\u20ac\\'; DROP TABLE essai_enc_a233; --';\n");
+    writeFileSync(join(dossier, "meta/_journal.json"), JSON.stringify({ version: "7", dialect: "postgresql", entries: [{ idx: 0, version: "7", when: 1700000000002, tag: "0000_enc", breakpoints: true }] }));
+    await expect(migrer({ url: urlDe("console_migration", DIRECT()), dossier })).rejects.toThrow(/pg_settings/);
+  });
 });

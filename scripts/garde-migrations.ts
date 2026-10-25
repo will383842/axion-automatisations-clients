@@ -13,7 +13,7 @@ const NOEUDS = new Map([
   ["DropStmt", "DROP"], ["DropOwnedStmt", "DROP"], ["DropRoleStmt", "DROP"], ["DropdbStmt", "DROP"], ["DropTableSpaceStmt", "DROP"], ["DropSubscriptionStmt", "DROP"], ["DropUserMappingStmt", "DROP"],
   ["RenameStmt", "RENAME"], ["TruncateStmt", "TRUNCATE"], ["AlterObjectSchemaStmt", "SET SCHEMA"],
   ["VariableSetStmt", "SET"], ["AlterDatabaseSetStmt", "ALTER DATABASE SET"], ["AlterRoleSetStmt", "ALTER ROLE SET"],
-  ["DoStmt", "DO"], ["CreateFunctionStmt", "CREATE FUNCTION"], ["CallStmt", "CALL"], ["ExecuteStmt", "EXECUTE"],
+  ["DoStmt", "DO"], ["CreateFunctionStmt", "CREATE FUNCTION"], ["CallStmt", "CALL"], ["ExecuteStmt", "EXECUTE"], ["TransactionStmt", "COMMIT/ROLLBACK"],
 ]);
 
 function etiquettes(noeud: unknown, trouvees: string[]): void {
@@ -29,6 +29,8 @@ function etiquettes(noeud: unknown, trouvees: string[]): void {
     }
     if (cle === "AlterEnumStmt" && (valeur as { oldVal?: string }).oldVal) trouvees.push("RENAME");
     if (cle === "AlterDomainStmt" && (valeur as { subtype?: string }).subtype === "X") trouvees.push("DROP");
+    // pg_settings porte une règle ON UPDATE qui appelle set_config : toute relation de ce nom (RangeVar), quel que soit le schéma, est refusée.
+    if (cle === "relname" && typeof valeur === "string" && valeur.toLowerCase() === "pg_settings") trouvees.push("pg_settings");
     if (cle === "FuncCall") {
       const nom = (valeur as { funcname?: { String?: { sval?: string } }[] }).funcname?.at(-1)?.String?.sval;
       if (nom?.toLowerCase() === "set_config") trouvees.push("set_config");

@@ -33,8 +33,8 @@ export async function migrer(options: { url: string; dossier: string }): Promise
     // Le rôle réel de la session fait foi, pas le nom écrit dans l'URL (current_user vaut le propriétaire après le SET ROLE par défaut).
     const { rows } = await client.query<{ role: string }>("SELECT session_user AS role");
     if (rows[0]?.role !== ROLE) throw new Error(`migrer exige le rôle ${ROLE}`);
-    // La garde lit le SQL avec standard_conforming_strings = on : le serveur doit le lire pareil.
-    await client.query("SET standard_conforming_strings = on");
+    // La garde lit le SQL en UTF-8 avec standard_conforming_strings = on : le serveur doit le lire pareil.
+    await client.query("SET standard_conforming_strings = on; SET client_encoding = 'UTF8'");
     await migrate(drizzle(client), { migrationsFolder: options.dossier });
   } finally {
     await client.end();

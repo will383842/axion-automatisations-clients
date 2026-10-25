@@ -17,7 +17,7 @@ function codeDans(texte: string): boolean {
   } catch {
     /* texte non encodé : on garde tel quel */
   }
-  const compact = t.replace(/[\u0000-\u0020\u007f-\u009f\u200b-\u200f\u2028\u2029\ufeff]/g, "");
+  const compact = t.replace(/[\p{Cc}\p{Cf}\p{Z}]/gu, "");
   return BALISE.test(t) || GESTIONNAIRE.test(t) || CODE.test(t) || ENTITE.test(t) || SCHEMA.test(compact);
 }
 

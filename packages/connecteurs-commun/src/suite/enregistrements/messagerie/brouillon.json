@@ -1,0 +1,12 @@
+{
+  "nom": "brouillon",
+  "appels": [
+    {
+      "methode": "creerBrouillon",
+      "reponse": {
+        "id": "brouillon-1"
+      }
+    }
+  ],
+  "envoyes": 0
+}

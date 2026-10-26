@@ -18,6 +18,9 @@ Les secrets de l'équipe vivent dans Bitwarden ou sous `technique/` d'OpenBao, J
 | `APP_VERSION` | aucun | environnement de construction | sans objet |
 | `HUB_URL` | aucun | environnement cloud | sans objet |
 | `CRM_URL` | aucun | environnement cloud | sans objet |
+| `PLAFOND_CLE_CLIENT_MICROCENTIMES` | aucun | environnement cloud | sans objet |
+| `PLAFOND_PASSERELLE_JOUR_MICROCENTIMES` | aucun | environnement cloud | sans objet |
+| `SEUIL_RYTHME_ANORMAL` | aucun | environnement cloud | sans objet |
 | `DOMAINE_CONSOLE` | aucun | environnement de construction | sans objet |
 | `DOMAINE_PORTAIL` | aucun | environnement de construction | sans objet |
 | `DOMAINE_API` | aucun | environnement de construction | sans objet |

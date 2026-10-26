@@ -48,6 +48,7 @@ Les secrets de l'équipe vivent dans Bitwarden ou sous `technique/` d'OpenBao, J
 | `JETON_ROLE_API` | production | environnement cloud | période de 768 h, à recréer avant l'échéance |
 | `JETON_ROLE_SECOURS` | equipe | Bitwarden | recréé avant chaque échéance |
 | `INSTANTANE_RAFT` | equipe | stockage de secours chiffré, distinct du gestionnaire de mots de passe, avec d'autres membres | à chaque copie de secours |
+| `PHRASE_SAUVEGARDES` | equipe | OpenBao `technique/sauvegardes`, plus une copie hors ligne (même règle que les parts : un lieu, pas Bitwarden seul) | à chaque départ d'un administrateur ; l'ancienne phrase reste gardée pour relire les anciennes sauvegardes |
 
 ## Secrets de la chaîne de déploiement
 

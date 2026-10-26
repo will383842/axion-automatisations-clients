@@ -1,0 +1,16 @@
+{
+  "nom": "pgbackrest",
+  "image": "ghcr.io/will383842/axion-automatisations-clients/postgres-sauvegarde",
+  "version": "16-r1",
+  "empreinte": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "licence": "MIT",
+  "livree": false,
+  "lieu": "local",
+  "source": "https://pgbackrest.org",
+  "verifie_le": "2026-10-26",
+  "note": "EMPREINTE À REMPLACER : l'image n'existe qu'après sa publication par images-derivees.yml sur main (ADR 0016). Valeur nulle volontaire, la garde d'attestation la refuse.",
+  "derivee": {
+    "amont": "ghcr.io/will383842/axion-automatisations-clients/postgres-socle:16-r41@sha256:c5fd480db4b8537bfaf082b5b73cd6e288994309b4ac0bf8cc58694f6757e2ce",
+    "dockerfile": "ops/images/postgres-sauvegarde/Dockerfile"
+  }
+}

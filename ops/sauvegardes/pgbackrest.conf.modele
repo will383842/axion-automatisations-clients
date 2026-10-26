@@ -1,0 +1,21 @@
+# Modèle de configuration pgBackRest (C-045, C-046, C-049). Aucun secret ici : la phrase de chiffrement arrive par l'environnement
+# du processus (PGBACKREST_REPO1_CIPHER_PASS), lue dans OpenBao au moment de l'usage par lire-phrase-chiffrement.sh (C-593).
+# Les valeurs repo1-sftp-* sont celles de la cible d'essai ; au lot 1-B elles désignent le sous-compte dédié de la Storage Box.
+[global]
+repo1-type=sftp
+repo1-path=/depot
+repo1-sftp-host=sftp-essai
+repo1-sftp-host-user=sauv
+repo1-sftp-private-key-file=/cles/id
+repo1-sftp-host-key-check-type=none
+repo1-cipher-type=aes-256-cbc
+# Rétention (C-049), choix documenté : 30 sauvegardes complètes (les quotidiennes) dans ce dépôt ;
+# les 12 mensuelles vont dans un second dépôt (repo2, 1 sauvegarde par mois, 12 gardées) branché au lot 1-B.
+# retention.ts est le calcul de référence, vérifié par ses tests.
+repo1-retention-full-type=count
+repo1-retention-full=30
+start-fast=y
+
+[commun]
+pg1-path=/var/lib/postgresql/data
+pg1-socket-path=/var/run/postgresql

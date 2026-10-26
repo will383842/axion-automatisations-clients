@@ -1,0 +1,56 @@
+# Sauvegardes (T1A-14) : redéfinit le service postgres de compose.postgres.yml (fusion des fichiers, ordre alphabétique) avec l'image pgBackRest et l'archivage,
+# et ajoute une cible SFTP d'essai qui imite la Storage Box. Réseau interne seulement. Clé SSH et phrase d'essai : générées au lancement, dans un volume jetable.
+services:
+  postgres:
+    image: ghcr.io/will383842/axion-automatisations-clients/postgres-sauvegarde:16-r1@sha256:0000000000000000000000000000000000000000000000000000000000000000
+    environment:
+      SAUVEGARDE_ESSAI: "1"
+      PGBACKREST_CONFIG: /tmp/pgbackrest.conf
+      PGBACKREST_STANZA: commun
+      # P : réglages d'archivage (archive_timeout = 300 s : un journal part au plus toutes les 5 minutes, perte sous 15 minutes)
+      P: -c archive_mode=on -c archive_timeout=300 -c wal_level=replica
+      # L : lecture de la phrase (le motif évite d'écrire un nom de fichier que la garde prendrait pour un domaine) · C : phrase lue à l'usage · D : archivage · Q : configuration
+      L: /opt/sauvegardes/lire-phrase-*
+      C: archive_command=PGBACKREST_REPO1_CIPHER_PASS=$$($$L)
+      D: pgbackrest archive-push %p
+      Q: cp /opt/sauvegardes/pgbackrest.conf.* $$PGBACKREST_CONFIG
+    entrypoint: ['sh', '-c', 'eval "$$Q;$$G"; exec docker-entrypoint.$$X postgres $$P -c "$$C $$D"']
+    volumes:
+      - ../sauvegardes:/opt/sauvegardes:ro
+      - cles-sauvegarde:/cles:ro
+    networks: [interne]
+    depends_on:
+      sftp-essai:
+        condition: service_started
+  cle-essai:
+    image: ghcr.io/will383842/axion-automatisations-clients/postgres-sauvegarde:16-r1@sha256:0000000000000000000000000000000000000000000000000000000000000000
+    restart: "no"
+    user: "0:0"
+    environment:
+      K: ssh-keygen -q -t ed25519 -N "" -f /cles/id
+      F: openssl rand -hex 24 >/cles/phrase
+      D: chmod 644 /cles/id /cles/phrase; chown 1001:100 /depot
+    entrypoint: ['sh', '-c', 'eval "$$K" && eval "$$F" && eval "$$D" && exec sleep infinity']
+    volumes:
+      - cles-sauvegarde:/cles
+      - depot-sauvegardes:/depot
+    networks: [interne]
+    healthcheck:
+      test: ["CMD-SHELL", "test -s /cles/phrase"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  sftp-essai:
+    image: atmoz/sftp:alpine@sha256:43dd1c023cf1bae487127d4b54660b0aee6e94c188a6599be36fb89ba115f961
+    restart: "no"
+    command: sauv::1001:100:depot
+    depends_on:
+      cle-essai:
+        condition: service_healthy
+    volumes:
+      - cles-sauvegarde:/home/sauv/.ssh/keys:ro
+      - depot-sauvegardes:/home/sauv/depot
+    networks: [interne]
+volumes:
+  cles-sauvegarde: {}
+  depot-sauvegardes: {}

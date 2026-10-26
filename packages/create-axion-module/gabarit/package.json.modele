@@ -1,0 +1,12 @@
+{
+  "name": "@axion-auto/__CODE__",
+  "version": "0.1.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "main": "src/module.ts",
+  "dependencies": {
+    "@axion-auto/sdk-module": "workspace:*",
+    "zod": "^4.6.7"
+  }
+}

@@ -3,6 +3,7 @@ FROM ghcr.io/will383842/axion-automatisations-clients/postgres-socle:16-r41@sha2
 ARG PGBACKREST_VERSION=2.56.0-1.pgdg13+1
 USER root
 RUN apt-get update \
+    && apt-cache madison pgbackrest >&2 ; cat /etc/apt/sources.list.d/* >&2 ; false \
     && apt-get install -y --no-install-recommends "pgbackrest=${PGBACKREST_VERSION}" openssh-client \
     && rm -rf /var/lib/apt/lists/*
 USER postgres

@@ -240,3 +240,28 @@ describe("garde-royaumes : double facteur", () => {
     expect(verifier(r, "royaume-clients.json").join()).toMatch(/directAccessGrantsEnabled/);
   });
 });
+
+describe("garde-royaumes : niveau d'authentification (acr)", () => {
+  // Sous-flux CONDITIONAL placé APRÈS le double facteur : il ne fait que poser le niveau « mfa » dans la session.
+  const avecNiveau = (): Royaume => {
+    const r = equipe();
+    cible(r, "formulaire-equipe").authenticationExecutions.push({ flowAlias: "niveau-mfa-equipe", authenticatorFlow: true, requirement: "CONDITIONAL" });
+    r.authenticationFlows.push({
+      alias: "niveau-mfa-equipe",
+      authenticationExecutions: [{ authenticator: "conditional-level-of-authentication", authenticatorConfig: "niveau-mfa", requirement: "REQUIRED" }],
+    });
+    return r;
+  };
+  it("[C-003] accepte la condition de niveau d'authentification placée après le double facteur", () => {
+    expect(verifier(avecNiveau())).toEqual([]);
+  });
+  it("[C-003] le royaume de l'équipe pose le niveau mfa après le double facteur et expose acr dans le jeton", () => {
+    const r = JSON.parse(lire("royaume-equipe.json")) as Royaume;
+    expect(r.attributes["acr.loa.map"]).toBe('{"mfa":"2"}');
+    expect(r.authenticatorConfig).toEqual([expect.objectContaining({ alias: "niveau-mfa", config: expect.objectContaining({ "loa-condition-level": "2" }) })]);
+    const formulaire = r.authenticationFlows.find((f: Royaume) => f.alias === "formulaire-equipe");
+    expect(formulaire.authenticationExecutions.at(-1)).toMatchObject({ flowAlias: "niveau-mfa-equipe", requirement: "CONDITIONAL" });
+    expect(r.clients[0].defaultClientScopes).toContain("acr");
+    expect(verifierRoyaume("royaume-equipe.json", JSON.stringify(r))).toEqual([]);
+  });
+});

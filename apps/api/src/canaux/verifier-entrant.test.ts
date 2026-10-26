@@ -247,4 +247,21 @@ describe("vérification des requêtes entrantes", () => {
     expect((await serveur.inject(q)).statusCode).toBe(200);
     expect(lectures.n).toBe(1);
   });
+  it("[A-345] des requêtes bien formées avec un kid inconnu ne causent qu'une lecture des clés", async () => {
+    const lectures = { n: 0 };
+    const { serveur } = monter({ lectures });
+    const q = requete("/api/hub/v1/ecrire");
+    for (let i = 0; i < 50; i++) {
+      const r = await serveur.inject({ ...q, headers: { ...q.headers, [EN_TETES.cle]: `inconnu-${i}` } });
+      expect(r.statusCode).toBe(401);
+    }
+    expect(lectures.n).toBeLessThanOrEqual(1);
+  });
+
+  it("[A-345] les clés de réception lues sont gardées en mémoire entre deux requêtes", async () => {
+    const lectures = { n: 0 };
+    const { serveur } = monter({ lectures });
+    for (let i = 0; i < 3; i++) expect((await serveur.inject(requete("/api/hub/v1/ecrire", { corps: `{"a":${i}}` }))).statusCode).toBe(200);
+    expect(lectures.n).toBe(1);
+  });
 });

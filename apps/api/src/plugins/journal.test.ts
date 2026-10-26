@@ -59,6 +59,15 @@ describe("masquage des secrets dans le journal de l'API", () => {
     }
   });
 
+  it("[A-005] une valeur courte inscrite au masqueur ne falsifie pas le journal (ligne JSON intacte et valide)", () => {
+    const m = creerMasqueur();
+    for (const courte of ['"', "1", "api"]) m.ajouter(courte);
+    const ligne = '{"level":30,"reqId":"3f2b8c1e","tenant":"a1b2","url":"/api/portail/v1/identifiants"}';
+    const sortie = m.masquer(ligne);
+    expect(sortie).toBe(ligne);
+    expect(() => JSON.parse(sortie)).not.toThrow();
+  });
+
   it("[A-005] le masqueur ignore une valeur vide et laisse le reste du texte intact", () => {
     const m = creerMasqueur();
     m.ajouter("");

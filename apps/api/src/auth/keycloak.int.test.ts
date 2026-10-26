@@ -139,7 +139,9 @@ async function connecter(n: Navigateur, u: Utilisateur, extra: Record<string, st
 
 // Le rapport JSON de la CI ne montre pas le détail d'un échec : on l'écrit sur la sortie d'erreur du processus.
 beforeEach(({ task }) => {
-  onTestFailed(() => writeSync(2, `ECHEC ${task.name}\n${(task.result?.errors ?? []).map((e: { message?: string }) => e.message).join("\n")}\n`));
+  onTestFailed(() => {
+    writeSync(2, `ECHEC ${task.name}\n${(task.result?.errors ?? []).map((e: { message?: string }) => e.message).join("\n")}\n`);
+  });
 });
 
 beforeAll(async () => {

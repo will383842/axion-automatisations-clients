@@ -14,6 +14,9 @@ C-493 → test « [C-493] garde-briques accepte valkey » (scripts/garde-briques
 C-049 → ops/sauvegardes/README.md (rétention 30 quotidiennes, 12 mensuelles) et tests [C-049] de ops/sauvegardes/retention.test.ts, 2026-10-26
 A-190 → ops/sauvegardes/README.md et ADR 0013, vérifié par le test « [A-190] la sauvegarde contient console, moteur, keycloak et passerelle_ia » (tests/socle/sauvegardes.int.test.ts, job socle-integration), 2026-10-26
 A-192 → ops/sauvegardes/README.md (copie sans suppression) et test « [A-192] … » (tests/socle/sauvegardes.int.test.ts, job socle-integration), 2026-10-26
+C-045 → ops/sauvegardes/README.md (archivage continu, sauvegarde de nuit, restauration) et tests [C-045] de ops/sauvegardes/configuration.test.ts et de tests/socle/sauvegardes.int.test.ts (job socle-integration), 2026-10-26
+C-046 → ops/sauvegardes/README.md (chiffrement avant départ, aes-256-cbc) et tests [C-046] de ops/sauvegardes/configuration.test.ts et de tests/socle/sauvegardes.int.test.ts (job socle-integration), 2026-10-26
+C-044 → ops/sauvegardes/README.md (archive_timeout = 300 s, perte bornée à 15 minutes ; la remise en service en 4 h se mesure au lot 1-B), 2026-10-26
 A-052 → test « [A-052] un travail d'une instance d'une autre cellule est refusé » (apps/executeur/src/files/files.test.ts), 2026-10-26
 A-268 → tests [A-268] de apps/executeur/src/files/files.test.ts (paliers 2, 4 et 8, concurrence, configuration validée), 2026-10-26
 A-328 → ADR 0025 et tests [A-328] de apps/executeur/src/bac-a-sable/bac-a-sable.test.ts (processus distincts, globales, fichiers, environnement, jeton, limites), 2026-10-26

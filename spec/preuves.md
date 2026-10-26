@@ -15,3 +15,9 @@ C-493 → test « [C-493] garde-briques accepte valkey » (scripts/garde-briques
 A-381 → ADR 0016, scripts/garde-briques.ts (clé `derivee`, attestation, refus de `build:`) et tests [A-381] de scripts/garde-briques-derivee.test.ts, 2026-10-25
 A-052 → test « [A-052] un travail d'une instance d'une autre cellule est refusé » (apps/executeur/src/files/files.test.ts), 2026-10-26
 A-268 → tests [A-268] de apps/executeur/src/files/files.test.ts (paliers 2, 4 et 8, concurrence, configuration validée), 2026-10-26
+C-081 → tests [C-081] de packages/sdk-module/src/prospection/prospection.test.ts, 2026-10-26
+C-082 → ADR 0026 et tests [C-082] de packages/sdk-module/src/prospection/prospection.test.ts, 2026-10-26
+C-080 → test « [C-080] un message sans fonction du destinataire est refusé » (packages/sdk-module/src/prospection/prospection.test.ts), 2026-10-26
+C-087 → test « [C-087] un module de prospection sans source déclarée est refusé » (packages/sdk-module/src/prospection/prospection.test.ts), 2026-10-26
+C-070 → test « [C-070] une source LinkedIn est refusée » (garde de code ; le document est en T4-00), 2026-10-26
+C-086 → tests [C-086] de packages/sdk-module/src/prospection/prospection.test.ts, 2026-10-26

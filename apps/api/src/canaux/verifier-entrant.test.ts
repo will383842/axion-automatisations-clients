@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import Fastify, { type FastifyInstance } from "fastify";
 import { describe, expect, it } from "vitest";
-import { EN_TETES, signer } from "../../../../packages/contrats/src/commun/signature.js";
+import { EN_TETES, FENETRE_SECONDES, signer } from "../../../../packages/contrats/src/commun/signature.js";
 import { brancherErreurs } from "../plugins/erreurs.js";
 import { enregistrerCanal, type Memoire } from "./verifier-entrant.js";
 import type { CleEchange } from "../coffre/cles-echanges.js";
@@ -18,13 +18,13 @@ function memoire(): Memoire & { cles: Set<string> } {
   return { cles, async set(k) { if (cles.has(k)) return null; cles.add(k); return "OK"; } };
 }
 
-function monter(options: { actif?: boolean; memoire?: Memoire; acceptees?: Record<string, CleEchange[]>; lignes?: unknown[] } = {}) {
+function monter(options: { actif?: boolean; memoire?: Memoire; acceptees?: Record<string, CleEchange[]>; lignes?: unknown[]; lectures?: { n: number } } = {}) {
   const serveur = Fastify({ genReqId: () => randomUUID() });
   brancherErreurs(serveur);
   const acceptees = options.acceptees ?? { "c2/reception": [HUB], "c3/reception": [CRM] };
   const traites: unknown[] = [];
   const deps = {
-    cles: { async clesAcceptees(c: string, s: string) { return acceptees[`${c}/${s}`] ?? []; } },
+    cles: { async clesAcceptees(c: string, s: string) { if (options.lectures) options.lectures.n++; return acceptees[`${c}/${s}`] ?? []; } },
     memoire: options.memoire ?? memoire(),
     actif: () => options.actif ?? true,
     journal: { info: (o: object) => void options.lignes?.push(o) },
@@ -34,6 +34,7 @@ function monter(options: { actif?: boolean; memoire?: Memoire; acceptees?: Recor
     s.post("/ecrire", async (r) => { traites.push(r.body); return { ok: true, corps: r.body }; });
     s.post("/faits", async (r) => { traites.push(r.body); return { ok: true }; });
     s.get("/lire", async () => ({ ok: true }));
+    s.post("/schema", { schema: { body: { type: "object", required: ["a"], properties: { a: { type: "number" } } } } }, async (r) => ({ ok: true, corps: r.body }));
   };
   enregistrerCanal(serveur, "hub", deps, routes);
   enregistrerCanal(serveur, "crm", deps, routes);
@@ -201,5 +202,49 @@ describe("vérification des requêtes entrantes", () => {
     expect(typeof (lignes[0] as { id_trace: unknown }).id_trace).toBe("string");
     expect(texte).not.toMatch(/valeur-sensible|v1=|jeton=abc/);
     expect(texte).not.toContain(HUB.secret.toString("base64"));
+  });
+
+  it("[A-345] la signature est vérifiée avant la validation du schéma du corps", async () => {
+    const { serveur } = monter();
+    const bon = await serveur.inject(requete("/api/hub/v1/schema", { corps: '{"a":1}' }));
+    expect([bon.statusCode, bon.json().corps]).toEqual([200, { a: 1 }]);
+    const sans = await serveur.inject({ method: "POST", url: "/api/hub/v1/schema", headers: { "content-type": "application/json" }, payload: '{"x":1}' });
+    expect([sans.statusCode, code(sans)]).toEqual([401, "signature_invalide"]);
+  });
+
+  it("[A-345] la mémoire anti-rejeu dépasse deux fois la fenêtre, avec une marge", async () => {
+    const duree: number[] = [];
+    const m: Memoire = { async set(_k, _v, _ex, secondes) { duree.push(secondes); return "OK"; } };
+    const { serveur } = monter({ memoire: m });
+    await serveur.inject(requete("/api/hub/v1/ecrire"));
+    expect(duree).toHaveLength(1);
+    expect(duree[0]).toBeGreaterThan(2 * FENETRE_SECONDES + 1);
+  });
+
+  it("[A-345] un corps signé avec __proto__ ou constructor.prototype est refusé", async () => {
+    const { serveur, traites } = monter();
+    for (const corps of ['{"__proto__":{"admin":true}}', '{"constructor":{"prototype":{"admin":true}}}']) {
+      const r = await serveur.inject(requete("/api/hub/v1/ecrire", { corps, idem: randomUUID() }));
+      expect([r.statusCode, code(r)]).toEqual([400, "schema_invalide"]);
+    }
+    expect(traites).toHaveLength(0);
+  });
+
+  it("[A-345] les formes invalides sont refusées sans lire les clés", async () => {
+    const lectures = { n: 0 };
+    const { serveur } = monter({ lectures });
+    const q = requete("/api/hub/v1/ecrire");
+    const variantes = [
+      { ...q.headers, [EN_TETES.horodatage]: "0000000000" },
+      { ...q.headers, [EN_TETES.horodatage]: "abc" },
+      { ...q.headers, [EN_TETES.signature]: "v1=" + "0".repeat(63) },
+      { ...q.headers, [EN_TETES.signature]: "V1=" + "A".repeat(64) },
+      { ...q.headers, [EN_TETES.cle]: "x".repeat(300) },
+      { ...q.headers, [EN_TETES.cle]: "Cle Invalide" },
+    ];
+    for (const headers of variantes) expect((await serveur.inject({ ...q, headers })).statusCode).toBe(401);
+    expect(lectures.n).toBe(0);
+    expect((await serveur.inject(q)).statusCode).toBe(200);
+    expect(lectures.n).toBe(1);
   });
 });

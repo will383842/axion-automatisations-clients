@@ -14,6 +14,17 @@ describe("garde des canaux", () => {
     expect(verifierCanaux([f("apps/api/src/routes/faits.ts", avec)])).toEqual([]);
   });
 
+  it("[C-510] un fichier du dossier canaux/ n'échappe à la garde que s'il est l'un des trois fichiers nommés", () => {
+    const route = 's.post("/api/hub/v1/x", h);';
+    expect(verifierCanaux([f("apps/api/src/canaux/routes-hub.ts", route)])).toHaveLength(1);
+    for (const n of ["signer", "verifier-entrant", "journal-canal"]) expect(verifierCanaux([f(`apps/api/src/canaux/${n}.ts`, route)])).toEqual([]);
+  });
+
+  it("[C-510] la garde voit une route déclarée par le préfixe exporté des contrats", () => {
+    expect(verifierCanaux([f("apps/api/src/routes/c4.ts", "serveur.register(routes, { prefix: PREFIXE_C4 });")])).toHaveLength(1);
+    expect(verifierCanaux([f("apps/api/src/routes/c4.ts", "enregistrerCanal(serveur, 'x', deps, (s) => s.register(r, { prefix: PREFIXE_C4 }));")])).toEqual([]);
+  });
+
   it("[C-510] la garde trouve un appel en écriture à api/mcp", () => {
     expect(verifierCanaux([f("apps/api/src/x.ts", 'await fetch(`${base}/api/mcp`, { method: "POST" });')])).toHaveLength(1);
     expect(verifierCanaux([f("apps/api/src/y.ts", 'axios.put("https://exemple.test/site-sync/pages", d);')])).toHaveLength(1);

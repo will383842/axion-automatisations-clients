@@ -1,0 +1,69 @@
+body {
+  margin: 0;
+  font-family: var(--police-texte);
+  font-size: var(--taille-texte);
+  line-height: 1.5;
+  color: var(--couleur-texte-principal);
+  background: var(--couleur-fond-portail);
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--police-titre);
+  font-weight: 600;
+  margin: 0 0 var(--espacement-8);
+}
+
+h1 {
+  font-size: var(--taille-titrePage);
+}
+
+h2 {
+  font-size: var(--taille-titreCarte);
+}
+
+h3 {
+  font-size: var(--taille-soustitre);
+}
+
+p {
+  margin: 0 0 var(--espacement-12);
+}
+
+.g-grille {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--espacement-16);
+}
+
+.g-pile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--espacement-16);
+}
+
+.g-rangee {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--espacement-12);
+  align-items: center;
+}
+
+.g-champ {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 48px;
+  padding: var(--espacement-12) var(--espacement-16);
+  font: inherit;
+  font-size: 16px;
+  border: 1px solid var(--couleur-bordure-champ);
+  border-radius: var(--rayon-12);
+  background: var(--couleur-fond-carte);
+  color: var(--couleur-texte-principal);
+}
+
+.g-note {
+  font-size: var(--taille-precision);
+  color: var(--couleur-texte-secondaire);
+}

@@ -13,7 +13,7 @@ const PERMISES = new Set([...LIVRE, "0BSD", "OFL-1.1"]);
 const MPL = "MPL-2.0";
 
 // Exceptions NOMMÉES (paquet + licence), réservées aux dépendances de développement (ADR 0007, ADR 0008 ; en production : ADR 0021).
-const EXCEPTIONS_DEV: Record<string, string> = { argparse: "Python-2.0", minimatch: "BlueOak-1.0.0", nodemailer: "MIT-0" };
+const EXCEPTIONS_DEV: Record<string, string> = { argparse: "Python-2.0", minimatch: "BlueOak-1.0.0", nodemailer: "MIT-0", "axe-core": "MPL-2.0", "@axe-core/playwright": "MPL-2.0" };
 
 // Exceptions NOMMÉES pour une dépendance de PRODUCTION : caniuse-lite sous CC-BY-4.0, imposé par Next.js (ADR 0011) ; nodemailer sous MIT-0, client SMTP du connecteur de messagerie (ADR 0021).
 // Comparaison exacte du nom du paquet ET de la licence entière (jamais d'atome d'une expression composée).
@@ -119,7 +119,7 @@ const NODE = { "node-version-file": ".nvmrc" };
 const ACTIONS: [string, unknown[]][] = [
   ["actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1", [undefined, PERSIST, { ...PERSIST, "fetch-depth": 0 }, { ...PERSIST, "fetch-depth": 2 }, { ...PERSIST, ref: "${{ github.event.repository.default_branch }}" }]],
   ["actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1", [NODE]],
-  ["actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a", [{ name: "rapport-couverture", path: "rapport-couverture.json" }]],
+  ["actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a", [{ name: "rapport-couverture", path: "rapport-couverture.json" }, { name: "captures-reference", path: "packages/design/tests/__captures__/", "if-no-files-found": "error" }]],
   ["github/codeql-action/init@8498dc4c2b27cdd99baf0f87955b29ebbf30c78d", [{ languages: "javascript-typescript", "build-mode": "none" }]],
   ["github/codeql-action/analyze@8498dc4c2b27cdd99baf0f87955b29ebbf30c78d", [undefined]],
   ["gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7", [undefined]],
@@ -137,6 +137,8 @@ const SERVICES = canon({
     options: '--health-cmd "/mailpit readyz" --health-interval 2s --health-timeout 3s --health-retries 30',
   },
 });
+// Seul conteneur connu : l'image Playwright épinglée de visuel-design.yml (ADR 0027), comparée en forme canonique.
+const CONTENEUR = canon({ image: "mcr.microsoft.com/playwright:v1.64.1-noble@sha256:47b510dd9230bf0b9bfc9b20102241e577ea7a99334ab4c3ca19f19770e9b8ea", options: "--ipc=host" });
 const INSTALLER = "pnpm install --frozen-lockfile";
 const GARDE = "node scripts/garde-licences.ts";
 // Commandes d'une ligne, texte exact.
@@ -153,6 +155,7 @@ const BLOCS = new Set([
   "91d880b8d946344fb442e64a8f8ff4c6eb2e25266d2d4323be61ae56e8cbcfc0", "5cd6fd64e4938d39c80bac4b7d85814c9c830b5c1af5f0b7ce439360ae98e36c", "e2650042d59f0d28585d19828302efac1a54e9b198fe25ec140de1ce00e69b2e",
   "0fd60f11b15695a31240caf38b0dc6261a44d31e6e69d3b3efb7a109e0d33917", "1ee1fc7af3202d9908c3dff871f61c9ad720a975cdfec88cf13c6d5eae58d11c",
   "44f16a54a5416fefe33b04f0b5a9373d797664be6bc1fdcc8bb47d4a8a506046", // garde-briques : attestation de chaque image dérivée
+  "e23436fc0aea9efe6dbbd6051d85d9c3b54661a10ff0970f9ee6b9b320597959", // visuel-design : tests Playwright de la galerie (ADR 0027)
 ]);
 // Les blocs de images-derivees.yml (dérivée alpine, image du socle, image des sauvegardes) (ADR 0014) : acceptés dans ce fichier seulement.
 const BLOCS_IMAGES = new Set([
@@ -161,7 +164,7 @@ const BLOCS_IMAGES = new Set([
   "668bc1cd1c3f9cf87bbb799911b0839c3d0addfe804d840d4979b978a47ed6c7", "9139d805fe20a8cd38599f90af5d787089a60055efbd99dbed6071e9638f4bab", "cecf1891da06cd0c97652db0656ef7b12e5e75df0f9988ed986e9b7f89e4273a", "4af8f781253d648981d1bb01f72cb2b67a77173a1b94abecf84918847d6679b4", "9904653be6709787daf7d81edc6b9784cace85d9cf5daf19fa02541d3c5a1099",
   "08bc1008c1849271584a95d92d537a990e0f2ca50ce8ac46eed2a80b51cd1432", "debe09e7795e63fa14200ca95dc01d2311541c75b9f2a9e98ba142fe46cb01bf", "2f011422dad091c585612c0bce1c33c10c7914d7fd8be4ca0a6d00dca81225b2", "a89b8f7e46ac6384b0eca8eb67e56015067968d7c9738003091ba3ae5958a563", "f2fd0ea8574bc5ad3791d3cb9d23d2fe6c4ad0d48e67d4711a05682da3580702",
 ]);
-const ENV_OK = ["GH_TOKEN", "DEPOT", "RUN_ID", "CORPS_PR", "GITHUB_TOKEN", "SOCLE_INTEGRATION", "NODE_ENV", "MAILPIT_API", "MAILPIT_SMTP_HOTE", "MAILPIT_SMTP_PORT", "NEXT_TELEMETRY_DISABLED"];
+const ENV_OK = ["GH_TOKEN", "DEPOT", "RUN_ID", "CORPS_PR", "GITHUB_TOKEN", "SOCLE_INTEGRATION", "NODE_ENV", "MAILPIT_API", "MAILPIT_SMTP_HOTE", "MAILPIT_SMTP_PORT", "NEXT_TELEMETRY_DISABLED", "MISE_A_JOUR"];
 const envOk = (o: unknown) => o === undefined || (estObj(o) && cles(o, ENV_OK));
 
 function etapeConnue(e: Obj, composite: boolean, fichier: string): string | undefined {
@@ -189,9 +192,9 @@ function formeConnue(f: Fichier, doc: Obj): string[] {
     if (!cles(doc, ["name", "on", "permissions", "concurrency", "jobs"]) || !concurrenceOk(doc) || !estObj(doc.jobs) || !Object.keys(doc.jobs).length) return [`${f.nom} : workflow de forme inconnue`];
     jobs = Object.values(doc.jobs);
   }
-  const clesJob = composite ? ["using", "steps"] : ["name", "runs-on", "permissions", "services", "env", "steps", "needs", "if", "timeout-minutes"];
+  const clesJob = composite ? ["using", "steps"] : ["name", "runs-on", "permissions", "services", "env", "steps", "needs", "if", "timeout-minutes", "container"];
   return jobs.flatMap((job) => {
-    if (!estObj(job) || !cles(job, clesJob) || !envOk(job.env) || (!composite && (job["runs-on"] !== "ubuntu-latest" || (job.services !== undefined && canon(job.services) !== SERVICES))) || !Array.isArray(job.steps) || !job.steps.length) return [`${f.nom} : job de forme inconnue`];
+    if (!estObj(job) || !cles(job, clesJob) || !envOk(job.env) || (!composite && (job["runs-on"] !== "ubuntu-latest" || (job.services !== undefined && canon(job.services) !== SERVICES) || (job.container !== undefined && canon(job.container) !== CONTENEUR))) || !Array.isArray(job.steps) || !job.steps.length) return [`${f.nom} : job de forme inconnue`];
     return job.steps.map((e) => (estObj(e) ? etapeConnue(e, composite, f.nom) : "étape illisible")).filter((m) => m).map((m) => `${f.nom} : ${m}`);
   });
 }

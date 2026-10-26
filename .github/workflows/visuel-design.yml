@@ -1,0 +1,50 @@
+name: Tests visuels du design
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      mettre-a-jour:
+        description: "Produire les captures de référence de la galerie (à lancer à la main, artefact captures-reference)"
+        type: boolean
+        default: false
+permissions:
+  contents: read
+# Une PR qui reçoit un nouveau commit annule ses exécutions devenues inutiles (la file GitHub est partagée par toutes les sessions).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  visuel-design:
+    name: visuel-design
+    runs-on: ubuntu-latest
+    # Image Playwright épinglée : les captures dépendent du système et des polices (T0-19).
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.1-noble@sha256:47b510dd9230bf0b9bfc9b20102241e577ea7a99334ab4c3ca19f19770e9b8ea
+      options: --ipc=host
+    env:
+      MISE_A_JOUR: ${{ inputs.mettre-a-jour }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      # Sans captures de référence dans le dépôt, seules les vérifications de mise en page tournent (les captures se produisent à la main).
+      - name: Tests visuels
+        run: |
+          cd packages/design
+          if [ "$MISE_A_JOUR" = "true" ]; then
+            pnpm exec playwright test --update-snapshots
+          elif ls tests/__captures__/*.png >/dev/null 2>&1; then
+            pnpm exec playwright test
+          else
+            echo "Aucune capture de référence : seuls les contrôles de mise en page tournent."
+            pnpm exec playwright test --grep-invert "\[C-595\]"
+          fi
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ always() && inputs.mettre-a-jour }}
+        with:
+          name: captures-reference
+          path: packages/design/tests/__captures__/
+          if-no-files-found: error

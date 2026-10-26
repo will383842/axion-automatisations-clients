@@ -171,7 +171,7 @@ export function BarreOnglets({ variante, actif, compteurARelire, compteurAlertes
             aria-current={courant ? "page" : undefined}
             style={{
               flex: "1 1 auto",
-              minWidth: 0,
+              minWidth: "48px",
               minHeight: "56px",
               padding: "0 4px",
               position: "relative",

@@ -1,0 +1,11 @@
+{
+  "nom": "greenmail",
+  "image": "greenmail/standalone",
+  "version": "2.1.15",
+  "empreinte": "sha256:309ba544ea482e5d4265d09921cdab07c8dad2cc4481d715c9b8ff5d3f0a149f",
+  "licence": "Apache-2.0",
+  "livree": false,
+  "lieu": "local",
+  "source": "https://github.com/greenmail-mail-test/greenmail",
+  "verifie_le": "2026-10-26"
+}

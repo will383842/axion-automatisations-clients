@@ -1,9 +1,10 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { creerJeton, ErreurConnecteur, type Banc, type Fabrique, type Scenario } from "@axion-auto/connecteurs-commun";
+import { creerJeton, ErreurConnecteur } from "@axion-auto/connecteurs-commun";
+import type { Banc, Fabrique, Scenario } from "@axion-auto/connecteurs-commun/src/suite/messagerie.ts";
 import { describe, expect, it } from "vitest";
 import { lancer } from "@axion-auto/connecteurs-commun/src/suite/lanceur.ts";
-import { ouvrirConnecteur, type Dependances } from "./connecteur.ts";
+import { ouvrirConnecteur, ouvrirSiOuvert, type ConnecteurImap, type Dependances } from "./connecteur.ts";
 import type { SessionImap } from "./imap.ts";
 import { verifierConfiguration } from "./verification.ts";
 
@@ -69,7 +70,7 @@ function faux(s: Scenario, o: Option = {}): { deps: Dependances; etat: Etat; val
   return { deps, etat, valeurJeton };
 }
 
-const banc = async (s: Scenario, o: Option = {}): Promise<Banc & { etat: Etat }> => {
+const banc = async (s: Scenario, o: Option = {}): Promise<Banc & { connecteur: ConnecteurImap; etat: Etat }> => {
   const { deps, etat, valeurJeton } = faux(s, o);
   const jeton = creerJeton(valeurJeton, Date.now() + 60_000);
   return { connecteur: await ouvrirConnecteur(config, jeton, deps), jeton, valeurJeton, envoyes: () => etat.envoyes.length, etat };
@@ -181,5 +182,14 @@ describe("connecteur IMAP/SMTP", () => {
   it("[A-389] la déclaration ne porte que les 5 actions de la famille, avec une garantie chacune", async () => {
     const b = await banc({ nom: "vide" });
     expect(b.connecteur.declaration.capacites.map((c) => c.action)).toEqual(["lister_nouveaux", "lire", "etiqueter", "creer_brouillon", "envoyer"]);
+  });
+});
+
+describe("interrupteur", () => {
+  it("[A-389] le connecteur reste fermé par défaut ; CONNECTEURS_MESSAGERIE_OUVERT=1 l'ouvre", async () => {
+    const { deps, valeurJeton } = faux({ nom: "vide" });
+    const jeton = creerJeton(valeurJeton, Date.now() + 60_000);
+    await expect(ouvrirSiOuvert({}, config, jeton, deps)).rejects.toThrow(/fermé/);
+    await expect(ouvrirSiOuvert({ CONNECTEURS_MESSAGERIE_OUVERT: "1" }, config, jeton, deps)).resolves.toBeTruthy();
   });
 });

@@ -13,7 +13,7 @@ const PERMISES = new Set([...LIVRE, "0BSD", "OFL-1.1"]);
 const MPL = "MPL-2.0";
 
 // Exceptions NOMMÉES (paquet + licence), réservées aux dépendances de développement (ADR 0007, ADR 0008 ; en production : ADR 0021).
-const EXCEPTIONS_DEV: Record<string, string> = { argparse: "Python-2.0", minimatch: "BlueOak-1.0.0", nodemailer: "MIT-0" };
+const EXCEPTIONS_DEV: Record<string, string> = { argparse: "Python-2.0", minimatch: "BlueOak-1.0.0", nodemailer: "MIT-0", "axe-core": "MPL-2.0", "@axe-core/playwright": "MPL-2.0" };
 
 // Exceptions NOMMÉES pour une dépendance de PRODUCTION : caniuse-lite sous CC-BY-4.0, imposé par Next.js (ADR 0011) ; nodemailer sous MIT-0, client SMTP du connecteur de messagerie (ADR 0021).
 // Comparaison exacte du nom du paquet ET de la licence entière (jamais d'atome d'une expression composée).

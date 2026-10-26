@@ -23,3 +23,4 @@ Format court : contexte, décision, conséquences, date. Un ADR par décision, n
 | 0019 | Compteur de tests mesuré par la CI, empreintes par contrat |
 | 0020 | Exception de licence 0BSD pour tslib (ce qui est livré chez un client) |
 | 0021 | nodemailer en production et curseur de la famille messagerie |
+| 0027 | axe-core sous MPL-2.0, en développement seulement |

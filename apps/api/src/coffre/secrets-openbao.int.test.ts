@@ -54,6 +54,14 @@ async function preparer() {
   for (const [montage, type, options] of [["technique", "kv", { version: "2" }], ["clients", "kv", { version: "2" }], ["transit", "transit", {}]] as const) {
     await admin(url, racine, "POST", `sys/mounts/${montage}`, { type, options });
   }
+  // Un montage KV v2 refuse les écritures (400) pendant sa mise en place : on attend qu'il en accepte une avant d'écrire pour de bon.
+  for (const montage of ["technique", "clients"]) {
+    for (let n = 0; ; n++) {
+      try { await admin(url, racine, "POST", `${montage}/data/sonde`, { data: { valeur: "sonde" } }); break; } catch { /* montage pas prêt */ }
+      if (n > 60) throw new Error(`montage ${montage} jamais prêt`);
+      await new Promise((ok) => setTimeout(ok, 500));
+    }
+  }
   await admin(url, racine, "POST", "technique/data/essai/jeton", { data: { valeur: marqueur } });
   await admin(url, racine, "POST", "sys/policies/acl/lecteur-essai", { policy: 'path "technique/data/essai/*" { capabilities = ["read"] }' });
   for (const r of ["api", "courtier", "equipe"]) await admin(url, racine, "POST", `sys/policies/acl/${r}`, { policy: readFileSync(racineDepot(`ops/socle/openbao/politiques/${r}.hcl`), "utf8") });

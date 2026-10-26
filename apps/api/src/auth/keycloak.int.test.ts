@@ -1,9 +1,9 @@
 import { execFileSync } from "node:child_process";
 import { createHash, createHmac, randomBytes } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeSync } from "node:fs";
 import { createRemoteJWKSet, decodeJwt } from "jose";
 import Fastify from "fastify";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, onTestFailed } from "vitest";
 import { exigerReauthentification } from "./exiger-reauthentification.ts";
 import { creerVerificateur, exigerJeton } from "./oidc.ts";
 
@@ -136,6 +136,11 @@ async function connecter(n: Navigateur, u: Utilisateur, extra: Record<string, st
   expect(c, "code d'autorisation attendu après le TOTP").toBeTruthy();
   return echanger(c ?? "", verifier);
 }
+
+// Le rapport JSON de la CI ne montre pas le détail d'un échec : on l'écrit sur la sortie d'erreur du processus.
+beforeEach(({ task }) => {
+  onTestFailed((r) => writeSync(2, `ECHEC ${task.name}\n${r.errors?.map((e) => e.message).join("\n")}\n`));
+});
 
 beforeAll(async () => {
   admin = await jetonAdmin();

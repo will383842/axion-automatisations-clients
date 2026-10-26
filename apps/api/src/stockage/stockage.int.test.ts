@@ -135,7 +135,8 @@ describe("stockage S3 : brique réelle", () => {
       expect([401, 403], `liste ${c}`).toContain((await fetch(`${endpoint}/${c}/`)).status);
     }
     expect([401, 403]).toContain((await fetch(`${endpoint}/`)).status);
-    await expect(admin.lire(undefined, `cli-${A}`, "prive.txt")).rejects.toThrow();
+    expect(await code(admin.lire(undefined, `cli-${A}`, "prive.txt"))).toBe("acces_refuse");
+    expect(await code(admin.deposer(undefined, `cli-${A}`, "intrus.txt", octets("intrus")))).toBe("acces_refuse");
   });
 
   it("[A-061] @isolation deux créations simultanées pour le même client : une seule réussit, un seul jeu d'identifiants fonctionne", async () => {

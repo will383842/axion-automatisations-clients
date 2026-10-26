@@ -123,6 +123,23 @@ describe("stockage S3 par client", () => {
     expect(t).toContain("Apache-2.0");
   });
 
+  it("[A-061] si le coffre échoue ET que la suppression de l'utilisateur échoue, l'échec est signalé (nettoyage_incomplet) sans identifiant dans l'erreur", async () => {
+    coffre.etat.echec = true;
+    im.port.supprimerUtilisateur = async () => { throw new Error("suppression_impossible"); };
+    let erreur: unknown;
+    try {
+      await stockage.creerCompartimentClient(A);
+    } catch (e) {
+      erreur = e;
+    }
+    expect(erreur).toBeInstanceOf(ErreurStockage);
+    expect((erreur as ErreurStockage).code).toBe("nettoyage_incomplet");
+    const [cleAcces] = [...im.utilisateurs.values()];
+    expect(cleAcces).toBeDefined();
+    const t = JSON.stringify(erreur) + String((erreur as Error).message) + String((erreur as Error).stack);
+    expect(t).not.toContain(cleAcces!);
+  });
+
   it("[A-061] creerCompartimentClient crée cli-<id> et range des identifiants limités à ce compartiment", async () => {
     await stockage.creerCompartimentClient(A);
     expect(im.compartiments.has(`cli-${A}`)).toBe(true);

@@ -107,11 +107,8 @@ describe("artefacts adressés par empreinte", () => {
 
   it("[A-061] @isolation des identifiants d'un autre compartiment que « artefacts » sont refusés dès la création", async () => {
     const { im, service } = await monter();
-    expect(() => creerArtefacts({ s3: im.port, identifiants: { ...service, compartiment: "cli-x" } })).toThrow(ErreurArtefact);
-    try {
-      creerArtefacts({ s3: im.port, identifiants: { ...service, compartiment: "exports" } });
-    } catch (e) {
-      expect((e as ErreurArtefact).code).toBe("identifiants_etrangers");
+    for (const compartiment of ["cli-x", "exports"]) {
+      expect(() => creerArtefacts({ s3: im.port, identifiants: { ...service, compartiment } })).toThrow(expect.objectContaining({ code: "identifiants_etrangers" }));
     }
   });
 });

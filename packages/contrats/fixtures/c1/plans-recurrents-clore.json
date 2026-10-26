@@ -9,6 +9,17 @@
       "horodatage": "1792800000",
       "methode": "POST",
       "chemin": "/api/console/v1/plans-recurrents/plan-0001/clore",
+      "corps": "{\"dateFin\":\"2027-01-31\",\"motif\":\"fin_engagement\"}",
+      "signature": "v1=43d2f668e07a499003e5b0cecc3aeb2fb8baf6ff8e62069c97454b97777f7af2"
+    },
+    {
+      "nom": "motif en texte libre",
+      "valide": false,
+      "cle": "cle-test-c1-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c1-console-a",
+      "horodatage": "1792800000",
+      "methode": "POST",
+      "chemin": "/api/console/v1/plans-recurrents/plan-0001/clore",
       "corps": "{\"dateFin\":\"2027-01-31\",\"motif\":\"fin d'engagement\"}",
       "signature": "v1=0be75a2955cc6e08edcda6b3890cdc8225ad837f527e20303e5b67c31981675f"
     },
@@ -20,8 +31,29 @@
       "horodatage": "1792800000",
       "methode": "POST",
       "chemin": "/api/console/v1/plans-recurrents/plan-0001/clore",
-      "corps": "{\"dateFin\":\"31/01/2027\",\"motif\":\"fin d'engagement\"}",
-      "signature": "v1=f9fea42a1bcfc724fbde73386b7ba850832a5232d5677611ddb96c2d5bd66b08"
+      "corps": "{\"dateFin\":\"31/01/2027\",\"motif\":\"fin_engagement\"}",
+      "signature": "v1=a36b775a0e3a4a8bece47ddf4fa5e4363cf4204747b0c01b422ff545a326e8d8"
+    }
+  ],
+  "reponses": [
+    {
+      "statut": 200,
+      "nom": "clos",
+      "valide": true,
+      "corps": {
+        "idPlan": "plan-0001",
+        "brouillonsNonEmis": [
+          "brouillon-0001"
+        ]
+      }
+    },
+    {
+      "statut": 200,
+      "nom": "brouillons absents",
+      "valide": false,
+      "corps": {
+        "idPlan": "plan-0001"
+      }
     }
   ]
 }

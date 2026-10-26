@@ -46,11 +46,16 @@ describe("JSON Schema commités ≡ schémas Zod", () => {
       const exporte = routes[nom];
       if (!exporte) throw new Error(nom);
       if ("requete" in route && exporte.requete) {
-        for (const c of cas) if (c.chemin.startsWith(PREFIXE_C1)) memeVerdict(route.requete, exporte.requete, donnees(c), `${f} / ${c.nom}`), vus++;
+        for (const c of cas.filter((x) => x.chemin.startsWith(PREFIXE_C1))) {
+          memeVerdict(route.requete, exporte.requete, donnees(c), `${f} / ${c.nom}`);
+          vus++;
+        }
       }
       for (const r of reponses) {
         const zod = (route.reponses as Record<number, ZodType>)[r.statut];
-        if (zod) memeVerdict(zod, exporte.reponses[String(r.statut)], r.corps, `${f} / ${r.nom}`), vus++;
+        if (!zod) continue;
+        memeVerdict(zod, exporte.reponses[String(r.statut)], r.corps, `${f} / ${r.nom}`);
+        vus++;
       }
     }
     expect(vus).toBeGreaterThan(30);

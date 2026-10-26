@@ -9,6 +9,17 @@
       "horodatage": "1792800000",
       "methode": "POST",
       "chemin": "/api/console/v1/devis",
+      "corps": "{\"axiCli\":\"AXI-CLI-000001\",\"referencePropositionConsole\":\"prop-0001\",\"lignes\":[{\"libelle\":\"Ligne d'essai\",\"quantite\":1,\"prixUnitaireHtCentimes\":12345,\"activite\":\"automatisation\",\"tauxTvaBps\":2000}]}",
+      "signature": "v1=b5f27a7bf041da818a870b8fe95c207167d8d7c3c9a6b77720780cdb546fbe74"
+    },
+    {
+      "nom": "client absent",
+      "valide": false,
+      "cle": "cle-test-c1-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c1-console-a",
+      "horodatage": "1792800000",
+      "methode": "POST",
+      "chemin": "/api/console/v1/devis",
       "corps": "{\"referencePropositionConsole\":\"prop-0001\",\"lignes\":[{\"libelle\":\"Ligne d'essai\",\"quantite\":1,\"prixUnitaireHtCentimes\":12345,\"activite\":\"automatisation\",\"tauxTvaBps\":2000}]}",
       "signature": "v1=b25240b93464bfd8d48356e3b078de100a34f0d179bf09bf954f571a63c93965"
     },
@@ -20,8 +31,26 @@
       "horodatage": "1792800000",
       "methode": "POST",
       "chemin": "/api/console/v1/devis",
-      "corps": "{\"referencePropositionConsole\":\"prop-0001\",\"lignes\":[{\"libelle\":\"Ligne d'essai\",\"quantite\":1,\"prixUnitaireHtCentimes\":100.5,\"activite\":\"automatisation\",\"tauxTvaBps\":2000}]}",
-      "signature": "v1=79986d42baa70b14687d984ee0021d2100613587df72e6239423b5631db7b527"
+      "corps": "{\"axiCli\":\"AXI-CLI-000001\",\"referencePropositionConsole\":\"prop-0001\",\"lignes\":[{\"libelle\":\"Ligne d'essai\",\"quantite\":1,\"prixUnitaireHtCentimes\":100.5,\"activite\":\"automatisation\",\"tauxTvaBps\":2000}]}",
+      "signature": "v1=ee99254840d9e1aef4269014bc9ccd0707a7b5eebf7c6d3e481345289ebff5a0"
+    }
+  ],
+  "reponses": [
+    {
+      "statut": 201,
+      "nom": "numéro",
+      "valide": true,
+      "corps": {
+        "numeroDevis": "AXI-DEV-000001"
+      }
+    },
+    {
+      "statut": 201,
+      "nom": "numéro vide",
+      "valide": false,
+      "corps": {
+        "numeroDevis": ""
+      }
     }
   ]
 }

@@ -1,29 +1,33 @@
 import { z } from "zod";
+import { CodeAutomatisation, Date_, PeriodeMois, Terme, Texte } from "../commun/identifiants.ts";
 import { EnveloppeC3 } from "./evenements-crm-vers-console.ts";
-const Texte = z.string().min(1);
-const Date_ = z.iso.date();
 const Client = { consoleClientId: Texte };
+// Un abonnement par automatisation, avec ses propres période, terme et échéance (abonnements indépendants).
+const ResumeAbonnement = z.strictObject({
+  codeAutomatisation: CodeAutomatisation,
+  palier: Texte,
+  periodeMois: PeriodeMois,
+  terme: Terme,
+  prochaineEcheance: Date_,
+});
 const PAYLOADS = {
   "client.cree": z.strictObject({ ...Client, crmCompanyId: Texte }),
   "client.statut": z.strictObject({ ...Client, statut: z.enum(["client", "dormant", "perdu"]) }),
-  // Minimisation : résumé du plan SANS montant (le schéma strict refuse tout champ en plus).
-  "plan.resume": z.strictObject({
-    ...Client,
-    codesAutomatisation: z.array(Texte),
-    palier: Texte,
-    periodeMois: z.union([z.literal(1), z.literal(6), z.literal(12)]),
-    prochaineEcheance: Date_,
-  }),
+  // Minimisation : résumé des abonnements SANS montant (le schéma strict refuse tout champ en plus).
+  "plan.resume": z.strictObject({ ...Client, abonnements: z.array(ResumeAbonnement).min(1) }),
   "renouvellement.proche": z.strictObject({ ...Client, dateRenouvellement: Date_ }),
   "impaye.signale": z.strictObject({ ...Client, joursRetard: z.number().int().nonnegative() }),
-  "automatisation.activee": z.strictObject({ ...Client, codeAutomatisation: Texte, dateActivation: Date_ }),
+  "automatisation.activee": z.strictObject({ ...Client, codeAutomatisation: CodeAutomatisation, dateActivation: Date_ }),
+  // Fin d'UNE automatisation (son préavis est passé) : les autres abonnements du client ne changent pas.
+  "automatisation.fin_programmee": z.strictObject({ ...Client, codeAutomatisation: CodeAutomatisation, dateFin: Date_ }),
+  // Fin du contrat entier (toutes les automatisations).
   "contrat.resilie": z.strictObject({ ...Client, dateResiliation: Date_ }),
 } as const;
 export const TYPES_V1 = Object.keys(PAYLOADS) as (keyof typeof PAYLOADS)[];
 // V2 : connus mais refusés en V1 (ils ne figurent pas dans l'union).
 export const TYPES_V2 = ["maintenance.fin_incluse", "risque_depart"] as const;
 function variante<T extends keyof typeof PAYLOADS>(t: T) {
-  return EnveloppeC3.extend({ producer: z.literal("axion-console"), subject_ref: z.object(Client), event_type: z.literal(t), payload: PAYLOADS[t] });
+  return EnveloppeC3.extend({ producer: z.literal("axion-console"), subject_ref: z.strictObject(Client), event_type: z.literal(t), payload: PAYLOADS[t] });
 }
 const variantes = TYPES_V1.map(variante) as unknown as [ReturnType<typeof variante>, ...ReturnType<typeof variante>[]];
 export const EvenementConsole = z.discriminatedUnion("event_type", variantes);

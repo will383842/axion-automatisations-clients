@@ -1,0 +1,133 @@
+{
+  "version": "0.2.0",
+  "chaineSignee": "v1\\n<horodatage>\\n<MÉTHODE>\\n<chemin + requête>\\n<sha256 hex du corps brut>",
+  "enTetes": {
+    "cle": "X-Axion-Cle",
+    "horodatage": "X-Axion-Horodatage",
+    "signature": "X-Axion-Signature",
+    "idempotence": "Idempotency-Key",
+    "rejoue": "Idempotency-Replayed",
+    "reessayerApres": "Retry-After"
+  },
+  "fenetreSecondes": 300,
+  "antiRejeuSecondes": 600,
+  "conservationIdempotenceJours": 30,
+  "codesErreur": {
+    "schema_invalide": 400,
+    "signature_invalide": 401,
+    "horodatage_perime": 401,
+    "rejeu": 401,
+    "reauthentification_requise": 401,
+    "action_interdite": 403,
+    "introuvable": 404,
+    "cle_reutilisee": 409,
+    "identifiant_deja_pris": 409,
+    "fiche_absorbee": 422,
+    "regle_metier": 422,
+    "tva_interdite": 422,
+    "debit_depasse": 429,
+    "porte_fermee": 503,
+    "erreur_interne": 500
+  },
+  "erreur": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "erreur": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "schema_invalide",
+              "signature_invalide",
+              "horodatage_perime",
+              "rejeu",
+              "reauthentification_requise",
+              "action_interdite",
+              "introuvable",
+              "cle_reutilisee",
+              "identifiant_deja_pris",
+              "fiche_absorbee",
+              "regle_metier",
+              "tva_interdite",
+              "debit_depasse",
+              "porte_fermee",
+              "erreur_interne"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "id_trace": {
+            "type": "string"
+          },
+          "motif": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{2,63}$"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "id_trace"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "required": [
+      "erreur"
+    ],
+    "additionalProperties": false
+  },
+  "limitesDebit": {
+    "c1": {
+      "parMinute": 60,
+      "alerteRefusParMinute": 10,
+      "par": "cle"
+    },
+    "c2": {
+      "parMinute": 120,
+      "alerteRefusParMinute": 10,
+      "par": "cle"
+    },
+    "c3_crm_vers_console": {
+      "parMinute": 60,
+      "alerteRefusParMinute": 10,
+      "par": "cle"
+    },
+    "c3_console_vers_crm": {
+      "parMinute": 60,
+      "alerteRefusParMinute": 10,
+      "par": "cle"
+    },
+    "c3_lecture": {
+      "parMinute": 60,
+      "alerteRefusParMinute": 10,
+      "par": "cle"
+    },
+    "c4": {
+      "parMinute": 600,
+      "alerteRefusParMinute": 20,
+      "par": "cle"
+    },
+    "c6": {
+      "parMinute": 10,
+      "alerteRefusParMinute": 10,
+      "par": "adresse"
+    }
+  },
+  "retryAfterMaxSecondes": 60,
+  "tvaAutomatisationBps": 2000,
+  "periodeMaxMois": 12,
+  "termes": [
+    "a_echoir",
+    "echu"
+  ],
+  "curseurInitial": "0",
+  "reglesFond": [
+    "siren_luhn",
+    "periode_ordonnee",
+    "ht_tva_ttc"
+  ]
+}

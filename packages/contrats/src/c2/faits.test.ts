@@ -46,7 +46,7 @@ describe("contrat C2", () => {
   });
 
   it("[C-589] la règle de période passe par l'union par nature : sans période, seule une facture hors abonnement est valide", () => {
-    const { debutPeriode: _d, finPeriode: _f, ...sansPeriode } = facture;
+    const sansPeriode = Object.fromEntries(Object.entries(facture).filter(([k]) => k !== "debutPeriode" && k !== "finPeriode"));
     const emise = (payload: unknown) => Fait.safeParse({ ...base, event_type: "facture.emise", payload }).success;
     expect(emise({ ...sansPeriode, nature: "mise_en_place", idBrouillon: "brouillon-0001", referenceBonDeCommande: "bdc-0001" })).toBe(true);
     expect(emise({ ...facture, debutPeriode: "2026-12-01" })).toBe(false);

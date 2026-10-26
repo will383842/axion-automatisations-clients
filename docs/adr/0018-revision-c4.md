@@ -41,3 +41,5 @@ Aussi : deux étapes du même nom sont refusées par `defineAutomation`, et le n
 2026-10-26
 
 > Note : `contrats.sha256` est remplacé par `packages/contrats/empreintes/` (un fichier par contrat), voir l'ADR 0019.
+
+> Note (26/10/2026) : la règle « nouvelles valeurs d'énumération côté émetteur seulement » est remplacée par « récepteur d'abord », pour les valeurs comme pour les champs (ADR 0032).

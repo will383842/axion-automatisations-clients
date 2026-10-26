@@ -32,3 +32,7 @@ C-070 → test « [C-070] une source LinkedIn est refusée » (garde de code ; l
 C-086 → tests [C-086] de packages/sdk-module/src/prospection/prospection.test.ts, 2026-10-26
 C-602 → partie T1A-15 (étape 1/2) : tests [C-602] de ops/surveillance/disque.test.ts, lancés par la CI via le projet ops de vitest.config.ts (prévision, réveil à 6 h, alerte avant plafond, message sans hôte ni IP) ; plafond archive-push-queue-max NON livré (fichier dans #59), essais d'intégration en attente de #59 ; sonde extérieure au lot 1-B, 2026-10-26
 C-394 → packages/axion-dev/README.md (commandes essai, test, emballer, publier --recette) et tests [C-380] de packages/axion-dev/src/axion-dev.test.ts, 2026-10-26
+C-589 → partie contrat : union par nature de `facture.emise` (période obligatoire pour un abonnement, aussi dans le JSON Schema) et tests « [C-589] » de packages/contrats/src/c2/faits.test.ts et src/json-schema.test.ts (ADR 0031), 2026-10-26
+C-608 → partie contrat : `POST /factures-ponctuelles` porte le client, l'automatisation, les lignes et l'acompte ; test « [C-608] » de packages/contrats/src/c1/c1.test.ts (ADR 0031), 2026-10-26
+C-536 → partie contrats : règle de la cellule de C4 (test « [C-536] » de packages/contrats/src/c4/c4.test.ts) et règle C5 `base_cli_partagee` (test « [C-536] » de packages/contrats/src/c5/invariants.test.ts, PostgreSQL jetable), ADR 0031, 2026-10-26
+A-256 → partie contrat : `effacement.demande` sans aucune action de suppression (test « [A-256] » de packages/contrats/src/c3/c3.test.ts, ADR 0031), 2026-10-26

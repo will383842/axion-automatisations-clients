@@ -38,7 +38,7 @@ describe("SMTP sans repli en clair", () => {
 // Faux transport : lit (ou non) le message, puis tombe en panne comme une coupure réseau.
 const transportQuiCoupe = (lireDabord: boolean) => () => ({
   sendMail: async (envoi: { raw: Readable }) => {
-    if (lireDabord) for await (const _ of envoi.raw) break;
+    if (lireDabord) await envoi.raw[Symbol.asyncIterator]().next();
     throw Object.assign(new Error("coupure"), { code: "ECONNRESET" });
   },
   close: () => undefined,

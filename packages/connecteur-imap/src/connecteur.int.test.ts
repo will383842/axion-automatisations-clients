@@ -17,7 +17,7 @@ const adresse = () => {
 
 // GreenMail crée l'utilisateur à la première livraison, identifiant et mot de passe égaux à l'adresse.
 const COMPTE = "essai@exemple.fr";
-const CERTIFICAT_DE_TEST = { rejectUnauthorized: false };
+const CERTIFICAT_DE_TEST = { rejectUnauthorized: false } as const;
 
 describe("connecteur IMAP/SMTP contre GreenMail", () => {
   it("[A-389] envoi puis lecture d'un message par GreenMail (intégration)", async () => {

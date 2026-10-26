@@ -11,5 +11,9 @@
   "dependencies": {
     "@axion-auto/sdk-module": "workspace:*",
     "zod": "^4.6.7"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./suite": "./src/suite/index.ts"
   }
 }

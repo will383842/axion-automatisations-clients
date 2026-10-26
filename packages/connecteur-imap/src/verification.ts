@@ -1,3 +1,4 @@
+import { ErreurConnecteur } from "@axion-auto/connecteurs-commun";
 import { z } from "zod";
 
 const HOTE = /^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$/;
@@ -24,23 +25,31 @@ export type ConfigurationImap = z.infer<typeof Configuration>;
 
 export const verifierConfiguration = (brut: unknown): ConfigurationImap => Configuration.parse(brut);
 
-type Tls = { minVersion: "TLSv1.2"; rejectUnauthorized?: boolean };
+type Tls = { minVersion: "TLSv1.2"; ca?: string; rejectUnauthorized?: false };
+// Réglage réservé aux essais : une autorité de test (ca), ou, en environnement de test seulement, la vérification coupée.
+export type ReglageTls = { ca?: string; rejectUnauthorized?: false };
+
+// Seuls ca et rejectUnauthorized passent (le reste est ignoré) ; minVersion vient en dernier et ne se remplace pas.
+export function reglerTls(tls: ReglageTls = {}, env: Record<string, string | undefined> = process.env): Tls {
+  if (tls.rejectUnauthorized === false && env.NODE_ENV !== "test") throw new ErreurConnecteur("definitive", "reglage_tls_interdit");
+  return { ...(tls.ca !== undefined ? { ca: tls.ca } : {}), ...(tls.rejectUnauthorized === false ? { rejectUnauthorized: false as const } : {}), minVersion: "TLSv1.2" };
+}
 export type OptionsImap = { host: string; port: number; secure: boolean; doSTARTTLS?: true; auth: { user: string; pass: string }; tls: Tls; logger: false };
 export type OptionsSmtp = { host: string; port: number; secure: boolean; requireTLS: boolean; ignoreTLS: false; auth: { user: string; pass: string }; tls: Tls };
 
-// Le réglage TLS supplémentaire ne sert qu'aux essais (certificat de test) : la configuration ne le porte jamais.
-export function optionsImap(c: ConfigurationImap, motDePasse: string, tls: { rejectUnauthorized?: boolean } = {}): OptionsImap {
+// Le réglage TLS supplémentaire ne sert qu'aux essais : la configuration ne le porte jamais.
+export function optionsImap(c: ConfigurationImap, motDePasse: string, tls: ReglageTls = {}): OptionsImap {
   const starttls = c.chiffrementImap === "starttls";
   return {
     host: c.hoteImap, port: c.portImap ?? PORTS.imap[c.chiffrementImap], secure: !starttls, ...(starttls ? { doSTARTTLS: true as const } : {}),
-    auth: { user: c.utilisateur, pass: motDePasse }, tls: { minVersion: "TLSv1.2", ...tls }, logger: false,
+    auth: { user: c.utilisateur, pass: motDePasse }, tls: reglerTls(tls), logger: false,
   };
 }
 
-export function optionsSmtp(c: ConfigurationImap, motDePasse: string, tls: { rejectUnauthorized?: boolean } = {}): OptionsSmtp {
+export function optionsSmtp(c: ConfigurationImap, motDePasse: string, tls: ReglageTls = {}): OptionsSmtp {
   const starttls = c.chiffrementSmtp === "starttls";
   return {
     host: c.hoteSmtp, port: c.portSmtp ?? PORTS.smtp[c.chiffrementSmtp], secure: !starttls, requireTLS: starttls, ignoreTLS: false,
-    auth: { user: c.utilisateur, pass: motDePasse }, tls: { minVersion: "TLSv1.2", ...tls },
+    auth: { user: c.utilisateur, pass: motDePasse }, tls: reglerTls(tls),
   };
 }

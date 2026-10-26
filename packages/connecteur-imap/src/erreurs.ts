@@ -5,6 +5,11 @@ export type ContexteErreur = { maintenant: number; attenteQuotaMs: number };
 const COUPURES = new Set(["ECONNRESET", "ETIMEDOUT", "ECONNREFUSED", "ECONNECTION", "ESOCKET", "EPIPE", "ENOTFOUND", "EAI_AGAIN", "NoConnection", "EndOfStream"]);
 const lire = (e: unknown, cle: string): unknown => (typeof e === "object" && e !== null ? (e as Record<string, unknown>)[cle] : undefined);
 
+export const estCoupure = (e: unknown): boolean => {
+  const code = lire(e, "code");
+  return typeof code === "string" && COUPURES.has(code) && typeof lire(e, "responseCode") !== "number";
+};
+
 // Les erreurs d'imapflow et de nodemailer deviennent une des 4 classes. Le texte du serveur n'est jamais recopié : seul le code sort.
 export function classerServeur(e: unknown, ctx: ContexteErreur): ErreurConnecteur {
   if (e instanceof ErreurConnecteur) return e;

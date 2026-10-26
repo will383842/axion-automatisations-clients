@@ -1,4 +1,5 @@
 import { ImapFlow } from "imapflow";
+import { choisirPartieTexte, decoderCorps } from "./corps.ts";
 import type { Dossier } from "./dossiers.ts";
 import type { OptionsImap } from "./verification.ts";
 
@@ -16,6 +17,12 @@ export interface SessionImap {
   fermer(): Promise<void>;
 }
 
+const tout = async (flux: AsyncIterable<Buffer | string>) => {
+  const morceaux: Buffer[] = [];
+  for await (const m of flux) morceaux.push(Buffer.from(m));
+  return morceaux;
+};
+
 export async function ouvrirSessionImap(options: OptionsImap): Promise<SessionImap> {
   const client = new ImapFlow(options);
   client.on("error", () => undefined);
@@ -32,9 +39,11 @@ export async function ouvrirSessionImap(options: OptionsImap): Promise<SessionIm
     // « N:* » renvoie toujours le dernier message, même plus ancien que N : on filtre.
     uidsApres: async (uid, limite) => (await uids({ uid: `${uid + 1}:*` })).filter((u) => u > uid).sort((a, b) => a - b).slice(0, limite),
     lire: async (uid) => {
-      const m = await client.fetchOne(String(uid), { envelope: true, flags: true, internalDate: true, bodyParts: ["text"] }, { uid: true });
+      const m = await client.fetchOne(String(uid), { envelope: true, flags: true, internalDate: true, bodyStructure: true }, { uid: true });
       if (!m) return null;
-      const corps = m.bodyParts?.get("text")?.toString("utf8");
+      const partie = m.bodyStructure ? choisirPartieTexte(m.bodyStructure) : undefined;
+      const brut = partie ? (await client.download(String(uid), partie.numero, { uid: true })).content : undefined;
+      const corps = partie && brut ? decoderCorps(Buffer.concat(await tout(brut)), partie.encodage, partie.charset) : undefined;
       const date = m.internalDate instanceof Date ? m.internalDate.toISOString() : m.internalDate;
       return {
         ...(m.envelope?.from?.[0]?.address ? { expediteur: m.envelope.from[0].address } : {}),

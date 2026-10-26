@@ -7,7 +7,7 @@ import { trouverDossiers, type DossiersSpeciaux } from "./dossiers.ts";
 import { classerServeur } from "./erreurs.ts";
 import { ouvrirSessionImap, type SessionImap } from "./imap.ts";
 import { composerMessage, envoyerSmtp } from "./smtp.ts";
-import { optionsImap, optionsSmtp, type ConfigurationImap, type OptionsImap, type OptionsSmtp } from "./verification.ts";
+import { optionsImap, optionsSmtp, verifierConfiguration, type ConfigurationImap, type OptionsImap, type OptionsSmtp, type ReglageTls } from "./verification.ts";
 
 export interface Dependances {
   ouvrirImap?: (options: OptionsImap) => Promise<SessionImap>;
@@ -17,13 +17,14 @@ export interface Dependances {
   // Attente d'un quota sans date : la valeur par défaut de la politique, injectée par l'appelant.
   attenteQuotaMs?: number;
   taillePage?: number;
-  // Réglage de certificat réservé aux essais.
-  tls?: { rejectUnauthorized?: boolean };
+  // Réglage de certificat réservé aux essais (voir reglerTls).
+  tls?: ReglageTls;
 }
 export type ConnecteurImap = ConnecteurMessagerie & { verifierApresCoup(jeton: JetonCourt, messageId: string): Promise<boolean> };
 
 const ID = /^m-(\d+)$/;
 const MOT_CLE = /^[A-Za-z0-9$._-]{1,50}$/;
+const ADRESSE = /^[^\s@<>,;"]+@[^\s@<>,;"]+$/;
 const CURSEUR = /^(\d+):(\d+)$/;
 const definitive = (code: string) => new ErreurConnecteur("definitive", code);
 const uidDe = (id: string): number => {
@@ -32,7 +33,8 @@ const uidDe = (id: string): number => {
   return Number(m[1]);
 };
 
-export async function ouvrirConnecteur(config: ConfigurationImap, jeton: JetonCourt, deps: Dependances = {}): Promise<ConnecteurImap> {
+export async function ouvrirConnecteur(configBrute: ConfigurationImap, jeton: JetonCourt, deps: Dependances = {}): Promise<ConnecteurImap> {
+  const config = verifierConfiguration(configBrute);
   const ouvrir = deps.ouvrirImap ?? ouvrirSessionImap;
   const envoyer = deps.envoyerSmtp ?? envoyerSmtp;
   const alerter = deps.alerter ?? (() => undefined);
@@ -65,10 +67,15 @@ export async function ouvrirConnecteur(config: ConfigurationImap, jeton: JetonCo
   });
   const identifiant = (m: MessageSortant) => {
     try {
-      return verifierMessageId(m.messageId);
+      verifierMessageId(m.messageId);
     } catch {
       throw definitive("message_id_invalide");
     }
+  };
+  // Une seule adresse : l'en-tête To et l'enveloppe doivent dire la même chose.
+  const valider = (m: MessageSortant) => {
+    identifiant(m);
+    if (!ADRESSE.test(m.destinataire)) throw definitive("destinataire_invalide");
   };
   const chercher = (j: JetonCourt, dossier: string, messageId: string) =>
     session(j, async (s) => (await s.selectionner(dossier), (await s.chercherMessageId(messageId)).length > 0));
@@ -104,15 +111,17 @@ export async function ouvrirConnecteur(config: ConfigurationImap, jeton: JetonCo
         }
         return sortie;
       }),
-    etiqueter: (j, id, etiquettes) =>
-      session(j, async (s) => {
-        if (!etiquettes.every((e) => MOT_CLE.test(e))) throw definitive("etiquette_invalide");
-        const uid = uidDe(id);
+    etiqueter: async (j, id, etiquettes) => {
+      if (!etiquettes.every((e) => MOT_CLE.test(e))) throw definitive("etiquette_invalide");
+      const uid = uidDe(id);
+      if (etiquettes.length === 0) return;
+      await session(j, async (s) => {
         await s.selectionner("INBOX");
         await s.ajouterMotsCles(uid, etiquettes);
-      }),
+      });
+    },
     creerBrouillon: async (j, m) => {
-      identifiant(m);
+      valider(m);
       const dossier = dossiers.brouillons;
       if (!dossier) throw definitive("dossier_brouillons_introuvable");
       const source = await composerMessage(m, config.expediteur);
@@ -120,7 +129,7 @@ export async function ouvrirConnecteur(config: ConfigurationImap, jeton: JetonCo
       return { id: m.messageId };
     },
     envoyer: async (j, m) => {
-      identifiant(m);
+      valider(m);
       const motDePasse = avecJeton(j, maintenant(), (v) => v);
       let source: Buffer;
       try {

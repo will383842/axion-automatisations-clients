@@ -104,6 +104,9 @@ function lireWorkflow(f: Fichier): Obj | string {
 // On ne cherche pas à reconnaître les contournements : ajouter une action, une commande ou un réglage = modifier ces listes (relecture de l'architecte).
 const canon = (v: unknown): string => String(JSON.stringify(v, (_k, x) => (estObj(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : 1))) : x)));
 const cles = (o: Obj, ok: string[]) => Object.keys(o).every((k) => ok.includes(k));
+// Concurrence : forme EXACTE autorisée (annule les exécutions obsolètes d'une PR, jamais celles de main).
+const CONCURRENCE = canon({ group: "${{ github.workflow }}-${{ github.head_ref || github.ref }}", "cancel-in-progress": "${{ github.event_name == 'pull_request' }}" });
+const concurrenceOk = (doc: Obj) => doc.concurrency === undefined || canon(doc.concurrency) === CONCURRENCE;
 const PERSIST = { "persist-credentials": false };
 const NODE = { "node-version-file": ".nvmrc" };
 // « uses » : texte EXACT connu (jamais de motif : un SHA inconnu peut venir d'un fork, « commit imposteur »).
@@ -176,7 +179,7 @@ function formeConnue(f: Fichier, doc: Obj): string[] {
     if (!cles(doc, ["name", "description", "runs"]) || !estObj(doc.runs) || doc.runs.using !== "composite" || !cles(doc.runs, ["using", "steps"])) return [`${f.nom} : action de forme inconnue`];
     jobs = [doc.runs];
   } else {
-    if (!cles(doc, ["name", "on", "permissions", "jobs"]) || !estObj(doc.jobs) || !Object.keys(doc.jobs).length) return [`${f.nom} : workflow de forme inconnue`];
+    if (!cles(doc, ["name", "on", "permissions", "concurrency", "jobs"]) || !concurrenceOk(doc) || !estObj(doc.jobs) || !Object.keys(doc.jobs).length) return [`${f.nom} : workflow de forme inconnue`];
     jobs = Object.values(doc.jobs);
   }
   const clesJob = composite ? ["using", "steps"] : ["name", "runs-on", "permissions", "services", "env", "steps", "needs", "if", "timeout-minutes"];
@@ -250,7 +253,7 @@ export function verifierWorkflowsLicences(workflows: Fichier[]): string[] {
       erreurs.push(doc);
       continue;
     }
-    if (!surChaquePr(doc) || !cles(doc, ["name", "on", "permissions", "jobs"])) continue;
+    if (!surChaquePr(doc) || !cles(doc, ["name", "on", "permissions", "concurrency", "jobs"]) || !concurrenceOk(doc)) continue;
     if (Object.values(estObj(doc.jobs) ? doc.jobs : {}).some((job) => estObj(job) && jobLanceGarde(job))) trouve = true;
   }
   if (!trouve) erreurs.push("aucun workflow ne lance « node scripts/garde-licences.ts » sur chaque PR dans la forme exacte attendue");

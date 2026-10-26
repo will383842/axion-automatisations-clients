@@ -176,6 +176,13 @@ describe("garde-licences : liste blanche des workflows", () => {
   it("[C-020] chaque installation de la CI est dans la liste blanche", () => {
     expect(verifierInstallationsFigees(dossier())).toEqual([]);
   });
+  it("[C-020] la concurrence n'est acceptée que dans la forme exacte (annulation des PR, jamais de main)", () => {
+    const exacte = { group: "${{ github.workflow }}-${{ github.head_ref || github.ref }}", "cancel-in-progress": "${{ github.event_name == 'pull_request' }}" };
+    const avec = (concurrency: unknown) => verifierInstallationsFigees(fich(wf([{ uses: CHECKOUT }, INSTALLER], {}, { concurrency })));
+    expect(avec(exacte)).toEqual([]);
+    expect(avec({ ...exacte, "cancel-in-progress": true })).not.toEqual([]);
+    expect(avec({ group: "x" })).not.toEqual([]);
+  });
   it("[C-020] accepte seulement les formes exactes : installation figée, bloc connu, actions épinglées", () => {
     const ok = (etapes: Obj[]) => verifierInstallationsFigees(fich(wf(etapes)));
     expect(ok([{ uses: CHECKOUT }, { run: "corepack enable" }, INSTALLER, { run: "pnpm lint" }])).toEqual([]);

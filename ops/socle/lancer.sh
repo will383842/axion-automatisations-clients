@@ -20,13 +20,14 @@ for f in "$dossier"/compose.*.yml; do
 done
 
 # Mots de passe de test : générés ici, exportés dans l'environnement du processus, jamais écrits dans un fichier versionné.
-MOTS_DE_PASSE=(SOCLE_PG_MOT_DE_PASSE SOCLE_VALKEY_MOT_DE_PASSE SOCLE_KEYCLOAK_ADMIN_MOT_DE_PASSE SOCLE_STOCKAGE_MOT_DE_PASSE SOCLE_LITELLM_CLE_MAITRE)
+MOTS_DE_PASSE=(SOCLE_PG_MOT_DE_PASSE SOCLE_VALKEY_MOT_DE_PASSE SOCLE_KEYCLOAK_ADMIN_MOT_DE_PASSE SOCLE_KEYCLOAK_SECRET_CONSOLE SOCLE_KEYCLOAK_SECRET_PORTAIL SOCLE_STOCKAGE_MOT_DE_PASSE SOCLE_LITELLM_CLE_MAITRE)
 
 case "$mode" in
   --assembler | --arreter)
     # Valeurs sans effet : le compose se lit et s'arrête sans générer de certificat ni de mot de passe.
     export SOCLE_CERTS="${SOCLE_CERTS:-/nonexistent}"
     for v in "${MOTS_DE_PASSE[@]}"; do export "$v=${!v:-valeur-sans-effet}"; done
+    export SOCLE_KEYCLOAK_BD_MOT_DE_PASSE="${SOCLE_KEYCLOAK_BD_MOT_DE_PASSE:-valeur-sans-effet}"
     if [ "$mode" = "--assembler" ]; then
       exec docker compose -p socle "${fichiers[@]}" config
     fi
@@ -49,5 +50,10 @@ for v in "${MOTS_DE_PASSE[@]}"; do
     export "$v=$valeur"
   fi
 done
+
+# Mot de passe du rôle keycloak_app : même calcul que ops/socle/postgres/init/05-keycloak.sql (SHA-256 de « secret/rôle »).
+SOCLE_KEYCLOAK_BD_MOT_DE_PASSE="$(printf %s/keycloak_app "$SOCLE_PG_MOT_DE_PASSE" | sha256sum | cut -c1-64)"
+if [ -n "${GITHUB_ACTIONS:-}" ]; then echo "::add-mask::$SOCLE_KEYCLOAK_BD_MOT_DE_PASSE"; fi
+export SOCLE_KEYCLOAK_BD_MOT_DE_PASSE
 
 exec docker compose -p socle "${fichiers[@]}" up -d --wait

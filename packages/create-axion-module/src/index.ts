@@ -1,8 +1,8 @@
 #!/usr/bin/env tsx
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { defineAutomation } from "@axion-auto/sdk-module";
 import { manifesteExemple } from "@axion-auto/sdk-module/exemples/module-exemple.ts";
 import { fichiersDuGabarit } from "./gabarit.ts";
@@ -27,7 +27,7 @@ export async function creerModule(code: string, racine: string): Promise<string>
   return dossier;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) {
   const code = process.argv[2];
   if (!code) {
     console.error("usage : pnpm creer-module <code>");

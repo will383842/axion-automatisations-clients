@@ -1,5 +1,6 @@
 #!/usr/bin/env tsx
-import { pathToFileURL } from "node:url";
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { emballer } from "./emballer.ts";
 import { essai } from "./essai.ts";
 import { publier } from "./publier.ts";
@@ -29,6 +30,6 @@ export async function executer(argv: string[], c: Contexte): Promise<number> {
   return 1;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) {
   process.exitCode = await executer(process.argv.slice(2), { cwd: process.cwd(), env: process.env, ecrire: console.log });
 }

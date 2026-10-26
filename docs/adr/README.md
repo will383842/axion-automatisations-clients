@@ -17,11 +17,13 @@ Format court : contexte, décision, conséquences, date. Un ADR par décision, n
 | 0011 | Exception de licence CC-BY-4.0 pour caniuse-lite (dépendance de production) |
 | 0012 | Licences du livre et inventaire des briques |
 | 0014 | Images dérivées temporaires |
+| 0015 | Stockage d'objets compatible S3 |
 | 0016 | Garde des briques : images dérivées et attestation |
 | 0017 | Copie de secours d'OpenBao par instantané raft |
 | 0018 | Révision unique de C4 (v0.2.0) |
 | 0019 | Compteur de tests mesuré par la CI, empreintes par contrat |
 | 0020 | Exception de licence 0BSD pour tslib (ce qui est livré chez un client) |
 | 0021 | nodemailer en production et curseur de la famille messagerie |
+| 0022 | Stockage SeaweedFS : adaptateur S3, droits par compartiment, création atomique |
 | 0026 | Briques communes de prospection conforme dans le SDK |
 | 0028 | Modèle de départ des modules et ligne de commande axion-dev |

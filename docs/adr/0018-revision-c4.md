@@ -4,7 +4,7 @@
 Le prototype de l'exécuteur (T4-02) a trouvé 22 manques dans C4 v0.1.0 (`docs/c4-manques-du-prototype.md`). Le plan permet une seule révision, datée, puis le gel : 4B, 4C et le lot 6 consomment ensuite C4 v0.2.0, et tout changement devient additif ou une v2 avec ADR. Règle de fer inchangée : un module = code commun versionné + réglages par client, jamais de code propre à un client.
 
 ## Décision
-Révision du 2026-10-25 (date de la PR ; la fusion la confirme dans `packages/contrats/VERSION`). Chaque manque est appliqué (avec son test) ou refusé (avec sa raison).
+Révision du 2026-10-26 (date de la PR ; la fusion la confirme dans `packages/contrats/VERSION`). Chaque manque est appliqué (avec son test) ou refusé (avec sa raison).
 
 | # | Décision | Preuve ou raison |
 |---|---|---|
@@ -38,4 +38,4 @@ Aussi : deux étapes du même nom sont refusées par `defineAutomation`, et le n
 - Les modules écrits pour v0.1.0 doivent porter `executer` et ne plus porter `nouvellesTentatives`.
 - Le noyau de l'exécuteur suit seulement les types : le contexte, la clé d'intention et la console simulée.
 
-2026-10-25
+2026-10-26

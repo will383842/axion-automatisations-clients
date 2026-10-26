@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { createServer, type Server } from "node:net";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SignataireMemoire, signerArtefact } from "../../../../packages/sdk-module/src/emballage/signer.js";
@@ -123,10 +124,49 @@ describe("bac à sable : réseau", () => {
       dns: "await new Promise((ok, ko) => dns.lookup('exemple.test', (e) => (e ? ko(e) : ok())))",
     };
     for (const [nom, essai] of Object.entries(essais)) {
-      const r = await lancer(`const net = await import('node:net'); const dgram = await import('node:dgram'); const dns = await import('node:dns'); try { ${essai}; return 'joint'; } catch (e) { return 'refuse'; }`);
-      expect(r, nom).toEqual({ statut: "fait", valeur: "refuse" });
+      const r = await lancer(`const net = await import('node:net'); const dgram = await import('node:dgram'); const dns = await import('node:dns'); try { ${essai}; return 'joint'; } catch (e) { return e.code ?? e.message; }`);
+      expect(r, nom).toEqual({ statut: "fait", valeur: "ERR_ACCESS_DENIED" });
     }
     expect(contacts).toEqual([]);
+  });
+});
+
+describe("bac à sable : DNS et signaux", () => {
+  // Tout ce qui peut sortir par DNS, par chemin : fonctions de dns et dns.promises, Resolver des deux espaces, import nommé.
+  it("[A-329] @isolation aucune fonction DNS n'est utilisable (resolve*, lookupService, Resolver, imports nommés)", async () => {
+    const r = await lancer(`
+      const dns = await import('node:dns'); const dnsp = await import('node:dns/promises'); const nomme = await import('node:dns');
+      const ouverts = [];
+      const sonde = async (nom, f) => { try { await f(); ouverts.push(nom); } catch (e) { if (e.code !== 'ERR_ACCESS_DENIED') ouverts.push(nom + ':' + (e.code ?? e.message)); } };
+      const fonctions = (o) => Object.keys(o).filter((k) => typeof o[k] === 'function' && /^(lookup|lookupService|reverse|resolve.*)$/.test(k));
+      for (const k of fonctions(dns.default)) await sonde('dns.' + k, () => dns.default[k]('exemple.test', () => {}));
+      for (const k of fonctions(dnsp.default)) await sonde('dnsp.' + k, () => dnsp.default[k]('exemple.test'));
+      for (const k of fonctions(dns.default.Resolver.prototype)) await sonde('Resolver.' + k, () => new dns.default.Resolver()[k]('exemple.test', () => {}));
+      for (const k of fonctions(dns.default.promises.Resolver.prototype)) await sonde('promises.Resolver.' + k, () => new dns.default.promises.Resolver()[k]('exemple.test'));
+      await sonde('nomme.lookup', () => nomme.lookup('exemple.test', () => {}));
+      await sonde('nomme.resolveTxt', () => nomme.resolveTxt('exemple.test', () => {}));
+      await sonde('promises.lookupService', () => dnsp.lookupService('127.0.0.1', 22));
+      return ouverts;`);
+    expect(r).toEqual({ statut: "fait", valeur: [] });
+  });
+
+  it("[A-328] @isolation l'enfant ne peut signaler ni le parent ni un autre enfant", async () => {
+    const voisin = spawn(process.execPath, ["-e", "setTimeout(() => {}, 30000)"], { stdio: "ignore" });
+    try {
+      const pid = voisin.pid as number;
+      const r = await lancer(
+        `const codes = []; const essai = (f) => { try { f(); codes.push('ok'); } catch (e) { codes.push(e.code); } };
+         essai(() => process.kill(entree.voisin, 'SIGKILL')); essai(() => process.kill(process.ppid, 0));
+         essai(() => process._kill(entree.voisin, 9));
+         const nomme = await import('node:process'); essai(() => nomme.kill(entree.voisin, 'SIGKILL'));
+         return codes;`,
+        { voisin: pid },
+      );
+      expect(r).toEqual({ statut: "fait", valeur: ["ERR_ACCESS_DENIED", "ERR_ACCESS_DENIED", "ERR_ACCESS_DENIED", "ERR_ACCESS_DENIED"] });
+      expect(() => process.kill(pid, 0)).not.toThrow();
+    } finally {
+      voisin.kill("SIGKILL");
+    }
   });
 });
 

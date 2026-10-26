@@ -80,7 +80,7 @@ describe("vérification après coup (Graph n'a pas de clé anti-doublon)", () =>
 describe("erreurs de Graph", () => {
   it("[A-275] 429 avec Retry-After donne une erreur quota datée", async () => {
     await mode("quota", true);
-    const e = await connecteur().lire(jeton, "m-1", ["objet"]).catch((x: unknown) => x);
+    const e = await connecteur().creerBrouillon(jeton, message()).catch((x: unknown) => x);
     expect(e).toBeInstanceOf(ErreurConnecteur);
     expect((e as ErreurConnecteur).classe).toBe("quota");
     expect((e as ErreurConnecteur).details.reprise).toBe("2026-10-26T08:00:02.000Z");

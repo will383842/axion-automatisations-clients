@@ -1,7 +1,9 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { ErreurConnecteur, creerJeton, lancer, type Banc, type Fabrique, type Scenario } from "@axion-auto/connecteurs-commun";
+import { ErreurConnecteur, creerJeton } from "@axion-auto/connecteurs-commun";
+import { lancer } from "@axion-auto/connecteurs-commun/src/suite/lanceur.ts";
+import type { Banc, Fabrique, Scenario } from "@axion-auto/connecteurs-commun/src/suite/messagerie.ts";
 import { creerConnecteurMicrosoft365, ouvrirMicrosoft365 } from "./connecteur.ts";
 
 const BASE = "http://graph.test/v1.0";

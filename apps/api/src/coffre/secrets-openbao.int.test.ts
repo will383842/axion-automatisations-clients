@@ -54,13 +54,12 @@ async function preparer() {
   for (const [montage, type, options] of [["technique", "kv", { version: "2" }], ["clients", "kv", { version: "2" }], ["transit", "transit", {}]] as const) {
     await admin(url, racine, "POST", `sys/mounts/${montage}`, { type, options });
   }
-  // Un montage KV v2 neuf répond 400 (« mise à niveau ») un court instant : on attend qu'il réponde avant d'écrire.
+  // Un montage KV v2 refuse les écritures (400) pendant sa mise en place : on attend qu'il en accepte une avant d'écrire pour de bon.
   for (const montage of ["technique", "clients"]) {
     for (let n = 0; ; n++) {
-      const r = await fetch(`${url}/v1/${montage}/config`, { headers: { "X-Vault-Token": racine } });
-      if (r.status === 200) break;
-      if (n > 60) throw new Error(`montage ${montage} non prêt`);
-      await new Promise((ok) => setTimeout(ok, 250));
+      try { await admin(url, racine, "POST", `${montage}/data/sonde`, { data: { valeur: "sonde" } }); break; } catch { /* montage pas prêt */ }
+      if (n > 60) throw new Error(`montage ${montage} jamais prêt`);
+      await new Promise((ok) => setTimeout(ok, 500));
     }
   }
   await admin(url, racine, "POST", "technique/data/essai/jeton", { data: { valeur: marqueur } });

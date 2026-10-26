@@ -120,3 +120,51 @@ describe("axion-dev", () => {
     }
   });
 });
+
+describe("corrections de relecture (tour 1)", () => {
+  const depot = fileURLToPath(new URL("../../../", import.meta.url));
+  const lire = (chemin: string) => readFileSync(join(depot, chemin), "utf8");
+
+  it("[C-242] le modèle se lance par le script racine creer-module, jamais par pnpm create", () => {
+    const racinePkg = JSON.parse(lire("package.json")) as { scripts: Record<string, string> };
+    expect(racinePkg.scripts["creer-module"]).toBe("node packages/create-axion-module/src/index.ts");
+    for (const f of ["packages/create-axion-module/README.md", "docs/adr/0028-modele-de-depart-et-axion-dev.md", "packages/create-axion-module/src/index.ts"]) {
+      expect(lire(f)).not.toContain("pnpm create axion-module");
+      if (f !== "packages/create-axion-module/src/index.ts") expect(lire(f)).toContain("pnpm creer-module");
+    }
+  });
+
+  it("[C-242] les tests des modules tournent dans pnpm test et le modèle a un typecheck", () => {
+    expect(lire("vitest.config.ts")).toMatch(/dossiers\("modules"\)/);
+    const pkg = JSON.parse(readFileSync(join(dossier, "package.json"), "utf8")) as { scripts: Record<string, string> };
+    expect(pkg.scripts["typecheck"]).toContain("tsc");
+    expect(readFileSync(join(dossier, "tsconfig.json"), "utf8")).toContain("tsconfig.base.json");
+  });
+
+  it("[C-394] l'adresse de recette de la configuration est lue dans AXION_RECETTE_ORIGINE", async () => {
+    const recus: string[] = [];
+    const serveur = createServer((req, rep) => {
+      recus.push(req.url ?? "");
+      req.resume();
+      rep.statusCode = 200;
+      rep.end();
+    });
+    await new Promise<void>((ok) => serveur.listen(0, "127.0.0.1", ok));
+    const url = `http://127.0.0.1:${(serveur.address() as AddressInfo).port}/versions`;
+    try {
+      const sans = await lancer(["publier", "--recette"], { AXION_RECETTE_URL: url, AXION_RECETTE_SECRET: SECRET });
+      expect(sans.code).toBe(3);
+      const avec = await lancer(["publier", "--recette"], { AXION_RECETTE_URL: url, AXION_RECETTE_SECRET: SECRET, AXION_RECETTE_ORIGINE: new URL(url).origin });
+      expect(avec.code).toBe(0);
+      expect(recus).toEqual(["/versions"]);
+    } finally {
+      serveur.close();
+    }
+  });
+
+  it("[A-401] l'artefact signé et les restes d'essai sont ignorés par git", () => {
+    const ignores = lire(".gitignore").split("\n");
+    expect(ignores).toContain("artefact/");
+    expect(ignores).toContain("packages/axion-dev/.essai-*");
+  });
+});

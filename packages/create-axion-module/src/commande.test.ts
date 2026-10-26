@@ -1,11 +1,9 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
-
-const pnpm = (args: string[], cwd: string) => spawnSync("pnpm", args, { cwd, encoding: "utf8" });
 
 const depot = fileURLToPath(new URL("../../../", import.meta.url));
 const tsx = join(depot, "node_modules", ".bin", "tsx");

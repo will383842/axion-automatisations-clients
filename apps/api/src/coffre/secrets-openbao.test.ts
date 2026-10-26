@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { ErreurCoffre } from "./coffre/coffre.js";
-import { creerMasqueur } from "./plugins/journal.js";
-import { creerLecteurSecretsOpenBao } from "./secrets-openbao.js";
+import { ErreurCoffre } from "./coffre.js";
+import { creerMasqueur } from "../plugins/journal.js";
+import { creerLecteurSecretsOpenBao } from "../secrets-openbao.js";
 
 const MARQUEUR = "MARQUEUR-ESSAI-5e19a0b7c3";
 const reponse = (statut: number, corps: unknown) => new Response(typeof corps === "string" ? corps : JSON.stringify(corps), { status: statut });

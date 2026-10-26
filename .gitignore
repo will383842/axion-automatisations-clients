@@ -11,5 +11,7 @@ coverage/
 *.pem
 *.key
 next-env.d.ts
+artefact/
+packages/axion-dev/.essai-*
 docs/adr/index.md
 rapport-couverture.json

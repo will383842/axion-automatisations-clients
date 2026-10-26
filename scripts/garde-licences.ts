@@ -127,7 +127,7 @@ const ACTIONS: [string, unknown[]][] = [
 // ADR 0014 : attestation de provenance des images dérivées, par SHA du tag v4.2.2. Acceptée dans images-derivees.yml seulement.
 const FICHIER_IMAGES = "images-derivees.yml";
 const ACTIONS_IMAGES: [string, unknown[]][] = [
-  ["actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8", [{ "subject-name": "ghcr.io/will383842/axion-automatisations-clients/postgres-derivee", "subject-digest": "${{ steps.pousser.outputs.empreinte }}", "push-to-registry": true }, { "subject-name": "ghcr.io/will383842/axion-automatisations-clients/postgres-socle", "subject-digest": "${{ steps.pousser-socle.outputs.empreinte }}", "push-to-registry": true }, { "subject-name": "ghcr.io/will383842/axion-automatisations-clients/postgres-sauvegarde", "subject-digest": "${{ steps.pousser-sauvegarde.outputs.empreinte }}", "push-to-registry": true }]],
+  ["actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8", [{ "subject-name": "ghcr.io/will383842/axion-automatisations-clients/postgres-derivee", "subject-digest": "${{ steps.pousser.outputs.empreinte }}", "push-to-registry": true }, { "subject-name": "ghcr.io/will383842/axion-automatisations-clients/postgres-socle", "subject-digest": "${{ steps.pousser-socle.outputs.empreinte }}", "push-to-registry": true }, { "subject-name": "ghcr.io/will383842/axion-automatisations-clients/postgres-sauvegardes-pitr", "subject-digest": "${{ steps.pousser-sauvegarde.outputs.empreinte }}", "push-to-registry": true }]],
 ];
 // Seul bloc « services » connu : le Mailpit de harnais.yml, comparé en forme canonique.
 const SERVICES = canon({
@@ -162,7 +162,7 @@ const BLOCS_IMAGES = new Set([
   "2cc82b403c67a4e486037fa8bca9d916b741363c20a1d849a3f7b53ca77beb75", "2b4e7f6c62e6037dcd3066d1bfdf04198fdb53ba15ad1155d64f01436d6fbf28", "141ad4b7e734456991654ae2e26f05ec4899efb2ad3828e0b77650ceec614614",
   "95587cf550dce1fbc69f7e8d88b456602526e53d79e7102cded09b33f724b58f", "89dd0a51528b351200f20dee084db620976d939f9eda0c815e52b9fba10202bd",
   "668bc1cd1c3f9cf87bbb799911b0839c3d0addfe804d840d4979b978a47ed6c7", "9139d805fe20a8cd38599f90af5d787089a60055efbd99dbed6071e9638f4bab", "cecf1891da06cd0c97652db0656ef7b12e5e75df0f9988ed986e9b7f89e4273a", "4af8f781253d648981d1bb01f72cb2b67a77173a1b94abecf84918847d6679b4", "9904653be6709787daf7d81edc6b9784cace85d9cf5daf19fa02541d3c5a1099",
-  "08bc1008c1849271584a95d92d537a990e0f2ca50ce8ac46eed2a80b51cd1432", "debe09e7795e63fa14200ca95dc01d2311541c75b9f2a9e98ba142fe46cb01bf", "2f011422dad091c585612c0bce1c33c10c7914d7fd8be4ca0a6d00dca81225b2", "a89b8f7e46ac6384b0eca8eb67e56015067968d7c9738003091ba3ae5958a563", "f2fd0ea8574bc5ad3791d3cb9d23d2fe6c4ad0d48e67d4711a05682da3580702",
+  "08bc1008c1849271584a95d92d537a990e0f2ca50ce8ac46eed2a80b51cd1432", "debe09e7795e63fa14200ca95dc01d2311541c75b9f2a9e98ba142fe46cb01bf", "3f127b352339069dfbf729f7e7ed45f320258d86545ef6233c83f765d2de4bb2", "a89b8f7e46ac6384b0eca8eb67e56015067968d7c9738003091ba3ae5958a563", "f2fd0ea8574bc5ad3791d3cb9d23d2fe6c4ad0d48e67d4711a05682da3580702",
 ]);
 const ENV_OK = ["GH_TOKEN", "DEPOT", "RUN_ID", "CORPS_PR", "GITHUB_TOKEN", "SOCLE_INTEGRATION", "NODE_ENV", "MAILPIT_API", "MAILPIT_SMTP_HOTE", "MAILPIT_SMTP_PORT", "NEXT_TELEMETRY_DISABLED", "MISE_A_JOUR"];
 const envOk = (o: unknown) => o === undefined || (estObj(o) && cles(o, ENV_OK));
@@ -206,6 +206,7 @@ const SCRIPTS_OK = new Set([
   "pnpm -r typecheck && pnpm lint && pnpm test", "eslint .", "vitest run", "vitest run --reporter=json --outputFile=rapport-tests.json",
   "git rev-parse --git-dir >/dev/null 2>&1 && git config core.hooksPath .githooks || true", "cd ../.. && vitest run --project packages/contrats", "cd ../.. && vitest run --project packages/sdk-module",
   "node scripts/signer-fixtures.ts && node scripts/empreinte.ts", "node scripts/generer-css.ts",
+  "tsx packages/create-axion-module/src/index.ts",
 ]);
 export function verifierScriptsPaquets(fichiers: Fichier[]): string[] {
   const erreurs: string[] = [];

@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { EN_TETES, verifier } from "../../../../packages/contrats/src/commun/signature.js";
+import { EN_TETES, FENETRE_SECONDES, verifier } from "../../../../packages/contrats/src/commun/signature.js";
 import type { CleEchange, Sens } from "../coffre/cles-echanges.js";
 import { ErreurApi } from "../plugins/erreurs.js";
 import { journaliser, type Canal, type Journal } from "./journal-canal.js";
@@ -7,7 +7,13 @@ import { journaliser, type Canal, type Journal } from "./journal-canal.js";
 // Vérification des requêtes entrantes (C2 du Hub, C3 du CRM), posée sur les seules routes /api/hub/v1/* et /api/crm/v1/*.
 // Le corps est lu BRUT (aucune analyse JSON avant la signature) ; le calcul est celui de packages/contrats.
 const CANAUX = { hub: { canal: "c2", prefixe: "/api/hub/v1" }, crm: { canal: "c3", prefixe: "/api/crm/v1" } } as const;
-const MEMOIRE_SECONDES = 600;
+// Strictement plus que 2 × la fenêtre (±300 s, bornes comprises) + 1 s d'arrondi, avec une marge pour les horloges décalées.
+const MEMOIRE_SECONDES = 2 * FENETRE_SECONDES + 60;
+// Formes vérifiées avant toute lecture du coffre : un refus ne coûte rien.
+const HORODATAGE = /^[0-9]{10}$/;
+const SIGNATURE = /^v1=[0-9a-f]{64}$/;
+const KID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const KID_MAX = 64;
 const DELAI_MEMOIRE_MS = 2000;
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const ECRITURES = new Set(["POST", "PUT", "PATCH", "DELETE"]);
@@ -54,6 +60,8 @@ export function enregistrerCanal(serveur: FastifyInstance, nom: keyof typeof CAN
   serveur.register(
     async (s) => {
       s.removeAllContentTypeParsers();
+      // Analyseur JSON de Fastify (refuse __proto__ et constructor.prototype), appelé seulement après la signature.
+      const analyser = serveur.getDefaultJsonParser("error", "error");
       s.addContentTypeParser("*", { parseAs: "buffer" }, (r, corps, fin) => {
         r.corpsBrut = corps as Buffer;
         fin(null, corps);
@@ -73,7 +81,8 @@ export function enregistrerCanal(serveur: FastifyInstance, nom: keyof typeof CAN
         }
       });
 
-      s.addHook("preHandler", async (r) => {
+      // preValidation : avant la validation du schéma du corps, qui ne doit jamais voir une requête non authentifiée.
+      s.addHook("preValidation", async (r) => {
         const refuser = (code: "signature_invalide" | "horodatage_perime" | "rejeu" | "schema_invalide", message: string): never => {
           trace(r, code);
           throw new ErreurApi(code, message);
@@ -81,6 +90,9 @@ export function enregistrerCanal(serveur: FastifyInstance, nom: keyof typeof CAN
         const corps = r.corpsBrut ?? Buffer.alloc(0);
         const { cle: kid, horodatage, signature } = { cle: enTete(r, EN_TETES.cle), horodatage: enTete(r, EN_TETES.horodatage), signature: enTete(r, EN_TETES.signature) };
         if (!kid || !horodatage || !signature) return refuser("signature_invalide", "Signature invalide.");
+        // Contrôles peu coûteux d'abord : forme et fenêtre d'horodatage, sans lire OpenBao.
+        if (!HORODATAGE.test(horodatage) || !SIGNATURE.test(signature) || kid.length > KID_MAX || !KID.test(kid)) return refuser("signature_invalide", "Signature invalide.");
+        if (Math.abs(maintenant() - Number(horodatage)) > FENETRE_SECONDES) return refuser("horodatage_perime", "Horodatage périmé.");
         let acceptees: CleEchange[];
         try {
           acceptees = await deps.cles.clesAcceptees(canal, "reception");
@@ -102,7 +114,7 @@ export function enregistrerCanal(serveur: FastifyInstance, nom: keyof typeof CAN
         if (ECRITURES.has(r.method) && !exempte && !UUID_V4.test(enTete(r, "idempotency-key") ?? "")) return refuser("schema_invalide", "Idempotency-Key obligatoire.");
         if (corps.length > 0) {
           try {
-            r.body = JSON.parse(corps.toString("utf8"));
+            r.body = await new Promise((ok, non) => analyser(r, corps.toString("utf8"), (e, v) => (e ? non(e) : ok(v))));
           } catch {
             return refuser("schema_invalide", "Corps invalide.");
           }

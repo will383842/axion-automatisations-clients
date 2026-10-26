@@ -39,23 +39,18 @@ const api = (chemin: string, init: RequestInit & { json?: unknown } = {}) =>
     ...(init.json === undefined ? {} : { body: JSON.stringify(init.json) }),
   });
 
-// TOTP (RFC 6238, SHA-1, 6 chiffres, 30 s). Le secret enregistré est une chaîne en base 32 ; reste à savoir si Keycloak en prend les octets
-// tels quels (« brut ») ou la décode (« base32 »). Le premier essai le détermine, les suivants gardent la réponse.
+// TOTP (RFC 6238, SHA-1, 6 chiffres, 30 s). Le secret enregistré est une chaîne en base 32 ; sans `secretEncoding` dans `credentialData`,
+// Keycloak en prend les octets UTF-8 tels quels (lecture « brut »).
 const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 const base32 = (octets: Buffer) => {
   let bits = "";
   for (const o of octets) bits += o.toString(2).padStart(8, "0");
   return (bits.match(/.{1,5}/g) ?? []).map((b) => ALPHABET[Number.parseInt(b.padEnd(5, "0"), 2)]).join("");
 };
-const debase32 = (texte: string) => {
-  const bits = [...texte].map((c) => ALPHABET.indexOf(c).toString(2).padStart(5, "0")).join("");
-  return Buffer.from((bits.match(/.{8}/g) ?? []).map((b) => Number.parseInt(b, 2)));
-};
-let lecture: "brut" | "base32" | undefined;
-const code = (secret: string, pas: number, mode: "brut" | "base32") => {
+const code = (secret: string, pas: number) => {
   const compteur = Buffer.alloc(8);
   compteur.writeBigUInt64BE(BigInt(pas));
-  const h = createHmac("sha1", mode === "brut" ? Buffer.from(secret) : debase32(secret)).update(compteur).digest();
+  const h = createHmac("sha1", Buffer.from(secret)).update(compteur).digest();
   const o = (h[19] ?? 0) & 15;
   return String((h.readUInt32BE(o) & 0x7fffffff) % 1_000_000).padStart(6, "0");
 };
@@ -71,7 +66,7 @@ interface Utilisateur {
 // Un code TOTP ne sert qu'une fois : chaque connexion prend un pas strictement plus grand que le précédent (Keycloak accepte un pas d'avance).
 const prochainCode = (u: Utilisateur) => {
   u.dernierPas = Math.max(pasCourant(), u.dernierPas + 1);
-  return code(u.secret, u.dernierPas, lecture ?? "brut");
+  return code(u.secret, u.dernierPas);
 };
 
 async function creerUtilisateur(royaume = "equipe"): Promise<Utilisateur> {
@@ -214,13 +209,11 @@ describe("Keycloak réel : double facteur et sessions", { timeout: 60_000 }, () 
     expect(((await seul.json()) as Json)["access_token"]).toBeUndefined();
     const faux = await direct(u, { totp: "000000" });
     expect(((await faux.json()) as Json)["access_token"]).toBeUndefined();
-    let complet = await direct(u, { totp: prochainCode(u) });
-    if (!lecture && complet.status !== 200) {
-      lecture = "base32";
-      complet = await direct(u, { totp: prochainCode(u) });
-      if (complet.status !== 200) lecture = undefined;
-    } else lecture ??= "brut";
-    expect(complet.status, `${await complet.clone().text()} (lecture ${lecture ?? "aucune ne passe"})`).toBe(200);
+    // Deux échecs rapprochés verrouillent l'utilisateur (force brute) : on lève le verrou avant l'essai valide.
+    const leve = await api(`/equipe/attack-detection/brute-force/users/${u.id}`, { method: "DELETE" });
+    expect(leve.status).toBe(204);
+    const complet = await direct(u, { totp: prochainCode(u) });
+    expect(complet.status, await complet.clone().text()).toBe(200);
     expect(((await complet.json()) as Json)["access_token"]).toBeTypeOf("string");
   });
 

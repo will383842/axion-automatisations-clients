@@ -15,7 +15,3 @@ C-493 → test « [C-493] garde-briques accepte valkey » (scripts/garde-briques
 A-381 → ADR 0016, scripts/garde-briques.ts (clé `derivee`, attestation, refus de `build:`) et tests [A-381] de scripts/garde-briques-derivee.test.ts, 2026-10-25
 A-052 → test « [A-052] un travail d'une instance d'une autre cellule est refusé » (apps/executeur/src/files/files.test.ts), 2026-10-26
 A-268 → tests [A-268] de apps/executeur/src/files/files.test.ts (paliers 2, 4 et 8, concurrence, configuration validée), 2026-10-26
-A-062 → fichiers ops/socle/keycloak/royaume-*.json et test « [A-062] les royaumes equipe et clients sont importés et leur découverte OIDC répond » (apps/api/src/auth/keycloak.int.test.ts), 2026-10-26
-C-001 → tests [C-001] de apps/api/src/auth/keycloak.int.test.ts (session de 8 h relue, rafraîchissement refusé après déconnexion forcée), 2026-10-26
-C-002 → tests [C-002] de apps/api/src/auth/keycloak.int.test.ts (mot de passe seul sans jeton ni code, TOTP exigé) et de scripts/garde-royaumes.test.ts, 2026-10-26
-C-003 → tests [C-003] de apps/api/src/auth/keycloak.int.test.ts (acr « mfa » dans le jeton réel, max_age=0 renouvelle auth_time) et ADR 0024, 2026-10-26

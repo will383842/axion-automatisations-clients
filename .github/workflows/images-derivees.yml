@@ -101,7 +101,7 @@ jobs:
           test "$(docker exec "$cid" id -u)" = 999
           docker exec "$cid" sh -c 'test ! -e /usr/local/bin/gosu'
           docker exec "$cid" postgres --version | grep -q '^postgres (PostgreSQL) 16\.'
-          docker exec "$cid" pgbackrest version | grep -q '^pgBackRest 2\.56\.0'
+          docker exec "$cid" pgbackrest version | grep -q '^pgBackRest 2\.59\.3'
           docker exec "$cid" ssh -V
       - name: Trivy (0.58.2 épinglé par empreinte) sur l'amont puis sur l'image des sauvegardes
         run: |
@@ -237,7 +237,7 @@ jobs:
           test "$(docker exec "$cid" id -u)" = 999
           docker exec "$cid" sh -c 'test ! -e /usr/local/bin/gosu'
           docker exec "$cid" postgres --version | grep -q '^postgres (PostgreSQL) 16\.'
-          docker exec "$cid" pgbackrest version | grep -q '^pgBackRest 2\.56\.0'
+          docker exec "$cid" pgbackrest version | grep -q '^pgBackRest 2\.59\.3'
           docker exec "$cid" ssh -V
       - name: Trivy (0.58.2 épinglé par empreinte) sur l'amont puis sur l'image des sauvegardes
         run: |

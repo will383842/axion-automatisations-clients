@@ -13,3 +13,4 @@ export * from "./reglages/migrer.ts";
 export { ReglageRefuse } from "./reglages/options.ts";
 export { REFERENCE, trouverEnClair } from "./reglages/references.ts";
 export * from "./reglages/valider.ts";
+export * from "./prospection/index.ts";

@@ -8,3 +8,7 @@ Code source de la console et du portail client des automatisations d'AXION IA (a
 - Signaler une faille : voir [SECURITY.md](SECURITY.md).
 
 Statut : lot 0 (fondations) en cours.
+
+## Contribuer
+
+**Règle unique : fusionner `main` dans sa branche avant d'ouvrir la PR et avant de demander la relecture.** `spec/preuves.md`, où chaque PR ajoute une ligne, se fusionne alors sans conflit grâce à `.gitattributes` ; `ops/secrets-inventaire.md` et `docs/localisation-des-donnees.md` se fusionnent à la main ; l'index des ADR est généré (voir `docs/adr/README.md`). Jamais de rebase ni de force-push.

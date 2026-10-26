@@ -13,6 +13,9 @@ A-379 → test « [A-379] garde-briques accepte OpenBao livree:false sous MPL-2.
 C-493 → test « [C-493] garde-briques accepte valkey » (scripts/garde-briques.test.ts), 2026-10-25
 A-052 → test « [A-052] un travail d'une instance d'une autre cellule est refusé » (apps/executeur/src/files/files.test.ts), 2026-10-26
 A-268 → tests [A-268] de apps/executeur/src/files/files.test.ts (paliers 2, 4 et 8, concurrence, configuration validée), 2026-10-26
+A-005 → tests « [A-005] une valeur rangée est inscrite au masqueur, sans inscription manuelle » et « … relue par le courtier … » (apps/api/src/coffre/coffre.test.ts, passage réel par rangerIdentifiant et lireValeur) ; tests « [A-005] le journal de l'API ne contient jamais la valeur rangée (marqueur unique cherché dans la sortie) » (apps/api/src/plugins/journal.test.ts) et version contre le vrai OpenBao (apps/api/src/coffre/secrets-openbao.int.test.ts) ; tests « [A-005] » de apps/api/src/plugins/journal.test.ts (double échappement JSON, formulaire, base64 décalé) et « [A-005] @isolation le jeton equipe lit l'état … 403 sur la valeur » de apps/api/src/coffre/secrets-openbao.int.test.ts ; refus des valeurs de moins de 8 caractères et structure du journal protégée (tests « [A-005] » de coffre.test.ts, secrets-openbao.test.ts et journal.test.ts, ADR 0023), 2026-10-26
+C-012 → test « [C-012] après detruireCleClient, le déchiffrement échoue pour toujours » de apps/api/src/coffre/secrets-openbao.int.test.ts (vrai OpenBao), 2026-10-26
+C-011 → tests « [C-011] » de apps/api/src/coffre/secrets-openbao.test.ts (imitation HTTP) et de apps/api/src/coffre/secrets-openbao.int.test.ts (vrai OpenBao en mode serveur : lecture courtier seul, coffre scellé par PUT sys/seal), 2026-10-26
 A-328 → ADR 0025 et tests [A-328] de apps/executeur/src/bac-a-sable/bac-a-sable.test.ts (processus distincts, globales, fichiers, environnement, jeton, limites), 2026-10-26
 A-329 → test « [A-329] @isolation l'enfant ne joint aucun hôte… » (apps/executeur/src/bac-a-sable/bac-a-sable.test.ts), étape 1 seulement ; mandataire à l'étape 2, 2026-10-26
 A-062 → fichiers ops/socle/keycloak/royaume-*.json et test « [A-062] les royaumes equipe et clients sont importés et leur découverte OIDC répond » (apps/api/src/auth/keycloak.int.test.ts), 2026-10-26
@@ -28,4 +31,5 @@ C-087 → test « [C-087] un module de prospection sans source déclarée est re
 C-070 → test « [C-070] une source LinkedIn est refusée » (garde de code ; le document est en T4-00), 2026-10-26
 C-086 → tests [C-086] de packages/sdk-module/src/prospection/prospection.test.ts, 2026-10-26
 C-526 → dépôt privé, plan/mesures-lot-1/prix-modeles-ia.md, 2026-10-26
+C-602 → partie T1A-15 (étape 1/2) : tests [C-602] de ops/surveillance/disque.test.ts, lancés par la CI via le projet ops de vitest.config.ts (prévision, réveil à 6 h, alerte avant plafond, message sans hôte ni IP) ; plafond archive-push-queue-max NON livré (fichier dans #59), essais d'intégration en attente de #59 ; sonde extérieure au lot 1-B, 2026-10-26
 C-394 → packages/axion-dev/README.md (commandes essai, test, emballer, publier --recette) et tests [C-380] de packages/axion-dev/src/axion-dev.test.ts, 2026-10-26

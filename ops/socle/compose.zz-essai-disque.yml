@@ -1,8 +1,0 @@
-# Fragment d'essai, lancé seulement sur la CI : volume de petite taille pour les journaux en attente.
-volumes:
-  essai-journaux:
-    driver: local
-    driver_opts:
-      type: tmpfs
-      device: tmpfs
-      o: size=300m

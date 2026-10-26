@@ -5,9 +5,9 @@
 set -eu
 donnees="${1:?dossier des données manquant}"
 journaux="${2:?dossier des journaux en attente manquant}"
-# df en blocs de 1 Ko : colonnes taille et utilisé.
-set -- $(df -Pk "$donnees" | awk 'NR==2 {print $2, $3}')
-total=$(( $1 * 1024 ))
-utilises=$(( $2 * 1024 ))
+# df en blocs de 1 Ko : utilisé et disponible. Total = utilisé + disponible, sans l'espace réservé à root.
+set -- $(df -Pk "$donnees" | awk 'NR==2 {print $3, $4}')
+utilises=$(( $1 * 1024 ))
+total=$(( ($1 + $2) * 1024 ))
 attente=$(( $(du -sk "$journaux" | awk '{print $1}') * 1024 ))
 printf '{"t":%s000,"utilises":%s,"total":%s,"journauxEnAttente":%s}\n' "$(date +%s)" "$utilises" "$total" "$attente"

@@ -31,3 +31,15 @@ Destinataires en `@exemple.fr` ou `*.test` seulement ; tous les serveurs écoute
 Le faux Gmail remet le message tel quel (pièces jointes, fil, Cc) sans la ligne Bcc ; `mailparser` sert à l'exécution : l'image du harnais devra installer les dépendances de développement.
 
 Reste à faire (C-533) : le test « dans le compose assemblé du socle » est retiré, car le compose actuel ne porte aucune variable d'envoi et il passait sans rien prouver. Il revient avec `ops/socle/compose.harnais.yml`, avec un compteur de variables contrôlées supérieur à 0.
+
+## Tester un module (T4-05)
+1. `const rapport = await lancerJeuEssai(monModule, { reglages });` : chaque cas du jeu d'essai tourne dans le noyau en mémoire, avec des connecteurs factices et une IA simulée (aucun réseau).
+2. `reglages` : des réglages valides du module, dont la liste `actionsAutomatiquesAutorisees` du client.
+3. Cas `panne` : le connecteur factice échoue une fois (erreur passagère) ; le noyau doit réessayer. `attendu.statut` d'un cas fixe l'issue voulue (`terminee` par défaut).
+4. Déterminisme (A-293) : une étape sans outil est rejouée 2 fois avec la même entrée, temps et hasard changés ; une sortie différente fait échouer le rapport.
+5. IA hostile : sur les cas `email_piege` et sur chaque e-mail de `emails-pieges/*.json`, l'IA réclame six actions interdites (envoi hors fil, transfert de pièce jointe, autre fil, action non déclarée, image distante ou HTML actif, lien reçu).
+6. Chaque demande doit être refusée (non déclarée) ou classée brouillon ; une demande automatique ou un appel interdit arrivé au connecteur fait échouer le rapport.
+7. Les e-mails piégés sont des données inventées (`@exemple.fr`) : jamais exécutés, jamais interprétés.
+8. `rapportEnJson(rapport)` : JSON stable pour la CI, avec les identifiants de cas seulement, sans texte d'e-mail.
+9. Code de sortie : `rapport.codeSortie` vaut 1 si un cas ou un contrôle échoue.
+10. Commande : `pnpm test -- <motif>` ; exemple complet dans `packages/harnais/src/module/module.test.ts`.

@@ -1,9 +1,8 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { creerJeton, ErreurConnecteur } from "@axion-auto/connecteurs-commun";
-import type { Banc, Fabrique, Scenario } from "@axion-auto/connecteurs-commun/src/suite/messagerie.ts";
-import { describe, expect, it } from "vitest";
-import { lancer } from "@axion-auto/connecteurs-commun/src/suite/lanceur.ts";
+import { lancer, type Banc, type Fabrique, type Scenario } from "@axion-auto/connecteurs-commun/suite";
+import { describe, expect, it, vi } from "vitest";
 import { ouvrirConnecteur, ouvrirSiOuvert, type ConnecteurImap, type Dependances } from "./connecteur.ts";
 import type { SessionImap } from "./imap.ts";
 import { verifierConfiguration } from "./verification.ts";
@@ -193,3 +192,37 @@ describe("interrupteur", () => {
     await expect(ouvrirSiOuvert({ CONNECTEURS_MESSAGERIE_OUVERT: "1" }, config, jeton, deps)).resolves.toBeTruthy();
   });
 });
+
+describe("durcissement (relecture)", () => {
+  it("[A-389] un seul destinataire : une liste d'adresses est refusée avant tout envoi et tout brouillon", async () => {
+    const b = await banc({ nom: "dest" });
+    const plusieurs = { ...message(), destinataire: "a@exemple.fr, b@exemple.fr" };
+    await expect(b.connecteur.envoyer(b.jeton, plusieurs)).rejects.toMatchObject({ classe: "definitive", code: "destinataire_invalide" });
+    await expect(b.connecteur.creerBrouillon(b.jeton, plusieurs)).rejects.toMatchObject({ classe: "definitive", code: "destinataire_invalide" });
+    expect(b.etat.envoyes).toEqual([]);
+    expect(b.etat.brouillons).toEqual([]);
+  });
+  it("[A-389] une configuration brute est revérifiée à l'ouverture : aucune connexion n'est tentée", async () => {
+    const { deps, etat, valeurJeton } = faux({ nom: "brute" });
+    const jeton = creerJeton(valeurJeton, Date.now() + 60_000);
+    await expect(ouvrirConnecteur({ ...config, portImap: 143, motDePasse: "x" } as never, jeton, deps)).rejects.toBeTruthy();
+    expect(etat.ouvertes).toBe(0);
+  });
+  it("[A-389] étiqueter avec une liste vide ne contacte pas le serveur", async () => {
+    const b = await banc({ nom: "vide", messages: 1 });
+    const avant = b.etat.ouvertes;
+    await b.connecteur.etiqueter(b.jeton, "m-1", []);
+    expect(b.etat.ouvertes).toBe(avant);
+  });
+  it("[A-389] couper la vérification du certificat est refusé en production", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    try {
+      const { deps, valeurJeton } = faux({ nom: "tls" });
+      const jeton = creerJeton(valeurJeton, Date.now() + 60_000);
+      await expect(ouvrirConnecteur(config, jeton, { ...deps, tls: { rejectUnauthorized: false } })).rejects.toMatchObject({ code: "reglage_tls_interdit" });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});
+

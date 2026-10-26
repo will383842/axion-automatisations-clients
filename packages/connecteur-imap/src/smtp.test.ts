@@ -1,4 +1,5 @@
 import { createServer, type Server } from "node:net";
+import type { Readable } from "node:stream";
 import { afterEach, describe, expect, it } from "vitest";
 import { envoyerSmtp } from "./smtp.ts";
 import { optionsSmtp, verifierConfiguration } from "./verification.ts";
@@ -31,5 +32,25 @@ describe("SMTP sans repli en clair", () => {
     const options = { ...optionsSmtp(c, "jeton-fictif"), port };
     await expect(envoyerSmtp(options, { messageId: "<m-1.essai@exemple.fr>", destinataire: "client@exemple.fr", objet: "Essai", corps: "Bonjour" }, "atelier@exemple.fr")).rejects.toBeTruthy();
     expect(commandes.some((l) => /^(AUTH|MAIL|DATA)/i.test(l))).toBe(false);
+  });
+});
+
+// Faux transport : lit (ou non) le message, puis tombe en panne comme une coupure réseau.
+const transportQuiCoupe = (lireDabord: boolean) => () => ({
+  sendMail: async (envoi: { raw: Readable }) => {
+    if (lireDabord) for await (const _ of envoi.raw) break;
+    throw Object.assign(new Error("coupure"), { code: "ECONNRESET" });
+  },
+  close: () => undefined,
+});
+const options = optionsSmtp(verifierConfiguration({ hoteImap: "imap.exemple.test", hoteSmtp: "smtp.exemple.test", utilisateur: "instance-essai", expediteur: "atelier@exemple.fr" }), "jeton-fictif");
+const sortant = { messageId: "<m-2.essai@exemple.fr>", destinataire: "client@exemple.fr", objet: "Essai", corps: "Bonjour" };
+
+describe("coupure pendant l'envoi", () => {
+  it("[A-319] une coupure avant DATA reste passagère : le message n'est pas parti, on peut renvoyer", async () => {
+    await expect(envoyerSmtp(options, sortant, "atelier@exemple.fr", transportQuiCoupe(false) as never)).rejects.toMatchObject({ code: "ECONNRESET" });
+  });
+  it("[A-319] une coupure après le début de DATA n'est pas rejouable : le message a pu partir", async () => {
+    await expect(envoyerSmtp(options, sortant, "atelier@exemple.fr", transportQuiCoupe(true) as never)).rejects.toMatchObject({ classe: "definitive", code: "envoi_incertain" });
   });
 });

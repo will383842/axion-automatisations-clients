@@ -37,8 +37,7 @@
       "builtIn": false,
       "authenticationExecutions": [
         { "authenticator": "auth-username-password-form", "requirement": "REQUIRED", "priority": 10, "userSetupAllowed": false, "authenticatorFlow": false },
-        { "flowAlias": "double-facteur-equipe", "requirement": "REQUIRED", "priority": 20, "userSetupAllowed": false, "authenticatorFlow": true },
-        { "flowAlias": "niveau-mfa-equipe", "requirement": "CONDITIONAL", "priority": 30, "userSetupAllowed": false, "authenticatorFlow": true }
+        { "flowAlias": "niveau-mfa-equipe", "requirement": "CONDITIONAL", "priority": 20, "userSetupAllowed": false, "authenticatorFlow": true }
       ]
     },
     {
@@ -57,7 +56,8 @@
       "topLevel": false,
       "builtIn": false,
       "authenticationExecutions": [
-        { "authenticator": "conditional-level-of-authentication", "authenticatorConfig": "niveau-mfa", "requirement": "REQUIRED", "priority": 10, "userSetupAllowed": false, "authenticatorFlow": false }
+        { "authenticator": "conditional-level-of-authentication", "authenticatorConfig": "niveau-mfa", "requirement": "REQUIRED", "priority": 10, "userSetupAllowed": false, "authenticatorFlow": false },
+        { "flowAlias": "double-facteur-equipe", "requirement": "REQUIRED", "priority": 20, "userSetupAllowed": false, "authenticatorFlow": true }
       ]
     }
   ],

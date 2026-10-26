@@ -10,7 +10,7 @@ const FACTEUR_ECHECS_MAX = 5;
 // Keycloak ne substitue que la forme sans préfixe : « ${env.NOM} » resterait un secret littéral (constaté contre le vrai Keycloak).
 const SECRET_ENV = /^\$\{[A-Z][A-Z0-9_]*\}$/;
 // Seuls authentificateurs permis dans le flux de navigateur de l'équipe : tout autre (SMS, fournisseur d'identité, clé d'accès seule…) est refusé.
-// La condition de niveau d'authentification ne sert qu'à poser le niveau « mfa » (acr) APRÈS le double facteur, qui reste REQUIRED à part.
+// La condition de niveau d'authentification enveloppe le double facteur (montage de Keycloak 26) : toujours vraie tant que le niveau 2 n'est pas atteint.
 const PERMIS = new Set(["auth-cookie", "auth-username-password-form", "auth-otp-form", "webauthn-authenticator", "conditional-level-of-authentication"]);
 const FACTEURS = new Set(["auth-otp-form", "webauthn-authenticator"]);
 
@@ -58,6 +58,26 @@ function verifierClients(r: Objet, echec: (m: string) => void): void {
   }
 }
 
+// Double facteur sous condition : la SEULE condition est le niveau d'authentification ≥ 2, puis le double facteur en REQUIRED ;
+// tout client de l'équipe exige alors l'acr « mfa » (sinon un niveau déjà atteint dans la session sauterait le double facteur).
+function niveauSeul(r: Objet, flux: Map<string, Objet[]>, contenu: Objet[], echec: (m: string) => void): boolean {
+  const actifs = contenu.filter((x) => x["requirement"] !== "DISABLED");
+  const conditions = actifs.filter((x) => String(x["authenticator"]).startsWith("conditional-"));
+  const [condition] = conditions;
+  if (conditions.length !== 1 || condition?.["authenticator"] !== "conditional-level-of-authentication" || condition["requirement"] !== "REQUIRED") return false;
+  const config = liste(r["authenticatorConfig"]).find((c) => c["alias"] === condition["authenticatorConfig"]);
+  const niveau = estObjet(config?.["config"]) ? Number(config["config"]["loa-condition-level"]) : NaN;
+  if (!(niveau >= 2)) return false;
+  const facteurs = actifs.filter((x) => typeof x["flowAlias"] === "string");
+  const ok = facteurs.some((x) => x["requirement"] === "REQUIRED" && (flux.get(String(x["flowAlias"])) ?? []).some((y) => FACTEURS.has(String(y["authenticator"])) && y["requirement"] !== "DISABLED"));
+  if (!ok) return false;
+  for (const c of liste(r["clients"])) {
+    const a = c["attributes"];
+    if (!estObjet(a) || a["minimum.acr.value"] !== "mfa") echec(`client « ${String(c["clientId"])} » : minimum.acr.value doit valoir mfa (double facteur sous condition de niveau)`);
+  }
+  return true;
+}
+
 // Parcourt le flux de navigateur et ses sous-flux ; vérifie l'ordre mot de passe puis double facteur obligatoire.
 function verifierDoubleFacteur(r: Objet, echec: (m: string) => void): void {
   const flux = new Map(liste(r["authenticationFlows"]).map((f) => [String(f["alias"]), liste(f["authenticationExecutions"])]));
@@ -90,11 +110,16 @@ function verifierDoubleFacteur(r: Objet, echec: (m: string) => void): void {
       motDePasse = mdp["requirement"] === "REQUIRED";
       if (!motDePasse) echec(`mot de passe « ${alias} » : doit être REQUIRED`);
       const sous = executions.filter((e) => typeof e["flowAlias"] === "string");
-      const ok = sous.some((e) => e["requirement"] === "REQUIRED" && (flux.get(String(e["flowAlias"])) ?? []).some((x) => FACTEURS.has(String(x["authenticator"])) && x["requirement"] !== "DISABLED"));
+      const aFacteur = (xs: Objet[]) => xs.some((x) => FACTEURS.has(String(x["authenticator"])) && x["requirement"] !== "DISABLED");
+      const ok = sous.some((e) => {
+        const contenu = flux.get(String(e["flowAlias"])) ?? [];
+        if (e["requirement"] === "REQUIRED") return aFacteur(contenu);
+        return e["requirement"] === "CONDITIONAL" && niveauSeul(r, flux, contenu, echec);
+      });
       if (ok) doubleFacteur = true;
     }
   }
-  if (!motDePasse || !doubleFacteur) echec("double facteur : sous-flux REQUIRED avec une clé d'accès ou un TOTP actif obligatoire après le mot de passe");
+  if (!motDePasse || !doubleFacteur) echec("double facteur : sous-flux REQUIRED (ou sous la seule condition de niveau ≥ 2) avec une clé d'accès ou un TOTP actif obligatoire après le mot de passe");
   const actions = liste(r["requiredActions"]);
   const configure = ["CONFIGURE_TOTP", "webauthn-register"].some((a) => actions.some((x) => x["alias"] === a && x["enabled"] === true && x["defaultAction"] === true));
   if (!configure) echec("action requise : la configuration du double facteur doit être activée par défaut à la première connexion");

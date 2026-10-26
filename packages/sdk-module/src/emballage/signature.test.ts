@@ -1,4 +1,4 @@
-import { generateKeyPairSync, sign } from "node:crypto";
+import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { type ClePublique } from "./cles-publiques.ts";
 import { SignataireMemoire, empreinteArtefact, signerArtefact } from "./signer.ts";
@@ -99,5 +99,49 @@ describe("signature des artefacts", () => {
   it("[A-302] la liste épinglée de production est vide tant que le coffre n'a pas fourni la clé", async () => {
     const { CLES_PUBLIQUES } = await import("./cles-publiques.ts");
     expect(CLES_PUBLIQUES).toEqual([]);
+  });
+
+  it("[A-304] un chemin qui imite plusieurs lignes de l'empreinte → refus (empreinte non ambiguë)", () => {
+    const { signataire, cle } = cleDeTest();
+    const sha = (o: Uint8Array) => createHash("sha256").update(o).digest("hex");
+    const m = octets('{"nom":"demo"}');
+    const signe = signerArtefact({ "manifest.json": m, "module.js": octets("export default 1;") }, signataire);
+    const pirate = {
+      [`manifest.json\0${sha(m)}\nmodule.js`]: octets("export default 1;"),
+      "signature.json": signe["signature.json"] as Uint8Array,
+    };
+    expect(verifierArtefact(pirate, [cle])).toEqual({ ok: false, code: "module_non_signe" });
+  });
+
+  it("[A-304] le signataire refuse un chemin avec \\0, saut de ligne, __proto__, .. ou / de tête", () => {
+    const { signataire } = cleDeTest();
+    for (const chemin of ["a\0b", "a\nb", "a\\b", "__proto__", "dossier/__proto__", "../x", "a/../b", "/abs", "a//b", ""]) {
+      expect(() => signerArtefact({ ...base(), [chemin]: octets("x") }, signataire), chemin).toThrow();
+    }
+  });
+
+  it("[A-304] une entrée propre __proto__ (venue d'un JSON.parse) → refus, même sur un artefact signé", () => {
+    const { signataire, cle } = cleDeTest();
+    const a = signerArtefact(base(), signataire);
+    const avecProto = JSON.parse('{"__proto__": {}}') as Record<string, Uint8Array>;
+    const pirate = Object.assign(avecProto, a);
+    expect(Object.keys(pirate)).toContain("__proto__");
+    expect(verifierArtefact(pirate, [cle])).toEqual({ ok: false, code: "module_non_signe" });
+  });
+
+  it("[C-018] une clé publique qui n'est pas Ed25519 → refus", () => {
+    const p = generateKeyPairSync("ed448");
+    const publique = p.publicKey.export({ type: "spki", format: "pem" }).toString();
+    const a = base();
+    const empreinte = empreinteArtefact(a);
+    const signature = sign(null, Buffer.from(`axion-module\nv1\n${empreinte}`), p.privateKey).toString("base64");
+    const art = { ...a, "signature.json": octets(JSON.stringify({ v: 1, algo: "ed25519", idCle: "k", empreinte, signature })) };
+    expect(verifierArtefact(art, [{ idCle: "k", publique }])).toEqual({ ok: false, code: "module_non_signe" });
+  });
+
+  it("[C-018] un idCle révoqué en double, même placé après une entrée valide → refus", () => {
+    const { signataire, cle } = cleDeTest();
+    const a = signerArtefact(base(), signataire);
+    expect(verifierArtefact(a, [cle, { ...cle, revoquee: true }])).toEqual({ ok: false, code: "module_non_signe" });
   });
 });

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { SignataireMemoire, signerArtefact } from "../../../../packages/sdk-module/src/emballage/signer.js";
 import { type ClePublique } from "../../../../packages/sdk-module/src/emballage/cles-publiques.js";
 import { chargerModule } from "./charger-module.js";
@@ -60,5 +60,19 @@ describe("chargerModule", () => {
     });
     await chargerModule(lecteur, [c]);
     expect(temoin.__temoinModule).toBe(true);
+  });
+
+  it("[A-302] sans liste fournie, chargerModule utilise la liste épinglée du dépôt", async () => {
+    const { s, c } = cle();
+    vi.resetModules();
+    vi.doMock("../../../../packages/sdk-module/src/emballage/cles-publiques.js", () => ({ CLES_PUBLIQUES: [c] }));
+    try {
+      const { chargerModule: charger } = await import("./charger-module.js");
+      const m = await charger(signerArtefact(base(), s));
+      expect(m["default"]).toBe(42);
+    } finally {
+      vi.doUnmock("../../../../packages/sdk-module/src/emballage/cles-publiques.js");
+      vi.resetModules();
+    }
   });
 });

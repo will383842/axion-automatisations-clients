@@ -11,3 +11,6 @@ La fiche T0-19 demande un contrôle d'accessibilité WCAG 2.2 AA sur les 3 pages
 ## Conséquences
 - Aucun fichier de `packages/design/src` n'importe ces paquets.
 - Toute autre licence MPL-2.0 reste refusée hors des trois applications.
+
+## Ajout : liste blanche des workflows
+Le workflow `visuel-design.yml` tourne dans l'image Playwright épinglée par empreinte (les captures dépendent du système). La liste blanche de `scripts/garde-licences.ts` reçoit donc, en forme exacte : ce seul conteneur, la variable `MISE_A_JOUR`, la commande de test (par empreinte) et un second réglage de `actions/upload-artifact` (artefact `captures-reference`, produit à la main). Les droits restent en lecture seule.

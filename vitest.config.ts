@@ -9,6 +9,8 @@ const retry = 0;
 const exclude = [...configDefaults.exclude, "**/dist/**", "**/__fixtures__/**", "**/tests/visuel.spec.ts"];
 // Les tests d'intégration demandent le socle lancé (ops/socle/lancer.sh) : seul le projet integration les prend.
 const excludeDefaut = [...exclude, "**/*.int.test.ts"];
+// Tests qui modifient le dépôt : projet « serie », lancé seul après les autres (groupOrder), jamais en parallèle de la garde qui le parcourt.
+const serie = "**/*-bin.test.ts";
 const integration = process.env.SOCLE_INTEGRATION === "1";
 const dossiers = (racine: string) =>
   readdirSync(racine, { withFileTypes: true })
@@ -23,7 +25,8 @@ export default defineConfig({
   test: {
     projects: [
       { test: { name: "scripts", root: "./scripts", retry, exclude: excludeDefaut } },
-      ...[...dossiers("apps"), ...dossiers("packages")].map((d) => ({ test: { name: d, root: `./${d}`, retry, exclude: excludeDefaut } })),
+      ...[...dossiers("apps"), ...dossiers("packages"), ...(existsSync("modules") ? dossiers("modules") : [])].map((d) => ({ test: { name: d, root: `./${d}`, retry, exclude: [...excludeDefaut, serie] } })),
+      { test: { name: "serie", root: ".", retry, exclude: excludeDefaut, include: [`packages/*/src/${serie.slice(3)}`], fileParallelism: false, sequence: { groupOrder: 1 } } },
       // Scénarios de bout en bout rouges au départ (ADR 0005, T0-21).
       { test: { name: "tests/e2e", root: "./tests/e2e", retry, exclude: excludeDefaut } },
       // Vide sans SOCLE_INTEGRATION=1, pour que « vitest run » ne lance jamais ces tests faute de services.

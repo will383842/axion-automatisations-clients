@@ -54,6 +54,15 @@ async function preparer() {
   for (const [montage, type, options] of [["technique", "kv", { version: "2" }], ["clients", "kv", { version: "2" }], ["transit", "transit", {}]] as const) {
     await admin(url, racine, "POST", `sys/mounts/${montage}`, { type, options });
   }
+  // Un montage KV v2 neuf répond 400 (« mise à niveau ») un court instant : on attend qu'il réponde avant d'écrire.
+  for (const montage of ["technique", "clients"]) {
+    for (let n = 0; ; n++) {
+      const r = await fetch(`${url}/v1/${montage}/config`, { headers: { "X-Vault-Token": racine } });
+      if (r.status === 200) break;
+      if (n > 60) throw new Error(`montage ${montage} non prêt`);
+      await new Promise((ok) => setTimeout(ok, 250));
+    }
+  }
   await admin(url, racine, "POST", "technique/data/essai/jeton", { data: { valeur: marqueur } });
   await admin(url, racine, "POST", "sys/policies/acl/lecteur-essai", { policy: 'path "technique/data/essai/*" { capabilities = ["read"] }' });
   for (const r of ["api", "courtier", "equipe"]) await admin(url, racine, "POST", `sys/policies/acl/${r}`, { policy: readFileSync(racineDepot(`ops/socle/openbao/politiques/${r}.hcl`), "utf8") });

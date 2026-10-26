@@ -10,6 +10,7 @@ Toutes tournent chez AXION IA (lieu `local`) ; aucune n'est livrée chez un clie
 | `traefik` | proxy d'entrée | `local` : ne garde aucune donnée |
 | `whoami` | écho d'essai (CI) | `local` : ne garde aucune donnée |
 | `mailpit` | boîte de capture des e-mails d'essai | `local` : messages d'essai seulement |
+| `greenmail` | faux serveur IMAP/SMTP des tests du connecteur | `local` : messages d'essai seulement |
 | `postgres` | base de données | `local` : serveur d'AXION IA |
 | `postgres-socle` | base de données du socle de développement (avec pg_partman) | `local` : serveur d'AXION IA |
 | `pgbouncer` | répartiteur de connexions | `local` : ne garde aucune donnée |

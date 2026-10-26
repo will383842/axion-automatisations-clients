@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { construireServeur } from "../serveur.js";
 import { creerFluxJournal, creerMasqueur } from "./journal.js";
 
@@ -44,8 +44,14 @@ describe("masquage des secrets dans le journal de l'API", () => {
   });
 
   it("[A-005] sans flux fourni, le serveur n'écrit aucun journal (interrupteur fermé)", async () => {
+    const ecrit = vi.spyOn(process.stdout, "write");
     const serveur = construireServeur();
-    expect(serveur.log.level).toBe("silent");
+    serveur.get("/piege", async () => {
+      throw new Error("échec");
+    });
+    await serveur.inject({ method: "GET", url: "/piege" });
     await serveur.close();
+    expect(ecrit).not.toHaveBeenCalled();
+    ecrit.mockRestore();
   });
 });

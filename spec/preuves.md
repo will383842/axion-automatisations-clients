@@ -18,3 +18,9 @@ A-268 → tests [A-268] de apps/executeur/src/files/files.test.ts (paliers 2, 4 
 A-386 → ADR 0027, packages/connecteur-gmail/README.md et tests [A-386] de packages/connecteur-gmail/src/*.test.ts (envoi RFC 2822, portées étroites, vérification après coup sur faux Gmail, accès refusé), 2026-10-26
 A-405 → test « [A-405] le connecteur Gmail passe la suite messagerie sur enregistrements » (packages/connecteur-gmail/src/connecteur.test.ts), 2026-10-26
 A-406 → test « [A-406] aucun corps de message dans les journaux du connecteur (marqueur unique) » (packages/connecteur-gmail/src/connecteur.test.ts), 2026-10-26
+C-081 → tests [C-081] de packages/sdk-module/src/prospection/prospection.test.ts, 2026-10-26
+C-082 → ADR 0026 et tests [C-082] de packages/sdk-module/src/prospection/prospection.test.ts, 2026-10-26
+C-080 → test « [C-080] un message sans fonction du destinataire est refusé » (packages/sdk-module/src/prospection/prospection.test.ts), 2026-10-26
+C-087 → test « [C-087] un module de prospection sans source déclarée est refusé » (packages/sdk-module/src/prospection/prospection.test.ts), 2026-10-26
+C-070 → test « [C-070] une source LinkedIn est refusée » (garde de code ; le document est en T4-00), 2026-10-26
+C-086 → tests [C-086] de packages/sdk-module/src/prospection/prospection.test.ts, 2026-10-26

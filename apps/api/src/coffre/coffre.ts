@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { Masqueur } from "../plugins/journal.js";
 
 // Coffre des identifiants des clients (C-011) : OpenBao, KV v2 monté sur clients/.
 // La base ne garde que la référence « bao:clients/<tenantId>/<uuid> ». La valeur ne passe que dans le corps d'une requête :
@@ -28,6 +29,8 @@ export interface OptionsBao {
   url: string;
   jeton: string;
   fetch?: typeof fetch;
+  // Toute valeur rangée ou relue y est inscrite : le journal la masque ensuite sous toutes ses formes.
+  masqueur?: Masqueur;
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -103,6 +106,7 @@ export function creerCoffre(o: OptionsBao): Coffre {
       validerTenant(tenantId);
       const { expireLe = "" } = options;
       if (!nom || typeof valeur !== "string" || !valeur || (expireLe && Number.isNaN(Date.parse(expireLe)))) throw new ErreurCoffre("requete_refusee");
+      o.masqueur?.ajouter(valeur);
       const p = `${tenantId}/${randomUUID()}`;
       // KV v2 refuse une valeur vide dans custom_metadata : expire_le n'est envoyé que s'il existe.
       // Métadonnées d'abord : un échec ne laisse jamais une valeur sans référence.
@@ -119,6 +123,7 @@ export function creerCoffre(o: OptionsBao): Coffre {
     async lireValeur(tenantId, reference) {
       const valeur = objet(objet(objet(await appeler(o, "GET", `clients/data/${cheminDe(tenantId, reference)}`)).data).data).valeur;
       if (typeof valeur !== "string") throw new ErreurCoffre("coffre_indisponible");
+      o.masqueur?.ajouter(valeur);
       return valeur;
     },
   };

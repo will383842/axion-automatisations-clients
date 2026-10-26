@@ -55,7 +55,8 @@ describe("coût d'IA provisoire et mode d'IA", () => {
     expect(g.verifier("via_axion", "a", "5")).toEqual({ autorise: false, motif: "plafond_heure" });
   });
   it("[C-526] un blocage reste en place jusqu'à la levée par un administrateur", () => {
-    const g = creerGardeBoucle({ identiquesMax: 1, parMinuteMax: 9, parHeureMax: 9, horloge: () => 0 });
+    const g = creerGardeBoucle({ identiquesMax: 2, parMinuteMax: 9, parHeureMax: 9, horloge: () => 0 });
+    expect(g.verifier("client_direct", "a", "x").autorise).toBe(true);
     expect(g.verifier("client_direct", "a", "x").autorise).toBe(false);
     expect(g.verifier("client_direct", "a", "y")).toEqual({ autorise: false, motif: "bloque" });
     g.lever("a");

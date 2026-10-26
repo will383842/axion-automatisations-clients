@@ -22,3 +22,4 @@ Format court : contexte, décision, conséquences, date. Un ADR par décision, n
 | 0018 | Révision unique de C4 (v0.2.0) |
 | 0019 | Compteur de tests mesuré par la CI, empreintes par contrat |
 | 0020 | Exception de licence 0BSD pour tslib (ce qui est livré chez un client) |
+| 0023 | Limites du coffre : politiques communes et droit de destruction (proposé) |

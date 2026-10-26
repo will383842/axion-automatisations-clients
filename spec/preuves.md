@@ -15,3 +15,5 @@ C-493 → test « [C-493] garde-briques accepte valkey » (scripts/garde-briques
 A-381 → ADR 0016, scripts/garde-briques.ts (clé `derivee`, attestation, refus de `build:`) et tests [A-381] de scripts/garde-briques-derivee.test.ts, 2026-10-25
 A-052 → test « [A-052] un travail d'une instance d'une autre cellule est refusé » (apps/executeur/src/files/files.test.ts), 2026-10-26
 A-268 → tests [A-268] de apps/executeur/src/files/files.test.ts (paliers 2, 4 et 8, concurrence, configuration validée), 2026-10-26
+A-005 → tests « [A-005] le journal de l'API ne contient jamais la valeur rangée (marqueur unique cherché dans la sortie) » (apps/api/src/plugins/journal.test.ts) et version contre le vrai OpenBao (apps/api/src/coffre/secrets-openbao.int.test.ts), 2026-10-26
+C-011 → tests « [C-011] » de apps/api/src/secrets-openbao.test.ts et secrets-openbao.int.test.ts (lecteur OpenBao, refus sans droit, coffre scellé), 2026-10-26

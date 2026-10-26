@@ -13,3 +13,6 @@ A-379 → test « [A-379] garde-briques accepte OpenBao livree:false sous MPL-2.
 A-381 → fichiers ops/briques/*.json et tests [A-381] de scripts/garde-briques.test.ts, 2026-10-25
 C-493 → test « [C-493] garde-briques accepte valkey » (scripts/garde-briques.test.ts), 2026-10-25
 A-381 → ADR 0016, scripts/garde-briques.ts (clé `derivee`, attestation, refus de `build:`) et tests [A-381] de scripts/garde-briques-derivee.test.ts, 2026-10-25
+C-049 → ops/sauvegardes/README.md (rétention 30 quotidiennes, 12 mensuelles) et tests [C-049] de ops/sauvegardes/retention.test.ts, 2026-10-26
+A-190 → ops/sauvegardes/README.md et ADR 0009, vérifié par le test « [A-190] la sauvegarde contient console, moteur, keycloak et passerelle_ia » (tests/socle/sauvegardes.int.test.ts, job socle-integration), 2026-10-26
+A-192 → ops/sauvegardes/README.md (copie sans suppression) et test « [A-192] … » (tests/socle/sauvegardes.int.test.ts, job socle-integration), 2026-10-26

@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 // Les textes fixes (désinscription, informations dues au premier contact) viennent du catalogue de
 // messages, à relire par le juriste : le SDK n'en écrit aucun.
 export type TextesProspection = {
@@ -35,13 +37,16 @@ export function messageDeProspection(e: EntreeMessage): MessageDeProspection {
   const { mailto, url } = e.desinscription;
   if (!mailto.startsWith("mailto:") || SAUT.test(mailto) || mailto.includes(">")) throw new Error("désinscription : adresse mailto invalide");
   if (!url.startsWith("https://") || /[\s<>]/.test(url)) throw new Error("désinscription : URL HTTPS obligatoire");
-  if (SAUT.test(e.objet) || SAUT.test(e.destinataire.adresse)) throw new Error("message de prospection : saut de ligne interdit dans l'objet ou l'adresse");
+  if (SAUT.test(e.objet)) throw new Error("message de prospection : saut de ligne interdit dans l'objet");
+  // Adresse nue seulement : « Nom <a@b> » ou « a@b, » ne correspondraient pas à l'entrée de la liste d'exclusion.
+  const destinataire = e.destinataire.adresse.trim();
+  if (!z.email().safeParse(destinataire).success) throw new Error("message de prospection : adresse du destinataire invalide (e-mail nu attendu)");
 
   const parties = [e.corps];
   if (e.premierContact) parties.push(e.textes.informationsPremierContact);
   parties.push(`${e.expediteur.raisonSociale}, ${e.expediteur.adresse}`, e.textes.ligneDesinscription(url));
   return Object.freeze({
-    a: e.destinataire.adresse,
+    a: destinataire,
     objet: e.objet,
     corps: parties.join("\n\n"),
     entetes: Object.freeze({

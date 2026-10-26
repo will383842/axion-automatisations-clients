@@ -65,7 +65,8 @@ async function preparer() {
   await admin(url, racine, "POST", "technique/data/essai/jeton", { data: { valeur: marqueur } });
   await admin(url, racine, "POST", "sys/policies/acl/lecteur-essai", { policy: 'path "technique/data/essai/*" { capabilities = ["read"] }' });
   for (const r of ["api", "courtier", "equipe"]) await admin(url, racine, "POST", `sys/policies/acl/${r}`, { policy: readFileSync(racineDepot(`ops/socle/openbao/politiques/${r}.hcl`), "utf8") });
-  const jeton = async (politique: string): Promise<OptionsBao> => ({ url, jeton: ((await admin(url, racine, "POST", "auth/token/create", { policies: [politique], no_default_policy: true })) as { auth: { client_token: string } }).auth.client_token });
+  const diag: typeof fetch = async (u, i) => { const r = await fetch(u, i); if (r.status >= 400) writeSync(2, `HTTP ${r.status} ${i?.method ?? "GET"} ${String(u).replace(url, "")} ${(await r.clone().text()).slice(0, 200)}\n`); return r; }; // DIAGNOSTIC TEMPORAIRE
+  const jeton = async (politique: string): Promise<OptionsBao> => ({ url, fetch: diag, jeton: ((await admin(url, racine, "POST", "auth/token/create", { policies: [politique], no_default_policy: true })) as { auth: { client_token: string } }).auth.client_token });
   return { url, racine, marqueur, jeton, jetonLecteur: (await jeton("lecteur-essai")).jeton, jetonEquipe: (await jeton("equipe")).jeton };
 }
 

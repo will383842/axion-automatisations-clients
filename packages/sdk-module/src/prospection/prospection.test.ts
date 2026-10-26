@@ -80,7 +80,7 @@ describe("prospection conforme", () => {
     const p = planifierInformations({ dateObtention: "2026-10-01", informationsDansPremierMessage: false, maintenant: "2026-10-05" });
     expect(p).toEqual({ mode: "planifie", auPlusTard: "2026-10-31", enRetard: false });
     const tard = planifierInformations({ dateObtention: "2026-10-01", informationsDansPremierMessage: false, maintenant: "2026-11-02" });
-    expect(tard.enRetard).toBe(true);
+    expect(tard).toMatchObject({ mode: "planifie", enRetard: true });
     expect(planifierInformations({ dateObtention: "2026-10-01", informationsDansPremierMessage: true, maintenant: "2026-10-05" })).toEqual({ mode: "avec_premier_message" });
   });
 

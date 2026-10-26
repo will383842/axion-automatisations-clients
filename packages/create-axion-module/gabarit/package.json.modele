@@ -6,7 +6,11 @@
   "type": "module",
   "main": "src/module.ts",
   "scripts": {
+    "test:module": "axion-dev test",
     "typecheck": "tsc --noEmit -p tsconfig.json --allowImportingTsExtensions"
+  },
+  "devDependencies": {
+    "@axion-auto/axion-dev": "workspace:*"
   },
   "dependencies": {
     "@axion-auto/sdk-module": "workspace:*",

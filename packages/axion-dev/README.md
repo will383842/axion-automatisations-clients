@@ -1,6 +1,6 @@
 # axion-dev
 
-Ligne de commande de l'équipe qui écrit des automatisations. À lancer dans `modules/<code>/`.
+Ligne de commande de l'équipe qui écrit des automatisations. À lancer dans `modules/<code>/` après `pnpm install` : le modèle dépend de ce paquet, donc `pnpm exec axion-dev <commande>` y fonctionne, et `pnpm test:module` lance `axion-dev test`.
 
 1. `axion-dev essai --cas <nom>` joue un seul cas du jeu d'essai : étapes, effets demandés, brouillons.
 2. `axion-dev test` lance tout le harnais (jeu d'essai, e-mails piégés, déterminisme, IA hostile).

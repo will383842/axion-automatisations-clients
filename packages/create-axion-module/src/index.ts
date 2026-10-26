@@ -34,7 +34,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     process.exit(1);
   }
   creerModule(code, process.cwd()).then(
-    (d) => console.log(`module créé dans ${d} ; lancer « axion-dev test » pour l'essayer`),
+    (d) => console.log(`module créé dans ${d} ; après « pnpm install », lancer « pnpm test:module » dans ce dossier pour l'essayer`),
     (e: Error) => (console.error(e.message), process.exit(1)),
   );
 }

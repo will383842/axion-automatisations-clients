@@ -32,4 +32,15 @@ describe("lignes de commande réelles", () => {
     expect(r.stdout).toContain("usage : axion-dev");
     expect(r.status).toBe(1);
   });
+
+  it("[C-242] le modèle de module dépend d'axion-dev et expose « test:module »", () => {
+    const modele = JSON.parse(readFileSync(join(depot, "packages/create-axion-module/gabarit/package.json.modele"), "utf8")) as {
+      scripts: Record<string, string>;
+      devDependencies: Record<string, string>;
+    };
+    const dev = JSON.parse(readFileSync(join(depot, "packages/axion-dev/package.json"), "utf8")) as { name: string; bin: Record<string, string> };
+    expect(modele.devDependencies[dev.name]).toBe("workspace:*");
+    expect(Object.keys(dev.bin)).toContain("axion-dev");
+    expect(modele.scripts["test:module"]).toBe("axion-dev test");
+  });
 });

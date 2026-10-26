@@ -1,0 +1,50 @@
+{
+  "nom": "pagination",
+  "echanges": [
+    {
+      "methode": "GET",
+      "chemin": "/me/mailFolders/inbox/messages/delta",
+      "statut": 200,
+      "corps": {
+        "value": [
+          {
+            "id": "m-1"
+          },
+          {
+            "id": "m-2"
+          }
+        ],
+        "@odata.nextLink": "http://graph.test/v1.0/me/mailFolders/inbox/messages/delta?$skiptoken=s1"
+      }
+    },
+    {
+      "methode": "GET",
+      "chemin": "/me/mailFolders/inbox/messages/delta",
+      "statut": 200,
+      "corps": {
+        "value": [
+          {
+            "id": "m-3"
+          },
+          {
+            "id": "m-4"
+          }
+        ],
+        "@odata.nextLink": "http://graph.test/v1.0/me/mailFolders/inbox/messages/delta?$skiptoken=s2"
+      }
+    },
+    {
+      "methode": "GET",
+      "chemin": "/me/mailFolders/inbox/messages/delta",
+      "statut": 200,
+      "corps": {
+        "value": [
+          {
+            "id": "m-5"
+          }
+        ],
+        "@odata.deltaLink": "http://graph.test/v1.0/me/mailFolders/inbox/messages/delta?$deltatoken=d1"
+      }
+    }
+  ]
+}

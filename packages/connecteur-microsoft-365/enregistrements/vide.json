@@ -1,0 +1,14 @@
+{
+  "nom": "vide",
+  "echanges": [
+    {
+      "methode": "GET",
+      "chemin": "/me/mailFolders/inbox/messages/delta",
+      "statut": 200,
+      "corps": {
+        "value": [],
+        "@odata.deltaLink": "http://graph.test/v1.0/me/mailFolders/inbox/messages/delta?$deltatoken=d0"
+      }
+    }
+  ]
+}

@@ -120,6 +120,12 @@ importers:
         specifier: 19.3.0
         version: 19.3.0(@types/react@19.3.0)
 
+  packages/connecteur-microsoft-365:
+    dependencies:
+      '@axion-auto/connecteurs-commun':
+        specifier: workspace:*
+        version: link:../connecteurs-commun
+
   packages/connecteurs-commun:
     dependencies:
       '@axion-auto/sdk-module':

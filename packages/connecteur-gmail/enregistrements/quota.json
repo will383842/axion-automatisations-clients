@@ -1,0 +1,19 @@
+{
+  "nom": "quota",
+  "echanges": [
+    {
+      "methode": "GET",
+      "chemin": "/gmail/v1/users/me/messages/m-1",
+      "statut": 429,
+      "corps": {
+        "error": {
+          "code": 429,
+          "status": "RESOURCE_EXHAUSTED"
+        }
+      },
+      "entetes": {
+        "Retry-After": "120"
+      }
+    }
+  ]
+}

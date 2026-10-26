@@ -1,0 +1,16 @@
+{
+  "nom": "jeton_refuse",
+  "echanges": [
+    {
+      "methode": "GET",
+      "chemin": "/gmail/v1/users/me/messages/m-1",
+      "statut": 401,
+      "corps": {
+        "error": {
+          "code": 401,
+          "status": "UNAUTHENTICATED"
+        }
+      }
+    }
+  ]
+}

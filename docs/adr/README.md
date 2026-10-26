@@ -21,3 +21,4 @@ Format court : contexte, décision, conséquences, date. Un ADR par décision, n
 | 0017 | Copie de secours d'OpenBao par instantané raft |
 | 0018 | Révision unique de C4 (v0.2.0) |
 | 0019 | Compteur de tests mesuré par la CI, empreintes par contrat |
+| 0020 | nodemailer en production et curseur de la famille messagerie |

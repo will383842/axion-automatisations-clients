@@ -12,10 +12,10 @@ export const LIVRE = new Set(["MIT", "BSD-2-Clause", "BSD-3-Clause", "ISC", "Apa
 const PERMISES = new Set([...LIVRE, "0BSD", "OFL-1.1"]);
 const MPL = "MPL-2.0";
 
-// Exceptions NOMMÉES (paquet + licence), réservées aux dépendances de développement (ADR 0007, ADR 0008 ; en production : ADR 0019).
+// Exceptions NOMMÉES (paquet + licence), réservées aux dépendances de développement (ADR 0007, ADR 0008 ; en production : ADR 0020).
 const EXCEPTIONS_DEV: Record<string, string> = { argparse: "Python-2.0", minimatch: "BlueOak-1.0.0", nodemailer: "MIT-0" };
 
-// Exceptions NOMMÉES pour une dépendance de PRODUCTION : caniuse-lite sous CC-BY-4.0, imposé par Next.js (ADR 0011) ; nodemailer sous MIT-0, client SMTP du connecteur de messagerie (ADR 0019).
+// Exceptions NOMMÉES pour une dépendance de PRODUCTION : caniuse-lite sous CC-BY-4.0, imposé par Next.js (ADR 0011) ; nodemailer sous MIT-0, client SMTP du connecteur de messagerie (ADR 0020).
 // Comparaison exacte du nom du paquet ET de la licence entière (jamais d'atome d'une expression composée).
 const EXCEPTIONS_PRODUCTION = [{ paquet: "caniuse-lite", licence: "CC-BY-4.0" }, { paquet: "nodemailer", licence: "MIT-0" }];
 

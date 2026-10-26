@@ -1,5 +1,4 @@
 import { createServer, type Server } from "node:net";
-import type { Readable } from "node:stream";
 import { afterEach, describe, expect, it } from "vitest";
 import { envoyerSmtp } from "./smtp.ts";
 import { optionsSmtp, verifierConfiguration } from "./verification.ts";
@@ -35,10 +34,10 @@ describe("SMTP sans repli en clair", () => {
   });
 });
 
-// Faux transport : lit (ou non) le message, puis tombe en panne comme une coupure réseau.
-const transportQuiCoupe = (lireDabord: boolean) => () => ({
-  sendMail: async (envoi: { raw: Readable }) => {
-    if (lireDabord) await envoi.raw[Symbol.asyncIterator]().next();
+// Faux transport : signale (ou non) le début de DATA au journal, puis tombe en panne comme une coupure réseau.
+const transportQuiCoupe = (debutDeData: boolean) => (opts: { logger: { debug: (e: unknown) => void } }) => ({
+  sendMail: async () => {
+    if (debutDeData) opts.logger.debug({ tnx: "message" });
     throw Object.assign(new Error("coupure"), { code: "ECONNRESET" });
   },
   close: () => undefined,

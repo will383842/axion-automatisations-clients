@@ -53,7 +53,7 @@ describe("garde-licences : exception MIT-0 nommée pour nodemailer (ADR 0008)", 
   it("refuse toute autre dépendance en MIT-0", () => {
     expect(verifierLicences({ "MIT-0": paquet("autre") }, new Set(), new Set())).toHaveLength(1);
   });
-  it("accepte nodemailer en production (ADR 0019) mais pas une autre dépendance de production en MIT-0", () => {
+  it("accepte nodemailer en production (ADR 0020) mais pas une autre dépendance de production en MIT-0", () => {
     expect(verifierLicences({ "MIT-0": paquet("nodemailer") }, new Set(), new Set(["nodemailer"]))).toEqual([]);
     expect(verifierLicences({ "MIT-0": paquet("autre") }, new Set(), new Set(["autre"]))).toHaveLength(1);
   });

@@ -1,4 +1,3 @@
-import { Readable } from "node:stream";
 import { promisify } from "node:util";
 import { ErreurConnecteur, type MessageSortant } from "@axion-auto/connecteurs-commun";
 import { createTransport } from "nodemailer";
@@ -13,14 +12,17 @@ export async function composerMessage(m: MessageSortant, expediteur: string): Pr
 }
 
 // Envoi SMTP unique, sans réessai ; renvoie le message envoyé pour la copie. La connexion est fermée dans tous les cas.
-// Le flux du message n'est lu qu'après la réponse à DATA : une coupure après cette lecture est « incertaine » (le message a pu partir), donc non rejouable.
+// nodemailer lit le flux brut dès la préparation, bien avant DATA : on ne s'en sert pas pour savoir si le message est parti.
+// Le vrai début de DATA est le premier octet du message écrit sur la socket après la réponse 354 ; nodemailer le signale au journal (entrée « message » en mode debug).
+// Une coupure après ce début est « incertaine » (le message a pu partir), donc non rejouable ; avant, elle reste passagère.
 export async function envoyerSmtp(options: OptionsSmtp, m: MessageSortant, expediteur: string, creer: typeof createTransport = createTransport): Promise<Buffer> {
   const raw = await composerMessage(m, expediteur);
   let commence = false;
-  const flux = new Readable({ read() { commence = true; this.push(raw); this.push(null); } });
-  const transport = creer({ ...options, connectionTimeout: 15_000, greetingTimeout: 15_000, socketTimeout: 30_000 });
+  const rien = () => undefined;
+  const journal = { level: rien, trace: rien, info: rien, warn: rien, error: rien, fatal: rien, debug: (entree: unknown) => { if ((entree as { tnx?: string } | undefined)?.tnx === "message") commence = true; } };
+  const transport = creer({ ...options, debug: true, logger: journal, connectionTimeout: 15_000, greetingTimeout: 15_000, socketTimeout: 30_000 });
   try {
-    await transport.sendMail({ envelope: { from: expediteur, to: [m.destinataire] }, raw: flux });
+    await transport.sendMail({ envelope: { from: expediteur, to: [m.destinataire] }, raw });
     return raw;
   } catch (e) {
     if (commence && estCoupure(e)) throw new ErreurConnecteur("definitive", "envoi_incertain");

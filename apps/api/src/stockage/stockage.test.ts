@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, it } from "vitest";
+import { genererIndex, lireDepot } from "../../../../scripts/adr-index.js";
 import { lireYaml } from "../../../../scripts/garde-compose.js";
 import type { Coffre } from "../coffre/coffre.js";
 import { creerCoffreIdentifiants, creerStockage, ErreurStockage, type IdentifiantsS3, type PortS3, type RegistreReferences } from "./stockage.js";
@@ -334,7 +335,7 @@ describe("brique SeaweedFS et ADR 0022", () => {
     for (const attendu of ["2026-10-26", "hub.docker.com", "raw.githubusercontent.com", "SeaweedFS", "4.51", EMPREINTE_IMAGE, "Apache-2.0", "If-None-Match", "client-iam", "image dérivée"]) {
       expect(t, attendu).toContain(attendu);
     }
-    expect(texte("docs/adr/README.md")).toContain("| 0022 |");
+    expect(genererIndex(lireDepot(racine("")).adrs)).toContain("| 0022 |");
   });
 
   it("[C-522] ops/briques/stockage.json et le compose passent la garde des briques, licence Apache-2.0, non livrée", () => {

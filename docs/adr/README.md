@@ -2,28 +2,7 @@
 
 Format court : contexte, décision, conséquences, date. Un ADR par décision, numéroté. Un ADR accepté ne se réécrit pas : on en écrit un nouveau qui le remplace.
 
-| N° | Titre |
-|---|---|
-| 0001 | Garde des noms de clients |
-| 0002 | Signature commune de C1, C3 et C6 |
-| 0003 | C1 sans route de pause ni de modification de plan |
-| 0004 | Polices auto-hébergées |
-| 0005 | Tests de bout en bout rouges au départ |
-| 0006 | Les fiches de tâches vivent dans le dépôt privé |
-| 0007 | Exceptions de licences pour deux dépendances de développement |
-| 0008 | Exception de licence MIT-0 pour nodemailer (dépendance de test) |
-| 0009 | Garde des permissions statuses et checks : limite de fond |
-| 0010 | `sharp` exclu des applications Next.js |
-| 0011 | Exception de licence CC-BY-4.0 pour caniuse-lite (dépendance de production) |
-| 0012 | Licences du livre et inventaire des briques |
-| 0014 | Images dérivées temporaires |
-| 0015 | Stockage d'objets compatible S3 |
-| 0016 | Garde des briques : images dérivées et attestation |
-| 0017 | Copie de secours d'OpenBao par instantané raft |
-| 0018 | Révision unique de C4 (v0.2.0) |
-| 0019 | Compteur de tests mesuré par la CI, empreintes par contrat |
-| 0020 | Exception de licence 0BSD pour tslib (ce qui est livré chez un client) |
-| 0021 | nodemailer en production et curseur de la famille messagerie |
-| 0022 | Stockage SeaweedFS : adaptateur S3, droits par compartiment, création atomique |
-| 0026 | Briques communes de prospection conforme dans le SDK |
-| 0028 | Modèle de départ des modules et ligne de commande axion-dev |
+Il n'y a plus de liste à la main ici : l'index est généré à partir des fichiers (ADR 0029).
+- `node scripts/adr-index.ts` affiche l'index ; `node scripts/adr-index.ts --ecrire` l'écrit dans `docs/adr/index.md` (fichier local, ignoré par git).
+- `node scripts/adr-index.ts --verifier` refuse deux ADR de même numéro, un nom de fichier qui ne correspond pas au titre et un `index.md` périmé ; la même garde tourne dans `pnpm test`.
+- Fichier : `NNNN-sujet.md`, première ligne `# NNNN · Titre`. Le numéro vient de la fiche (réservé) ; une PR n'ajoute que son fichier d'ADR.

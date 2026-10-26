@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { extraireTests, lireLigneExigences, validerReqIds, verifierCouverture } from "./couverture-req.js";
+import { doublonsPreuves, extraireTests, lireLigneExigences, validerReqIds, verifierCouverture } from "./couverture-req.js";
 
 const fixture = (nom: string) => readFileSync(fileURLToPath(new URL(`./__fixtures__/couverture/${nom}`, import.meta.url)), "utf8");
 const reqs = validerReqIds(JSON.parse(fixture("req-ids.json")), JSON.parse(readFileSync(fileURLToPath(new URL("../spec/req-ids.schema.json", import.meta.url)), "utf8")));
@@ -47,5 +47,10 @@ describe("couverture-req", () => {
     const r = verifier("Exigences : C-555");
     expect(r.erreurs).toEqual([]);
     expect(r.avertissements.join("\n")).toContain("C-700");
+  });
+  it("[zero-conflit] le vrai spec/preuves.md n'a aucun numéro en double (tourne dans pnpm test, donc sur push main)", () => {
+    const reel = readFileSync(fileURLToPath(new URL("../spec/preuves.md", import.meta.url)), "utf8");
+    expect(doublonsPreuves(reel)).toEqual([]);
+    expect(doublonsPreuves("A-100 → x\nA-100 → y\n")).toEqual(["A-100 : présent deux fois dans spec/preuves.md"]);
   });
 });

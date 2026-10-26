@@ -59,11 +59,22 @@ export function comparerParFichier(base: Liste, pr: Liste, retraits: Retrait[]):
   return erreurs;
 }
 
-// Le compte exécuté (rapport JSON) doit égaler le compte listé : aucun test listé ne peut manquer à l'exécution.
-export function verifierExecutes(liste: Liste, rapport: { numTotalTests?: number }): string[] {
-  const listes = Object.values(liste).reduce((s, n) => s + n, 0);
-  const executes = compterRapport(rapport);
-  return listes === executes ? [] : [`${listes} tests listés mais ${executes} exécutés`];
+// Nombre de tests par fichier du rapport Vitest JSON : les tests sautés ou à faire y comptent, comme dans le total d'avant.
+export function lireRapportFichiers(rapport: { testResults?: { name: string; assertionResults?: unknown[] }[] }, racine: string): Liste {
+  const liste: Liste = {};
+  for (const r of rapport.testResults ?? []) {
+    const n = r.assertionResults?.length ?? 0;
+    if (n > 0) liste[relative(racine, r.name)] = n;
+  }
+  return liste;
+}
+
+// Tout test listé doit figurer dans le rapport : un test listé mais non lancé (filtré par la configuration) fait échouer la garde.
+// Le rapport peut en compter davantage : « vitest list » ne liste pas les tests sautés ni à faire.
+export function verifierExecutes(liste: Liste, rapport: Liste): string[] {
+  return Object.entries(liste)
+    .filter(([f, n]) => (rapport[f] ?? 0) < n)
+    .map(([f, n]) => `${f} : ${n} tests listés mais ${rapport[f] ?? 0} dans le rapport`);
 }
 
 // Sortie de « git diff --name-status » : seules les déclarations AJOUTÉES par la PR comptent, jamais une ancienne ni une modifiée.
@@ -120,12 +131,27 @@ function git(...args: string[]): string {
   return execFileSync("git", args, { encoding: "utf8" });
 }
 
-// Liste des tests sans les lancer. Le projet integration se collecte sans socle (SOCLE_INTEGRATION=1 seulement pour la sélection des fichiers).
-function mesurer(dossier: string, projet: string | undefined): Liste {
-  const args = ["exec", "vitest", "list", "--json", ...(projet ? ["--project", projet] : [])];
+function vitest(dossier: string, args: string[], projet: string | undefined): string {
   const env = { ...process.env, ...(projet === "integration" ? { SOCLE_INTEGRATION: "1" } : {}) };
-  const sortie = execFileSync("pnpm", args, { cwd: dossier, env, encoding: "utf8", maxBuffer: 256 * 1024 * 1024 });
+  return execFileSync("pnpm", ["exec", "vitest", ...args, ...(projet ? ["--project", projet] : [])], { cwd: dossier, env, encoding: "utf8", maxBuffer: 256 * 1024 * 1024, stdio: ["ignore", "pipe", "inherit"] });
+}
+
+// Liste des tests sans les lancer (le projet integration se collecte sans socle).
+function lister(dossier: string, projet: string | undefined): Liste {
+  const sortie = vitest(dossier, ["list", "--json"], projet);
   return lireListe(JSON.parse(sortie.slice(sortie.indexOf("["))), dossier);
+}
+
+// Base : le projet integration demande le socle, il se compte par la liste ; les autres projets se lancent, pour compter les tests sautés comme le rapport de la PR.
+function mesurerBase(dossier: string, projet: string | undefined): Liste {
+  if (projet) return lister(dossier, projet);
+  const sortie = `${dossier}/rapport-base.json`;
+  try {
+    vitest(dossier, ["run", "--reporter=json", `--outputFile=${sortie}`], projet);
+  } catch {
+    // Un échec de la base se lit dans son rapport : le compte reste mesurable.
+  }
+  return lireRapportFichiers(JSON.parse(readFileSync(sortie, "utf8")), dossier);
 }
 
 // Usage : node scripts/compter-tests.ts [<rapport-vitest.json>] [--rapport <fichier>] [--projet integration] [--base-ref <commit>]
@@ -134,15 +160,17 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const options = analyserArguments(process.argv.slice(2));
   const rapport = JSON.parse(readFileSync(options.rapport, "utf8"));
   const racine = process.cwd();
-  const pr = mesurer(racine, options.projet);
-  erreurs.push(...verifierExecutes(pr, rapport));
+  const execute = lireRapportFichiers(rapport, racine);
+  const liste = lister(racine, options.projet);
+  erreurs.push(...verifierExecutes(liste, execute));
+  const pr = options.projet ? liste : execute;
   // Base mesurée dans le même job, sur un worktree du commit de base : aucun total n'est écrit dans le dépôt.
   const copie = mkdtempSync(`${tmpdir()}/base-`);
   let base: Liste = {};
   try {
     git("worktree", "add", "--detach", copie, options.baseRef);
     execFileSync("pnpm", ["install", "--frozen-lockfile", "--offline"], { cwd: copie, stdio: "inherit" });
-    base = mesurer(copie, options.projet);
+    base = mesurerBase(copie, options.projet);
   } catch (e) {
     erreurs.push(`base ${options.baseRef} non mesurée : ${(e as Error).message}`);
   } finally {

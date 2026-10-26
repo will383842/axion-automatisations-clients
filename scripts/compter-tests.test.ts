@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { analyserArguments, analyserConfig, analyserSource, comparerParFichier, compterRapport, fichiersDeclares, lireListe, lireRetrait, verifierExecutes } from "./compter-tests.js";
+import { analyserArguments, analyserConfig, analyserSource, comparerParFichier, compterRapport, fichiersDeclares, lireListe, lireRapportFichiers, lireRetrait, verifierExecutes } from "./compter-tests.js";
 
 const source = (nom: string) => readFileSync(fileURLToPath(new URL(`./__fixtures__/sources/${nom}`, import.meta.url)), "utf8");
 
@@ -69,10 +69,16 @@ describe("compter-tests", () => {
     const sortie = "M\tspec/retraits/vieille.json\nA\tspec/retraits/neuve.json\nA\tautre/chose.json\nR100\tspec/retraits/a.json\tspec/retraits/b.json\n";
     expect(fichiersDeclares(sortie)).toEqual(["spec/retraits/neuve.json"]);
   });
-  it("[C-538] compter-tests refuse un test listé mais non exécuté", () => {
-    expect(verifierExecutes({ "a.test.ts": 3, "b.test.ts": 2 }, { numTotalTests: 4 })).not.toEqual([]);
-    expect(verifierExecutes({ "a.test.ts": 3, "b.test.ts": 2 }, { numTotalTests: 6 })).not.toEqual([]);
-    expect(verifierExecutes({ "a.test.ts": 3, "b.test.ts": 2 }, { numTotalTests: 5 })).toEqual([]);
+  it("[C-538] compter-tests lit le rapport par fichier, tests sautés compris", () => {
+    const rapport = { testResults: [{ name: "/depot/a.test.ts", assertionResults: [{}, {}, {}] }, { name: "/depot/b.test.ts", assertionResults: [] }] };
+    expect(lireRapportFichiers(rapport, "/depot")).toEqual({ "a.test.ts": 3 });
+  });
+  it("[C-538] compter-tests refuse un test listé mais non exécuté, et accepte des tests sautés en plus", () => {
+    const liste = { "a.test.ts": 3, "b.test.ts": 2 };
+    expect(verifierExecutes(liste, { "a.test.ts": 3, "b.test.ts": 1 })).not.toEqual([]);
+    expect(verifierExecutes(liste, { "a.test.ts": 3 })).not.toEqual([]);
+    expect(verifierExecutes(liste, { "a.test.ts": 3, "b.test.ts": 2 })).toEqual([]);
+    expect(verifierExecutes(liste, { "a.test.ts": 5, "b.test.ts": 2, "c.test.ts": 1 })).toEqual([]);
   });
   it("[C-538] compter-tests lit --rapport, --projet et --base-ref, et refuse --reference", () => {
     expect(analyserArguments([])).toEqual({ rapport: "rapport-tests.json", projet: undefined, baseRef: "HEAD^1" });

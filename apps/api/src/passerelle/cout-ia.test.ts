@@ -34,32 +34,56 @@ describe("coût d'IA provisoire et mode d'IA", () => {
     refus(() => lireModeIa("autre"), "mode_ia_invalide");
     refus(() => lireModeIa(undefined), "mode_ia_invalide");
   });
-  it("[C-526] le garde-fou anti-boucle bloque après N appels identiques consécutifs, dans les deux modes", () => {
+  it("[C-526] le garde-fou anti-boucle refuse le N-ième appel identique consécutif, dans les deux modes", () => {
     for (const mode of ["client_direct", "via_axion"] as const) {
       const g = creerGardeBoucle({ identiquesMax: 3, parMinuteMax: 100, parHeureMax: 1000, horloge: () => 0 });
-      expect(g.verifier(mode, "auto-1", "h1")).toEqual({ autorise: true });
-      expect(g.verifier(mode, "auto-1", "h1")).toEqual({ autorise: true });
-      expect(g.verifier(mode, "auto-1", "h1")).toEqual({ autorise: false, motif: "appels_identiques" });
+      expect(g.verifier(mode, "t1", "auto-1", "h1")).toEqual({ autorise: true });
+      expect(g.verifier(mode, "t1", "auto-1", "h1")).toEqual({ autorise: true });
+      expect(g.verifier(mode, "t1", "auto-1", "h1")).toEqual({ autorise: false, motif: "appels_identiques" });
     }
   });
   it("[C-526] le garde-fou plafonne les appels par minute et par heure ; une autre automatisation n'est pas touchée", () => {
     let t = 0;
     const g = creerGardeBoucle({ identiquesMax: 99, parMinuteMax: 2, parHeureMax: 3, horloge: () => t });
-    expect(g.verifier("via_axion", "a", "1").autorise).toBe(true);
-    expect(g.verifier("via_axion", "a", "2").autorise).toBe(true);
-    expect(g.verifier("via_axion", "a", "3")).toEqual({ autorise: false, motif: "plafond_minute" });
-    expect(g.verifier("via_axion", "b", "1").autorise).toBe(true);
+    expect(g.verifier("via_axion", "t1", "a", "1").autorise).toBe(true);
+    expect(g.verifier("via_axion", "t1", "a", "2").autorise).toBe(true);
+    expect(g.verifier("via_axion", "t1", "a", "3")).toEqual({ autorise: false, motif: "plafond_minute" });
+    expect(g.verifier("via_axion", "t1", "b", "1").autorise).toBe(true);
     t = 61_000;
-    expect(g.verifier("via_axion", "a", "4").autorise).toBe(true);
+    expect(g.verifier("via_axion", "t1", "a", "4").autorise).toBe(true);
     t = 120_000;
-    expect(g.verifier("via_axion", "a", "5")).toEqual({ autorise: false, motif: "plafond_heure" });
+    expect(g.verifier("via_axion", "t1", "a", "5")).toEqual({ autorise: false, motif: "plafond_heure" });
   });
   it("[C-526] un blocage reste en place jusqu'à la levée par un administrateur", () => {
     const g = creerGardeBoucle({ identiquesMax: 2, parMinuteMax: 9, parHeureMax: 9, horloge: () => 0 });
-    expect(g.verifier("client_direct", "a", "x").autorise).toBe(true);
-    expect(g.verifier("client_direct", "a", "x").autorise).toBe(false);
-    expect(g.verifier("client_direct", "a", "y")).toEqual({ autorise: false, motif: "bloque" });
-    g.lever("a");
-    expect(g.verifier("client_direct", "a", "y").autorise).toBe(true);
+    expect(g.verifier("client_direct", "t1", "a", "x").autorise).toBe(true);
+    expect(g.verifier("client_direct", "t1", "a", "x").autorise).toBe(false);
+    expect(g.verifier("client_direct", "t1", "a", "y")).toEqual({ autorise: false, motif: "bloque" });
+    g.lever("t1", "a");
+    expect(g.verifier("client_direct", "t1", "a", "y").autorise).toBe(true);
+  });
+  it("[C-526] trois appels identiques espacés de 24 h sont tous autorisés (fenêtre glissante)", () => {
+    let t = 0;
+    const g = creerGardeBoucle({ identiquesMax: 3, parMinuteMax: 100, parHeureMax: 1000, horloge: () => t });
+    for (let j = 0; j < 4; j++) { t = j * 86_400_000; expect(g.verifier("via_axion", "t1", "resume", "h1")).toEqual({ autorise: true }); }
+  });
+  it("[C-526] @isolation : une boucle chez un client ne bloque ni ne décompte l'autre ; lever ne touche que son client", () => {
+    const g = creerGardeBoucle({ identiquesMax: 2, parMinuteMax: 2, parHeureMax: 9, horloge: () => 0 });
+    expect(g.verifier("via_axion", "t1", "relance", "h").autorise).toBe(true);
+    expect(g.verifier("via_axion", "t1", "relance", "h").autorise).toBe(false);
+    expect(g.verifier("via_axion", "t2", "relance", "h")).toEqual({ autorise: true });
+    expect(g.verifier("via_axion", "t2", "relance", "z")).toEqual({ autorise: true });
+    g.lever("t2", "relance");
+    expect(g.verifier("via_axion", "t1", "relance", "h")).toEqual({ autorise: false, motif: "bloque" });
+  });
+  it("[C-526] options invalides : refusées à la création, jamais un garde-fou éteint en silence", () => {
+    const ok = { identiquesMax: 3, parMinuteMax: 5, parHeureMax: 50, horloge: () => 0 };
+    for (const mauvais of [{ identiquesMax: Number.NaN }, { identiquesMax: 1 }, { parMinuteMax: Number.NaN }, { parMinuteMax: 0 }, { parHeureMax: Number.POSITIVE_INFINITY }, { parHeureMax: 1.5 }, { fenetreIdentiquesMs: 0 }]) {
+      refus(() => creerGardeBoucle({ ...ok, ...mauvais }), "options_garde_invalides");
+    }
+  });
+  it("[C-526] le tenant est validé", () => {
+    const g = creerGardeBoucle({ identiquesMax: 3, parMinuteMax: 5, parHeureMax: 50, horloge: () => 0 });
+    expect(() => g.verifier("via_axion", "", "a", "h")).toThrow();
   });
 });

@@ -1,0 +1,12 @@
+# GreenMail : faux serveur IMAPS et SMTPS pour les tests du connecteur IMAP/SMTP. Réseau interne seulement, aucun port publié.
+# Réglages par défaut de l'image : IMAPS 3993 et SMTPS 3465 (certificat de test auto-signé). Un utilisateur est créé à la première livraison (identifiant et mot de passe = son adresse) : aucun secret ici.
+services:
+  greenmail:
+    image: greenmail/standalone:2.1.15@sha256:309ba544ea482e5d4265d09921cdab07c8dad2cc4481d715c9b8ff5d3f0a149f
+    restart: "no"
+    networks: [interne]
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/3993'"]
+      interval: 2s
+      timeout: 3s
+      retries: 30

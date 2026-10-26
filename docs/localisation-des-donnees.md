@@ -10,6 +10,7 @@ Toutes tournent chez AXION IA (lieu `local`) ; aucune n'est livrée chez un clie
 | `traefik` | proxy d'entrée | `local` : ne garde aucune donnée |
 | `whoami` | écho d'essai (CI) | `local` : ne garde aucune donnée |
 | `mailpit` | boîte de capture des e-mails d'essai | `local` : messages d'essai seulement |
+| `greenmail` | faux serveur IMAP/SMTP des tests du connecteur | `local` : messages d'essai seulement |
 | `postgres` | base de données | `local` : serveur d'AXION IA |
 | `postgres-socle` | base de données du socle de développement (avec pg_partman) | `local` : serveur d'AXION IA |
 | `pgbackrest` | sauvegardes chiffrées de la base (avec l'image du socle) | `local` : serveur d'AXION IA ; la copie part chiffrée vers la cible de sauvegarde |
@@ -17,6 +18,7 @@ Toutes tournent chez AXION IA (lieu `local`) ; aucune n'est livrée chez un clie
 | `pgbouncer` | répartiteur de connexions | `local` : ne garde aucune donnée |
 | `valkey` | files de tâches | `local` : serveur d'AXION IA |
 | `openbao` | coffre à secrets | `local` : serveur d'AXION IA |
+| `stockage` | stockage d'objets compatible S3 (exports, factures, pièces de suivi, artefacts) | `local` : serveur d'AXION IA |
 | `keycloak` | connexion | `local` : serveur d'AXION IA |
 | `litellm` | passerelle d'IA | `local` pour la passerelle ; les demandes partent ensuite chez le fournisseur choisi (voir plus bas) |
 

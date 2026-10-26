@@ -12,12 +12,15 @@ export const LIVRE = new Set(["MIT", "BSD-2-Clause", "BSD-3-Clause", "ISC", "Apa
 const PERMISES = new Set([...LIVRE, "0BSD", "OFL-1.1"]);
 const MPL = "MPL-2.0";
 
-// Exceptions NOMMÉES (paquet + licence), réservées aux dépendances de développement (ADR 0007, ADR 0008).
+// Exceptions NOMMÉES (paquet + licence), réservées aux dépendances de développement (ADR 0007, ADR 0008 ; en production : ADR 0021).
 const EXCEPTIONS_DEV: Record<string, string> = { argparse: "Python-2.0", minimatch: "BlueOak-1.0.0", nodemailer: "MIT-0" };
 
-// Exception NOMMÉE pour une dépendance de PRODUCTION (ADR 0011) : données sous CC-BY-4.0, imposées par Next.js.
+// Exceptions NOMMÉES pour une dépendance de PRODUCTION : caniuse-lite sous CC-BY-4.0, imposé par Next.js (ADR 0011) ; nodemailer sous MIT-0, client SMTP du connecteur de messagerie (ADR 0021).
 // Comparaison exacte du nom du paquet ET de la licence entière (jamais d'atome d'une expression composée).
-const EXCEPTION_PRODUCTION = { paquet: "caniuse-lite", licence: "CC-BY-4.0" };
+const EXCEPTIONS_PRODUCTION = [{ paquet: "caniuse-lite", licence: "CC-BY-4.0" }, { paquet: "nodemailer", licence: "MIT-0" }];
+
+// Exception NOMMÉE pour ce qui est livré chez un client (ADR 0020) : tslib sous 0BSD, comparaison exacte du paquet ET de la licence entière.
+const EXCEPTION_LIVRE = { paquet: "tslib", licence: "0BSD" };
 
 type Paquets = Record<string, { name: string }[]>;
 
@@ -67,7 +70,7 @@ export function verifierLicences(parLicence: Paquets, nomsMpl: Set<string>, noms
     const ok = (id: string, nom: string) =>
       PERMISES.has(id) || (id === MPL && nomsMpl.has(nom) && !nomsLivres.has(nom)) || (EXCEPTIONS_DEV[nom] === id && !nomsProduction.has(nom));
     for (const p of paquets) {
-      if (licence === EXCEPTION_PRODUCTION.licence && p.name === EXCEPTION_PRODUCTION.paquet && nomsProduction.has(p.name)) continue;
+      if (EXCEPTIONS_PRODUCTION.some((x) => x.licence === licence && x.paquet === p.name) && nomsProduction.has(p.name)) continue;
       if (!expressionPermise(licence, (id) => ok(id, p.name))) erreurs.push(`${p.name} : licence « ${licence} » non permise`);
     }
   }
@@ -79,7 +82,10 @@ export function verifierLicencesLivrees(parLicence: Paquets, cible: string): str
   const erreurs: string[] = [];
   for (const [licence, paquets] of Object.entries(parLicence)) {
     if (expressionPermise(licence, (id) => LIVRE.has(id))) continue;
-    for (const p of paquets) erreurs.push(`${p.name} : licence « ${licence} » non permise dans ${cible} (livré chez un client)`);
+    for (const p of paquets) {
+      if (licence === EXCEPTION_LIVRE.licence && p.name === EXCEPTION_LIVRE.paquet) continue;
+      erreurs.push(`${p.name} : licence « ${licence} » non permise dans ${cible} (livré chez un client)`);
+    }
   }
   return erreurs;
 }
@@ -111,7 +117,7 @@ const PERSIST = { "persist-credentials": false };
 const NODE = { "node-version-file": ".nvmrc" };
 // « uses » : texte EXACT connu (jamais de motif : un SHA inconnu peut venir d'un fork, « commit imposteur »).
 const ACTIONS: [string, unknown[]][] = [
-  ["actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1", [undefined, PERSIST, { ...PERSIST, "fetch-depth": 0 }, { ...PERSIST, ref: "${{ github.event.repository.default_branch }}" }]],
+  ["actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1", [undefined, PERSIST, { ...PERSIST, "fetch-depth": 0 }, { ...PERSIST, "fetch-depth": 2 }, { ...PERSIST, ref: "${{ github.event.repository.default_branch }}" }]],
   ["actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1", [NODE]],
   ["actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a", [{ name: "rapport-couverture", path: "rapport-couverture.json" }]],
   ["github/codeql-action/init@8498dc4c2b27cdd99baf0f87955b29ebbf30c78d", [{ languages: "javascript-typescript", "build-mode": "none" }]],
@@ -121,7 +127,7 @@ const ACTIONS: [string, unknown[]][] = [
 // ADR 0014 : attestation de provenance des images dérivées, par SHA du tag v4.2.2. Acceptée dans images-derivees.yml seulement.
 const FICHIER_IMAGES = "images-derivees.yml";
 const ACTIONS_IMAGES: [string, unknown[]][] = [
-  ["actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8", [{ "subject-name": "ghcr.io/will383842/axion-automatisations-clients/postgres-derivee", "subject-digest": "${{ steps.pousser.outputs.empreinte }}", "push-to-registry": true }, { "subject-name": "ghcr.io/will383842/axion-automatisations-clients/postgres-socle", "subject-digest": "${{ steps.pousser-socle.outputs.empreinte }}", "push-to-registry": true }]],
+  ["actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8", [{ "subject-name": "ghcr.io/will383842/axion-automatisations-clients/postgres-derivee", "subject-digest": "${{ steps.pousser.outputs.empreinte }}", "push-to-registry": true }, { "subject-name": "ghcr.io/will383842/axion-automatisations-clients/postgres-socle", "subject-digest": "${{ steps.pousser-socle.outputs.empreinte }}", "push-to-registry": true }, { "subject-name": "ghcr.io/will383842/axion-automatisations-clients/postgres-sauvegarde", "subject-digest": "${{ steps.pousser-sauvegarde.outputs.empreinte }}", "push-to-registry": true }]],
 ];
 // Seul bloc « services » connu : le Mailpit de harnais.yml, comparé en forme canonique.
 const SERVICES = canon({
@@ -138,9 +144,9 @@ const RUN_OK = new Set([
   "corepack enable", INSTALLER, GARDE, "pnpm -r typecheck", "pnpm lint", "pnpm test", "pnpm test:compter", "pnpm test --project packages/harnais",
   "pnpm vitest run --reporter=json --outputFile=rapport-vitest.json", "pnpm exec vitest run --project integration --reporter=json --outputFile=rapport-integration.json",
   'pnpm audit --json > "$RUNNER_TEMP/audit.json" || true', 'node scripts/audit-dependances.ts "$RUNNER_TEMP/audit.json"', "node scripts/garde-workflows.ts .github/workflows",
-  "node scripts/compter-tests.ts rapport-tests.json", "node scripts/compter-tests.ts --rapport rapport-integration.json --reference spec/compte-tests-integration.json",
+  "node scripts/compter-tests.ts rapport-tests.json", "node scripts/compter-tests.ts --projet integration --rapport rapport-integration.json",
   "node scripts/couverture-req.ts rapport-vitest.json rapport-playwright.json", "node scripts/garde-couleurs.ts", "node scripts/garde-donnees-reelles.ts", "node scripts/garde-migrations.ts",
-  'node scripts/scanner-journaux.ts "$RUNNER_TEMP/texte"', "git fetch --no-tags origin main:refs/remotes/origin/main", "ops/socle/lancer.sh", "ops/socle/arreter.sh", "node scripts/garde-briques.ts",
+  'node scripts/scanner-journaux.ts "$RUNNER_TEMP/texte"', "ops/socle/lancer.sh", "ops/socle/arreter.sh", "node scripts/garde-briques.ts",
 ]);
 // Blocs de plusieurs lignes : empreinte SHA-256 du texte (controle-journaux ×2, nuit, socle-integration, squelettes-web).
 const BLOCS = new Set([
@@ -148,11 +154,12 @@ const BLOCS = new Set([
   "0fd60f11b15695a31240caf38b0dc6261a44d31e6e69d3b3efb7a109e0d33917", "1ee1fc7af3202d9908c3dff871f61c9ad720a975cdfec88cf13c6d5eae58d11c",
   "44f16a54a5416fefe33b04f0b5a9373d797664be6bc1fdcc8bb47d4a8a506046", // garde-briques : attestation de chaque image dérivée
 ]);
-// Les blocs de images-derivees.yml (dérivée alpine, puis image du socle) (ADR 0014) : acceptés dans ce fichier seulement.
+// Les blocs de images-derivees.yml (dérivée alpine, image du socle, image des sauvegardes) (ADR 0014) : acceptés dans ce fichier seulement.
 const BLOCS_IMAGES = new Set([
   "2cc82b403c67a4e486037fa8bca9d916b741363c20a1d849a3f7b53ca77beb75", "2b4e7f6c62e6037dcd3066d1bfdf04198fdb53ba15ad1155d64f01436d6fbf28", "141ad4b7e734456991654ae2e26f05ec4899efb2ad3828e0b77650ceec614614",
   "95587cf550dce1fbc69f7e8d88b456602526e53d79e7102cded09b33f724b58f", "89dd0a51528b351200f20dee084db620976d939f9eda0c815e52b9fba10202bd",
   "668bc1cd1c3f9cf87bbb799911b0839c3d0addfe804d840d4979b978a47ed6c7", "9139d805fe20a8cd38599f90af5d787089a60055efbd99dbed6071e9638f4bab", "cecf1891da06cd0c97652db0656ef7b12e5e75df0f9988ed986e9b7f89e4273a", "4af8f781253d648981d1bb01f72cb2b67a77173a1b94abecf84918847d6679b4", "9904653be6709787daf7d81edc6b9784cace85d9cf5daf19fa02541d3c5a1099",
+  "08bc1008c1849271584a95d92d537a990e0f2ca50ce8ac46eed2a80b51cd1432", "debe09e7795e63fa14200ca95dc01d2311541c75b9f2a9e98ba142fe46cb01bf", "2f011422dad091c585612c0bce1c33c10c7914d7fd8be4ca0a6d00dca81225b2", "a89b8f7e46ac6384b0eca8eb67e56015067968d7c9738003091ba3ae5958a563", "f2fd0ea8574bc5ad3791d3cb9d23d2fe6c4ad0d48e67d4711a05682da3580702",
 ]);
 const ENV_OK = ["GH_TOKEN", "DEPOT", "RUN_ID", "CORPS_PR", "GITHUB_TOKEN", "SOCLE_INTEGRATION", "NODE_ENV", "MAILPIT_API", "MAILPIT_SMTP_HOTE", "MAILPIT_SMTP_PORT", "NEXT_TELEMETRY_DISABLED"];
 const envOk = (o: unknown) => o === undefined || (estObj(o) && cles(o, ENV_OK));

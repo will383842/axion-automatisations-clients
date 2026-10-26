@@ -9,7 +9,7 @@ Tout le mécanisme tourne sur des conteneurs jetables (`ops/socle/compose.sauveg
 - Rétention (C-049) : 30 quotidiennes et 12 mensuelles. `retention.ts` est le calcul de référence (fonction pure, testée). Choix documenté : 30 complètes dans le dépôt 1 ; les mensuelles dans un second dépôt pgBackRest branché au lot 1-B.
 - Restauration : `restaurer.sh` restaure dans un conteneur NEUF, attend qu'il réponde et imprime son nom.
 - Artefacts de modules (A-192) : `copier-artefacts.sh <source> <cible>` copie sans jamais remplacer ni supprimer.
-- Grappes : voir l'ADR 0009. Seule la grappe commune est sauvegardée ici.
+- Grappes : voir l'ADR 0013. Seule la grappe commune est sauvegardée ici.
 
 ## Phrase de chiffrement
 Rangée dans OpenBao (`technique/sauvegardes`) ; une copie hors ligne, en un lieu distinct, est inscrite à `ops/secrets-inventaire.md` (`PHRASE_SAUVEGARDES`). Sans elle, aucune sauvegarde ne se relit : la copie hors ligne se vérifie à chaque départ d'un administrateur.

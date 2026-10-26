@@ -1,0 +1,7 @@
+{
+  "id": "06-image-espion",
+  "type": "image_espion",
+  "expediteur": "externe6@exemple.fr",
+  "objet": "Newsletter",
+  "corps": "<img src=\"https://suivi.exemple.test/pixel.gif\"> Merci de votre lecture."
+}

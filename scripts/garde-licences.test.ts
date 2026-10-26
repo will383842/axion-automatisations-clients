@@ -53,8 +53,12 @@ describe("garde-licences : exception MIT-0 nommée pour nodemailer (ADR 0008)", 
   it("refuse toute autre dépendance en MIT-0", () => {
     expect(verifierLicences({ "MIT-0": paquet("autre") }, new Set(), new Set())).toHaveLength(1);
   });
-  it("refuse nodemailer quand c'est une dépendance de production", () => {
-    expect(verifierLicences({ "MIT-0": paquet("nodemailer") }, new Set(), new Set(["nodemailer"]))).toHaveLength(1);
+  it("accepte nodemailer en production (ADR 0021) mais pas une autre dépendance de production en MIT-0", () => {
+    expect(verifierLicences({ "MIT-0": paquet("nodemailer") }, new Set(), new Set(["nodemailer"]))).toEqual([]);
+    expect(verifierLicences({ "MIT-0": paquet("autre") }, new Set(), new Set(["autre"]))).toHaveLength(1);
+  });
+  it("refuse nodemailer sous une autre licence en production", () => {
+    expect(verifierLicences({ GPL: paquet("nodemailer") }, new Set(), new Set(["nodemailer"]))).toHaveLength(1);
   });
 });
 
@@ -467,5 +471,22 @@ describe("garde-licences : workflow garde-briques", () => {
   const reel = () => lire(".github/workflows/garde-briques.yml");
   it("[C-020] garde-briques.yml réel accepté par la liste blanche", () => {
     expect(verifierInstallationsFigees([{ nom: "garde-briques.yml", texte: reel() }])).toEqual([]);
+  });
+});
+
+describe("garde-licences : exception 0BSD nommée pour tslib dans ce qui est livré (ADR 0020)", () => {
+  const livre = (licence: string, nom: string) => verifierLicencesLivrees({ [licence]: paquet(nom) }, "apps/executeur");
+
+  it("[A-375] accepte tslib en 0BSD dans ce qui est livré", () => {
+    expect(livre("0BSD", "tslib")).toEqual([]);
+  });
+  it("[A-375] refuse un autre paquet en 0BSD dans ce qui est livré", () => {
+    for (const nom of ["autre", "@evil/tslib", "tslib2", "Tslib"]) expect(livre("0BSD", nom), nom).toHaveLength(1);
+  });
+  it("[A-375] refuse tslib sous une autre licence ou une expression composite", () => {
+    for (const licence of ["GPL-3.0", "0bsd", "0BSD ", "0BSD OR GPL-3.0", "0BSD AND MIT", "(0BSD)"]) expect(livre(licence, "tslib"), licence).toHaveLength(1);
+  });
+  it("[A-375] l'exception ne rend pas 0BSD permise pour les autres paquets d'une même liste", () => {
+    expect(verifierLicencesLivrees({ "0BSD": [...paquet("tslib"), ...paquet("autre")] }, "apps/executeur")).toHaveLength(1);
   });
 });

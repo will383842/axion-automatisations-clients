@@ -1,0 +1,14 @@
+{
+  "nom": "lecture",
+  "echanges": [
+    {
+      "methode": "GET",
+      "chemin": "/me/messages/m-1",
+      "statut": 200,
+      "corps": {
+        "id": "m-1",
+        "subject": "Sujet 1"
+      }
+    }
+  ]
+}

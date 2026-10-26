@@ -3,11 +3,11 @@
 La suite PHP du CRM (lot 2-ter) vérifie les mêmes fixtures que la console, octet pour octet.
 
 1. Copier `fixtures/c3/` de ce dépôt, telle quelle (aucune réécriture, aucun changement de fin de ligne), dans le dépôt du CRM.
-2. Copier aussi `contrats.sha256`.
+2. Copier aussi `empreintes/c3.sha256`.
 3. Comparer les empreintes, depuis la racine de la copie :
 
 ```sh
-grep ' fixtures/c3/' contrats.sha256 | sha256sum --check --strict
+sha256sum --check --strict empreintes/c3.sha256
 ```
 
 La commande doit afficher `OK` pour chaque fichier. Un seul écart (fixture modifiée d'un seul côté) la fait échouer : c'est le test de contrat.

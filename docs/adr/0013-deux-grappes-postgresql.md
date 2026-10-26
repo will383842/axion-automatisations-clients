@@ -1,6 +1,6 @@
-# ADR 0009 — Deux grappes PostgreSQL : la commune et celle des clients
+# 0013 · Deux grappes PostgreSQL : la commune et celle des clients
 
-Numéro 0009 donné par la fiche T1A-14 ; le fichier `0009-garde-statuses-write-limite.md` porte déjà ce numéro. À renuméroter par l'architecte au besoin (le 0013 est libre).
+Numéro 0013 : le 0009 était déjà pris par `0009-garde-statuses-write-limite.md` (renuméroté, la fiche T1A-14 demandait 0009).
 
 ## Contexte
 L'archivage continu et la sauvegarde complète se font par grappe PostgreSQL. Si une seule grappe portait aussi les bases de travail des clients (`cli_<id>`, lot 2b), la sauvegarde de nuit en contiendrait les données de travail (interdit par C-052), et détruire la clé d'un client ne rendrait pas sa copie illisible.

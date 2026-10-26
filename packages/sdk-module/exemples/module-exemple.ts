@@ -17,7 +17,7 @@ export const manifesteExemple = {
   apiMoteur: "^0.1.0",
   reglages,
   declencheurs: [{ type: "sondage", intervalleSecondes: 60, curseur: "dernierMessage" }],
-  etapes: [{ nom: "accuser" }],
+  etapes: [{ nom: "accuser", executer: async () => undefined }],
   connecteurs: [],
   ia: { modelesAdmis: [], unitesParElement: 0, risqueAiAct: "minimal" },
   jeuEssai: Array.from({ length: 20 }, (_, i) => cas(i, i === 18 ? "panne" : i === 19 ? "email_piege" : "nominal")),

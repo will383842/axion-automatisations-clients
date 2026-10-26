@@ -19,3 +19,4 @@ Format court : contexte, décision, conséquences, date. Un ADR par décision, n
 | 0014 | Images dérivées temporaires |
 | 0016 | Garde des briques : images dérivées et attestation |
 | 0017 | Copie de secours d'OpenBao par instantané raft |
+| 0018 | Révision unique de C4 (v0.2.0) |

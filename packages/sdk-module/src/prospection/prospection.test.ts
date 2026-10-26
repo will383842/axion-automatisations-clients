@@ -89,4 +89,15 @@ describe("prospection conforme", () => {
     expect(m.corps).toContain("INFOS-ART-14");
     expect(messageDeProspection(base).corps).not.toContain("INFOS-ART-14");
   });
+
+  it("[C-082] une adresse de destinataire qui n'est pas un e-mail nu est refusée", () => {
+    for (const adresse of ["Paul <directeur@exemple.fr>", "directeur@exemple.fr,", "a@exemple.fr, b@exemple.fr", "directeur"]) {
+      expect(() => messageDeProspection({ ...base, destinataire: { adresse } })).toThrow(/adresse du destinataire/);
+    }
+  });
+
+  it("[C-086] une date impossible est refusée", () => {
+    expect(() => planifierInformations({ dateObtention: "2026-02-30", informationsDansPremierMessage: false, maintenant: "2026-10-05" })).toThrow(/date invalide/);
+    expect(() => planifierInformations({ dateObtention: "2026-10-01", informationsDansPremierMessage: false, maintenant: "2026-13-01" })).toThrow(/date invalide/);
+  });
 });

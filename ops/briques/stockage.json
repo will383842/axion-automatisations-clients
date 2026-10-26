@@ -1,0 +1,12 @@
+{
+  "nom": "stockage",
+  "image": "chrislusf/seaweedfs",
+  "version": "4.51",
+  "empreinte": "sha256:f7a49e3f3972ebed5be2ed4befa4a0c68eb7bdddba6e692d42729ceb545134b8",
+  "licence": "Apache-2.0",
+  "livree": false,
+  "lieu": "local",
+  "source": "https://github.com/seaweedfs/seaweedfs",
+  "verifie_le": "2026-10-26",
+  "note": "Stockage d'objets compatible S3 (ADR 0015, ADR 0022). Image amont épinglée par empreinte, aucune image dérivée."
+}

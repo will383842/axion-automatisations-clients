@@ -82,7 +82,8 @@ export function creerStockage(o: { s3: PortS3; coffre: CoffreIdentifiants }) {
   };
   return {
     // Atomique : seule la brique tranche (un utilisateur par compartiment). Si le coffre échoue, l'utilisateur est supprimé :
-    // aucun jeu de clés ne reste actif sans être rangé, et la création peut être refaite.
+    // aucun jeu de clés ne reste actif sans être rangé, et la création peut être refaite, sauf si la suppression échoue aussi :
+    // `nettoyage_incomplet`, voir l'ADR 0022 (Conséquences).
     async creerCompartimentClient(tenantId: string): Promise<void> {
       const compartiment = compartimentDe(tenantId);
       await o.s3.creerCompartiment(compartiment);

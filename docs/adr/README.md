@@ -25,3 +25,4 @@ Format court : contexte, décision, conséquences, date. Un ADR par décision, n
 | 0020 | Exception de licence 0BSD pour tslib (ce qui est livré chez un client) |
 | 0021 | nodemailer en production et curseur de la famille messagerie |
 | 0022 | Stockage SeaweedFS : adaptateur S3, droits par compartiment, création atomique |
+| 0026 | Briques communes de prospection conforme dans le SDK |

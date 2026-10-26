@@ -142,7 +142,7 @@ const GARDE = "node scripts/garde-licences.ts";
 // Commandes d'une ligne, texte exact.
 const RUN_OK = new Set([
   "corepack enable", INSTALLER, GARDE, "pnpm -r typecheck", "pnpm lint", "pnpm test", "pnpm test:compter", "pnpm test --project packages/harnais",
-  "pnpm vitest run --reporter=json --outputFile=rapport-vitest.json", "pnpm exec vitest run --project integration --reporter=json --outputFile=rapport-integration.json",
+  "pnpm vitest run --reporter=json --outputFile=rapport-vitest.json", "pnpm exec vitest run --project integration --reporter=default --reporter=json --outputFile=rapport-integration.json",
   'pnpm audit --json > "$RUNNER_TEMP/audit.json" || true', 'node scripts/audit-dependances.ts "$RUNNER_TEMP/audit.json"', "node scripts/garde-workflows.ts .github/workflows",
   "node scripts/compter-tests.ts rapport-tests.json", "node scripts/compter-tests.ts --projet integration --rapport rapport-integration.json",
   "node scripts/couverture-req.ts rapport-vitest.json rapport-playwright.json", "node scripts/garde-couleurs.ts", "node scripts/garde-donnees-reelles.ts", "node scripts/garde-migrations.ts",

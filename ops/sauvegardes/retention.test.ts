@@ -31,7 +31,7 @@ describe("rétention des sauvegardes complètes", () => {
     const r = calculerRetention(toutes, AUJOURDHUI);
     const gardees = new Set(r.garder.map((s) => s.id));
     expect(gardees.size).toBe(r.garder.length);
-    expect(r.garder.length).toBe(30 + 11); // la mensuelle d'octobre est déjà une quotidienne
+    expect(r.garder.length).toBe(30 + 10); // les mensuelles de septembre et d'octobre sont déjà des quotidiennes
     expect(r.expirer.length + r.garder.length).toBe(toutes.length);
     expect(r.expirer.every((s) => !gardees.has(s.id))).toBe(true);
   });

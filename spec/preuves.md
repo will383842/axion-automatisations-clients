@@ -27,3 +27,4 @@ C-080 → test « [C-080] un message sans fonction du destinataire est refusé �
 C-087 → test « [C-087] un module de prospection sans source déclarée est refusé » (packages/sdk-module/src/prospection/prospection.test.ts), 2026-10-26
 C-070 → test « [C-070] une source LinkedIn est refusée » (garde de code ; le document est en T4-00), 2026-10-26
 C-086 → tests [C-086] de packages/sdk-module/src/prospection/prospection.test.ts, 2026-10-26
+C-602 → partie T1A-15 : tests [C-602] de ops/surveillance/disque.test.ts (prévision, réveil à 6 h, message sans hôte ni IP) ; essais d'intégration en attente de #59 ; sonde extérieure au lot 1-B, 2026-10-26

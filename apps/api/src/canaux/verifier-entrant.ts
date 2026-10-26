@@ -15,6 +15,9 @@ const SIGNATURE = /^v1=[0-9a-f]{64}$/;
 const KID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const KID_MAX = 64;
 const DELAI_MEMOIRE_MS = 2000;
+// Clés de réception gardées par canal (la fiche admet 5 min au plus) ; un kid inconnu ne relit pas plus d'une fois par délai.
+const CLES_MEMOIRE_SECONDES = 30;
+const RELECTURE_MIN_SECONDES = 5;
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const ECRITURES = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
@@ -66,6 +69,25 @@ export function enregistrerCanal(serveur: FastifyInstance, nom: keyof typeof CAN
         r.corpsBrut = corps as Buffer;
         fin(null, corps);
       });
+      // Mémoire des clés de réception : une lecture en cours à la fois, partagée par toutes les requêtes.
+      let gardees: { cles: CleEchange[]; luLe: number } | undefined;
+      let enCours: Promise<CleEchange[]> | undefined;
+      const lire = (): Promise<CleEchange[]> =>
+        (enCours ??= deps.cles
+          .clesAcceptees(canal, "reception")
+          .then((cles) => {
+            gardees = { cles, luLe: maintenant() };
+            return cles;
+          })
+          .finally(() => {
+            enCours = undefined;
+          }));
+      const clesDeReception = async (kid: string): Promise<CleEchange[]> => {
+        const age = gardees ? maintenant() - gardees.luLe : Infinity;
+        if (gardees && age < RELECTURE_MIN_SECONDES) return gardees.cles;
+        if (gardees && age < CLES_MEMOIRE_SECONDES && gardees.cles.some((k) => k.kid === kid)) return gardees.cles;
+        return lire();
+      };
       const vu = new WeakMap<FastifyRequest, { cle: string | undefined; horodatage: string | undefined }>();
       const trace = (r: FastifyRequest, resultat: string) => {
         const e = vu.get(r);
@@ -95,7 +117,7 @@ export function enregistrerCanal(serveur: FastifyInstance, nom: keyof typeof CAN
         if (Math.abs(maintenant() - Number(horodatage)) > FENETRE_SECONDES) return refuser("horodatage_perime", "Horodatage périmé.");
         let acceptees: CleEchange[];
         try {
-          acceptees = await deps.cles.clesAcceptees(canal, "reception");
+          acceptees = await clesDeReception(kid);
         } catch {
           trace(r, "cles_indisponibles");
           throw new ErreurApi("porte_fermee", "Service indisponible.");

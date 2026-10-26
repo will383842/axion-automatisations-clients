@@ -4,6 +4,7 @@ import process from "node:process";
 import dgram from "node:dgram";
 import dns from "node:dns";
 import net from "node:net";
+import { syncBuiltinESMExports } from "node:module";
 
 // Défense en profondeur : Node 22 n'a pas de permission réseau, on retire donc les chemins de connexion avant le module.
 const refus = () => {
@@ -14,8 +15,15 @@ const fermer = (objet, noms) => {
 };
 fermer(net.Socket.prototype, ["connect"]);
 fermer(dgram.Socket.prototype, ["bind", "connect", "send"]);
-fermer(dns, ["lookup", "resolve", "resolve4", "resolve6", "reverse"]);
-fermer(dns.promises, ["lookup", "resolve", "resolve4", "resolve6", "reverse"]);
+// DNS : toute la surface est fermée en lot (fonctions de dns, dns.promises et des deux Resolver), pas une liste de noms.
+const GARDES = new Set(["Resolver", "constructor", "getServers", "setServers", "getDefaultResultOrder", "setDefaultResultOrder"]);
+const fermerFonctions = (objet) =>
+  fermer(objet, Object.getOwnPropertyNames(objet).filter((n) => typeof objet[n] === "function" && !GARDES.has(n)));
+for (const o of [dns, dns.promises, dns.Resolver.prototype, dns.promises.Resolver.prototype]) fermerFonctions(o);
+// Signaux : l'enfant ne signale ni le parent ni un autre processus du même utilisateur.
+fermer(process, ["kill", "_kill", "abort"]);
+// Les imports nommés (« import { resolveTxt } from 'node:dns' ») doivent voir les versions fermées.
+syncBuiltinESMExports();
 
 process.once("message", async (m) => {
   let reponse;

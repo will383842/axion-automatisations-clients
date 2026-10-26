@@ -17,4 +17,3 @@ A-052 → test « [A-052] un travail d'une instance d'une autre cellule est refu
 A-268 → tests [A-268] de apps/executeur/src/files/files.test.ts (paliers 2, 4 et 8, concurrence, configuration validée), 2026-10-26
 A-328 → ADR 0025 et tests [A-328] de apps/executeur/src/bac-a-sable/bac-a-sable.test.ts (processus distincts, globales, fichiers, environnement, jeton, limites), 2026-10-26
 A-329 → test « [A-329] @isolation l'enfant ne joint aucun hôte… » (apps/executeur/src/bac-a-sable/bac-a-sable.test.ts), étape 1 seulement ; mandataire à l'étape 2, 2026-10-26
-A-330 → test « [A-330] @isolation l'enfant n'a aucune variable de base de données… » (apps/executeur/src/bac-a-sable/bac-a-sable.test.ts), 2026-10-26

@@ -124,7 +124,7 @@ describe("bac à sable : réseau", () => {
       dns: "await new Promise((ok, ko) => dns.lookup('exemple.test', (e) => (e ? ko(e) : ok())))",
     };
     for (const [nom, essai] of Object.entries(essais)) {
-      const r = await lancer(`const net = await import('node:net'); const dgram = await import('node:dgram'); const dns = await import('node:dns'); try { ${essai}; return 'joint'; } catch (e) { return e.code ?? e.message; }`);
+      const r = await lancer(`const net = await import('node:net'); const dgram = await import('node:dgram'); const dns = await import('node:dns'); try { ${essai}; return 'joint'; } catch (e) { return e.code ?? e.cause?.code ?? e.message; }`);
       expect(r, nom).toEqual({ statut: "fait", valeur: "ERR_ACCESS_DENIED" });
     }
     expect(contacts).toEqual([]);

@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { verifierCompose, lireYaml } from "../../../../scripts/garde-compose.js";
 import { appeler, creerCoffre, ErreurCoffre } from "./coffre.js";
 import { creerEnveloppe } from "./enveloppe.js";
+import { creerMasqueur } from "../plugins/journal.js";
 
 // Imitation d'OpenBao : les droits de chaque rôle sont lus dans les VRAIS fichiers de politiques,
 // pour que le test et le serveur ne puissent pas diverger.
@@ -285,6 +286,22 @@ describe("coffre : identifiants des clients (KV v2)", () => {
     const v = MARQUEUR(), jeton = bao.jeton("equipe");
     const e = await refus(creerCoffre({ url: URL_BAO, jeton, fetch: bao.fetch }).rangerIdentifiant(A, "x", v), "refuse");
     expect(`${e.message}${e.stack}${JSON.stringify(e)}`).not.toMatch(new RegExp(`${jeton}|${v}`));
+  });
+});
+
+describe("coffre : masquage des valeurs dans le journal", () => {
+  it("[A-005] une valeur rangée est inscrite au masqueur, sans inscription manuelle", async () => {
+    const v = MARQUEUR(), masqueur = creerMasqueur();
+    await creerCoffre({ url: URL_BAO, jeton: bao.jeton("api"), fetch: bao.fetch, masqueur }).rangerIdentifiant(A, "boite", v);
+    expect(masqueur.masquer(`erreur imap://u:${v}@boite.test`)).not.toContain(v);
+  });
+  it("[A-005] une valeur relue par le courtier est inscrite au masqueur", async () => {
+    const v = MARQUEUR(), masqueur = creerMasqueur();
+    const ref = await coffreAvec("api").rangerIdentifiant(A, "boite", v);
+    expect(masqueur.masquer(`échec ${v}`)).toContain(v); // pas encore connue
+    const lue = await creerCoffre({ url: URL_BAO, jeton: bao.jeton("courtier"), fetch: bao.fetch, masqueur }).lireValeur(A, ref);
+    expect(lue).toBe(v);
+    expect(masqueur.masquer(`échec imap://u:${v}@boite.test`)).not.toContain(v);
   });
 });
 

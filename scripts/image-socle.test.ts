@@ -10,6 +10,8 @@ const lire = (c: string) => readFileSync(chemin(c), "utf8");
 const DOCKERFILE = "ops/images/postgres/Dockerfile";
 const WORKFLOW = ".github/workflows/images-derivees.yml";
 const IMAGE = "ghcr.io/will383842/axion-automatisations-clients/postgres-socle";
+// Paquet GHCR de l'image des sauvegardes : l'ancien nom `postgres-sauvegarde` (paquet vide, droits refusés au jeton du job) est abandonné.
+const IMAGE_SAUVEGARDE = "ghcr.io/will383842/axion-automatisations-clients/postgres-sauvegardes-pitr";
 
 type Obj = Record<string, unknown>;
 const estObj = (v: unknown): v is Obj => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -143,6 +145,15 @@ describe("image postgres du socle : workflow images-derivees.yml", () => {
     const attestation = etapes(publier)[iPush + 1] ?? {};
     expect(attestation.uses).toBe("actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8");
     expect(attestation.with).toEqual({ "subject-name": IMAGE, "subject-digest": "${{ steps.pousser-socle.outputs.empreinte }}", "push-to-registry": true });
+  });
+  it("[A-381] publier : l'image des sauvegardes est publiée et attestée sous le paquet postgres-sauvegardes-pitr, jamais sous l'ancien paquet vide", () => {
+    const publier = jobs().publier;
+    const iPush = etapes(publier).findIndex((e) => e.id === "pousser-sauvegarde");
+    const push = etapes(publier)[iPush] ?? {};
+    expect(execute(push)).toContain(`image=${IMAGE_SAUVEGARDE}\n`);
+    expect(etapes(publier)[iPush + 1]?.with).toEqual({ "subject-name": IMAGE_SAUVEGARDE, "subject-digest": "${{ steps.pousser-sauvegarde.outputs.empreinte }}", "push-to-registry": true });
+    expect(lire(WORKFLOW)).not.toMatch(/axion-automatisations-clients\/postgres-sauvegarde\b(?!s)/);
+    expect(lire("ops/images/README.md")).toContain("postgres-sauvegardes-pitr");
   });
   it("[A-381] images-derivees.yml : aucune exemption, aucun .trivyignore, un seul docker login par push", () => {
     expect(existsSync(chemin(".trivyignore"))).toBe(false);

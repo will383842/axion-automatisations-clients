@@ -129,10 +129,10 @@ describe("image postgres du socle : workflow images-derivees.yml", () => {
     expect(execute(etapes(job)[fumee] ?? {})).toMatch(/test ! -e \/usr\/local\/bin\/gosu/);
     expect(execute(etapes(job)[garde] ?? {})).toContain("node scripts/releve-trivy.ts --garde");
   });
-  it("[A-381] publier : une seule publication de plus, après l'évaluateur du socle, puis l'attestation porte l'empreinte poussée", () => {
+  it("[A-381] publier : une publication de plus que la dérivée, après l'évaluateur du socle, puis l'attestation porte l'empreinte poussée", () => {
     const publier = jobs().publier;
     const pushs = etapes(publier).filter((e) => execute(e).includes("docker push"));
-    expect(pushs.map((e) => e.id)).toEqual(["pousser", "pousser-socle"]);
+    expect(pushs.map((e) => e.id)).toEqual(["pousser", "pousser-socle", "pousser-sauvegarde"]);
     const iPush = etapes(publier).findIndex((e) => e.id === "pousser-socle");
     const iGarde = etapes(publier).findIndex((e) => execute(e).includes("--garde") && execute(e).includes("postgres-socle"));
     expect(iGarde).toBeLessThan(iPush);
@@ -148,7 +148,7 @@ describe("image postgres du socle : workflow images-derivees.yml", () => {
     expect(existsSync(chemin(".trivyignore"))).toBe(false);
     const commandes = [...blocs("construire"), ...blocs("publier")].map(execute).join("\n");
     expect(commandes).not.toMatch(/ignore|skip-dirs|--severity|--ignore-unfixed/);
-    expect(lire(WORKFLOW).match(/docker push/g)?.length).toBe(2);
+    expect(lire(WORKFLOW).match(/docker push/g)?.length).toBe(3);
   });
   it("[A-381] images-derivees.yml : l'image dérivée alpine n'est pas modifiée", () => {
     expect(lire(WORKFLOW)).toContain("-t local/postgres-derivee ops/images/postgres-derivee");

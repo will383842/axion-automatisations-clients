@@ -15,6 +15,6 @@ Les PR parallèles se bloquaient par des conflits sur des fichiers où chacune a
 ## Conséquences
 - Limite connue : GitHub ignore `merge=union` pour son bouton de fusion et son calcul de conflit. Le pilote ne joue qu'en local, d'où la règle de fusion de `main` avant la PR.
 - `merge=union` garde les deux versions d'une même ligne modifiée des deux côtés : à relire si on corrige une ligne existante de `spec/preuves.md` (cas rare, le fichier s'écrit par ajout).
-- Limite : deux PR ouvertes en parallèle qui prennent le même numéro d'ADR (deux noms de fichier différents) sont toutes deux vertes ; GitHub les fusionne l'une après l'autre sans conflit et la garde ne devient rouge que sur `main`, après coup.
+- Limite : deux PR ouvertes en parallèle qui prennent le même numéro d'ADR (deux noms de fichier différents) sont toutes deux vertes ; GitHub les fusionne l'une après l'autre sans conflit et la garde ne devient rouge que sur `main`, après coup. Même limite pour `spec/preuves.md` : deux PR qui ajoutent le même numéro en des endroits éloignés fusionnent sans conflit ; le test `[zero-conflit]` qui lit le vrai fichier tourne dans `pnpm test`, donc dans `ci.yml` sur `push: main`, et rend `main` rouge tout de suite.
 - Proposition à Will : activer sur `main` la protection « Require branches to be up to date before merging » (ou une file de fusion), seule façon de faire jouer la garde avant la fusion. Décision de Will, rien n'est changé ici.
 - Aucun workflow modifié.

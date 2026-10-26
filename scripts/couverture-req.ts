@@ -76,17 +76,23 @@ export function lireLigneExigences(corps: string): string | null {
   return null;
 }
 
+// `spec/preuves.md` est fusionné en union (ADR 0029) : deux branches qui prouvent le même numéro donnent un doublon, refusé ici.
+export function doublonsPreuves(preuves: string): string[] {
+  const vus = new Set<string>();
+  const erreurs: string[] = [];
+  for (const [, id] of preuves.matchAll(/^([ABC]-\d{3})\s*→/gm)) {
+    if (id && vus.has(id)) erreurs.push(`${id} : présent deux fois dans spec/preuves.md`);
+    vus.add(id ?? "");
+  }
+  return erreurs;
+}
+
 const porteId = (nom: string, id: string) => nom.includes(`[${id}]`);
 
 export function verifierCouverture(entree: { reqs: Exigence[]; corps: string; tests: TestRapporte[]; preuves: string }): Resultat {
   const { reqs, corps, tests, preuves } = entree;
   const res: Resultat = { erreurs: [], avertissements: [], couverture: [] };
-  // `spec/preuves.md` est fusionné en union (ADR 0029) : deux branches qui prouvent le même numéro donnent un doublon, refusé ici.
-  const vus = new Set<string>();
-  for (const [, id] of preuves.matchAll(/^([ABC]-\d{3})\s*→/gm)) {
-    if (id && vus.has(id)) res.erreurs.push(`${id} : présent deux fois dans spec/preuves.md`);
-    vus.add(id ?? "");
-  }
+  res.erreurs.push(...doublonsPreuves(preuves));
   const ligne = lireLigneExigences(corps);
   if (ligne === null) {
     res.erreurs.push("ligne Exigences absente (écrire « Exigences : C-123 » ou « Exigences : aucune (outillage) »)");

@@ -12,3 +12,4 @@ coverage/
 *.key
 next-env.d.ts
 docs/adr/index.md
+rapport-couverture.json

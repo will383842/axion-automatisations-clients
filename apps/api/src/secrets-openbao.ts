@@ -1,5 +1,5 @@
 import { ErreurCoffre, type OptionsBao } from "./coffre/coffre.js";
-import type { Masqueur } from "./plugins/journal.js";
+import { LONGUEUR_MINIMALE, type Masqueur } from "./plugins/journal.js";
 import type { LecteurSecrets } from "./secrets.js";
 
 // Implémentation OpenBao de LecteurSecrets : KV v2 monté sur technique/, un champ « valeur » par secret.
@@ -40,7 +40,8 @@ export function creerLecteurSecretsOpenBao(o: OptionsLecteur): LecteurSecrets {
       } catch {
         throw new ErreurCoffre("coffre_indisponible");
       }
-      if (typeof valeur !== "string" || !valeur) throw new ErreurCoffre("coffre_indisponible");
+      // Un secret trop court pour le masqueur n'est jamais rendu (A-005, ADR 0023).
+      if (typeof valeur !== "string" || valeur.length < LONGUEUR_MINIMALE) throw new ErreurCoffre("coffre_indisponible");
       o.masqueur?.ajouter(valeur);
       return valeur;
     },

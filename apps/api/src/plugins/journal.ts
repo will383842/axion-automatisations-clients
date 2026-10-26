@@ -3,8 +3,11 @@
 
 const REMPLACANT = "[masqué]";
 // Une valeur plus courte est ignorée : la remplacer partout casserait et falsifierait toutes les lignes du journal.
-// Limite acceptée : une valeur de moins de 8 caractères n'est pas masquée (elle doit être refusée à la saisie).
-const LONGUEUR_MINIMALE = 8;
+// Elle n'entre donc jamais : le coffre et le lecteur technique/ la refusent au rangement comme à la lecture (ADR 0023).
+export const LONGUEUR_MINIMALE = 8;
+// Champs de traçabilité, posés par le serveur (identifiants) : jamais masqués, pour qu'aucune valeur de client ne les efface.
+const TRACABILITE = new Set(["reqId", "tenant", "tenantId"]);
+const IDENTIFIANT = /^[A-Za-z0-9-]{1,64}$/;
 
 export interface Masqueur {
   ajouter(valeur: string): void;
@@ -53,7 +56,28 @@ export function creerMasqueur(): Masqueur {
   };
 }
 
-// Flux accepté par le journal de Fastify (option logger.stream) : masque la ligne entière puis la remet à la sortie.
+// Masque les valeurs de texte, jamais les noms de champs ni la ponctuation JSON : une valeur choisie par un client
+// ne peut ni retirer un champ ni rendre la ligne invalide.
+function masquerValeurs(v: unknown, masqueur: Masqueur, cle?: string): unknown {
+  if (typeof v === "string") return cle !== undefined && TRACABILITE.has(cle) && IDENTIFIANT.test(v) ? v : masqueur.masquer(v);
+  if (Array.isArray(v)) return v.map((x) => masquerValeurs(x, masqueur));
+  if (typeof v === "object" && v !== null) return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, masquerValeurs(x, masqueur, k)]));
+  return v;
+}
+
+// Flux accepté par le journal de Fastify (option logger.stream) : masque chaque valeur de la ligne JSON puis la remet à la sortie.
+// Une ligne qui n'est pas du JSON est masquée comme texte brut.
 export function creerFluxJournal(masqueur: Masqueur, sortie: (ligne: string) => void = (l) => void process.stdout.write(l)) {
-  return { write: (ligne: string) => sortie(masqueur.masquer(ligne)) };
+  return {
+    write: (ligne: string) => {
+      let objet: unknown;
+      try {
+        objet = JSON.parse(ligne);
+      } catch {
+        return sortie(masqueur.masquer(ligne));
+      }
+      if (typeof objet !== "object" || objet === null) return sortie(masqueur.masquer(ligne));
+      sortie(`${JSON.stringify(masquerValeurs(objet, masqueur))}${ligne.endsWith("\n") ? "\n" : ""}`);
+    },
+  };
 }

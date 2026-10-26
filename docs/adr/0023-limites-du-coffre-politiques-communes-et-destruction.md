@@ -19,3 +19,18 @@ Aucune pour l'instant. Chaque option demande un test d'isolation propre et, si u
 - Les politiques actuelles restent en place.
 - Le risque est connu et suivi ici ; la relecture sécurité de T1A-06 le rappelle.
 - Un changement de politique passera par un ADR qui remplace celui-ci.
+
+## Décision d'architecte : masquage du journal (26/10/2026, relecture de T1A-06-b)
+Cette partie est tranchée ; les points 1 et 2 ci-dessus restent ouverts.
+
+Contexte : le masqueur remplaçait chaque valeur de secret dans la ligne JSON déjà écrite. Une valeur courte cassait toutes les lignes ; ignorée, elle sortait en clair. Une valeur longue choisie par un client (`","tenant":"`) retirait un champ de toutes les lignes, sans casser le JSON.
+
+Décision :
+- **Une valeur trop courte n'entre jamais.** `LONGUEUR_MINIMALE` (8, dans `plugins/journal.ts`) est la seule limite. `rangerIdentifiant` refuse une valeur plus courte (`requete_refusee`, avant tout appel) ; `lireValeur` et le lecteur `technique/` ne la rendent jamais (`coffre_indisponible`, sans la valeur). Refuser, pas ignorer : aucune valeur que le masqueur ne sait pas cacher n'arrive dans le processus.
+- **On masque les valeurs, pas la structure.** Le flux du journal lit la ligne JSON, masque chaque chaîne (jamais les noms de champs), puis la réécrit. Une ligne qui n'est pas du JSON est masquée comme texte.
+- **Les champs de traçabilité ne sont jamais masqués** : `reqId`, `tenant`, `tenantId`, quand ils ont la forme d'un identifiant. Ils sont posés par le serveur ; un client ne peut pas les effacer en rangeant l'identifiant d'un autre.
+
+Conséquences :
+- Un besoin réel de secret de moins de 8 caractères (un code PIN) devra être porté dans une autre forme (par exemple avec un préfixe) ou passer par un nouvel ADR.
+- Le code ne doit jamais placer une valeur venue d'un client dans `reqId`, `tenant` ou `tenantId`.
+- Limites acceptées : un nom de champ n'est pas masqué ; le masquage reste global au processus (pas limité à la requête du client). Le coût de `ajouter` (retri à chaque ajout) reste à traiter avant de brancher le masqueur au démarrage.

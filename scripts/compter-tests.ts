@@ -169,7 +169,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   let base: Liste = {};
   try {
     git("worktree", "add", "--detach", copie, options.baseRef);
-    execFileSync("pnpm", ["install", "--frozen-lockfile", "--offline"], { cwd: copie, stdio: "inherit" });
+    execFileSync("pnpm", ["install", "--frozen-lockfile"], { cwd: copie, stdio: "inherit" });
     base = mesurerBase(copie, options.projet);
   } catch (e) {
     erreurs.push(`base ${options.baseRef} non mesurée : ${(e as Error).message}`);

@@ -16,6 +16,6 @@
 ## Conséquences
 - Deux PR qui ajoutent des tests ne se touchent plus ; la seconde n'a plus à se remettre à jour.
 - Filet sur `main` : au `push`, `HEAD^1` est la `main` précédente (fusions par squash) ; deux fusions rapprochées qui passeraient entre les mailles rendent `main` rouge aussitôt.
-- Coût : installation de la base (`pnpm install --frozen-lockfile --offline`, magasin déjà rempli).
+- Coût : installation de la base (`pnpm install --frozen-lockfile`, qui réutilise le magasin pnpm quand il le peut ; le mode hors ligne a échoué en CI faute de paquet dans le magasin).
 - Hors de cet ADR : regroupement des workflows et mode « PR d'intégration » (PR à part).
 - L'accord de l'architecte reste à obtenir pour la partie contrats (CLAUDE.md §5).

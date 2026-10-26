@@ -1,0 +1,15 @@
+{
+  "nom": "jeton_refuse",
+  "echanges": [
+    {
+      "methode": "GET",
+      "chemin": "/me/messages/m-1",
+      "statut": 401,
+      "corps": {
+        "error": {
+          "code": "InvalidAuthenticationToken"
+        }
+      }
+    }
+  ]
+}

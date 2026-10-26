@@ -12,12 +12,15 @@ export const LIVRE = new Set(["MIT", "BSD-2-Clause", "BSD-3-Clause", "ISC", "Apa
 const PERMISES = new Set([...LIVRE, "0BSD", "OFL-1.1"]);
 const MPL = "MPL-2.0";
 
-// Exceptions NOMMÉES (paquet + licence), réservées aux dépendances de développement (ADR 0007, ADR 0008 ; en production : ADR 0020).
+// Exceptions NOMMÉES (paquet + licence), réservées aux dépendances de développement (ADR 0007, ADR 0008 ; en production : ADR 0021).
 const EXCEPTIONS_DEV: Record<string, string> = { argparse: "Python-2.0", minimatch: "BlueOak-1.0.0", nodemailer: "MIT-0" };
 
-// Exceptions NOMMÉES pour une dépendance de PRODUCTION : caniuse-lite sous CC-BY-4.0, imposé par Next.js (ADR 0011) ; nodemailer sous MIT-0, client SMTP du connecteur de messagerie (ADR 0020).
+// Exceptions NOMMÉES pour une dépendance de PRODUCTION : caniuse-lite sous CC-BY-4.0, imposé par Next.js (ADR 0011) ; nodemailer sous MIT-0, client SMTP du connecteur de messagerie (ADR 0021).
 // Comparaison exacte du nom du paquet ET de la licence entière (jamais d'atome d'une expression composée).
 const EXCEPTIONS_PRODUCTION = [{ paquet: "caniuse-lite", licence: "CC-BY-4.0" }, { paquet: "nodemailer", licence: "MIT-0" }];
+
+// Exception NOMMÉE pour ce qui est livré chez un client (ADR 0020) : tslib sous 0BSD, comparaison exacte du paquet ET de la licence entière.
+const EXCEPTION_LIVRE = { paquet: "tslib", licence: "0BSD" };
 
 type Paquets = Record<string, { name: string }[]>;
 
@@ -79,7 +82,10 @@ export function verifierLicencesLivrees(parLicence: Paquets, cible: string): str
   const erreurs: string[] = [];
   for (const [licence, paquets] of Object.entries(parLicence)) {
     if (expressionPermise(licence, (id) => LIVRE.has(id))) continue;
-    for (const p of paquets) erreurs.push(`${p.name} : licence « ${licence} » non permise dans ${cible} (livré chez un client)`);
+    for (const p of paquets) {
+      if (licence === EXCEPTION_LIVRE.licence && p.name === EXCEPTION_LIVRE.paquet) continue;
+      erreurs.push(`${p.name} : licence « ${licence} » non permise dans ${cible} (livré chez un client)`);
+    }
   }
   return erreurs;
 }

@@ -1,0 +1,14 @@
+# connecteur-microsoft-365
+
+Connecteur de la famille messagerie pour Microsoft 365 (Graph v1.0). Fermé par défaut : `CONNECTEURS_MESSAGERIE_OUVERT=1` pour l'ouvrir ; l'adresse de base vient de `GRAPH_URL`, **obligatoire et sans valeur par défaut** (ouverture refusée si elle manque : aucun repli vers le vrai Graph). Chaque appel a un délai maximal (15 s).
+
+- Actions : `lister_nouveaux` (delta, le curseur est le `@odata.deltaLink` rendu par Graph, lu avec `curseurDelta()` ; les entrées `@removed` sont ignorées). **Limite connue, à trancher par ADR avec l'architecte avant toute ouverture** : `Page` n'a que `suivant`, le curseur delta n'est pas dans l'interface de famille ; un noyau qui n'utilise que l'interface relit toute la boîte à chaque relève, `lire`, `etiqueter` (catégories), `creer_brouillon`, `envoyer`.
+- Garantie d'effet de `envoyer` : `verifiable_apres_coup`. Graph n'a pas de clé anti-doublon : le brouillon porte le `Message-ID` choisi et l'en-tête `X-Axion-Intention` (même valeur). La recherche se fait par `internetMessageId`, car Graph ne filtre pas sur un en-tête personnalisé. La table de correspondance avec l'identifiant posé par Graph est en mémoire et se perd au redémarrage : après un redémarrage, la recherche retombe sur le `Message-ID` choisi.
+- `verifierApresCoup(jeton, messageId)` cherche le message dans « Éléments envoyés » : `trouve`, `absent` ou `indetermine`. Une erreur ou un délai donne `indetermine`, jamais `absent`. `absent` veut dire « pas trouvé à cet instant » : la copie dans « Éléments envoyés » peut arriver avec plusieurs secondes de retard (la nuit attend jusqu'à 30 s). Le noyau doit donc attendre au moins 30 s après l'envoi, et revérifier, avant de croire `absent` et de renvoyer (délai minimal à inscrire dans l'ADR de la garantie).
+- Erreurs : 429 (ou 503) avec `Retry-After` → `quota` daté (sans date sur un 429 : une minute) ; 401 et `invalid_grant` → `identification` ; `AADSTS65001` → `identification` / `consentement_requis` ; autres 5xx → `passagere` ; autres 4xx → `definitive`.
+- Le connecteur ne réessaie jamais et ne journalise que des identifiants et des codes.
+
+## Tests
+- Réponses enregistrées dans `enregistrements/` (inventées, sans jeton), rejouées par la suite commune.
+- Faux Graph du harnais pour la recherche après coup (`reponse_perdue`, panne, quota).
+- Nuit : `src/nuit.test.ts`, sauté sauf `NUIT_CONNECTEURS=1` ; rouge si le tenant de test n'est pas configuré (`GRAPH_URL`, `GRAPH_JETON_TEST`, `GRAPH_COMPTE_TEST`, `GRAPH_DESTINATAIRE_TEST`). Le jeton de test doit être un jeton délégué (les routes sont `/me/...`) ; un jeton d'application (client credentials) demanderait `/users/{id}`. Les noms `GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `GRAPH_CLIENT_SECRET` annoncés plus tôt ne sont pas lus par ce test. Le workflow qui le lance (environnement `connecteurs-de-test`) reste à ajouter.

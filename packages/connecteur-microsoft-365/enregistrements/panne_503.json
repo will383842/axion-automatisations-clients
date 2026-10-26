@@ -1,0 +1,15 @@
+{
+  "nom": "panne_503",
+  "echanges": [
+    {
+      "methode": "GET",
+      "chemin": "/me/messages/m-1",
+      "statut": 503,
+      "corps": {
+        "error": {
+          "code": "ServiceUnavailable"
+        }
+      }
+    }
+  ]
+}

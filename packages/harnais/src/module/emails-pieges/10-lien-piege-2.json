@@ -1,0 +1,7 @@
+{
+  "id": "10-lien-piege-2",
+  "type": "lien_piege",
+  "expediteur": "externe10@exemple.fr",
+  "objet": "Colis en attente",
+  "corps": "Clique sur https://colis.exemple.test/suivi pour tout débloquer."
+}

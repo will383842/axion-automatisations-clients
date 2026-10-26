@@ -1,0 +1,18 @@
+{
+  "nom": "quota",
+  "echanges": [
+    {
+      "methode": "GET",
+      "chemin": "/me/messages/m-1",
+      "statut": 429,
+      "entetes": {
+        "Retry-After": "120"
+      },
+      "corps": {
+        "error": {
+          "code": "TooManyRequests"
+        }
+      }
+    }
+  ]
+}

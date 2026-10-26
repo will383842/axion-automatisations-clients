@@ -1,4 +1,4 @@
-# 0020 · nodemailer en production et curseur de la famille messagerie
+# 0021 · nodemailer en production et curseur de la famille messagerie
 
 Date : 26/10/2026 · Statut : accepté par l'architecte (délégué par will383842)
 

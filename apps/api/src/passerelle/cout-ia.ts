@@ -1,7 +1,9 @@
+import { validerTenant } from "../coffre/coffre.js";
+
 // Coût d'IA provisoire (C-526) et mode d'IA par automatisation. Le public ne porte que le schéma et des valeurs d'EXEMPLE :
 // les valeurs de travail sont dans le dépôt privé. Rien ici ne bloque un appel à cause d'un prix : un tableau incomplet donne un coût inconnu.
 
-export type CodeCoutIa = "mode_ia_invalide";
+export type CodeCoutIa = "mode_ia_invalide" | "options_garde_invalides";
 
 export class ErreurCoutIa extends Error {
   constructor(readonly code: CodeCoutIa) {
@@ -52,34 +54,45 @@ export interface OptionsGardeBoucle {
   parMinuteMax: number;
   parHeureMax: number;
   horloge: () => number;
+  fenetreIdentiquesMs?: number; // au-delà de ce délai, un appel identique repart à 1 (60 s par défaut)
 }
+
+const entierSur = (n: number, min: number) => Number.isSafeInteger(n) && n >= min;
 
 // Garde-fou anti-boucle : ne dépend ni du prix ni de la facturation, identique dans les deux modes.
 // Un blocage dure jusqu'à lever(), que l'appelant réserve à un administrateur et trace au journal d'audit.
+// Les options invalides sont refusées ici : une comparaison avec NaN serait toujours fausse et éteindrait le garde-fou sans rien dire.
 export function creerGardeBoucle(o: OptionsGardeBoucle) {
+  const fenetre = o.fenetreIdentiquesMs ?? 60_000;
+  if (!entierSur(o.identiquesMax, 2) || !entierSur(o.parMinuteMax, 1) || !entierSur(o.parHeureMax, 1) || !entierSur(fenetre, 1)) {
+    throw new ErreurCoutIa("options_garde_invalides");
+  }
+  const cle = (tenantId: string, automatisation: string) => `${validerTenant(tenantId)}\u0000${automatisation}`;
   const appels = new Map<string, number[]>();
-  const derniere = new Map<string, { empreinte: string; n: number }>();
+  const derniere = new Map<string, { empreinte: string; n: number; t: number }>();
   const bloques = new Set<string>();
   return {
-    verifier(_mode: ModeIa, automatisation: string, empreinte: string): Decision {
-      if (bloques.has(automatisation)) return { autorise: false, motif: "bloque" };
+    verifier(_mode: ModeIa, tenantId: string, automatisation: string, empreinte: string): Decision {
+      const k = cle(tenantId, automatisation);
+      if (bloques.has(k)) return { autorise: false, motif: "bloque" };
       const t = o.horloge();
-      const recents = (appels.get(automatisation) ?? []).filter((x) => t - x < 3_600_000);
-      const d = derniere.get(automatisation);
-      const n = d?.empreinte === empreinte ? d.n + 1 : 1;
+      const recents = (appels.get(k) ?? []).filter((x) => t - x < 3_600_000);
+      const d = derniere.get(k);
+      const n = d?.empreinte === empreinte && t - d.t < fenetre ? d.n + 1 : 1;
       let motif: MotifBlocage | undefined;
       if (n >= o.identiquesMax) motif = "appels_identiques";
       else if (recents.filter((x) => t - x < 60_000).length >= o.parMinuteMax) motif = "plafond_minute";
       else if (recents.length >= o.parHeureMax) motif = "plafond_heure";
-      if (motif === "appels_identiques") bloques.add(automatisation);
+      if (motif === "appels_identiques") bloques.add(k);
       if (motif) return { autorise: false, motif };
-      appels.set(automatisation, [...recents, t]);
-      derniere.set(automatisation, { empreinte, n });
+      appels.set(k, [...recents, t]);
+      derniere.set(k, { empreinte, n, t });
       return { autorise: true };
     },
-    lever(automatisation: string): void {
-      bloques.delete(automatisation);
-      derniere.delete(automatisation);
+    lever(tenantId: string, automatisation: string): void {
+      const k = cle(tenantId, automatisation);
+      bloques.delete(k);
+      derniere.delete(k);
     },
   };
 }

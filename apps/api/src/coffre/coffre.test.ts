@@ -124,6 +124,8 @@ export function creerFauxBao() {
     if ((m = /^clients\/metadata\/(.+)$/.exec(chemin))) {
       const p = m[1] ?? "";
       if (methode === "GET") { const v = etat.meta.get(p); return v ? rep(200, { data: { custom_metadata: v, current_version: etat.kv.has(p) ? 1 : 0 } }) : rep(404, { errors: [] }); }
+      // Comme le vrai OpenBao (KV v2) : une valeur vide dans custom_metadata est refusée.
+      if (Object.values(json.custom_metadata as Record<string, unknown>).some((x) => x === "")) return rep(400, { errors: ["custom_metadata value must not be empty"] });
       etat.meta.set(p, json.custom_metadata as { nom: string; expire_le: string | null });
       return rep(204, null);
     }
@@ -184,6 +186,11 @@ const refus = async (p: Promise<unknown>, code?: string) => {
 };
 
 describe("coffre : identifiants des clients (KV v2)", () => {
+  it("[A-060] rangerIdentifiant sans date d'expiration n'envoie aucune métadonnée vide", async () => {
+    const ref = await coffreAvec("api").rangerIdentifiant(A, "boite-mail", MARQUEUR());
+    expect((await coffreAvec("equipe").lireEtat(A, ref)).expireLe).toBeNull();
+  });
+
   it("[A-060] rangerIdentifiant renvoie une référence qui ne contient pas la valeur", async () => {
     const v = MARQUEUR();
     const ref = await coffreAvec("api").rangerIdentifiant(A, "boite-mail", v);

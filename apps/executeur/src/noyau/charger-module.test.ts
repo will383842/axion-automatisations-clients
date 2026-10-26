@@ -49,7 +49,8 @@ describe("chargerModule", () => {
 
   it("[A-304] le module est évalué depuis les octets vérifiés, pas depuis une relecture", async () => {
     const { s, c } = cle();
-    const a = signerArtefact(base(), s);
+    // Texte propre à ce test : un import data: identique déjà évalué ne rejouerait pas l'effet témoin.
+    const a = signerArtefact({ ...base(), "module.js": octets(JS + " // relecture") }, s);
     const lecteur = Object.defineProperty({ ...a }, "module.js", {
       enumerable: true,
       get: (() => {

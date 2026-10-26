@@ -5,7 +5,8 @@ import { configDefaults, defineConfig } from "vitest/config";
 // retry: 0 — aucune relance automatique (C-538), pour chaque projet.
 const retry = 0;
 // Vitest 4 a retiré **/dist/** de ses exclusions par défaut : on le remet.
-const exclude = [...configDefaults.exclude, "**/dist/**", "**/__fixtures__/**"];
+// tests/visuel.spec.ts est un test Playwright (workflow visuel-design.yml), pas un test Vitest.
+const exclude = [...configDefaults.exclude, "**/dist/**", "**/__fixtures__/**", "**/tests/visuel.spec.ts"];
 // Les tests d'intégration demandent le socle lancé (ops/socle/lancer.sh) : seul le projet integration les prend.
 const excludeDefaut = [...exclude, "**/*.int.test.ts"];
 const integration = process.env.SOCLE_INTEGRATION === "1";

@@ -260,7 +260,7 @@ describe("coffre : identifiants des clients (KV v2)", () => {
     await e.creerCleClient(A);
     const env = await e.chiffrer(A, Buffer.from("texte"));
     bao.etat.scelle = true;
-    await refus(coffreAvec("api").rangerIdentifiant(A, "x", "v"), "coffre_scelle");
+    await refus(coffreAvec("api").rangerIdentifiant(A, "x", MARQUEUR()), "coffre_scelle");
     await refus(coffreAvec("equipe").lireEtat(A, ref), "coffre_scelle");
     await refus(coffreAvec("courtier").lireValeur(A, ref), "coffre_scelle");
     await refus(e.creerCleClient(A), "coffre_scelle");
@@ -305,11 +305,27 @@ describe("coffre : masquage des valeurs dans le journal", () => {
   });
 });
 
+describe("coffre : une valeur trop courte pour être masquée n'entre jamais", () => {
+  const COURTE = "1234567"; // 7 caractères : sous le seuil du masqueur
+  it("[A-005] rangerIdentifiant refuse une valeur de moins de 8 caractères, avant tout appel réseau", async () => {
+    const masqueur = creerMasqueur();
+    const e = await refus(creerCoffre({ url: URL_BAO, jeton: bao.jeton("api"), fetch: bao.fetch, masqueur }).rangerIdentifiant(A, "code", COURTE), "requete_refusee");
+    expect(bao.etat.appels).toEqual([]);
+    expect(`${e.message}${e.stack}${JSON.stringify(e)}`).not.toContain(COURTE);
+  });
+  it("[A-005] lireValeur ne rend jamais une valeur rangée de moins de 8 caractères, sans la recopier dans l'erreur", async () => {
+    const ref = `bao:clients/${A}/${randomUUID()}`;
+    const c = creerCoffre({ url: URL_BAO, jeton: bao.jeton("courtier"), fetch: async () => new Response(JSON.stringify({ data: { data: { nom: "code", valeur: COURTE } } }), { status: 200 }) });
+    const e = await refus(c.lireValeur(A, ref), "coffre_indisponible");
+    expect(`${e.message}${e.stack}${JSON.stringify(e)}`).not.toContain(COURTE);
+  });
+});
+
 describe("coffre : requêtes au serveur", () => {
   it("[C-011] une redirection n'est jamais suivie : le jeton et la valeur ne partent pas vers une autre adresse", async () => {
     const vus: (RequestInit | undefined)[] = [];
     const c = creerCoffre({ url: URL_BAO, jeton: "jeton-x", fetch: async (_u, init) => { vus.push(init); return new Response(null, { status: 307, headers: { location: "http://autre.test/" } }); } });
-    await refus(c.rangerIdentifiant(A, "x", "v"));
+    await refus(c.rangerIdentifiant(A, "x", MARQUEUR()));
     expect(vus.length).toBeGreaterThan(0);
     for (const init of vus) expect(init?.redirect).toBe("error");
   });

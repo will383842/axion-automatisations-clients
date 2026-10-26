@@ -42,4 +42,12 @@ describe("LecteurSecrets OpenBao", () => {
       expect(await code(creerLecteurSecretsOpenBao(options(async () => reponse(200, corps))).lire("a/b"))).toBe("coffre_indisponible");
     }
   });
+
+  it("[A-005] lire ne rend jamais un secret de moins de 8 caractères (le masqueur ne saurait pas le cacher), sans le recopier dans l'erreur", async () => {
+    const masqueur = creerMasqueur();
+    const lecteur = creerLecteurSecretsOpenBao(options(async () => reponse(200, { data: { data: { valeur: "1234567" } } }), { masqueur }));
+    const e = await lecteur.lire("a/b").then(() => undefined, (x: ErreurCoffre) => x);
+    expect(e?.code).toBe("coffre_indisponible");
+    expect(`${e?.message}${e?.stack}`).not.toContain("1234567");
+  });
 });

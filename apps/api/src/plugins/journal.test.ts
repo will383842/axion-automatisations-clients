@@ -68,6 +68,42 @@ describe("masquage des secrets dans le journal de l'API", () => {
     expect(() => JSON.parse(sortie)).not.toThrow();
   });
 
+  it("[A-005] une valeur longue choisie par un client ne falsifie pas la structure du journal : seules les valeurs de texte sont masquées", () => {
+    const m = creerMasqueur();
+    for (const piege of ['","tenant":"', '{"level":', "/api/portail/v1/", MARQUEUR]) m.ajouter(piege);
+    const lignes: string[] = [];
+    const flux = creerFluxJournal(m, (l) => lignes.push(l));
+    flux.write(`{"level":30,"reqId":"3f2b8c1e","tenant":"a1b2","url":"/api/portail/v1/identifiants","msg":"échec ${MARQUEUR}"}\n`);
+    const sortie = lignes.join("");
+    expect(sortie.endsWith("\n")).toBe(true);
+    const ligne = JSON.parse(sortie) as Record<string, unknown>;
+    expect(ligne.level).toBe(30);
+    expect(ligne.reqId).toBe("3f2b8c1e");
+    expect(ligne.tenant).toBe("a1b2");
+    expect(ligne.msg).toBe("échec [masqué]");
+  });
+
+  it("[A-005] les champs de traçabilité (tenant, reqId) ne sont jamais masqués : un client ne peut pas effacer l'identifiant d'un autre", () => {
+    const m = creerMasqueur();
+    const autre = "9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a";
+    m.ajouter(autre); // un client range l'identifiant d'un autre comme « secret »
+    m.ajouter("req-0001-aaaa");
+    const lignes: string[] = [];
+    creerFluxJournal(m, (l) => lignes.push(l)).write(`${JSON.stringify({ level: 30, reqId: "req-0001-aaaa", tenant: autre, tenantId: autre, msg: "ok" })}\n`);
+    const ligne = JSON.parse(lignes.join("")) as Record<string, unknown>;
+    expect(ligne.tenant).toBe(autre);
+    expect(ligne.tenantId).toBe(autre);
+    expect(ligne.reqId).toBe("req-0001-aaaa");
+  });
+
+  it("[A-005] une ligne qui n'est pas du JSON est masquée comme texte brut", () => {
+    const m = creerMasqueur();
+    m.ajouter(MARQUEUR);
+    const lignes: string[] = [];
+    creerFluxJournal(m, (l) => lignes.push(l)).write(`texte libre ${MARQUEUR}\n`);
+    expect(lignes.join("")).toBe("texte libre [masqué]\n");
+  });
+
   it("[A-005] le masqueur ignore une valeur vide et laisse le reste du texte intact", () => {
     const m = creerMasqueur();
     m.ajouter("");

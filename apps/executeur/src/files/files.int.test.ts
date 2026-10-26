@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { Queue, type Job } from "bullmq";
 import { Redis } from "ioredis";
 import { afterAll, describe, expect, it } from "vitest";
@@ -7,12 +8,21 @@ import { PlanificateursBullMQ, synchroniser } from "./planificateur.ts";
 import { PlacesValkey, Semaphore } from "./semaphore.ts";
 import { creerTravailleur, type Travail } from "./travailleur.ts";
 
-// Contre le Valkey du socle (job socle-integration) : TEST_VALKEY_HOTE et TEST_VALKEY_PORT, fournis par le job.
-const hote = process.env.TEST_VALKEY_HOTE ?? "";
-const port = process.env.TEST_VALKEY_PORT ?? "6379";
+// Contre le Valkey du socle (job socle-integration). TEST_VALKEY_HOTE/TEST_VALKEY_PORT priment ;
+// sinon l'adresse du conteneur est lue avec docker inspect, comme pour apps/api.
+const docker = (...args: string[]) => execFileSync("docker", args, { encoding: "utf8" }).trim();
+function adresse(): { hote: string; port: string; motDePasse?: string | undefined } {
+  if (process.env.TEST_VALKEY_HOTE) return { hote: process.env.TEST_VALKEY_HOTE, port: process.env.TEST_VALKEY_PORT ?? "6379" };
+  const id = docker("ps", "-q", "--filter", "label=com.docker.compose.project=socle", "--filter", "label=com.docker.compose.service=valkey");
+  const hote = docker("inspect", "-f", "{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}", id).split(" ")[0] ?? "";
+  const env = JSON.parse(docker("inspect", "-f", "{{json .Config.Env}}", id)) as string[];
+  const motDePasse = env.find((e) => e.startsWith("VALKEY_MOT_DE_PASSE="))?.slice("VALKEY_MOT_DE_PASSE=".length);
+  return { hote, port: "6379", motDePasse };
+}
+const { hote, port, motDePasse } = adresse();
 const unique = () => `essai-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const config = chargerConfig({ VALKEY_HOTE: hote, VALKEY_PORT: port, EXECUTEUR_BAIL_PLACE_MS: "400", EXECUTEUR_CONCURRENCE: "8" });
-const connexion = () => new Redis({ host: hote, port: Number(port), maxRetriesPerRequest: null });
+const connexion = () => new Redis({ host: hote, port: Number(port), password: motDePasse, maxRetriesPerRequest: null });
 
 const ferme: { quit?: () => Promise<unknown>; close?: () => Promise<unknown> }[] = [];
 afterAll(async () => {
@@ -40,7 +50,9 @@ describe("places Valkey", () => {
     for (let i = 0; i < 4; i++) {
       await attendre(config.bailPlaceMs / 2);
       expect(await sem.prolonger("client-a", "p1")).toBe(true);
+      expect(await sem.prolonger("client-a", "p2")).toBe(true);
     }
+    expect(await sem.prolonger("client-a", "inconnu")).toBe(false);
     expect(await sem.acquerir("client-a", "essentiel", "p3")).toBe(false);
     await sem.liberer("client-a", "p1");
     expect(await sem.acquerir("client-a", "essentiel", "p3")).toBe(true);

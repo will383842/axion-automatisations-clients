@@ -27,10 +27,15 @@ export async function traiter(travail: Travail, d: Dependances): Promise<Resulta
   if (!(await d.semaphore.acquerir(travail.clientId, travail.palier, proprietaire))) {
     return { statut: "remis", delaiMs: d.delaiRemiseMs ?? 5_000 };
   }
+  // Le bail est renouvelé tant que le travail tourne : sans cela, une place expirerait en plein travail.
+  const renouveler = setInterval(() => {
+    d.semaphore.prolonger(travail.clientId, proprietaire).catch(() => undefined);
+  }, Math.max(1, Math.floor(d.semaphore.bailMs / 3)));
   try {
     await d.executer(travail);
     return { statut: "fait" };
   } finally {
+    clearInterval(renouveler);
     await d.semaphore.liberer(travail.clientId, proprietaire);
   }
 }
@@ -50,6 +55,6 @@ export function creerTravailleur(
         throw new DelayedError();
       }
     },
-    { connection: connexion, prefix: "axion" },
+    { connection: connexion, prefix: "axion", concurrency: config.concurrence },
   );
 }

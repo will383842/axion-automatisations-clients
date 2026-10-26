@@ -4,6 +4,8 @@ import type { ConfigExecuteur, Palier } from "../config.ts";
 // Places par CLIENT (pas par instance) : un bail expire pour qu'une place perdue revienne.
 export interface Places {
   prendre(clientId: string, limite: number, proprietaire: string, bailMs: number): Promise<boolean>;
+  // Repousse l'échéance d'une place déjà tenue ; faux si elle a été perdue entre-temps.
+  prolonger(clientId: string, proprietaire: string, bailMs: number): Promise<boolean>;
   rendre(clientId: string, proprietaire: string): Promise<void>;
 }
 
@@ -14,6 +16,12 @@ export class Semaphore {
   ) {}
   acquerir(clientId: string, palier: Palier, proprietaire: string): Promise<boolean> {
     return this.places.prendre(clientId, this.config.placesParPalier[palier], proprietaire, this.config.bailPlaceMs);
+  }
+  prolonger(clientId: string, proprietaire: string): Promise<boolean> {
+    return this.places.prolonger(clientId, proprietaire, this.config.bailPlaceMs);
+  }
+  get bailMs(): number {
+    return this.config.bailPlaceMs;
   }
   liberer(clientId: string, proprietaire: string): Promise<void> {
     return this.places.rendre(clientId, proprietaire);
@@ -32,6 +40,14 @@ export class PlacesMemoire implements Places {
     pris.set(proprietaire, t + bailMs);
     return true;
   }
+  async prolonger(clientId: string, proprietaire: string, bailMs: number) {
+    const t = this.maintenant();
+    const pris = this.#m.get(clientId);
+    const fin = pris?.get(proprietaire);
+    if (!pris || fin === undefined || fin <= t) return false;
+    pris.set(proprietaire, t + bailMs);
+    return true;
+  }
   async rendre(clientId: string, proprietaire: string) {
     this.#m.get(clientId)?.delete(proprietaire);
   }
@@ -47,16 +63,29 @@ if redis.call('ZSCORE', KEYS[1], ARGV[4]) or redis.call('ZCARD', KEYS[1]) < tonu
 end
 return 0`;
 
+const PROLONGER = `
+if redis.call('ZSCORE', KEYS[1], ARGV[3]) and tonumber(redis.call('ZSCORE', KEYS[1], ARGV[3])) > tonumber(ARGV[1]) then
+  redis.call('ZADD', KEYS[1], tonumber(ARGV[1]) + tonumber(ARGV[2]), ARGV[3])
+  redis.call('PEXPIRE', KEYS[1], ARGV[2])
+  return 1
+end
+return 0`;
+
 export class PlacesValkey implements Places {
   constructor(
     private client: Redis,
     private cellule: string,
   ) {}
   private cle = (clientId: string) => `axion:places:${this.cellule}:${clientId}`;
-  async prendre(clientId: string, limite: number, proprietaire: string, bailMs: number) {
+  private async maintenant() {
     const [secondes = 0, micro = 0] = await this.client.time();
-    const maintenant = Number(secondes) * 1000 + Math.floor(Number(micro) / 1000);
-    return (await this.client.eval(PRENDRE, 1, this.cle(clientId), maintenant, bailMs, limite, proprietaire)) === 1;
+    return Number(secondes) * 1000 + Math.floor(Number(micro) / 1000);
+  }
+  async prendre(clientId: string, limite: number, proprietaire: string, bailMs: number) {
+    return (await this.client.eval(PRENDRE, 1, this.cle(clientId), await this.maintenant(), bailMs, limite, proprietaire)) === 1;
+  }
+  async prolonger(clientId: string, proprietaire: string, bailMs: number) {
+    return (await this.client.eval(PROLONGER, 1, this.cle(clientId), await this.maintenant(), bailMs, proprietaire)) === 1;
   }
   async rendre(clientId: string, proprietaire: string) {
     await this.client.zrem(this.cle(clientId), proprietaire);

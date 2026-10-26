@@ -12,8 +12,9 @@ export function versRepetition(d: Declencheur): Repetition {
 }
 
 // Travail unique : la clé est la demande, deux clics sur la même demande ne font qu'un travail.
+// BullMQ refuse un jobId à « : » sauf exactement trois parties : les identifiants sont encodés.
 export function demandeManuelle(instanceId: string, demande: string) {
-  return { jobId: `manuel:${instanceId}:${demande}`, data: { instanceId } };
+  return { jobId: `manuel:${encodeURIComponent(instanceId)}:${encodeURIComponent(demande)}`, data: { instanceId } };
 }
 
 export interface Curseurs {

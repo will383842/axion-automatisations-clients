@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { load } from "js-yaml";
 import { describe, expect, it } from "vitest";
+import { genererIndex, lireDepot } from "./adr-index.js";
 
 // Images dérivées temporaires (ADR 0014). Les fichiers sont lus par de vrais analyseurs : Dockerfile instruction par instruction, YAML par js-yaml.
 
@@ -338,7 +339,7 @@ describe("images dérivées : documents", () => {
   it("[A-381] README des images, ADR 0014 et Dependabot docker existent", () => {
     expect(lire("ops/images/README.md")).toContain("postgres-derivee");
     expect(lire("docs/adr/0014-images-derivees.md")).toContain("Trivy");
-    expect(lire("docs/adr/README.md")).toContain("| 0014 |");
+    expect(genererIndex(lireDepot(fileURLToPath(new URL("..", import.meta.url))).adrs)).toContain("| 0014 |");
     const dependabot = load(lire(".github/dependabot.yml")) as { updates: { "package-ecosystem": string; directory: string }[] };
     expect(dependabot.updates.filter((u) => u["package-ecosystem"] === "docker").map((u) => u.directory)).toEqual(["/ops/images/postgres-derivee"]);
   });

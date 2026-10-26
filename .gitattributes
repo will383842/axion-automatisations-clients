@@ -1,1 +1,6 @@
 * text=auto eol=lf
+
+# Fichiers ajoutés ligne à ligne : fusion locale sans conflit (ADR 0029). Pas de JSON ni de lockfile.
+spec/preuves.md merge=union
+ops/secrets-inventaire.md merge=union
+docs/localisation-des-donnees.md merge=union

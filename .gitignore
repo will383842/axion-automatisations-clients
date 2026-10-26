@@ -11,3 +11,4 @@ coverage/
 *.pem
 *.key
 next-env.d.ts
+docs/adr/index.md

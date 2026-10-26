@@ -21,7 +21,12 @@ const decl = (portees: string[]): DeclarationConnecteur => ({
   ],
 });
 
-const SUITES = { agenda, stockage, comptabilite, crm, "messagerie-equipe": messagerieEquipe } as const;
+type Suite = {
+  CAS: unknown[];
+  fabriqueMemoire: (s: { nom: string }) => unknown;
+  jouerSuite: (f: (s: { nom: string }) => unknown) => Promise<{ ok: boolean }[]>;
+};
+const SUITES = { agenda, stockage, comptabilite, crm, "messagerie-equipe": messagerieEquipe } as unknown as Record<string, Suite>;
 
 describe("interfaces des familles", () => {
   it("[A-399] chaque famille de la liste a son interface et sa suite", async () => {
@@ -37,10 +42,7 @@ describe("interfaces des familles", () => {
   });
   it("[A-399] un connecteur incomplet échoue la suite de sa famille", async () => {
     for (const [nom, suite] of Object.entries(SUITES)) {
-      const vide: typeof suite.fabriqueMemoire = async (s) => {
-        const banc = await suite.fabriqueMemoire(s);
-        return { ...banc, connecteur: {} as never };
-      };
+      const vide = async (s: { nom: string }) => ({ ...(await suite.fabriqueMemoire(s) as object), connecteur: {} });
       expect((await suite.jouerSuite(vide)).some((r) => !r.ok), nom).toBe(true);
     }
   });

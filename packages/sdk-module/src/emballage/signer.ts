@@ -15,9 +15,18 @@ export function chaineASigner(empreinte: string): string {
   return `axion-module\nv1\n${empreinte}`;
 }
 
+// Seuls les chemins relatifs simples désignent un fichier : sans \0, saut de ligne, \, segment vide, . ou .. ni __proto__.
+// Ainsi un chemin ne peut pas imiter plusieurs lignes de l'empreinte, ni toucher le prototype d'une copie.
+export function cheminValide(chemin: string): boolean {
+  if (chemin === "" || /[\0\r\n\\]/.test(chemin)) return false;
+  return chemin.split("/").every((segment) => segment !== "" && segment !== "." && segment !== ".." && segment !== "__proto__");
+}
+
 // Empreinte de tous les fichiers sauf signature.json, dans l'ordre des chemins.
 export function empreinteArtefact(fichiers: Artefact): string {
-  const lignes = Object.keys(fichiers)
+  const chemins = Object.keys(fichiers);
+  if (!chemins.every(cheminValide)) throw new Error("chemin d'artefact invalide");
+  const lignes = chemins
     .filter((chemin) => chemin !== FICHIER_SIGNATURE)
     .sort()
     .map((chemin) => `${chemin}\0${createHash("sha256").update(fichiers[chemin] as Uint8Array).digest("hex")}\n`);

@@ -10,7 +10,7 @@ const REFUS: ResultatVerification = { ok: false, code: "module_non_signe" };
 // l'appelant charge depuis cette copie, jamais depuis une relecture (TOCTOU).
 export function verifierArtefact(artefact: Artefact, clesPubliques: readonly ClePublique[]): ResultatVerification {
   try {
-    const fichiers: Artefact = {};
+    const fichiers: Artefact = Object.create(null) as Artefact;
     for (const chemin of Object.keys(artefact)) fichiers[chemin] = Uint8Array.from(artefact[chemin] as Uint8Array);
     const brut = fichiers[FICHIER_SIGNATURE];
     if (brut === undefined) return REFUS;
@@ -20,9 +20,12 @@ export function verifierArtefact(artefact: Artefact, clesPubliques: readonly Cle
     if (v !== 1 || algo !== "ed25519") return REFUS;
     if (typeof idCle !== "string" || typeof empreinte !== "string" || typeof signature !== "string") return REFUS;
     if (empreinte !== empreinteArtefact(fichiers)) return REFUS;
-    const cle = clesPubliques.find((c) => c.idCle === idCle);
-    if (cle === undefined || cle.revoquee === true) return REFUS;
-    const valide = verify(null, Buffer.from(chaineASigner(empreinte)), createPublicKey(cle.publique), Buffer.from(signature, "base64"));
+    const candidates = clesPubliques.filter((c) => c.idCle === idCle);
+    const cle = candidates[0];
+    if (cle === undefined || candidates.some((c) => c.revoquee === true)) return REFUS;
+    const publique = createPublicKey(cle.publique);
+    if (publique.asymmetricKeyType !== "ed25519") return REFUS;
+    const valide = verify(null, Buffer.from(chaineASigner(empreinte)), publique, Buffer.from(signature, "base64"));
     return valide ? { ok: true, fichiers } : REFUS;
   } catch {
     return REFUS;

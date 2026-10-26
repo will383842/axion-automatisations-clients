@@ -1,4 +1,4 @@
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,7 +9,12 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 const PROJET = "socle";
 const MARQUEUR = `MARQUEUR-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
-const sortie = (cmd: string, args: string[]) => execFileSync(cmd, args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+// Une commande en échec lève une erreur qui porte sa sortie : sans elle, le journal de la CI ne dit pas pourquoi.
+const sortie = (cmd: string, args: string[]) => {
+  const r = spawnSync(cmd, args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  if (r.status !== 0) throw new Error(`${cmd} ${args.join(" ")} : code ${String(r.status)}\n--- sortie\n${r.stdout}\n--- erreur\n${r.stderr}`);
+  return r.stdout;
+};
 const conteneur = (service: string) =>
   sortie("docker", ["ps", "-q", "--filter", `label=com.docker.compose.project=${PROJET}`, "--filter", `label=com.docker.compose.service=${service}`]).trim();
 const dans = (service: string, ...cmd: string[]) => sortie("docker", ["exec", "-i", conteneur(service), ...cmd]);
@@ -32,7 +37,12 @@ beforeAll(() => {
   sql("console", `insert into essai_sauvegarde select g, '${MARQUEUR}-' || g from generate_series(1, 200) g on conflict do nothing`);
   sommeSource = sql("console", SOMME);
   // « pgbackrest check » avant la première sauvegarde (sinon l'archivage échoue sans bruit), puis la complète de nuit.
-  dans("postgres", "/opt/sauvegardes/sauvegarder-nuit.sh");
+  try {
+    dans("postgres", "/opt/sauvegardes/sauvegarder-nuit.sh");
+  } catch (e) {
+    const journal = spawnSync("docker", ["exec", conteneur("postgres"), "sh", "-c", "tail -n 60 /var/log/pgbackrest/*.log 2>&1"], { encoding: "utf8" }).stdout;
+    throw new Error(`${String(e)}\n--- journal pgBackRest\n${journal}`);
+  }
 }, 240_000);
 
 afterAll(() => {

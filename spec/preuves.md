@@ -15,6 +15,10 @@ A-052 → test « [A-052] un travail d'une instance d'une autre cellule est refu
 A-268 → tests [A-268] de apps/executeur/src/files/files.test.ts (paliers 2, 4 et 8, concurrence, configuration validée), 2026-10-26
 A-328 → ADR 0025 et tests [A-328] de apps/executeur/src/bac-a-sable/bac-a-sable.test.ts (processus distincts, globales, fichiers, environnement, jeton, limites), 2026-10-26
 A-329 → test « [A-329] @isolation l'enfant ne joint aucun hôte… » (apps/executeur/src/bac-a-sable/bac-a-sable.test.ts), étape 1 seulement ; mandataire à l'étape 2, 2026-10-26
+A-062 → fichiers ops/socle/keycloak/royaume-*.json et test « [A-062] les royaumes equipe et clients sont importés et leur découverte OIDC répond » (apps/api/src/auth/keycloak.int.test.ts), 2026-10-26
+C-001 → tests [C-001] de apps/api/src/auth/keycloak.int.test.ts (session de 8 h relue, rafraîchissement refusé après déconnexion forcée), 2026-10-26
+C-002 → tests [C-002] de apps/api/src/auth/keycloak.int.test.ts (mot de passe seul sans jeton ni code, TOTP exigé) et de scripts/garde-royaumes.test.ts, 2026-10-26
+C-003 → tests [C-003] de apps/api/src/auth/keycloak.int.test.ts (acr « mfa » dans le jeton réel, max_age=0 renouvelle auth_time) et ADR 0024, 2026-10-26
 C-522 → ADR 0022, ops/briques/stockage.json et test « [C-522] ops/briques/stockage.json et le compose passent la garde des briques… » (apps/api/src/stockage/stockage.test.ts), 2026-10-26
 A-061 → tests [A-061] @isolation de apps/api/src/stockage/stockage.int.test.ts (job socle-integration, brique SeaweedFS réelle) et de stockage.test.ts, 2026-10-26
 C-081 → tests [C-081] de packages/sdk-module/src/prospection/prospection.test.ts, 2026-10-26

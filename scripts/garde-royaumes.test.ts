@@ -53,7 +53,7 @@ function equipe(): Royaume {
         standardFlowEnabled: true,
         directAccessGrantsEnabled: false,
         implicitFlowEnabled: false,
-        secret: "${env.KC_SECRET_CONSOLE}",
+        secret: "${KC_SECRET_CONSOLE}",
         attributes: { "pkce.code.challenge.method": "S256" },
         defaultClientScopes: ["basic", "profile"],
         optionalClientScopes: [],
@@ -92,6 +92,9 @@ describe("garde-royaumes : octroi direct et clients", () => {
   it("[LOT1-kc] refuse un secret de client en clair", () => {
     const r = equipe();
     r.clients[0].secret = "valeur-en-clair";
+    expect(verifier(r).join()).toMatch(/secret/);
+    // La forme « ${env.NOM} » n'est pas substituée par l'import de Keycloak : elle resterait un secret littéral.
+    r.clients[0].secret = "${env.KC_SECRET_CONSOLE}";
     expect(verifier(r).join()).toMatch(/secret/);
   });
   it("[LOT1-kc] refuse un client sans PKCE S256 et le flux implicite", () => {
@@ -238,5 +241,59 @@ describe("garde-royaumes : double facteur", () => {
     expect(verifier(r, "royaume-clients.json")).toEqual([]);
     r.clients[0].directAccessGrantsEnabled = true;
     expect(verifier(r, "royaume-clients.json").join()).toMatch(/directAccessGrantsEnabled/);
+  });
+});
+
+describe("garde-royaumes : niveau d'authentification (acr)", () => {
+  // Montage de Keycloak 26 : sous-flux CONDITIONAL « niveau » = condition de niveau (REQUIRED) puis sous-flux du double facteur (REQUIRED).
+  const avecNiveau = (): Royaume => {
+    const r = equipe();
+    r.authenticatorConfig = [{ alias: "niveau-mfa", config: { "loa-condition-level": "2" } }];
+    cible(r, "formulaire-equipe").authenticationExecutions[1] = { flowAlias: "niveau-mfa-equipe", authenticatorFlow: true, requirement: "CONDITIONAL" };
+    r.authenticationFlows.push({
+      alias: "niveau-mfa-equipe",
+      authenticationExecutions: [
+        { authenticator: "conditional-level-of-authentication", authenticatorConfig: "niveau-mfa", requirement: "REQUIRED" },
+        { flowAlias: "double-facteur-equipe", authenticatorFlow: true, requirement: "REQUIRED" },
+      ],
+    });
+    r.clients[0].attributes["minimum.acr.value"] = "mfa";
+    return r;
+  };
+  const executionsNiveau = (r: Royaume) => cible(r, "niveau-mfa-equipe").authenticationExecutions as Royaume[];
+  it("[C-002] garde-royaumes refuse le double facteur sous une condition autre que le niveau", () => {
+    const r = avecNiveau();
+    executionsNiveau(r)[0] = { authenticator: "conditional-user-configured", requirement: "REQUIRED" };
+    expect(verifier(r).join()).toMatch(/double facteur/);
+    const deux = avecNiveau();
+    executionsNiveau(deux).unshift({ authenticator: "conditional-user-configured", requirement: "REQUIRED" });
+    expect(verifier(deux).join()).toMatch(/double facteur/);
+  });
+  it("[C-002] garde-royaumes refuse un niveau demandé inférieur à 2", () => {
+    const r = avecNiveau();
+    r.authenticatorConfig[0].config["loa-condition-level"] = "1";
+    expect(verifier(r).join()).toMatch(/double facteur/);
+  });
+  it("[C-002] garde-royaumes refuse un client de l'équipe sans minimum.acr.value", () => {
+    const r = avecNiveau();
+    delete r.clients[0].attributes["minimum.acr.value"];
+    expect(verifier(r).join()).toMatch(/minimum\.acr\.value/);
+  });
+  it("[C-003] accepte le double facteur sous la seule condition de niveau d'authentification", () => {
+    expect(verifier(avecNiveau())).toEqual([]);
+  });
+  it("[C-003] le royaume de l'équipe pose le niveau mfa par le sous-flux du double facteur et expose acr dans le jeton", () => {
+    const r = JSON.parse(lire("royaume-equipe.json")) as Royaume;
+    expect(r.attributes["acr.loa.map"]).toBe('{"mfa":"2"}');
+    expect(r.authenticatorConfig).toEqual([expect.objectContaining({ alias: "niveau-mfa", config: expect.objectContaining({ "loa-condition-level": "2" }) })]);
+    const formulaire = r.authenticationFlows.find((f: Royaume) => f.alias === "formulaire-equipe");
+    expect(formulaire.authenticationExecutions).toContainEqual(expect.objectContaining({ flowAlias: "niveau-mfa-equipe", requirement: "CONDITIONAL" }));
+    const niveau = r.authenticationFlows.find((f: Royaume) => f.alias === "niveau-mfa-equipe");
+    expect(niveau.authenticationExecutions).toEqual([
+      expect.objectContaining({ authenticator: "conditional-level-of-authentication", requirement: "REQUIRED" }),
+      expect.objectContaining({ flowAlias: "double-facteur-equipe", requirement: "REQUIRED" }),
+    ]);
+    expect(r.clients[0].defaultClientScopes).toContain("acr");
+    expect(verifierRoyaume("royaume-equipe.json", JSON.stringify(r))).toEqual([]);
   });
 });

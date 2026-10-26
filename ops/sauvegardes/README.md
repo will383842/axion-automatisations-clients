@@ -19,4 +19,4 @@ Rangée dans OpenBao (`technique/sauvegardes`) ; une copie hors ligne, en un lie
 - Disques chiffrés LUKS (A-196, partie disques).
 - Mesure de la remise en service en 4 h (C-044, partie remise en service).
 - Second dépôt pgBackRest des mensuelles.
-- Publication de l'image `postgres-sauvegarde` par `images-derivees.yml` sur `main`, puis remplacement de l'empreinte nulle dans `ops/briques/pgbackrest.json` et `compose.sauvegardes.yml`.
+- Fait : image `postgres-sauvegardes-pitr` publiée sur `main` par `images-derivees.yml` (exécution 40405513754), empreinte réelle dans `ops/briques/pgbackrest.json` et `compose.sauvegardes.yml`.

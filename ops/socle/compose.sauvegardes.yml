@@ -2,7 +2,7 @@
 # et ajoute une cible SFTP d'essai qui imite la Storage Box. Réseau interne seulement. Clé SSH et phrase d'essai : générées au lancement, dans un volume jetable.
 services:
   postgres:
-    image: ghcr.io/will383842/axion-automatisations-clients/postgres-sauvegarde:16-r1@sha256:0000000000000000000000000000000000000000000000000000000000000000
+    image: ghcr.io/will383842/axion-automatisations-clients/postgres-sauvegardes-pitr:16-r41-r75@sha256:05c30a0b3fbdb098f11f0a843fd1e61ce5c2f0726dca84840d68fe92c37f453a
     environment:
       SAUVEGARDE_ESSAI: "1"
       PGBACKREST_CONFIG: /tmp/pgbackrest.conf
@@ -23,7 +23,7 @@ services:
       sftp-essai:
         condition: service_started
   cle-essai:
-    image: ghcr.io/will383842/axion-automatisations-clients/postgres-sauvegarde:16-r1@sha256:0000000000000000000000000000000000000000000000000000000000000000
+    image: ghcr.io/will383842/axion-automatisations-clients/postgres-sauvegardes-pitr:16-r41-r75@sha256:05c30a0b3fbdb098f11f0a843fd1e61ce5c2f0726dca84840d68fe92c37f453a
     restart: "no"
     user: "0:0"
     environment:

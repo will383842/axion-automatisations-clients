@@ -39,6 +39,7 @@ Les secrets de l'équipe vivent dans Bitwarden ou sous `technique/` d'OpenBao, J
 | `SOCLE_CERTS` | construction | environnement de construction | générés à chaque lancement |
 | `SOCLE_PG_MOT_DE_PASSE` | construction | environnement de construction | généré à chaque lancement |
 | `SOCLE_VALKEY_MOT_DE_PASSE` | construction | environnement de construction | généré à chaque lancement |
+| `SOCLE_STOCKAGE_MOT_DE_PASSE` | construction | environnement de construction | généré à chaque lancement |
 
 ## Secrets rangés dans OpenBao
 

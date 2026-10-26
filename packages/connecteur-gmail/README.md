@@ -1,6 +1,6 @@
 # connecteur-gmail
 
-Connecteur de la famille messagerie pour Gmail (API v1, appels `fetch`, aucune bibliothèque Google). Fermé par défaut : `CONNECTEURS_MESSAGERIE_OUVERT=1` et `CONNECTEUR_GMAIL_OUVERT=1` pour l'ouvrir (le second reste à `false` tant que la fiche de conformité n'est pas signée) ; l'adresse de base vient de `GMAIL_URL`, **obligatoire et sans valeur par défaut**. Chaque appel a un délai maximal (15 s). Relié par l'équipe avec le client, jamais en libre-service. Choix : ADR 0027.
+Connecteur de la famille messagerie pour Gmail (API v1, appels `fetch`, aucune bibliothèque Google). Fermé par défaut : `CONNECTEURS_MESSAGERIE_OUVERT=1` et `CONNECTEUR_GMAIL_OUVERT=1` pour l'ouvrir (le second reste à `false` tant que la fiche de conformité n'est pas signée) ; l'adresse de base vient de `GMAIL_URL`, **obligatoire et sans valeur par défaut**. Chaque appel a un délai maximal (15 s). Relié par l'équipe avec le client, jamais en libre-service. Choix : ADR 0030.
 
 - Actions : `lister_nouveaux` (liste de `INBOX`, puis `history.list` ; `curseurHistorique()` rend le curseur `h:<historyId>`, 404 → liste complète sans redonner les messages déjà rendus), `lire`, `etiqueter` (l'étiquette est créée si besoin), `creer_brouillon`, `envoyer`.
 - Garantie de `envoyer` : `verifiable_apres_coup`. Le message porte le `Message-ID` choisi et `X-Axion-Intention` ; `verifierApresCoup(jeton, messageId)` cherche dans « Envoyés » : `trouve`, `absent` ou `indetermine` (une erreur ou un délai donne `indetermine`, jamais `absent`). Le noyau vérifie avant tout renvoi.

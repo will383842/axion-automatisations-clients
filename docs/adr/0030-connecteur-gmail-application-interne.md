@@ -1,6 +1,6 @@
-# 0027 · Connecteur Gmail par l'application interne du client
+# 0030 · Connecteur Gmail par l'application interne du client
 
-Date : 26/10/2026 · Statut : accepté par l'architecte (délégué par will383842)
+Date : 26/10/2026 · Statut : proposé, à confirmer par l'architecte
 
 ## Contexte
 Un client Google se relie par une application Google INTERNE créée dans son propre compte Workspace : aucune application Google d'AXION IA, aucune vérification de sécurité externe en V1. Le connecteur Gmail (T4-13) suit le modèle du connecteur Microsoft 365 : appels HTTP par `fetch`, aucune bibliothèque Google.
@@ -14,3 +14,6 @@ Un client Google se relie par une application Google INTERNE créée dans son pr
 ## Conséquences
 - À vérifier la nuit avec un vrai compte de test : Gmail doit conserver le `Message-ID` fourni ; sinon la recherche après coup devra s'appuyer sur un autre repère.
 - Aucune dépendance ajoutée.
+
+## À vérifier la nuit, sur un vrai compte
+La vérification après coup passe par la recherche `rfc822msgid:` de Gmail, donc par son index de recherche. Il faut mesurer si un message tout juste envoyé y est trouvé tout de suite ; sinon une vérification immédiate rendrait `absent` à tort et permettrait un doublon.

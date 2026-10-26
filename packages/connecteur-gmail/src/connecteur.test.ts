@@ -144,6 +144,23 @@ describe("connecteur Gmail sur réponses enregistrées", () => {
     expect(c.curseurHistorique()).toBe("h:300");
   });
 
+  it("[A-386] repli après un 404 sur plusieurs pages : aucune page ne redonne un message déjà traité", async () => {
+    const c = avec([
+      g("/profile", { historyId: "100" }), g("/messages", { messages: [{ id: "m-1" }], nextPageToken: "t1" }),
+      g("/messages", { messages: [{ id: "m-2" }] }),
+      g("/history", { error: { code: 404 } }, 404),
+      g("/profile", { historyId: "300" }), g("/messages", { messages: [{ id: "m-1" }], nextPageToken: "t1" }),
+      g("/messages", { messages: [{ id: "m-2" }, { id: "m-3" }] }),
+    ]);
+    const p1 = await c.listerNouveaux(jeton(), null);
+    await c.listerNouveaux(jeton(), p1.suivant);
+    const r1 = await c.listerNouveaux(jeton(), "h:100");
+    expect(r1.ids).toEqual([]);
+    const r2 = await c.listerNouveaux(jeton(), r1.suivant);
+    expect(r2.ids).toEqual(["m-3"]);
+    expect(c.curseurHistorique()).toBe("h:300");
+  });
+
   it("[A-275] un Gmail muet est coupé au délai maximal : erreur passagère, jamais un blocage", async () => {
     const muet = ((_url: string, init: RequestInit = {}) => new Promise((_ok, ko) => init.signal?.addEventListener("abort", () => ko(init.signal?.reason)))) as never;
     const c = creerConnecteurGmail({ url: BASE, fetch: muet, delaiMs: 20, maintenant: () => MAINTENANT });

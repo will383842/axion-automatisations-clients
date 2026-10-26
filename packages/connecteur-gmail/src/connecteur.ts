@@ -40,6 +40,8 @@ export function creerConnecteurGmail(options: OptionsGmailConnecteur): Connecteu
   let historique: string | null = null;
   // Historique lu avant la liste complète en cours : un message arrivé pendant la liste sera relu, jamais perdu.
   let avantListe: string | null = null;
+  // Vrai pendant toute la liste de repli après un 404 : chaque page est filtrée par `traites`.
+  let repli = false;
   const traites = new Set<string>();
 
   // Le journal ne reçoit que l'action, la classe et le code : jamais un corps, un objet ou une adresse.
@@ -75,7 +77,10 @@ export function creerConnecteurGmail(options: OptionsGmailConnecteur): Connecteu
     const page = objet(await gmail.requete(jeton, "GET", `/messages?${q}`));
     const suivant = typeof page["nextPageToken"] === "string" ? page["nextPageToken"] : null;
     if (suivant === null && avantListe) historique = `h:${avantListe}`;
-    return { ids: ids(page["messages"], (m) => m["id"]), suivant: suivant === null ? null : `l:${suivant}` };
+    const trouves = ids(page["messages"], (m) => m["id"]);
+    const reste = repli ? trouves.filter((id) => !traites.has(id)) : trouves;
+    if (suivant === null) repli = false;
+    return { ids: reste, suivant: suivant === null ? null : `l:${suivant}` };
   }
 
   async function depuis(jeton: JetonCourt, depart: string, jetonPage: string | undefined): Promise<Page> {
@@ -85,8 +90,8 @@ export function creerConnecteurGmail(options: OptionsGmailConnecteur): Connecteu
     } catch (e) {
       // historyId trop vieux : on repart d'une liste complète, sans redonner ce qui a déjà été traité.
       if (!(e instanceof ErreurConnecteur) || e.code !== "http_404") throw e;
-      const complete = await liste(jeton, null);
-      return { ...complete, ids: complete.ids.filter((id) => !traites.has(id)) };
+      repli = true;
+      return liste(jeton, null);
     }
     const suivant = typeof page["nextPageToken"] === "string" ? page["nextPageToken"] : null;
     if (suivant === null && typeof page["historyId"] === "string") historique = `h:${page["historyId"]}`;

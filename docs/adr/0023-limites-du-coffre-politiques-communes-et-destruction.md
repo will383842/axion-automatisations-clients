@@ -1,6 +1,6 @@
 # 0023 · Limites du coffre : politiques communes à tous les clients et droit de destruction de `api`
 
-Date : 26/10/2026 · Statut : proposé (aucune décision prise ; l'architecte et `will383842` tranchent)
+Date : 26/10/2026 · Statut : accepté pour le masquage du journal (décision d'architecte du 26/10/2026) ; proposé pour les points 1 et 2
 
 ## Contexte
 La livraison de T1A-06 (OpenBao, coffre et chiffrement par enveloppe) a relevé deux limites. Cette fiche ne les corrige pas : elle les pose pour décision.
@@ -13,7 +13,7 @@ Pour 1 : politiques par client, générées à la création du client (un jeton 
 Pour 2 : retirer la destruction au rôle `api` et la confier à un rôle dédié, utilisé seulement par une action humaine réauthentifiée ; ou garder le droit avec une double validation hors du code (deux approbations).
 
 ## Décision
-Aucune pour l'instant. Chaque option demande un test d'isolation propre et, si un contrat change, l'accord de l'architecte.
+Aucune pour les points 1 et 2 pour l'instant ; le masquage du journal est tranché dans la section « Décision d'architecte » ci-dessous. Chaque option demande un test d'isolation propre et, si un contrat change, l'accord de l'architecte.
 
 ## Conséquences en attendant
 - Les politiques actuelles restent en place.
@@ -34,3 +34,4 @@ Conséquences :
 - Un besoin réel de secret de moins de 8 caractères (un code PIN) devra être porté dans une autre forme (par exemple avec un préfixe) ou passer par un nouvel ADR.
 - Le code ne doit jamais placer une valeur venue d'un client dans `reqId`, `tenant` ou `tenantId`.
 - Limites acceptées : un nom de champ n'est pas masqué ; le masquage reste global au processus (pas limité à la requête du client). Le coût de `ajouter` (retri à chaque ajout) reste à traiter avant de brancher le masqueur au démarrage.
+- Limite ouverte : quand le masqueur sera branché, limiter l'exemption des champs de traçabilité (`reqId`, `tenant`, `tenantId`) au premier niveau de la ligne, et traiter le coût de `ajouter` avant de le brancher.

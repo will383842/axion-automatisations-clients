@@ -1,7 +1,7 @@
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
-import { calculerEmpreinte } from "../../scripts/empreinte.ts";
+import { calculerEmpreintes } from "../../scripts/empreinte.ts";
 import { Configuration, DUREE_CACHE_MAX_SECONDES } from "./configuration.ts";
 import { EtatVoulu } from "./etat-voulu.ts";
 import { Paquet } from "./evenements-executeur.ts";
@@ -100,10 +100,10 @@ describe("contrat C4 : échanges exécuteur ↔ console", () => {
     const copie = mkdtempSync(`${tmpdir()}/c4-empreinte-`);
     try {
       for (const d of ["fixtures", "src/c1", "src/c2"]) cpSync(`${racine}${d}`, `${copie}/${d}`, { recursive: true });
-      const publiee = readFileSync(`${racine}contrats.sha256`, "utf8");
-      expect(calculerEmpreinte(copie)).toBe(publiee);
+      const publiee = readFileSync(`${racine}empreintes/c4.sha256`, "utf8");
+      expect(calculerEmpreintes(copie).c4).toBe(publiee);
       writeFileSync(`${copie}/fixtures/c4/paquets.json`, `${readFileSync(`${copie}/fixtures/c4/paquets.json`, "utf8")} `);
-      expect(calculerEmpreinte(copie)).not.toBe(publiee);
+      expect(calculerEmpreintes(copie).c4).not.toBe(publiee);
     } finally {
       rmSync(copie, { recursive: true, force: true });
     }

@@ -1,0 +1,19 @@
+{
+  "nom": "etiquette",
+  "appels": [
+    {
+      "methode": "etiqueter",
+      "reponse": null
+    },
+    {
+      "methode": "lire",
+      "reponse": {
+        "id": "m-1",
+        "etiquettes": [
+          "a-traiter"
+        ]
+      }
+    }
+  ],
+  "envoyes": 0
+}

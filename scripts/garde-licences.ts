@@ -19,6 +19,9 @@ const EXCEPTIONS_DEV: Record<string, string> = { argparse: "Python-2.0", minimat
 // Comparaison exacte du nom du paquet ET de la licence entière (jamais d'atome d'une expression composée).
 const EXCEPTION_PRODUCTION = { paquet: "caniuse-lite", licence: "CC-BY-4.0" };
 
+// Exception NOMMÉE pour ce qui est livré chez un client (ADR 0020) : tslib sous 0BSD, comparaison exacte du paquet ET de la licence entière.
+const EXCEPTION_LIVRE = { paquet: "tslib", licence: "0BSD" };
+
 type Paquets = Record<string, { name: string }[]>;
 
 // Expression SPDX : AND lie plus fort que OR, parenthèses récursives. Toute expression illisible est refusée.
@@ -79,7 +82,10 @@ export function verifierLicencesLivrees(parLicence: Paquets, cible: string): str
   const erreurs: string[] = [];
   for (const [licence, paquets] of Object.entries(parLicence)) {
     if (expressionPermise(licence, (id) => LIVRE.has(id))) continue;
-    for (const p of paquets) erreurs.push(`${p.name} : licence « ${licence} » non permise dans ${cible} (livré chez un client)`);
+    for (const p of paquets) {
+      if (licence === EXCEPTION_LIVRE.licence && p.name === EXCEPTION_LIVRE.paquet) continue;
+      erreurs.push(`${p.name} : licence « ${licence} » non permise dans ${cible} (livré chez un client)`);
+    }
   }
   return erreurs;
 }
@@ -104,11 +110,14 @@ function lireWorkflow(f: Fichier): Obj | string {
 // On ne cherche pas à reconnaître les contournements : ajouter une action, une commande ou un réglage = modifier ces listes (relecture de l'architecte).
 const canon = (v: unknown): string => String(JSON.stringify(v, (_k, x) => (estObj(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : 1))) : x)));
 const cles = (o: Obj, ok: string[]) => Object.keys(o).every((k) => ok.includes(k));
+// Concurrence : forme EXACTE autorisée (annule les exécutions obsolètes d'une PR, jamais celles de main).
+const CONCURRENCE = canon({ group: "${{ github.workflow }}-${{ github.head_ref || github.ref }}", "cancel-in-progress": "${{ github.event_name == 'pull_request' }}" });
+const concurrenceOk = (doc: Obj) => doc.concurrency === undefined || canon(doc.concurrency) === CONCURRENCE;
 const PERSIST = { "persist-credentials": false };
 const NODE = { "node-version-file": ".nvmrc" };
 // « uses » : texte EXACT connu (jamais de motif : un SHA inconnu peut venir d'un fork, « commit imposteur »).
 const ACTIONS: [string, unknown[]][] = [
-  ["actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1", [undefined, PERSIST, { ...PERSIST, "fetch-depth": 0 }, { ...PERSIST, ref: "${{ github.event.repository.default_branch }}" }]],
+  ["actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1", [undefined, PERSIST, { ...PERSIST, "fetch-depth": 0 }, { ...PERSIST, "fetch-depth": 2 }, { ...PERSIST, ref: "${{ github.event.repository.default_branch }}" }]],
   ["actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1", [NODE]],
   ["actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a", [{ name: "rapport-couverture", path: "rapport-couverture.json" }]],
   ["github/codeql-action/init@8498dc4c2b27cdd99baf0f87955b29ebbf30c78d", [{ languages: "javascript-typescript", "build-mode": "none" }]],
@@ -135,14 +144,15 @@ const RUN_OK = new Set([
   "corepack enable", INSTALLER, GARDE, "pnpm -r typecheck", "pnpm lint", "pnpm test", "pnpm test:compter", "pnpm test --project packages/harnais",
   "pnpm vitest run --reporter=json --outputFile=rapport-vitest.json", "pnpm exec vitest run --project integration --reporter=json --outputFile=rapport-integration.json",
   'pnpm audit --json > "$RUNNER_TEMP/audit.json" || true', 'node scripts/audit-dependances.ts "$RUNNER_TEMP/audit.json"', "node scripts/garde-workflows.ts .github/workflows",
-  "node scripts/compter-tests.ts rapport-tests.json", "node scripts/compter-tests.ts --rapport rapport-integration.json --reference spec/compte-tests-integration.json",
+  "node scripts/compter-tests.ts rapport-tests.json", "node scripts/compter-tests.ts --projet integration --rapport rapport-integration.json",
   "node scripts/couverture-req.ts rapport-vitest.json rapport-playwright.json", "node scripts/garde-couleurs.ts", "node scripts/garde-donnees-reelles.ts", "node scripts/garde-migrations.ts",
-  'node scripts/scanner-journaux.ts "$RUNNER_TEMP/texte"', "git fetch --no-tags origin main:refs/remotes/origin/main", "ops/socle/lancer.sh", "ops/socle/arreter.sh", "node scripts/garde-briques.ts",
+  'node scripts/scanner-journaux.ts "$RUNNER_TEMP/texte"', "ops/socle/lancer.sh", "ops/socle/arreter.sh", "node scripts/garde-briques.ts",
 ]);
 // Blocs de plusieurs lignes : empreinte SHA-256 du texte (controle-journaux ×2, nuit, socle-integration, squelettes-web).
 const BLOCS = new Set([
   "91d880b8d946344fb442e64a8f8ff4c6eb2e25266d2d4323be61ae56e8cbcfc0", "5cd6fd64e4938d39c80bac4b7d85814c9c830b5c1af5f0b7ce439360ae98e36c", "e2650042d59f0d28585d19828302efac1a54e9b198fe25ec140de1ce00e69b2e",
   "0fd60f11b15695a31240caf38b0dc6261a44d31e6e69d3b3efb7a109e0d33917", "1ee1fc7af3202d9908c3dff871f61c9ad720a975cdfec88cf13c6d5eae58d11c",
+  "44f16a54a5416fefe33b04f0b5a9373d797664be6bc1fdcc8bb47d4a8a506046", // garde-briques : attestation de chaque image dérivée
 ]);
 // Les blocs de images-derivees.yml (dérivée alpine, puis image du socle) (ADR 0014) : acceptés dans ce fichier seulement.
 const BLOCS_IMAGES = new Set([
@@ -175,7 +185,7 @@ function formeConnue(f: Fichier, doc: Obj): string[] {
     if (!cles(doc, ["name", "description", "runs"]) || !estObj(doc.runs) || doc.runs.using !== "composite" || !cles(doc.runs, ["using", "steps"])) return [`${f.nom} : action de forme inconnue`];
     jobs = [doc.runs];
   } else {
-    if (!cles(doc, ["name", "on", "permissions", "jobs"]) || !estObj(doc.jobs) || !Object.keys(doc.jobs).length) return [`${f.nom} : workflow de forme inconnue`];
+    if (!cles(doc, ["name", "on", "permissions", "concurrency", "jobs"]) || !concurrenceOk(doc) || !estObj(doc.jobs) || !Object.keys(doc.jobs).length) return [`${f.nom} : workflow de forme inconnue`];
     jobs = Object.values(doc.jobs);
   }
   const clesJob = composite ? ["using", "steps"] : ["name", "runs-on", "permissions", "services", "env", "steps", "needs", "if", "timeout-minutes"];
@@ -249,7 +259,7 @@ export function verifierWorkflowsLicences(workflows: Fichier[]): string[] {
       erreurs.push(doc);
       continue;
     }
-    if (!surChaquePr(doc) || !cles(doc, ["name", "on", "permissions", "jobs"])) continue;
+    if (!surChaquePr(doc) || !cles(doc, ["name", "on", "permissions", "concurrency", "jobs"]) || !concurrenceOk(doc)) continue;
     if (Object.values(estObj(doc.jobs) ? doc.jobs : {}).some((job) => estObj(job) && jobLanceGarde(job))) trouve = true;
   }
   if (!trouve) erreurs.push("aucun workflow ne lance « node scripts/garde-licences.ts » sur chaque PR dans la forme exacte attendue");

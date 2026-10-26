@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { calculerEmpreinte } from "../scripts/empreinte.ts";
+import { calculerEmpreintes } from "../scripts/empreinte.ts";
 import { schemasJson } from "../scripts/signer-fixtures.ts";
 import { Fait } from "./c2/faits.ts";
 import { PREFIXE_C1, ROUTES_C1, type RouteC1 } from "./c1/routes.ts";
@@ -16,8 +16,17 @@ const cas = (dossier: string) =>
     .map((f) => ({ f, ...(JSON.parse(lire(`fixtures/${dossier}/${f}`)) as { cas: Cas[] }) }));
 
 describe("fixtures signées", () => {
-  it("[LOT0-contrats] contrats.sha256 correspond aux fichiers", () => {
-    expect(lire("contrats.sha256")).toBe(calculerEmpreinte(racine.pathname));
+  it("[C-538] une empreinte par contrat, chaque fichier d'empreintes correspond aux fichiers de son contrat", () => {
+    const attendu = calculerEmpreintes(racine.pathname);
+    expect(Object.keys(attendu)).toEqual(["c1", "c2", "c3", "c4", "c6"]);
+    expect(readdirSync(new URL("empreintes/", racine)).sort()).toEqual(Object.keys(attendu).map((c) => `${c}.sha256`));
+    for (const [c, texte] of Object.entries(attendu)) expect(lire(`empreintes/${c}.sha256`), c).toBe(texte);
+  });
+  it("[C-538] l'empreinte d'un contrat ne contient que ses fichiers, et l'ancien fichier agrégé a disparu", () => {
+    for (const [c, texte] of Object.entries(calculerEmpreintes(racine.pathname))) {
+      for (const l of texte.trim().split("\n")) expect(l, c).toMatch(new RegExp(`  (fixtures|src)/${c}/`));
+    }
+    expect(() => lire("contrats.sha256")).toThrow();
   });
 
   it("[LOT0-contrats] les JSON Schema commités sont à jour", () => {

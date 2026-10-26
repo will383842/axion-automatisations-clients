@@ -1,7 +1,15 @@
 export * from "./connecteurs.ts";
+export * from "./contexte.ts";
 export * from "./declencheurs.ts";
 export * from "./effets.ts";
 export * from "./erreurs.ts";
 export * from "./etapes.ts";
 export * from "./ia.ts";
 export * from "./manifeste.ts";
+export * from "./ecrans/composants.ts";
+export * from "./ecrans/valider.ts";
+export * from "./reglages/defauts.ts";
+export * from "./reglages/migrer.ts";
+export { ReglageRefuse } from "./reglages/options.ts";
+export { REFERENCE, trouverEnClair } from "./reglages/references.ts";
+export * from "./reglages/valider.ts";

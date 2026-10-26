@@ -176,6 +176,13 @@ describe("garde-licences : liste blanche des workflows", () => {
   it("[C-020] chaque installation de la CI est dans la liste blanche", () => {
     expect(verifierInstallationsFigees(dossier())).toEqual([]);
   });
+  it("[C-020] la concurrence n'est acceptée que dans la forme exacte (annulation des PR, jamais de main)", () => {
+    const exacte = { group: "${{ github.workflow }}-${{ github.head_ref || github.ref }}", "cancel-in-progress": "${{ github.event_name == 'pull_request' }}" };
+    const avec = (concurrency: unknown) => verifierInstallationsFigees(fich(wf([{ uses: CHECKOUT }, INSTALLER], {}, { concurrency })));
+    expect(avec(exacte)).toEqual([]);
+    expect(avec({ ...exacte, "cancel-in-progress": true })).not.toEqual([]);
+    expect(avec({ group: "x" })).not.toEqual([]);
+  });
   it("[C-020] accepte seulement les formes exactes : installation figée, bloc connu, actions épinglées", () => {
     const ok = (etapes: Obj[]) => verifierInstallationsFigees(fich(wf(etapes)));
     expect(ok([{ uses: CHECKOUT }, { run: "corepack enable" }, INSTALLER, { run: "pnpm lint" }])).toEqual([]);
@@ -460,5 +467,22 @@ describe("garde-licences : workflow garde-briques", () => {
   const reel = () => lire(".github/workflows/garde-briques.yml");
   it("[C-020] garde-briques.yml réel accepté par la liste blanche", () => {
     expect(verifierInstallationsFigees([{ nom: "garde-briques.yml", texte: reel() }])).toEqual([]);
+  });
+});
+
+describe("garde-licences : exception 0BSD nommée pour tslib dans ce qui est livré (ADR 0020)", () => {
+  const livre = (licence: string, nom: string) => verifierLicencesLivrees({ [licence]: paquet(nom) }, "apps/executeur");
+
+  it("[A-375] accepte tslib en 0BSD dans ce qui est livré", () => {
+    expect(livre("0BSD", "tslib")).toEqual([]);
+  });
+  it("[A-375] refuse un autre paquet en 0BSD dans ce qui est livré", () => {
+    for (const nom of ["autre", "@evil/tslib", "tslib2", "Tslib"]) expect(livre("0BSD", nom), nom).toHaveLength(1);
+  });
+  it("[A-375] refuse tslib sous une autre licence ou une expression composite", () => {
+    for (const licence of ["GPL-3.0", "0bsd", "0BSD ", "0BSD OR GPL-3.0", "0BSD AND MIT", "(0BSD)"]) expect(livre(licence, "tslib"), licence).toHaveLength(1);
+  });
+  it("[A-375] l'exception ne rend pas 0BSD permise pour les autres paquets d'une même liste", () => {
+    expect(verifierLicencesLivrees({ "0BSD": [...paquet("tslib"), ...paquet("autre")] }, "apps/executeur")).toHaveLength(1);
   });
 });

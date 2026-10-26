@@ -61,6 +61,25 @@
     },
     "note": {
       "type": "string"
+    },
+    "derivee": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Image dérivée construite par images-derivees.yml (ADR 0014, ADR 0016) : dépôt ghcr.io/will383842/axion-automatisations-clients/, attestation vérifiée par garde-briques.yml.",
+      "required": [
+        "amont",
+        "dockerfile"
+      ],
+      "properties": {
+        "amont": {
+          "type": "string",
+          "pattern": "^[^\\s@]+@sha256:[0-9a-f]{64}$"
+        },
+        "dockerfile": {
+          "type": "string",
+          "pattern": "^ops/images/[^/]+/Dockerfile$"
+        }
+      }
     }
   }
 }

@@ -1,0 +1,36 @@
+{
+  "nom": "etiquette",
+  "echanges": [
+    {
+      "methode": "GET",
+      "chemin": "/me/messages/m-1",
+      "statut": 200,
+      "corps": {
+        "id": "m-1",
+        "categories": []
+      }
+    },
+    {
+      "methode": "PATCH",
+      "chemin": "/me/messages/m-1",
+      "statut": 200,
+      "corps": {
+        "id": "m-1",
+        "categories": [
+          "a-traiter"
+        ]
+      }
+    },
+    {
+      "methode": "GET",
+      "chemin": "/me/messages/m-1",
+      "statut": 200,
+      "corps": {
+        "id": "m-1",
+        "categories": [
+          "a-traiter"
+        ]
+      }
+    }
+  ]
+}

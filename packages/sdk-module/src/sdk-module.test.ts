@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { defineAutomation, type Manifeste } from "./index.ts";
+import { CLES_CONTEXTE, defineAutomation, type Manifeste } from "./index.ts";
 import { moduleExemple, manifesteExemple } from "../exemples/module-exemple.ts";
 
 const avec = (surcharge: Record<string, unknown>) => ({ ...manifesteExemple, ...surcharge }) as unknown as Manifeste;
@@ -97,5 +97,32 @@ describe("defineAutomation (C4 v0)", () => {
     const entree = { actionsAutomatiquesAutorisees: ["accuser_reception"], objetAccuse: "Bien reçu" };
     const premiere = JSON.stringify(moduleExemple.migrer("1.0.0", entree));
     for (let i = 0; i < 100; i++) expect(JSON.stringify(moduleExemple.migrer("1.0.0", entree))).toBe(premiere);
+  });
+
+  it("[LOT4-c4] une étape sans fonction d'exécution est refusée", () => {
+    expect(() => defineAutomation(avec({ etapes: [{ nom: "accuser" }] }))).toThrow(/executer/);
+    expect(() => defineAutomation(avec({ etapes: [{ nom: "accuser", executer: "accuser.js" }] }))).toThrow(/executer/);
+  });
+
+  it("[LOT4-c4] le champ nouvellesTentatives n'existe plus : la politique d'erreurs fixe les essais", () => {
+    expect(() => defineAutomation(avec({ etapes: [{ nom: "accuser", executer: async () => undefined, nouvellesTentatives: 2 }] }))).toThrow(/nouvellesTentatives|etapes/);
+  });
+
+  it("[LOT4-c4] le contexte d'étape n'expose aucune méthode de lecture d'un autre fil ou d'un autre client", () => {
+    expect([...CLES_CONTEXTE].sort()).toEqual(["effet", "ia", "noterMotif", "reglages", "signal"]);
+    for (const cle of CLES_CONTEXTE) expect(cle, cle).not.toMatch(/lire|lecture|fil|client|instance|autre|connecteurs/i);
+  });
+
+  it("[LOT4-c4] une action déclarée par deux connecteurs est refusée par defineAutomation", () => {
+    const connecteurs = [
+      { famille: "messagerie", actions: ["envoyer"], portees: ["envoi"], garantie: "idempotent_par_cle" },
+      { famille: "agenda", actions: ["envoyer"], portees: ["ecriture"], garantie: "au_plus_une_fois" },
+    ];
+    expect(() => defineAutomation(avec({ connecteurs }))).toThrow(/envoyer/);
+  });
+
+  it("[LOT4-c4] deux étapes de même nom sont refusées", () => {
+    const executer = async () => undefined;
+    expect(() => defineAutomation(avec({ etapes: [{ nom: "accuser", executer }, { nom: "accuser", executer }] }))).toThrow(/accuser/);
   });
 });

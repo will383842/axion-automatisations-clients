@@ -1,0 +1,19 @@
+{
+  "nom": "envoi",
+  "echanges": [
+    {
+      "methode": "POST",
+      "chemin": "/me/messages",
+      "statut": 201,
+      "corps": {
+        "id": "b-1",
+        "internetMessageId": "<m-1.essai@exemple.fr>"
+      }
+    },
+    {
+      "methode": "POST",
+      "chemin": "/me/messages/b-1/send",
+      "statut": 202
+    }
+  ]
+}

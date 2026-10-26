@@ -1,0 +1,10 @@
+{
+  "nom": "inattendue",
+  "echanges": [
+    {
+      "methode": "GET",
+      "chemin": "/me/messages/m-1",
+      "reseau": true
+    }
+  ]
+}

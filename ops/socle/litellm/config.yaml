@@ -1,0 +1,38 @@
+# Passerelle IA (A-058, C-024). Aucun texte d'échange gardé, aucun cache, aucun rappel vers un service tiers.
+# La clé maîtresse et les clés des fournisseurs ne sont PAS ici : demarrer.sh les lit dans OpenBao (C-598 d).
+# Taux de prix FICTIFS (nombre rond sans rapport avec un vrai prix) ; les vrais prix restent dans le dépôt privé.
+model_list:
+  - model_name: claude-standard
+    litellm_params:
+      model: openai/faux-claude
+      api_base: http://faux-fournisseur.test:4010/v1
+      api_key: os.environ/FOURNISSEUR_FAUX_CLE
+      input_cost_per_token: 0.0001 # fictif
+      output_cost_per_token: 0.0001 # fictif
+  - model_name: mistral-souverain
+    litellm_params:
+      model: openai/faux-mistral
+      api_base: http://faux-fournisseur.test:4010/v1
+      api_key: os.environ/FOURNISSEUR_FAUX_CLE
+      input_cost_per_token: 0.0001 # fictif
+      output_cost_per_token: 0.0001 # fictif
+  - model_name: gpt-option
+    litellm_params:
+      model: openai/faux-gpt
+      api_base: http://faux-fournisseur.test:4010/v1
+      api_key: os.environ/FOURNISSEUR_FAUX_CLE
+      input_cost_per_token: 0.0001 # fictif
+      output_cost_per_token: 0.0001 # fictif
+litellm_settings:
+  turn_off_message_logging: true
+  cache: false
+  set_verbose: false
+  success_callback: []
+  failure_callback: []
+  callbacks: []
+  # Budget global du jour (C-598 b) : toute la passerelle refuse au-delà. Valeur FICTIVE, remplacée au lot 8a.
+  max_budget: 10 # fictif
+  budget_duration: 1d
+general_settings:
+  store_prompts_in_spend_logs: false
+  database_url: os.environ/DATABASE_URL

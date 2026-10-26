@@ -7,7 +7,8 @@ import { afterAll, describe, expect, it } from "vitest";
 import { evaluer, relever } from "./releve-trivy.js";
 
 const JOUR = 86_400_000;
-const maintenant = new Date("2026-10-25T00:00:00Z");
+// Horloge réelle : le processus --garde lit la date du jour, une date figée finit par dépasser les seuils.
+const maintenant = new Date();
 const il_y_a = (jours: number) => new Date(maintenant.getTime() - jours * JOUR).toISOString();
 const rapport = (...vulns: object[]) => ({ Results: [{ Target: "x", Vulnerabilities: vulns }] });
 const avis = (id: string, Severity: string, jours: number, FixedVersion: string | null = "2.0") => ({

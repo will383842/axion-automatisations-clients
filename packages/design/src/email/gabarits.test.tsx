@@ -35,6 +35,6 @@ describe("gabarits d'e-mail (React Email)", () => {
   it("[C-586] chaque couleur de l'e-mail vient des jetons", async () => {
     const html = await render(message);
     const permises = new Set(aplatir(jetons).map(([, valeur]) => valeur.toLowerCase()));
-    for (const c of couleursDe(html)) expect(permises.has(c.toLowerCase()), c).toBe(true);
+    for (const c of couleursDe(html.replace(/&#\d+;/g, ""))) expect(permises.has(c.toLowerCase()), c).toBe(true);
   });
 });

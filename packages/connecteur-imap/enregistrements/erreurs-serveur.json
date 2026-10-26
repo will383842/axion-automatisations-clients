@@ -1,0 +1,12 @@
+[
+  { "nom": "imap_identification_refusee", "erreur": { "authenticationFailed": true, "serverResponseCode": "AUTHENTICATIONFAILED", "responseText": "Authentication failed" }, "classe": "identification", "code": "identification_refusee" },
+  { "nom": "imap_quota_depasse", "erreur": { "serverResponseCode": "OVERQUOTA", "responseText": "[OVERQUOTA] Mailbox is full" }, "classe": "quota", "code": "quota_depasse" },
+  { "nom": "imap_coupure", "erreur": { "code": "ECONNRESET", "message": "read ECONNRESET" }, "classe": "passagere", "code": "coupure" },
+  { "nom": "imap_delai", "erreur": { "code": "ETIMEDOUT", "message": "connect ETIMEDOUT" }, "classe": "passagere", "code": "coupure" },
+  { "nom": "smtp_identification_refusee", "erreur": { "code": "EAUTH", "responseCode": 535, "response": "535 5.7.8 Authentication failed" }, "classe": "identification", "code": "identification_refusee" },
+  { "nom": "smtp_421", "erreur": { "code": "EENVELOPE", "responseCode": 421, "response": "421 4.7.0 Too many connections" }, "classe": "quota", "code": "quota_depasse" },
+  { "nom": "smtp_452", "erreur": { "code": "EENVELOPE", "responseCode": 452, "response": "452 4.2.2 Mailbox full" }, "classe": "quota", "code": "quota_depasse" },
+  { "nom": "smtp_coupure", "erreur": { "code": "ECONNECTION", "message": "Connection closed" }, "classe": "passagere", "code": "coupure" },
+  { "nom": "smtp_refus_definitif", "erreur": { "code": "EENVELOPE", "responseCode": 550, "response": "550 5.1.1 User unknown" }, "classe": "definitive", "code": "refus_serveur" },
+  { "nom": "inattendue", "erreur": { "message": "fetch failed", "name": "TypeError" }, "classe": "definitive", "code": "inattendue" }
+]

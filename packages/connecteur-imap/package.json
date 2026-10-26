@@ -1,0 +1,21 @@
+{
+  "name": "@axion-auto/connecteur-imap",
+  "version": "0.0.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "main": "src/connecteur.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json --allowImportingTsExtensions"
+  },
+  "dependencies": {
+    "@axion-auto/connecteurs-commun": "workspace:*",
+    "@axion-auto/sdk-module": "workspace:*",
+    "imapflow": "^2.9.1",
+    "nodemailer": "10.2.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/nodemailer": "^6.4.24"
+  }
+}

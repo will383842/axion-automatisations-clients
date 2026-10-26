@@ -8,6 +8,7 @@ repo1-sftp-host=sftp-essai
 repo1-sftp-host-user=sauv
 repo1-sftp-private-key-file=/cles/id
 repo1-sftp-host-key-check-type=none
+repo1-sftp-host-key-hash-type=sha256
 repo1-cipher-type=aes-256-cbc
 # Rétention (C-049), choix documenté : 30 sauvegardes complètes (les quotidiennes) dans ce dépôt ;
 # les 12 mensuelles vont dans un second dépôt (repo2, 1 sauvegarde par mois, 12 gardées) branché au lot 1-B.

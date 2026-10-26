@@ -13,6 +13,9 @@ export interface Config {
   appDatabaseUrl?: string;
   hubUrl?: string;
   crmUrl?: string;
+  // Interrupteurs des canaux (C-510) : fermés par défaut.
+  hubActif?: boolean;
+  crmActif?: boolean;
 }
 
 // Les clés des fournisseurs d'IA et de la passerelle vivent dans OpenBao seulement (C-391, C-598 d).
@@ -43,12 +46,17 @@ const urlBase = z.string().refine((valeur) => {
   }
 }, "doit viser le rôle console_app, sans paramètre autre que sslmode");
 
+// Seules les valeurs 1 et true ouvrent ; absent ou vide = fermé ; toute autre valeur est refusée.
+const interrupteur = z.preprocess((v) => (v === "" ? undefined : v), z.enum(["0", "1", "true", "false"]).default("0")).transform((v) => v === "1" || v === "true");
+
 const Schema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   APP_DATABASE_URL: urlBase.optional(),
   HUB_URL: urlHttp,
   CRM_URL: urlHttp,
+  CONSOLE_HUB_ACTIF: interrupteur,
+  CONSOLE_CRM_ACTIF: interrupteur,
 });
 
 export function chargerConfig(env: NodeJS.ProcessEnv, dossierApi = fileURLToPath(new URL("..", import.meta.url))): Config {
@@ -65,5 +73,6 @@ export function chargerConfig(env: NodeJS.ProcessEnv, dossierApi = fileURLToPath
     if (!v.APP_DATABASE_URL) throw new ConfigInvalide("configuration invalide : APP_DATABASE_URL");
   }
   const { APP_DATABASE_URL: base, HUB_URL: hub, CRM_URL: crm } = v;
-  return { env: v.NODE_ENV, port: v.PORT, ...(base ? { appDatabaseUrl: base } : {}), ...(hub ? { hubUrl: hub } : {}), ...(crm ? { crmUrl: crm } : {}) };
+  const actifs = { hubActif: v.CONSOLE_HUB_ACTIF, crmActif: v.CONSOLE_CRM_ACTIF };
+  return { env: v.NODE_ENV, port: v.PORT, ...actifs, ...(base ? { appDatabaseUrl: base } : {}), ...(hub ? { hubUrl: hub } : {}), ...(crm ? { crmUrl: crm } : {}) };
 }

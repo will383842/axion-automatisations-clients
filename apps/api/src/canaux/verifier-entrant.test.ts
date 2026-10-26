@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import Fastify from "fastify";
+import Fastify, { type FastifyInstance } from "fastify";
 import { describe, expect, it } from "vitest";
 import { EN_TETES, signer } from "../../../../packages/contrats/src/commun/signature.js";
 import { brancherErreurs } from "../plugins/erreurs.js";
@@ -30,7 +30,7 @@ function monter(options: { actif?: boolean; memoire?: Memoire; acceptees?: Recor
     journal: { info: (o: object) => void options.lignes?.push(o) },
     maintenant: () => MAINTENANT,
   };
-  const routes = (s: typeof serveur) => {
+  const routes = (s: FastifyInstance) => {
     s.post("/ecrire", async (r) => { traites.push(r.body); return { ok: true, corps: r.body }; });
     s.post("/faits", async (r) => { traites.push(r.body); return { ok: true }; });
     s.get("/lire", async () => ({ ok: true }));
@@ -158,8 +158,8 @@ describe("vérification des requêtes entrantes", () => {
     const { serveur } = monter();
     const r = await serveur.inject(requete("/api/hub/v1/ecrire", { idem: null }));
     expect([r.statusCode, code(r)]).toEqual([400, "schema_invalide"]);
-    expect((await serveur.inject(requete("/api/hub/v1/ecrire", { idem: "pas-un-uuid" }))).statusCode).toBe(400);
-    expect((await serveur.inject(requete("/api/hub/v1/faits", { idem: null }))).statusCode).toBe(200);
+    expect((await serveur.inject(requete("/api/hub/v1/ecrire", { idem: "pas-un-uuid", corps: '{"a":2}' }))).statusCode).toBe(400);
+    expect((await serveur.inject(requete("/api/hub/v1/faits", { idem: null, corps: '{"a":3}' }))).statusCode).toBe(200);
     expect((await serveur.inject(requete("/api/crm/v1/faits", { cle: CRM, idem: null }))).statusCode).toBe(400);
   });
 

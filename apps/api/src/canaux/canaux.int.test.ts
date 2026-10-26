@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
-import Fastify from "fastify";
+import Fastify, { type FastifyInstance } from "fastify";
 import { afterAll, describe, expect, it } from "vitest";
 import { EN_TETES, signer } from "../../../../packages/contrats/src/commun/signature.js";
 import { ouvrirConnexion, type Connexion } from "../files/connexion.js";
@@ -27,7 +27,7 @@ function monter(connexion: Connexion) {
   const serveur = Fastify({ genReqId: () => randomUUID() });
   brancherErreurs(serveur);
   const traites: unknown[] = [];
-  enregistrerCanal(serveur, "hub", { cles: { clesAcceptees: async () => [HUB] }, memoire: connexion.client, actif: () => true, maintenant: () => MAINTENANT }, (s) => {
+  enregistrerCanal(serveur, "hub", { cles: { clesAcceptees: async () => [HUB] }, memoire: connexion.client, actif: () => true, maintenant: () => MAINTENANT }, (s: FastifyInstance) => {
     s.post("/ecrire", async (r) => { traites.push(r.body); return { ok: true }; });
   });
   const requete = () => {

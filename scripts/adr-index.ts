@@ -38,7 +38,11 @@ export function lireDepot(racine: string): { adrs: Adr[]; erreurs: string[] } {
   const dossier = join(racine, "docs/adr");
   const adrs: Adr[] = [];
   const erreurs: string[] = [];
-  const fichiers = existsSync(dossier) ? readdirSync(dossier).filter((f) => NOM.test(f)).sort() : [];
+  const tous = existsSync(dossier) ? readdirSync(dossier).sort() : [];
+  for (const f of tous) {
+    if (!NOM.test(f) && f !== "README.md" && f !== "index.md") erreurs.push(`${f} : nom non conforme (attendu « 0000-sujet.md »), ni indexé ni contrôlé`);
+  }
+  const fichiers = tous.filter((f) => NOM.test(f));
   for (const fichier of fichiers) {
     const lu = lireAdr(fichier, readFileSync(join(dossier, fichier), "utf8").split("\n")[0] ?? "");
     if (lu) adrs.push({ fichier, ...lu });

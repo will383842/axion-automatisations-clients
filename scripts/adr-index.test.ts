@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { verifierCouverture } from "./couverture-req.js";
 import { genererIndex, lireAdr, verifierAdr, verifierDepot, type Adr } from "./adr-index.js";
 
 const RACINE = fileURLToPath(new URL("..", import.meta.url));
@@ -54,11 +55,10 @@ describe("fusion de deux branches : fichiers ajoutés ligne à ligne", () => {
   const git = (dossier: string, ...args: string[]) =>
     execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@exemple.fr", ...args], { cwd: dossier, encoding: "utf8" });
 
-  it("[zero-conflit] .gitattributes déclare merge=union pour les fichiers append-only", () => {
+  it("[zero-conflit] .gitattributes déclare merge=union seulement pour spec/preuves.md", () => {
     const attr = lire(".gitattributes");
-    for (const f of ["spec/preuves.md", "ops/secrets-inventaire.md", "docs/localisation-des-donnees.md"]) {
-      expect(attr).toMatch(new RegExp(`^${f.replace(/[.]/g, "\\.")}\\s+merge=union$`, "m"));
-    }
+    expect(attr).toMatch(/^spec\/preuves\.md\s+merge=union$/m);
+    expect(attr.match(/merge=union/g)).toHaveLength(1);
     expect(attr).not.toMatch(/pnpm-lock|\.json.*merge=union/);
   });
 
@@ -95,6 +95,39 @@ describe("fusion de deux branches : fichiers ajoutés ligne à ligne", () => {
     git(d, "checkout", "-q", "b1");
     git(d, "merge", "-q", "--no-edit", "b2");
     expect(readFileSync(join(d, "spec/preuves.md"), "utf8").match(/A-002/g)).toHaveLength(1);
+  });
+
+  it("[zero-conflit] deux branches qui prouvent le même numéro avec des textes différents : la fusion passe, la garde refuse", () => {
+    const d = mkdtempSync(join(tmpdir(), "fusion-"));
+    git(d, "init", "-q", "-b", "main");
+    writeFileSync(join(d, ".gitattributes"), lire(".gitattributes"));
+    mkdirSync(join(d, "spec"));
+    writeFileSync(join(d, "spec/preuves.md"), "C-392 → départ\n");
+    git(d, "add", "."); git(d, "commit", "-qm", "base");
+    for (const [b, texte] of [["b1", "preuve un"], ["b2", "preuve deux"]] as const) {
+      git(d, "checkout", "-qb", b, "main");
+      appendFileSync(join(d, "spec/preuves.md"), `C-555 → ${texte}\n`);
+      git(d, "commit", "-qam", b);
+    }
+    git(d, "checkout", "-q", "b1");
+    git(d, "merge", "-q", "--no-edit", "b2");
+    const preuves = readFileSync(join(d, "spec/preuves.md"), "utf8");
+    expect(preuves.match(/^C-555/gm)).toHaveLength(2);
+    const r = verifierCouverture({ reqs: [], corps: "Exigences : aucune (outillage)", tests: [], preuves });
+    expect(r.erreurs.join("\n")).toContain("C-555 : présent deux fois");
+  });
+
+  it("[zero-conflit] un fichier de docs/adr/ au nom non conforme est signalé", () => {
+    const d = mkdtempSync(join(tmpdir(), "adr-"));
+    mkdirSync(join(d, "docs/adr"), { recursive: true });
+    writeFileSync(join(d, "docs/adr/0021-a.md"), "# 0021 · A\n");
+    writeFileSync(join(d, "docs/adr/README.md"), "x\n");
+    expect(verifierDepot(d)).toEqual([]);
+    writeFileSync(join(d, "docs/adr/0021_b.md"), "# 0021 · B\n");
+    writeFileSync(join(d, "docs/adr/030-a.md"), "# 0030 · C\n");
+    const e = verifierDepot(d).join("\n");
+    expect(e).toContain("0021_b.md : nom non conforme");
+    expect(e).toContain("030-a.md : nom non conforme");
   });
 
   it("[zero-conflit] deux ADR ajoutés par deux branches fusionnent sans toucher un fichier commun", () => {

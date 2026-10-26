@@ -1,0 +1,14 @@
+import { describe, expect, it } from "vitest";
+import { module, reglagesEssai } from "./module.ts";
+
+describe("__CODE__", () => {
+  it("[A-289] le manifeste porte code, version et plage apiMoteur", () => {
+    expect(module.code).toBe("__CODE__");
+    expect(module.version).toMatch(/^\d+\.\d+\.\d+$/);
+    expect(module.apiMoteur).toBeTruthy();
+  });
+
+  it("migrer garde les réglages du client", () => {
+    expect(module.migrer("0.1.0", reglagesEssai)).toMatchObject(reglagesEssai);
+  });
+});

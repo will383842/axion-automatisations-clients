@@ -1,0 +1,19 @@
+{
+  "name": "@axion-auto/__CODE__",
+  "version": "0.1.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "main": "src/module.ts",
+  "scripts": {
+    "test:module": "axion-dev test",
+    "typecheck": "tsc --noEmit -p tsconfig.json --allowImportingTsExtensions"
+  },
+  "devDependencies": {
+    "@axion-auto/axion-dev": "workspace:*"
+  },
+  "dependencies": {
+    "@axion-auto/sdk-module": "workspace:*",
+    "zod": "^4.6.7"
+  }
+}

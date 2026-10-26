@@ -1,5 +1,8 @@
 import { DelayedError, Worker, type Job } from "bullmq";
 import type { Redis } from "ioredis";
+import type { Artefact } from "../../../../packages/sdk-module/src/emballage/signer.js";
+import type { ClePublique } from "../../../../packages/sdk-module/src/emballage/cles-publiques.js";
+import { executerIsole } from "../bac-a-sable/processus.ts";
 import type { ConfigExecuteur, Palier } from "../config.ts";
 import type { Cellule } from "./cellule.ts";
 import type { Semaphore } from "./semaphore.ts";
@@ -18,6 +21,28 @@ export interface Dependances {
   semaphore: Semaphore;
   executer(travail: Travail): Promise<void>;
   delaiRemiseMs?: number;
+}
+
+// Interrupteur fermé par défaut : tant qu'il n'est pas ouvert, aucun module ne se lance.
+export class BacFerme extends Error {
+  readonly code = "bac_ferme";
+  constructor() {
+    super("bac_ferme");
+  }
+}
+
+export interface OptionsBac {
+  actif?: boolean;
+  cles?: readonly ClePublique[];
+}
+
+// Chaque travail tourne dans un processus enfant jetable (T4-19) ; le résultat n'est pas gardé ici.
+export function executerEnBac(chargeur: (travail: Travail) => Promise<Artefact>, options: OptionsBac = {}): Dependances["executer"] {
+  return async (travail) => {
+    if (options.actif !== true) throw new BacFerme();
+    const r = await executerIsole(await chargeur(travail), { executionId: travail.id, entree: { instanceId: travail.instanceId }, cles: options.cles });
+    if (r.statut !== "fait") throw new Error("bac_a_sable_echec");
+  };
 }
 
 // Sans place : le travail est remis en attente avec délai, jamais perdu ni exécuté.

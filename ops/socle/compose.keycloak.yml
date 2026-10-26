@@ -1,0 +1,40 @@
+# Keycloak 26 : connexion de l'équipe (royaume equipe) et des clients (royaume clients). Réseau interne seulement, aucun port publié.
+# Lancé en start-dev (CI) ; les fichiers de royaume importés sont ceux de la production. L'import n'écrase jamais un royaume existant : la CI part d'une base vide.
+# Base « keycloak » en connexion directe (pas de PgBouncer) avec son propre rôle ; mots de passe générés par lancer.sh, jamais écrits ici.
+# Le routage de sso.socle.test vers ce service remplace l'écho d'essai « keycloak » dans une tâche à part : ici, pas de réseau « entree ».
+# La surcouche d'essai (ops/socle/keycloak/essai/) n'est PAS montée : le test l'importe lui-même par l'API d'administration.
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.8.1@sha256:a78d6b79572168cb25886b80a8b5b8d4ed4390743e3eecb810538683e209dd6b
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command:
+      - start-dev
+      - --import-realm
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: keycloak_app
+      KC_DB_PASSWORD: ${SOCLE_KEYCLOAK_BD_MOT_DE_PASSE:?mot de passe de test absent}
+      KC_HEALTH_ENABLED: "true"
+      A: exec 3<>/dev/tcp/127.0.0.1/9000
+      B: printf 'GET /health/ready HTTP/1.0\r\n\r\n' >&3
+      C: while read -r l; do case $$l in *UP*) exit 0;; esac; done <&3
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin-socle
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${SOCLE_KEYCLOAK_ADMIN_MOT_DE_PASSE:?mot de passe de test absent}
+      # Substitués dans les fichiers de royaume (${env.KC_SECRET_…}).
+      KC_SECRET_CONSOLE: ${SOCLE_KEYCLOAK_SECRET_CONSOLE:?secret de test absent}
+      KC_SECRET_PORTAIL: ${SOCLE_KEYCLOAK_SECRET_PORTAIL:?secret de test absent}
+    volumes:
+      - ./keycloak/royaume-equipe.json:/opt/keycloak/data/import/royaume-equipe.json:ro
+      - ./keycloak/royaume-clients.json:/opt/keycloak/data/import/royaume-clients.json:ro
+    networks: [interne]
+    # Prêt = port de gestion (9000), pas le port HTTP : Keycloak met 60 à 90 s à démarrer.
+    # A, B, C : les trois temps de la sonde (ouvrir, demander, lire), en variables courtes car « docker compose config » replie les lignes de plus de 80 colonnes.
+    healthcheck:
+      test: ["CMD-SHELL", 'eval "$$A" && eval "$$B" && eval "$$C" || exit 1']
+      interval: 3s
+      timeout: 5s
+      retries: 90

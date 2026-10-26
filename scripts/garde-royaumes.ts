@@ -9,7 +9,8 @@ const JETON_MAX = 300;
 const FACTEUR_ECHECS_MAX = 5;
 const SECRET_ENV = /^\$\{env\.[A-Z][A-Z0-9_]*\}$/;
 // Seuls authentificateurs permis dans le flux de navigateur de l'équipe : tout autre (SMS, fournisseur d'identité, clé d'accès seule…) est refusé.
-const PERMIS = new Set(["auth-cookie", "auth-username-password-form", "auth-otp-form", "webauthn-authenticator"]);
+// La condition de niveau d'authentification ne sert qu'à poser le niveau « mfa » (acr) APRÈS le double facteur, qui reste REQUIRED à part.
+const PERMIS = new Set(["auth-cookie", "auth-username-password-form", "auth-otp-form", "webauthn-authenticator", "conditional-level-of-authentication"]);
 const FACTEURS = new Set(["auth-otp-form", "webauthn-authenticator"]);
 
 type Objet = Record<string, unknown>;

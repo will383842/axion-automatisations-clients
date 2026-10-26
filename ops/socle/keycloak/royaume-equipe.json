@@ -12,6 +12,9 @@
   "waitIncrementSeconds": 60,
   "browserFlow": "navigateur-equipe",
   "attributes": { "acr.loa.map": "{\"mfa\":\"2\"}" },
+  "authenticatorConfig": [
+    { "alias": "niveau-mfa", "config": { "loa-condition-level": "2", "loa-max-age": "28800", "loa-store-in-user-session": "true" } }
+  ],
   "requiredActions": [
     { "alias": "CONFIGURE_TOTP", "name": "Configurer le TOTP", "providerId": "CONFIGURE_TOTP", "enabled": true, "defaultAction": true, "priority": 10 },
     { "alias": "webauthn-register", "name": "Enregistrer une clé d'accès", "providerId": "webauthn-register", "enabled": true, "defaultAction": true, "priority": 20 }
@@ -34,7 +37,8 @@
       "builtIn": false,
       "authenticationExecutions": [
         { "authenticator": "auth-username-password-form", "requirement": "REQUIRED", "priority": 10, "userSetupAllowed": false, "authenticatorFlow": false },
-        { "flowAlias": "double-facteur-equipe", "requirement": "REQUIRED", "priority": 20, "userSetupAllowed": false, "authenticatorFlow": true }
+        { "flowAlias": "double-facteur-equipe", "requirement": "REQUIRED", "priority": 20, "userSetupAllowed": false, "authenticatorFlow": true },
+        { "flowAlias": "niveau-mfa-equipe", "requirement": "CONDITIONAL", "priority": 30, "userSetupAllowed": false, "authenticatorFlow": true }
       ]
     },
     {
@@ -45,6 +49,15 @@
       "authenticationExecutions": [
         { "authenticator": "webauthn-authenticator", "requirement": "ALTERNATIVE", "priority": 10, "userSetupAllowed": false, "authenticatorFlow": false },
         { "authenticator": "auth-otp-form", "requirement": "ALTERNATIVE", "priority": 20, "userSetupAllowed": false, "authenticatorFlow": false }
+      ]
+    },
+    {
+      "alias": "niveau-mfa-equipe",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        { "authenticator": "conditional-level-of-authentication", "authenticatorConfig": "niveau-mfa", "requirement": "REQUIRED", "priority": 10, "userSetupAllowed": false, "authenticatorFlow": false }
       ]
     }
   ],
@@ -59,7 +72,7 @@
       "directAccessGrantsEnabled": false,
       "implicitFlowEnabled": false,
       "serviceAccountsEnabled": false,
-      "defaultClientScopes": ["basic", "profile"],
+      "defaultClientScopes": ["basic", "profile", "acr"],
       "optionalClientScopes": [],
       "attributes": { "pkce.code.challenge.method": "S256", "default.acr.values": "mfa", "minimum.acr.value": "mfa" },
       "protocolMappers": [

@@ -19,6 +19,9 @@ const EXCEPTIONS_DEV: Record<string, string> = { argparse: "Python-2.0", minimat
 // Comparaison exacte du nom du paquet ET de la licence entière (jamais d'atome d'une expression composée).
 const EXCEPTION_PRODUCTION = { paquet: "caniuse-lite", licence: "CC-BY-4.0" };
 
+// Exception NOMMÉE pour ce qui est livré chez un client (ADR 0020) : tslib sous 0BSD, comparaison exacte du paquet ET de la licence entière.
+const EXCEPTION_LIVRE = { paquet: "tslib", licence: "0BSD" };
+
 type Paquets = Record<string, { name: string }[]>;
 
 // Expression SPDX : AND lie plus fort que OR, parenthèses récursives. Toute expression illisible est refusée.
@@ -79,7 +82,10 @@ export function verifierLicencesLivrees(parLicence: Paquets, cible: string): str
   const erreurs: string[] = [];
   for (const [licence, paquets] of Object.entries(parLicence)) {
     if (expressionPermise(licence, (id) => LIVRE.has(id))) continue;
-    for (const p of paquets) erreurs.push(`${p.name} : licence « ${licence} » non permise dans ${cible} (livré chez un client)`);
+    for (const p of paquets) {
+      if (licence === EXCEPTION_LIVRE.licence && p.name === EXCEPTION_LIVRE.paquet) continue;
+      erreurs.push(`${p.name} : licence « ${licence} » non permise dans ${cible} (livré chez un client)`);
+    }
   }
   return erreurs;
 }

@@ -4,9 +4,9 @@ import { Cellule, InstanceHorsCellule } from "./cellule.ts";
 import { CurseursMemoire, demandeManuelle, executerSondage, versRepetition } from "./declencheurs.ts";
 import { PlanificateursMemoire, synchroniser, type EtatVouluPlanifie } from "./planificateur.ts";
 import { PlacesMemoire, Semaphore } from "./semaphore.ts";
-import { traiter } from "./travailleur.ts";
+import { traiter, type Travail } from "./travailleur.ts";
 
-const config = chargerConfig({});
+const config = chargerConfig({ VALKEY_HOTE: "valkey.test" });
 const actif = (instanceId: string, declencheurs: EtatVouluPlanifie["declencheurs"]): EtatVouluPlanifie => ({
   instanceId, etat: "actif", arretEnvois: false, version: 1, declencheurs,
 });
@@ -49,7 +49,11 @@ describe("sémaphore par client", () => {
   it("[A-268] Pro 4, Étendu 8, Essentiel 2", () => {
     expect(config.placesParPalier).toEqual({ essentiel: 2, pro: 4, etendu: 8 });
   });
-  it("[A-325] un client Essentiel n'a jamais plus de 2 travaux en cours (100 travaux lancés)", async () => {
+  it.each([
+    ["essentiel", 2],
+    ["pro", 4],
+    ["etendu", 8],
+  ] as const)("[A-325] 100 travaux lancés : un client %s ne dépasse jamais %i travaux en cours", async (palier, attendu) => {
     const { sem } = banc();
     const cellule = new Cellule("auto-run-1", ["inst-1", "inst-2"]);
     let enCours = 0;
@@ -62,7 +66,7 @@ describe("sémaphore par client", () => {
       enCours--;
       faits++;
     };
-    const travail = (i: number) => ({ id: `t${i}`, instanceId: i % 2 ? "inst-1" : "inst-2", clientId: "client-a", palier: "essentiel" as const });
+    const travail = (i: number): Travail => ({ id: `t${i}`, instanceId: i % 2 ? "inst-1" : "inst-2", clientId: "client-a", palier });
     const lancer = async (i: number) => {
       for (;;) {
         const r = await traiter(travail(i), { cellule, semaphore: sem, executer });
@@ -73,7 +77,20 @@ describe("sémaphore par client", () => {
     };
     await Promise.all(Array.from({ length: 100 }, (_, i) => lancer(i)));
     expect(faits).toBe(100);
-    expect(max).toBe(2);
+    expect(max).toBe(attendu);
+  });
+  it("[A-325] le bail est renouvelé pendant un long travail : le client ne dépasse pas son palier", async () => {
+    const cfg = { ...config, bailPlaceMs: 60 };
+    const sem = new Semaphore(new PlacesMemoire(() => Date.now()), cfg);
+    const cellule = new Cellule("auto-run-1", ["inst-1"]);
+    const long = traiter(
+      { id: "long", instanceId: "inst-1", clientId: "client-a", palier: "essentiel" },
+      { cellule, semaphore: sem, executer: () => new Promise((r) => setTimeout(r, 300)) },
+    );
+    await new Promise((r) => setTimeout(r, 200));
+    expect(await sem.acquerir("client-a", "essentiel", "autre:1")).toBe(true);
+    expect(await sem.acquerir("client-a", "essentiel", "autre:2")).toBe(false);
+    await long;
   });
   it("[A-325] une place perdue (travailleur tué) revient après l'expiration du bail", async () => {
     const { sem, avancer } = banc();
@@ -109,17 +126,41 @@ describe("déclencheurs", () => {
     expect(demandeManuelle("inst-1", "demande-7")).toEqual(demandeManuelle("inst-1", "demande-7"));
     expect(demandeManuelle("inst-1", "demande-7").jobId).toBe("manuel:inst-1:demande-7");
   });
+  it("[A-292] la clé de la demande ne contient jamais plus de deux « : » (BullMQ refuse sinon)", () => {
+    const { jobId } = demandeManuelle("inst:1", "demande:7:b");
+    expect(jobId.split(":")).toHaveLength(3);
+    expect(jobId).not.toBe(demandeManuelle("inst:1", "demande%3A7:b").jobId);
+  });
 });
 
 describe("cellule", () => {
   it("[A-052] un travail d'une instance d'une autre cellule est refusé", async () => {
     const { sem } = { sem: new Semaphore(new PlacesMemoire(() => 0), config) };
     const cellule = new Cellule("auto-run-1", ["inst-1"]);
-    expect(cellule.nomFile).toBe("executions:auto-run-1");
+    expect(cellule.nomFile).toBe("executions-auto-run-1");
     let appele = false;
     await expect(
       traiter({ id: "t", instanceId: "inst-autre", clientId: "client-a", palier: "pro" }, { cellule, semaphore: sem, executer: async () => void (appele = true) }),
     ).rejects.toBeInstanceOf(InstanceHorsCellule);
     expect(appele).toBe(false);
+  });
+});
+
+describe("configuration", () => {
+  const env = { VALKEY_HOTE: "valkey.test" };
+  it("[A-268] la concurrence du travailleur dépasse le plus grand palier (plusieurs clients à la fois)", () => {
+    expect(config.concurrence).toBeGreaterThan(config.placesParPalier.etendu);
+  });
+  it.each([
+    ["VALKEY_PORT", "abc"],
+    ["EXECUTEUR_BAIL_PLACE_MS", "vite"],
+    ["EXECUTEUR_DELAI_REMISE_MS", ""],
+    ["EXECUTEUR_CONCURRENCE", "0"],
+    ["EXECUTEUR_BAIL_PLACE_MS", "-5"],
+  ])("[A-268] %s=%j est refusé au démarrage", (cle, valeur) => {
+    expect(() => chargerConfig({ ...env, [cle]: valeur })).toThrow(cle);
+  });
+  it("[A-268] sans VALKEY_HOTE, le démarrage est refusé (aucun hôte par défaut)", () => {
+    expect(() => chargerConfig({})).toThrow("VALKEY_HOTE");
   });
 });

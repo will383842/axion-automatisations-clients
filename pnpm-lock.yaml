@@ -173,6 +173,12 @@ importers:
 
   packages/harnais:
     dependencies:
+      '@axion-auto/executeur':
+        specifier: workspace:*
+        version: link:../../apps/executeur
+      '@axion-auto/sdk-module':
+        specifier: workspace:*
+        version: link:../sdk-module
       fastify:
         specifier: ^5.12.7
         version: 5.12.7

@@ -1,4 +1,4 @@
-export * from "./etape.ts";
+export type { ContexteEtape } from "@axion-auto/sdk-module";
 export * from "./horloge.ts";
 export * from "./intention.ts";
 export * from "./machine.ts";

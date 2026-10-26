@@ -5,7 +5,16 @@
       { "type": "fin", "instanceId": "inst-0001", "executionId": "exec-0001", "dureeMs": 1200, "elements": 3, "minutesGagnees": 15, "jetons": 800, "coutIaMicroCentimes": 4200 }
     ] } },
     { "nom": "signal de vie seul", "valide": true, "corps": { "evenements": [
+      { "type": "signal_de_vie", "instanceId": "inst-0001", "celluleId": "auto-run-1", "a": "2026-10-24T10:00:30Z" }
+    ] } },
+    { "nom": "signal de vie sans cellule", "valide": false, "corps": { "evenements": [
       { "type": "signal_de_vie", "instanceId": "inst-0001", "a": "2026-10-24T10:00:30Z" }
+    ] } },
+    { "nom": "a trancher avec code fermé", "valide": true, "corps": { "evenements": [
+      { "type": "a_trancher", "instanceId": "inst-0001", "executionId": "exec-0001", "etape": "accuser", "code": "effet_incertain" }
+    ] } },
+    { "nom": "a trancher avec message libre", "valide": false, "corps": { "evenements": [
+      { "type": "a_trancher", "instanceId": "inst-0001", "executionId": "exec-0001", "etape": "accuser", "code": "effet_incertain", "message": "texte libre" }
     ] } },
     { "nom": "erreur avec message libre", "valide": false, "corps": { "evenements": [
       { "type": "erreur", "instanceId": "inst-0001", "executionId": "exec-0001", "classe": "definitive", "code": "refus_outil", "message": "texte libre" }

@@ -27,8 +27,18 @@ const ManifesteSchema = z
     apiMoteur: z.string().regex(/\d/, "plage semver attendue"),
     reglages: Reglages,
     declencheurs: z.array(Declencheur).min(1),
-    etapes: z.array(Etape).min(1),
-    connecteurs: z.array(Connecteur),
+    etapes: z
+      .array(Etape)
+      .min(1)
+      .superRefine((l, ctx) => {
+        const double = l.map((e) => e.nom).find((n, i, noms) => noms.indexOf(n) !== i);
+        if (double) ctx.addIssue({ code: "custom", message: `deux étapes portent le même nom : ${double}` });
+      }),
+    connecteurs: z.array(Connecteur).superRefine((l, ctx) => {
+      const actions = l.flatMap((c) => c.actions);
+      const double = actions.find((a, i) => actions.indexOf(a) !== i);
+      if (double) ctx.addIssue({ code: "custom", message: `action déclarée par deux connecteurs : ${double}` });
+    }),
     ia: Ia,
     jeuEssai: z
       .array(Cas)

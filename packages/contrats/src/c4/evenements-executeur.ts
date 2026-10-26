@@ -5,8 +5,11 @@ import { Identifiant } from "./configuration.ts";
 export const CLASSES_ERREUR = ["passagere", "quota", "identification", "definitive"] as const;
 
 const Entier = z.number().int().nonnegative();
+const Code = z.string().regex(/^[a-z][a-z0-9_]{2,63}$/);
 const Execution = { instanceId: Identifiant, executionId: Identifiant };
 
+// Règles de relivraison (ADR 0018) : executionId est dérivé du déclencheur, donc une relivraison le garde ;
+// la console compte un seul debut et un seul fin par (instanceId, executionId).
 export const Evenement = z.discriminatedUnion("type", [
   z.object({ type: z.literal("debut"), ...Execution, a: z.iso.datetime() }).strict(),
   z
@@ -21,9 +24,11 @@ export const Evenement = z.discriminatedUnion("type", [
     })
     .strict(),
   z
-    .object({ type: z.literal("erreur"), ...Execution, classe: z.enum(CLASSES_ERREUR), code: z.string().regex(/^[a-z][a-z0-9_]{2,63}$/) })
+    .object({ type: z.literal("erreur"), ...Execution, classe: z.enum(CLASSES_ERREUR), code: Code })
     .strict(),
-  z.object({ type: z.literal("signal_de_vie"), instanceId: Identifiant, a: z.iso.datetime() }).strict(),
+  // Effet peut-être parti (C-534) : l'exécuteur s'arrête, un humain tranche. Code fermé, aucun texte.
+  z.object({ type: z.literal("a_trancher"), ...Execution, etape: Identifiant, code: Code }).strict(),
+  z.object({ type: z.literal("signal_de_vie"), instanceId: Identifiant, celluleId: Identifiant, a: z.iso.datetime() }).strict(),
 ]);
 export type Evenement = z.infer<typeof Evenement>;
 

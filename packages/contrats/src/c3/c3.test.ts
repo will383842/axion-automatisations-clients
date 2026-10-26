@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { calculerEmpreinte } from "../../scripts/empreinte.ts";
+import { calculerEmpreintes } from "../../scripts/empreinte.ts";
 import { signer, verifier } from "../commun/signature.ts";
 import { EvenementCrm, TYPES_CRM_VERS_CONSOLE, empreinteEmail, identifiantEvenementC3 } from "./evenements-crm-vers-console.ts";
 import { EvenementConsole, TYPES_V1, TYPES_V2, statutCrmDepuisHub, statutHubDepuisCrm } from "./evenements-console-vers-crm.ts";
@@ -240,6 +240,6 @@ describe("fixtures signées de C3", () => {
     expect([...secrets].sort()).toEqual(["TEST-NE-PAS-UTILISER-cle-c3-console-a", "TEST-NE-PAS-UTILISER-cle-c3-crm-a"]);
   });
   it("[LOT0-contrats] empreinte à jour", () => {
-    expect(lire("contrats.sha256")).toBe(calculerEmpreinte(racine.pathname));
+    expect(lire("empreintes/c3.sha256")).toBe(calculerEmpreintes(racine.pathname).c3);
   });
 });

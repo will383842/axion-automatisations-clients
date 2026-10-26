@@ -6,6 +6,7 @@ Une image dérivée est une image amont (épinglée par empreinte) avec le stric
 |---|---|---|
 | `postgres/` (`postgres-socle`) | `postgres:16@sha256:9e2c…` (Debian, avec pg_partman) | retire `gosu` ; démarre en utilisateur `postgres` (uid 999) |
 | `postgres-derivee/` | `postgres:16.15-alpine@sha256:f461…` | retire `gosu` et `su-exec` (binaire Go vulnérable) ; démarre en utilisateur `postgres` |
+| `postgres-sauvegarde/` | `postgres-socle:16-r41@sha256:c5fd…` | ajoute pgBackRest (MIT, version épinglée) et le client SSH pour les sauvegardes (T1A-14) ; reste en utilisateur `postgres` (uid 999) |
 
 L'image du socle de développement (`ops/images/postgres/`, avec pg_partman) est construite, scannée (Trivy 7/30 jours, aucune exemption) et publiée sous le nom `postgres-socle` par le même workflow, avec la même attestation. `ops/socle/compose.postgres.yml` cite cette image publiée (`image: …@sha256:`, empreinte relevée dans le journal du job `publier` sur `main`, à confirmer dans son résumé par Will) ; la garde des briques refuse un service `build:` sans `image:` et vérifie l'attestation de chaque image dérivée (ADR 0016).
 

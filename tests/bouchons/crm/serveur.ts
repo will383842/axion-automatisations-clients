@@ -1,6 +1,7 @@
 import { EvenementConsole } from "../../../packages/contrats/src/c3/evenements-console-vers-crm.ts";
 import { EvenementCrm, identifiantEvenementC3 } from "../../../packages/contrats/src/c3/evenements-crm-vers-console.ts";
 import { CHEMIN_LECTURE, LectureRequete, type LectureReponse } from "../../../packages/contrats/src/c3/lecture-entreprise.ts";
+import { cleDIntention } from "../../../packages/contrats/src/commun/idempotence.ts";
 import { demarrerNoyau, erreur, pousserSigne } from "../hub/noyau.ts";
 
 export interface EntrepriseCrm {
@@ -65,7 +66,7 @@ export async function demarrerBouchonCrm(options: OptionsCrm) {
         sequence,
         payload: f.payload,
       });
-      return pousserSigne(url, ident, evenement);
+      return pousserSigne(url, ident, evenement, { cleIdempotence: cleDIntention("crm-fait", evenement.event_id) });
     },
   };
 }

@@ -114,8 +114,8 @@ export async function demarrerNoyau(options: OptionsNoyau) {
   };
 }
 
-// Poussée d'un fait signé vers une URL donnée (sens Hub → console ou CRM → console). Pas d'Idempotency-Key : le récepteur dédoublonne par event_id.
-export async function pousserSigne(url: string, ident: { cle: string; secret: string }, corps: unknown): Promise<Response> {
+// Poussée d'un fait signé vers une URL donnée (sens Hub → console ou CRM → console). Sans cleIdempotence : fait C2 seulement (le récepteur dédoublonne par event_id) ; les écritures C3 portent une Idempotency-Key (ADR 0002).
+export async function pousserSigne(url: string, ident: { cle: string; secret: string }, corps: unknown, options: { cleIdempotence?: string } = {}): Promise<Response> {
   const brut = JSON.stringify(corps);
   const horodatage = String(Math.floor(Date.now() / 1000));
   const { pathname, search } = new URL(url);
@@ -126,6 +126,7 @@ export async function pousserSigne(url: string, ident: { cle: string; secret: st
       [EN_TETES.cle]: ident.cle,
       [EN_TETES.horodatage]: horodatage,
       [EN_TETES.signature]: signer(ident.secret, horodatage, "POST", pathname + search, brut),
+      ...(options.cleIdempotence ? { "Idempotency-Key": options.cleIdempotence } : {}),
     },
     body: brut,
   });

@@ -1,3 +1,5 @@
+import { creerGenerateur } from "../../packages/donnees-fictives/src/graine.ts";
+import { genererSiren } from "../../packages/donnees-fictives/src/siren.ts";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { envoyerSigne, type Identifiants } from "../bouchons/hub/client-signe.ts";
 import { demarrerBouchonCrm, type BouchonCrm } from "../bouchons/crm/serveur.ts";
@@ -11,11 +13,13 @@ const ident: Identifiants = { cle: "cle-test-c1-console-a", secret: "TEST-NE-PAS
 const recette = process.env.CIBLE_RECETTE;
 const identRecette: Identifiants = { cle: process.env.CIBLE_RECETTE_CLE ?? ident.cle, secret: process.env.CIBLE_RECETTE_SECRET ?? ident.secret };
 
+// SIREN GÉNÉRÉ (Luhn, graine fixe) : jamais celui d'une vraie entreprise, même envoyé à une copie de recette.
+const SIREN_BERTIN = genererSiren(creerGenerateur("bouchons-t2-13-int"));
 let hub: BouchonHub;
 let crm: BouchonCrm;
 beforeAll(async () => {
-  hub = await demarrerBouchonHub({ cles: { [ident.cle]: ident.secret }, fiches: [{ siren: "732829320", axiCli: "AXI-CLI-000002", raisonSociale: "Atelier Bertin", absorbeePar: "AXI-CLI-000001" }] });
-  crm = await demarrerBouchonCrm({ cles: { [ident.cle]: ident.secret }, entreprises: [{ siren: "732829320", crmCompanyId: "crm-0002", raisonSociale: "Atelier Bertin", absorbeePar: "crm-0001" }] });
+  hub = await demarrerBouchonHub({ cles: { [ident.cle]: ident.secret }, fiches: [{ siren: SIREN_BERTIN, axiCli: "AXI-CLI-000002", raisonSociale: "Atelier Bertin", absorbeePar: "AXI-CLI-000001" }] });
+  crm = await demarrerBouchonCrm({ cles: { [ident.cle]: ident.secret }, entreprises: [{ siren: SIREN_BERTIN, crmCompanyId: "crm-0002", raisonSociale: "Atelier Bertin", absorbeePar: "crm-0001" }] });
 });
 afterAll(async () => {
   await Promise.all([hub.arreter(), crm.arreter()]);
@@ -65,7 +69,7 @@ describe("suite de comportement partagée", () => {
           }),
       },
       verifierFusion: async () => {
-        const r = await envoyerSigne(recette ?? crm.url, recette ? identRecette : ident, "GET", "/api/console/v1/entreprises?siren=732829320");
+        const r = await envoyerSigne(recette ?? crm.url, recette ? identRecette : ident, "GET", `/api/console/v1/entreprises?siren=${SIREN_BERTIN}`);
         expect([r.statut, r.corps.absorbeePar]).toEqual([200, "crm-0001"]);
       },
       ...(recette ? {} : { couper: () => crm.couper(), rouvrir: () => crm.rouvrir() }),

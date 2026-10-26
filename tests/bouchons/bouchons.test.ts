@@ -1,3 +1,5 @@
+import { creerGenerateur } from "../../packages/donnees-fictives/src/graine.ts";
+import { genererSiren } from "../../packages/donnees-fictives/src/siren.ts";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ROUTES_C1, cleDIntention } from "../../packages/contrats/src/index.ts";
 import { Fait } from "../../packages/contrats/src/c2/faits.ts";
@@ -17,6 +19,10 @@ const retrouver = (siren: string | undefined, raisonSociale: string) => ({
   contactFacturation: { nom: "Camille Test", email: "contact@exemple.fr" },
 });
 
+// SIREN GÉNÉRÉS (Luhn, graine fixe) : jamais ceux d'une vraie entreprise.
+const g = creerGenerateur("bouchons-t2-13");
+const SIREN_BERTIN = genererSiren(g);
+const SIREN_RIVOIRE = genererSiren(g);
 let hub: BouchonHub;
 let crm: BouchonCrm;
 let recus: unknown[] = [];
@@ -25,11 +31,11 @@ beforeAll(async () => {
   hub = await demarrerBouchonHub({
     cles: { [ident.cle]: ident.secret },
     fiches: [
-      { siren: "732829320", axiCli: "AXI-CLI-000002", raisonSociale: "Atelier Bertin" },
-      { siren: "552100554", axiCli: "AXI-CLI-000003", raisonSociale: "Boulangerie Rivoire", absorbeePar: "AXI-CLI-000002" },
+      { siren: SIREN_BERTIN, axiCli: "AXI-CLI-000002", raisonSociale: "Atelier Bertin" },
+      { siren: SIREN_RIVOIRE, axiCli: "AXI-CLI-000003", raisonSociale: "Boulangerie Rivoire", absorbeePar: "AXI-CLI-000002" },
     ],
   });
-  crm = await demarrerBouchonCrm({ cles: { [ident.cle]: ident.secret }, entreprises: [{ siren: "732829320", crmCompanyId: "crm-0002", raisonSociale: "Atelier Bertin" }] });
+  crm = await demarrerBouchonCrm({ cles: { [ident.cle]: ident.secret }, entreprises: [{ siren: SIREN_BERTIN, crmCompanyId: "crm-0002", raisonSociale: "Atelier Bertin" }] });
   const { createServer } = await import("node:http");
   const serveur = createServer((req, res) => {
     let corps = "";
@@ -76,11 +82,11 @@ describe("bouchon du Hub", () => {
 
   it("[C-537] les réponses du bouchon passent les schémas de packages/contrats", async () => {
     const hors = (n: number) => ({ cleIdempotence: cleDIntention("test", `schema-${n}`), horodatage: maintenant() - 30 - n });
-    const retrouve = await envoyerSigne(hub.url, ident, "POST", RETROUVER, retrouver("732829320", "Atelier Bertin"), hors(1));
+    const retrouve = await envoyerSigne(hub.url, ident, "POST", RETROUVER, retrouver(SIREN_BERTIN, "Atelier Bertin"), hors(1));
     expect([retrouve.statut, retrouve.corps.resultat, retrouve.corps.axiCli]).toEqual([200, "retrouve", "AXI-CLI-000002"]);
     const trancher = await envoyerSigne(hub.url, ident, "POST", RETROUVER, retrouver(undefined, "Atelier Bertin SARL"), hors(2));
     expect([trancher.statut, trancher.corps.resultat]).toEqual([202, "a_trancher"]);
-    const absorbee = await envoyerSigne(hub.url, ident, "POST", RETROUVER, retrouver("552100554", "Boulangerie Rivoire"), hors(3));
+    const absorbee = await envoyerSigne(hub.url, ident, "POST", RETROUVER, retrouver(SIREN_RIVOIRE, "Boulangerie Rivoire"), hors(3));
     expect([absorbee.statut, absorbee.corps.erreur.code]).toEqual([422, "fiche_absorbee"]);
     const ligne = (tauxTvaBps: number) => ({ referencePropositionConsole: "prop-1", lignes: [{ libelle: "Essai", quantite: 1, prixUnitaireHtCentimes: 123456, activite: "automatisation", tauxTvaBps }] });
     const tva = await envoyerSigne(hub.url, ident, "POST", "/api/console/v1/devis", ligne(550), hors(4));
@@ -132,7 +138,7 @@ describe("bouchon du Hub", () => {
 
 describe("bouchon du CRM", () => {
   it("[C-537] le bouchon du CRM lit une entreprise par SIREN et répond 404 introuvable sinon", async () => {
-    const ok = await envoyerSigne(crm.url, ident, "GET", "/api/console/v1/entreprises?siren=732829320");
+    const ok = await envoyerSigne(crm.url, ident, "GET", `/api/console/v1/entreprises?siren=${SIREN_BERTIN}`);
     expect(ok.statut).toBe(200);
     expect(LectureReponse.safeParse(ok.corps).success).toBe(true);
     const non = await envoyerSigne(crm.url, ident, "GET", "/api/console/v1/entreprises?siren=123456782");
@@ -145,5 +151,9 @@ describe("bouchon du CRM", () => {
     await crm.pousser(`${recepteur.url}/api/hub/v1/crm`, cle, { type: "consentement.retire", crmCompanyId: "crm-0002", payload: { personKey: "personne-1", emailEmpreinte: "a".repeat(64) } });
     await crm.pousser(`${recepteur.url}/api/hub/v1/crm`, cle, { type: "fiche.fusionnee", crmCompanyId: "crm-0002", payload: { crmCompanyIdAbsorbee: "crm-0003", crmCompanyIdGardee: "crm-0002" } });
     expect(recus.map((r) => (r as { corps: { event_type: string } }).corps.event_type)).toEqual(["consentement.retire", "fiche.fusionnee"]);
+    // ADR 0002 : une écriture C3 porte une Idempotency-Key, dérivée de l'event_id.
+    for (const r of recus as { entetes: Record<string, string>; corps: { event_id: string } }[]) {
+      expect(r.entetes["idempotency-key"]).toBe(cleDIntention("crm-fait", r.corps.event_id));
+    }
   });
 });

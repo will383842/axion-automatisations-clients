@@ -14,7 +14,6 @@ export type ConnecteurMicrosoft365 = ConnecteurMessagerie & {
   curseurDelta(): string | null;
 };
 
-export const URL_GRAPH_PAR_DEFAUT = "https://graph.microsoft.com/v1.0";
 const DELTA = "/me/mailFolders/inbox/messages/delta?$select=id";
 const MAX_MEMOIRE = 1000;
 
@@ -68,7 +67,9 @@ export function creerConnecteurMicrosoft365(options: OptionsMicrosoft365): Conne
       if (!Array.isArray(page["value"])) throw new ErreurConnecteur("definitive", "reponse_inattendue");
       if (typeof page["@odata.deltaLink"] === "string") delta = page["@odata.deltaLink"];
       const suivant = page["@odata.nextLink"];
-      return { ids: page["value"].map((v) => String(objet(v)["id"])), suivant: typeof suivant === "string" ? suivant : null };
+      // Les entrées « @removed » sont des suppressions, pas de nouveaux messages.
+      const presents = page["value"].filter((v) => objet(v)["@removed"] === undefined);
+      return { ids: presents.map((v) => String(objet(v)["id"])), suivant: typeof suivant === "string" ? suivant : null };
     }),
     lire: (jeton, id, champs: Champ[]): Promise<MessageLu> => executer("lire", async () =>
       versMessageLu(await graph.requete(jeton, "GET", `${chemin(id)}?$select=${selection(champs)}`), id, champs)),
@@ -84,7 +85,7 @@ export function creerConnecteurMicrosoft365(options: OptionsMicrosoft365): Conne
         await graph.requete(jeton, "POST", `${chemin(brouillon.id)}/send`);
       } catch (e) {
         // Connexion coupée après l'envoi : le message est peut-être parti. Le noyau vérifie avant tout renvoi.
-        if (e instanceof TypeError) throw new ErreurConnecteur("passagere", "reponse_perdue");
+        if (e instanceof TypeError || (e instanceof ErreurConnecteur && e.code === "delai_depasse")) throw new ErreurConnecteur("passagere", "reponse_perdue");
         throw e;
       }
       return brouillon;
@@ -93,8 +94,11 @@ export function creerConnecteurMicrosoft365(options: OptionsMicrosoft365): Conne
   };
 }
 
-// Point d'entrée de production : fermé tant que l'interrupteur n'est pas « 1 » ; l'adresse vient de GRAPH_URL.
+// Point d'entrée de production : fermé tant que l'interrupteur n'est pas « 1 » ; l'adresse vient de GRAPH_URL, sans valeur
+// par défaut (aucun repli vers le vrai Graph : la garde des destinations ne voit qu'une adresse présente).
 export function ouvrirMicrosoft365(env: Record<string, string | undefined>, options: Partial<OptionsMicrosoft365> = {}): ConnecteurMicrosoft365 {
   activer(declaration, env);
-  return creerConnecteurMicrosoft365({ ...options, url: env["GRAPH_URL"] || URL_GRAPH_PAR_DEFAUT });
+  const url = env["GRAPH_URL"]?.trim();
+  if (!url) throw new ErreurConnecteur("definitive", "GRAPH_URL absente : adresse de Graph obligatoire");
+  return creerConnecteurMicrosoft365({ ...options, url });
 }

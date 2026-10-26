@@ -96,4 +96,30 @@ describe("connecteur Microsoft 365 sur réponses enregistrées", () => {
     expect(lignes.length).toBeGreaterThan(0);
     expect(lignes.join("\n")).not.toContain(MARQUEUR);
   });
+
+  it("[A-388] sans GRAPH_URL l'ouverture est refusée : aucune adresse par défaut vers le vrai Graph", () => {
+    expect(() => ouvrirMicrosoft365({ CONNECTEURS_MESSAGERIE_OUVERT: "1" })).toThrow(/GRAPH_URL/);
+    expect(() => ouvrirMicrosoft365({ CONNECTEURS_MESSAGERIE_OUVERT: "1", GRAPH_URL: "  " })).toThrow(/GRAPH_URL/);
+  });
+
+  it("[A-275] un Graph muet est coupé au délai maximal : erreur passagère, jamais un blocage", async () => {
+    let signal: AbortSignal | null | undefined;
+    const muet = ((_url: string, init: RequestInit = {}) => {
+      signal = init.signal;
+      return new Promise((_ok, ko) => init.signal?.addEventListener("abort", () => ko(init.signal?.reason)));
+    }) as never;
+    const c = creerConnecteurMicrosoft365({ url: BASE, fetch: muet, delaiMs: 20, maintenant: () => MAINTENANT });
+    const e = await c.lire(creerJeton("jeton-fictif", MAINTENANT + 60_000), "m-1", ["objet"]).catch((x: unknown) => x);
+    expect(signal).toBeInstanceOf(AbortSignal);
+    expect(e).toBeInstanceOf(ErreurConnecteur);
+    expect((e as ErreurConnecteur).classe).toBe("passagere");
+  });
+
+  it("[A-405] les entrées @removed d'une page delta ne sont pas comptées comme nouveaux messages", async () => {
+    const c = creerConnecteurMicrosoft365({
+      url: BASE, maintenant: () => MAINTENANT,
+      fetch: fetchRejoue([{ methode: "GET", chemin: "/me/mailFolders/inbox/messages/delta", corps: { value: [{ id: "m-1" }, { id: "m-2", "@removed": { reason: "deleted" } }] } }]),
+    });
+    expect((await c.listerNouveaux(creerJeton("jeton-fictif", MAINTENANT + 60_000), null)).ids).toEqual(["m-1"]);
+  });
 });

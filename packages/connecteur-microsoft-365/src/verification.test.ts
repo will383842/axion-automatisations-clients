@@ -16,7 +16,7 @@ const fetchRejoue = (echanges: Echange[]): typeof fetch => {
     return new Response(e.corps === undefined ? null : JSON.stringify(e.corps), { status: e.statut ?? 200, headers: e.entetes ?? {} });
   }) as never;
 };
-const jeton = creerJeton("faux.lemoine@exemple.fr", MAINTENANT + 3_600_000);
+const jeton = creerJeton("jeton-fictif-verification", MAINTENANT + 3_600_000);
 let n = 0;
 const message = () => ({ messageId: `<m-${++n}.verif@exemple.fr>`, destinataire: "client@exemple.fr", objet: "Devis", corps: "Bonjour" });
 
@@ -63,6 +63,13 @@ describe("vérification après coup (Graph n'a pas de clé anti-doublon)", () =>
     expect((e as ErreurConnecteur).classe).toBe("passagere");
     expect(await c.verifierApresCoup(jeton, m.messageId)).toBe("trouve");
     expect(await c.verifierApresCoup(jeton, "<jamais-envoye@exemple.fr>")).toBe("absent");
+  });
+
+  it("[C-534] Graph muet pendant la vérification : indetermine au délai maximal, jamais absent", async () => {
+    const muet = ((_url: string, init: RequestInit = {}) =>
+      new Promise((_ok, ko) => init.signal?.addEventListener("abort", () => ko(init.signal?.reason)))) as never;
+    const c = creerConnecteurMicrosoft365({ url: "http://graph.test/v1.0", fetch: muet, delaiMs: 20, maintenant: () => MAINTENANT });
+    expect(await c.verifierApresCoup(jeton, "<muet@exemple.fr>")).toBe("indetermine");
   });
 
   it("[C-534] @anti-doublon faux Graph en panne pendant la vérification : indetermine, jamais absent", async () => {

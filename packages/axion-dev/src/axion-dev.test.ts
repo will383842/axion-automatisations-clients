@@ -41,6 +41,10 @@ describe("modèle de départ", () => {
     expect(module.jeuEssai).toHaveLength(20);
   });
 
+  it("[C-242] le modèle de départ crée un module complet : paquet, manifeste et test", () => {
+    for (const f of ["package.json", "src/module.ts", "src/module.test.ts"]) expect(readFileSync(join(dossier, f), "utf8")).toContain(CODE);
+  });
+
   it("[A-288] un code qui porte un identifiant de client est refusé", async () => {
     await expect(creerModule("client-dupont", racine)).rejects.toThrow(/code/);
   });

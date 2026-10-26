@@ -104,8 +104,9 @@ export function creerCoffre(o: OptionsBao): Coffre {
       const { expireLe = "" } = options;
       if (!nom || typeof valeur !== "string" || !valeur || (expireLe && Number.isNaN(Date.parse(expireLe)))) throw new ErreurCoffre("requete_refusee");
       const p = `${tenantId}/${randomUUID()}`;
+      // KV v2 refuse une valeur vide dans custom_metadata : expire_le n'est envoyé que s'il existe.
       // Métadonnées d'abord : un échec ne laisse jamais une valeur sans référence.
-      await appeler(o, "POST", `clients/metadata/${p}`, { custom_metadata: { nom, expire_le: expireLe } });
+      await appeler(o, "POST", `clients/metadata/${p}`, { custom_metadata: { nom, ...(expireLe ? { expire_le: expireLe } : {}) } });
       await appeler(o, "POST", `clients/data/${p}`, { data: { nom, valeur } });
       return `bao:clients/${p}`;
     },

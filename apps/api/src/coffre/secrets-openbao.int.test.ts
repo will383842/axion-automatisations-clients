@@ -1,8 +1,8 @@
 import { execFileSync } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { lireYaml } from "../../../../scripts/garde-compose.js";
 import { creerFluxJournal, creerMasqueur } from "../plugins/journal.js";
 import { creerLecteurSecretsOpenBao } from "../secrets-openbao.js";
@@ -18,6 +18,9 @@ const docker = (...args: string[]) => execFileSync("docker", args, { encoding: "
 const compose = lireYaml(readFileSync(racineDepot("ops/socle/compose.openbao.yml"), "utf8")) as unknown as { services: { openbao: { image: string } } };
 const lances: string[] = [];
 afterAll(() => { for (const id of lances) try { docker("rm", "-f", id); } catch { /* déjà arrêté */ } });
+
+// DIAGNOSTIC TEMPORAIRE : écrit les messages d'échec sur la sortie d'erreur (le rapport JSON de la CI ne les montre pas).
+afterEach((ctx) => { if (ctx.task.result?.state === "fail") writeSync(2, `ECHEC ${ctx.task.name} :: ${(ctx.task.result.errors ?? []).map((e) => String(e.message).slice(0, 300)).join(" | ")}\n`); });
 
 async function admin(url: string, jeton: string, methode: string, chemin: string, corps: unknown): Promise<unknown> {
   const r = await fetch(`${url}/v1/${chemin}`, { method: methode, headers: { "X-Vault-Token": jeton, "Content-Type": "application/json" }, body: JSON.stringify(corps) });

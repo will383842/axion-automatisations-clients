@@ -2,7 +2,7 @@ import { createServer, type Server } from "node:net";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SignataireMemoire, signerArtefact } from "../../../../packages/sdk-module/src/emballage/signer.js";
 import { type ClePublique } from "../../../../packages/sdk-module/src/emballage/cles-publiques.js";
-import { estMessageEnfant, estMessageParent } from "./canal.ts";
+import { estMessageEnfant, type Json, estMessageParent } from "./canal.ts";
 import { LIMITES_DEFAUT } from "./limites.ts";
 import { executerIsole } from "./processus.ts";
 import { ModuleNonSigneError } from "../noyau/charger-module.ts";
@@ -14,7 +14,7 @@ const cles: ClePublique[] = [{ idCle: "test-1", publique: signataire.clePublique
 // Un module d'essai : le corps de executer(entree, contexte), signé comme en production.
 const module = (corps: string) =>
   signerArtefact({ "module.js": octets(`export async function executer(entree, contexte) { ${corps} }`), "manifest.json": octets('{"nom":"demo"}') }, signataire);
-const lancer = (corps: string, entree: unknown = null, jeton?: string, limites = LIMITES_DEFAUT) =>
+const lancer = (corps: string, entree: Json = null, jeton?: string, limites = LIMITES_DEFAUT) =>
   executerIsole(module(corps), { executionId: "exec-1", entree, jeton, cles, limites });
 
 afterEach(() => vi.unstubAllEnvs());

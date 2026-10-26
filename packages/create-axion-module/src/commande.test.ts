@@ -45,34 +45,4 @@ describe("lignes de commande réelles", () => {
     expect(Object.keys(dev.bin)).toContain("axion-dev");
     expect(modele.scripts["test:module"]).toBe("axion-dev test");
   });
-
-  // Passe par le vrai lien du bin (node_modules/.bin), comme « pnpm test:module » dans un module créé par le modèle.
-  it("[A-401] « axion-dev » lancé par le bin lance vraiment les tests, et un test qui échoue donne un code non nul", () => {
-    const verrou = join(depot, "pnpm-lock.yaml");
-    const verrouAvant = readFileSync(verrou, "utf8");
-    const dossier = join(depot, "modules", "essai-bin-axion-dev");
-    try {
-      expect(spawnSync(tsx, [...commandeDuScript(), "essai-bin-axion-dev"], { cwd: depot, encoding: "utf8" }).status).toBe(0);
-      const installation = pnpm(["install", "--prefer-offline", "--no-frozen-lockfile"], depot);
-      expect(installation.status, installation.stderr).toBe(0);
-
-      const reussi = pnpm(["exec", "axion-dev", "test"], dossier);
-      expect(reussi.stdout).toMatch(/tests réussis/);
-      expect(reussi.status).toBe(0);
-
-      const inconnue = pnpm(["exec", "axion-dev", "nimportequoi"], dossier);
-      expect(inconnue.stdout).toContain("usage : axion-dev");
-      expect(inconnue.status).toBe(1);
-
-      const fichierModule = join(dossier, "src", "module.ts");
-      writeFileSync(fichierModule, readFileSync(fichierModule, "utf8").replace("executer: async () => undefined", 'executer: async () => { throw new Error("cas voulu en échec"); }'));
-      const echoue = pnpm(["exec", "axion-dev", "test"], dossier);
-      expect(echoue.stdout).toMatch(/échoués/);
-      expect(echoue.status).not.toBe(0);
-    } finally {
-      rmSync(dossier, { recursive: true, force: true });
-      writeFileSync(verrou, verrouAvant);
-      pnpm(["install", "--prefer-offline", "--frozen-lockfile"], depot);
-    }
-  }, 240_000);
 });

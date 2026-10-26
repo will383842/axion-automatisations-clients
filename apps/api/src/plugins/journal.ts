@@ -2,6 +2,9 @@
 // Une valeur de secret lue dans OpenBao est inscrite au masqueur ; elle ne sort plus, ni brute ni encodée.
 
 const REMPLACANT = "[masqué]";
+// Une valeur plus courte est ignorée : la remplacer partout casserait et falsifierait toutes les lignes du journal.
+// Limite acceptée : une valeur de moins de 8 caractères n'est pas masquée (elle doit être refusée à la saisie).
+const LONGUEUR_MINIMALE = 8;
 
 export interface Masqueur {
   ajouter(valeur: string): void;
@@ -41,7 +44,7 @@ export function creerMasqueur(): Masqueur {
   let formes: string[] = []; // les plus longues d'abord : une forme ne coupe pas une autre
   return {
     ajouter(valeur) {
-      if (typeof valeur !== "string" || !valeur) return;
+      if (typeof valeur !== "string" || valeur.length < LONGUEUR_MINIMALE) return;
       formes = [...new Set([...formes, valeur, ...formesDe(valeur)])].filter(Boolean).sort((a, b) => b.length - a.length);
     },
     masquer(texte) {

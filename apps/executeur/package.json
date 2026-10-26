@@ -10,6 +10,8 @@
   },
   "dependencies": {
     "@axion-auto/contrats": "workspace:*",
-    "@axion-auto/sdk-module": "workspace:*"
+    "@axion-auto/sdk-module": "workspace:*",
+    "bullmq": "^6.4.2",
+    "ioredis": "^6.0.0"
   }
 }

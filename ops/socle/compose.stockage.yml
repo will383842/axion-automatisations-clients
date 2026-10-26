@@ -1,0 +1,26 @@
+# SeaweedFS : stockage d'objets compatible S3 (ADR 0022). Réseau interne seulement, aucun port publié.
+# Un seul processus (maître, volume, filer, S3 et API IAM) ; l'API IAM écrit (-s3.iam.readOnly=false) pour créer un utilisateur par client.
+# Le jeu administrateur vient de l'environnement : la clé est un nom, le secret est SOCLE_STOCKAGE_MOT_DE_PASSE (généré au lancement).
+# Sans identité anonyme, toute requête non signée est refusée. Les compartiments communs sont créés par stockage/initialiser.sh.
+services:
+  stockage:
+    image: chrislusf/seaweedfs:4.51@sha256:f7a49e3f3972ebed5be2ed4befa4a0c68eb7bdddba6e692d42729ceb545134b8
+    restart: "no"
+    command:
+      - server
+      - -ip.bind=0.0.0.0
+      - -s3
+      - -s3.iam.readOnly=false
+    environment:
+      AWS_ACCESS_KEY_ID: axion-stockage-admin
+      AWS_SECRET_ACCESS_KEY: ${SOCLE_STOCKAGE_MOT_DE_PASSE:?mot de passe de test absent}
+    volumes:
+      - stockage-donnees:/data
+    networks: [interne]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8333/healthz"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+volumes:
+  stockage-donnees: {}

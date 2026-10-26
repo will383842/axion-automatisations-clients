@@ -16,6 +16,7 @@ Toutes tournent chez AXION IA (lieu `local`) ; aucune n'est livrée chez un clie
 | `pgbouncer` | répartiteur de connexions | `local` : ne garde aucune donnée |
 | `valkey` | files de tâches | `local` : serveur d'AXION IA |
 | `openbao` | coffre à secrets | `local` : serveur d'AXION IA |
+| `stockage` | stockage d'objets compatible S3 (exports, factures, pièces de suivi, artefacts) | `local` : serveur d'AXION IA |
 | `keycloak` | connexion | `local` : serveur d'AXION IA |
 | `litellm` | passerelle d'IA | `local` pour la passerelle ; les demandes partent ensuite chez le fournisseur choisi (voir plus bas) |
 

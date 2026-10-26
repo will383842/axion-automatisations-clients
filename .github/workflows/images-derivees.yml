@@ -89,6 +89,32 @@ jobs:
           { echo "### Amont du socle : $amont"; node scripts/releve-trivy.ts --releve "$RUNNER_TEMP/trivy-socle/amont.json"; echo "### Image du socle"; node scripts/releve-trivy.ts --releve "$RUNNER_TEMP/trivy-socle/socle.json"; } >> "$GITHUB_STEP_SUMMARY"
       - name: Évaluateur du socle (critique 7 jours, haute 30 jours, aucune exception)
         run: node scripts/releve-trivy.ts --garde "$RUNNER_TEMP/trivy-socle/socle.json" postgres-socle
+      - name: Construire l'image des sauvegardes (socle + pgBackRest, amd64, amont épinglé par empreinte)
+        run: docker build --pull --platform linux/amd64 --label org.opencontainers.image.source="https://github.com/$GITHUB_REPOSITORY" -t local/postgres-sauvegarde ops/images/postgres-sauvegarde
+      - name: Test de fumée de l'image des sauvegardes
+        run: |
+          set -eu
+          cid=$(docker run -d -e POSTGRES_PASSWORD=test local/postgres-sauvegarde)
+          trap 'docker rm -f "$cid" >/dev/null' EXIT
+          for i in $(seq 1 30); do docker exec "$cid" pg_isready -h localhost -U postgres >/dev/null && break; sleep 2; done
+          docker exec "$cid" pg_isready -h localhost -U postgres
+          test "$(docker exec "$cid" id -u)" = 999
+          docker exec "$cid" sh -c 'test ! -e /usr/local/bin/gosu'
+          docker exec "$cid" postgres --version | grep -q '^postgres (PostgreSQL) 16\.'
+          docker exec "$cid" pgbackrest version | grep -q '^pgBackRest 2\.59\.3'
+          docker exec "$cid" ssh -V
+      - name: Trivy (0.58.2 épinglé par empreinte) sur l'amont puis sur l'image des sauvegardes
+        run: |
+          set -eu
+          mkdir -p "$RUNNER_TEMP/trivy-sauvegarde"
+          amont=$(grep '^FROM ' ops/images/postgres-sauvegarde/Dockerfile | cut -d' ' -f2)
+          docker save local/postgres-sauvegarde -o "$RUNNER_TEMP/trivy-sauvegarde/image.tar"
+          trivy() { docker run --rm -v "$RUNNER_TEMP/trivy-sauvegarde:/sortie" ghcr.io/aquasecurity/trivy@sha256:665030f4d33a82c1e8d9d5e0453365842236723c1ee5cc3becca698268e66a56 image --scanners vuln --format json --quiet "$@"; }
+          trivy --input /sortie/image.tar --output /sortie/sauvegarde.json
+          trivy --output /sortie/amont.json "$amont" || echo '{}' > "$RUNNER_TEMP/trivy-sauvegarde/amont.json"
+          { echo "### Amont des sauvegardes : $amont"; node scripts/releve-trivy.ts --releve "$RUNNER_TEMP/trivy-sauvegarde/amont.json"; echo "### Image des sauvegardes"; node scripts/releve-trivy.ts --releve "$RUNNER_TEMP/trivy-sauvegarde/sauvegarde.json"; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Évaluateur des sauvegardes (critique 7 jours, haute 30 jours, aucune exception)
+        run: node scripts/releve-trivy.ts --garde "$RUNNER_TEMP/trivy-sauvegarde/sauvegarde.json" postgres-sauvegarde
   publier:
     name: publier
     needs: construire
@@ -198,4 +224,52 @@ jobs:
         with:
           subject-name: ghcr.io/will383842/axion-automatisations-clients/postgres-socle
           subject-digest: ${{ steps.pousser-socle.outputs.empreinte }}
+          push-to-registry: true
+      - name: Construire l'image des sauvegardes (socle + pgBackRest, amd64, amont épinglé par empreinte)
+        run: docker build --pull --platform linux/amd64 --label org.opencontainers.image.source="https://github.com/$GITHUB_REPOSITORY" -t local/postgres-sauvegarde ops/images/postgres-sauvegarde
+      - name: Test de fumée de l'image des sauvegardes
+        run: |
+          set -eu
+          cid=$(docker run -d -e POSTGRES_PASSWORD=test local/postgres-sauvegarde)
+          trap 'docker rm -f "$cid" >/dev/null' EXIT
+          for i in $(seq 1 30); do docker exec "$cid" pg_isready -h localhost -U postgres >/dev/null && break; sleep 2; done
+          docker exec "$cid" pg_isready -h localhost -U postgres
+          test "$(docker exec "$cid" id -u)" = 999
+          docker exec "$cid" sh -c 'test ! -e /usr/local/bin/gosu'
+          docker exec "$cid" postgres --version | grep -q '^postgres (PostgreSQL) 16\.'
+          docker exec "$cid" pgbackrest version | grep -q '^pgBackRest 2\.59\.3'
+          docker exec "$cid" ssh -V
+      - name: Trivy (0.58.2 épinglé par empreinte) sur l'amont puis sur l'image des sauvegardes
+        run: |
+          set -eu
+          mkdir -p "$RUNNER_TEMP/trivy-sauvegarde"
+          amont=$(grep '^FROM ' ops/images/postgres-sauvegarde/Dockerfile | cut -d' ' -f2)
+          docker save local/postgres-sauvegarde -o "$RUNNER_TEMP/trivy-sauvegarde/image.tar"
+          trivy() { docker run --rm -v "$RUNNER_TEMP/trivy-sauvegarde:/sortie" ghcr.io/aquasecurity/trivy@sha256:665030f4d33a82c1e8d9d5e0453365842236723c1ee5cc3becca698268e66a56 image --scanners vuln --format json --quiet "$@"; }
+          trivy --input /sortie/image.tar --output /sortie/sauvegarde.json
+          trivy --output /sortie/amont.json "$amont" || echo '{}' > "$RUNNER_TEMP/trivy-sauvegarde/amont.json"
+          { echo "### Amont des sauvegardes : $amont"; node scripts/releve-trivy.ts --releve "$RUNNER_TEMP/trivy-sauvegarde/amont.json"; echo "### Image des sauvegardes"; node scripts/releve-trivy.ts --releve "$RUNNER_TEMP/trivy-sauvegarde/sauvegarde.json"; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Évaluateur des sauvegardes (critique 7 jours, haute 30 jours, aucune exception)
+        run: node scripts/releve-trivy.ts --garde "$RUNNER_TEMP/trivy-sauvegarde/sauvegarde.json" postgres-sauvegarde
+      - name: Pousser l'image des sauvegardes et lire son empreinte
+        id: pousser-sauvegarde
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          image=ghcr.io/will383842/axion-automatisations-clients/postgres-sauvegarde
+          amont=$(grep '^FROM ' ops/images/postgres-sauvegarde/Dockerfile | cut -d' ' -f2)
+          version="${amont%%@*}"
+          etiquette="${version#*:}-r$GITHUB_RUN_NUMBER"
+          echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker tag local/postgres-sauvegarde "$image:$etiquette"
+          docker push "$image:$etiquette"
+          empreinte=$(docker inspect --format '{{index .RepoDigests 0}}' "$image:$etiquette")
+          echo "empreinte=${empreinte#*@}" >> "$GITHUB_OUTPUT"
+          echo "### Publiée : $image:$etiquette@${empreinte#*@}" >> "$GITHUB_STEP_SUMMARY"
+      - name: Attestation de provenance de l'image des sauvegardes (Sigstore, sans clé)
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/will383842/axion-automatisations-clients/postgres-sauvegarde
+          subject-digest: ${{ steps.pousser-sauvegarde.outputs.empreinte }}
           push-to-registry: true

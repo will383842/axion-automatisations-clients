@@ -18,3 +18,4 @@ Format court : contexte, décision, conséquences, date. Un ADR par décision, n
 | 0012 | Licences du livre et inventaire des briques |
 | 0014 | Images dérivées temporaires |
 | 0016 | Garde des briques : images dérivées et attestation |
+| 0017 | Copie de secours d'OpenBao par instantané raft |

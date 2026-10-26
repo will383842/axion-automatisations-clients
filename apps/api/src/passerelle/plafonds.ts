@@ -8,7 +8,7 @@ import { MICRO_CENTIMES_PAR_UNITE } from "./consommation.js";
 
 export type CodePlafonds =
   | "tenant_invalide" | "montant_invalide" | "motif_invalide" | "non_administrateur" | "journal_indisponible"
-  | "cle_introuvable" | "cle_ambigue" | "client_different" | "passerelle_indisponible" | "reponse_invalide";
+  | "horloge_illisible" | "cle_introuvable" | "cle_ambigue" | "client_different" | "passerelle_indisponible" | "reponse_invalide";
 
 export class ErreurPlafonds extends Error {
   constructor(readonly code: CodePlafonds) {
@@ -106,9 +106,10 @@ export function creerPlafonds(o: OptionsPlafonds) {
     async bloquerCle(tenantId: string, motif: string): Promise<void> {
       const m = motifValide(motif);
       const token = await trouverCle(tenantId);
-      const montant = await consomme(token);
+      // Bloquer d'abord : une lecture de dépense en panne ne doit jamais laisser une clé volée dépenser.
       await appeler("POST", "/key/block", { key: token });
-      await ecrire(o.journal, { action: "blocage_cle", tenantId, parQui: "systeme", motif: m, montantConsommeMicroCentimes: montant });
+      const montant = await consomme(token).catch(() => undefined);
+      await ecrire(o.journal, { action: "blocage_cle", tenantId, parQui: "systeme", motif: m, ...(montant === undefined ? {} : { montantConsommeMicroCentimes: montant }) });
     },
     // Réservé à l'administrateur ; la trace s'écrit AVANT la réouverture. Aucune levée automatique n'existe.
     async leverBlocage(tenantId: string, { parQui, motif }: { parQui: string; motif: string }): Promise<void> {
@@ -117,7 +118,13 @@ export function creerPlafonds(o: OptionsPlafonds) {
       const token = await trouverCle(tenantId);
       const montant = await consomme(token);
       await ecrire(o.journal, { action: "levee_blocage_cle", tenantId, parQui: qui, motif: m, montantConsommeMicroCentimes: montant });
-      await appeler("POST", "/key/unblock", { key: token });
+      try {
+        await appeler("POST", "/key/unblock", { key: token });
+      } catch (e) {
+        // La trace d'avant disait « levée » : on écrit que la réouverture a échoué, la clé reste bloquée.
+        await ecrire(o.journal, { action: "levee_blocage_cle_echouee", tenantId, parQui: qui, motif: m, montantConsommeMicroCentimes: montant });
+        throw e;
+      }
     },
   };
 }
@@ -138,7 +145,9 @@ export function creerBudgetJour(o: OptionsBudgetJour) {
   let cumul = 0;
   const avancer = () => {
     const j = Math.floor(horloge().getTime() / 86_400_000);
-    if (Number.isFinite(j) && j > jour) {
+    // Horloge illisible : on refuse (jamais de remise à zéro silencieuse).
+    if (!Number.isFinite(j)) throw new ErreurPlafonds("horloge_illisible");
+    if (j > jour) {
       jour = j;
       cumul = 0;
     }

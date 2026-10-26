@@ -167,6 +167,25 @@ describe("plafonds : clé d'un client", () => {
     }
     expect(journal.entrees).toEqual([]);
   });
+  it("[C-437] @argent attaque : la lecture de la dépense échoue (5xx, null, mal formée) → la clé est QUAND MÊME bloquée, le montant est noté illisible", async () => {
+    for (const lecture of [() => new Response("{}", { status: 503 }), () => new Response(JSON.stringify({ info: { spend: null } }), { status: 200 }), () => new Response("pas du json", { status: 200 })]) {
+      const t = f.ajouter(A);
+      f.etat.reponse = (u) => (u.includes("/key/info") ? lecture() : undefined);
+      await monter().bloquerCle(A, "clé volée");
+      expect(f.etat.cles.get(t)?.bloquee).toBe(true);
+      expect(journal.entrees.at(-1)).toMatchObject({ action: "blocage_cle", tenantId: A, motif: "clé volée" });
+      expect(journal.entrees.at(-1)?.montantConsommeMicroCentimes).toBeUndefined();
+      f.etat.cles.clear();
+      journal.entrees.length = 0;
+    }
+  });
+  it("[C-437] attaque : /key/unblock échoue après la trace → la trace dit « levée échouée », pas « levée »", async () => {
+    f.ajouter(A);
+    await monter().bloquerCle(A, "plafond atteint");
+    f.etat.reponse = (u) => (u.includes("/key/unblock") ? new Response("{}", { status: 503 }) : undefined);
+    await refus(monter().leverBlocage(A, { parQui: ADMIN, motif: "motif" }), "passerelle_indisponible");
+    expect(journal.entrees.at(-1)).toMatchObject({ action: "levee_blocage_cle_echouee", tenantId: A });
+  });
   it("[C-437] aucune levée automatique : bloquer deux fois ne rouvre rien et rien d'autre n'appelle /key/unblock", async () => {
     const t = f.ajouter(A);
     await monter().bloquerCle(A, "un");
@@ -207,6 +226,14 @@ describe("plafonds : budget global du jour", () => {
     maintenant = new Date("2029-12-31T23:00:00Z");
     expect(b.reserver(1)).toBe(false);
     maintenant = new Date(Number.NaN);
+    expect(() => b.reserver(1)).toThrow(ErreurPlafonds);
+  });
+  it("[C-598] @argent attaque : horloge illisible dès le premier appel → refus, pas de remise à zéro silencieuse", () => {
+    maintenant = new Date(Number.NaN);
+    const b = jour();
+    expect(() => b.reserver(1)).toThrow(ErreurPlafonds);
+    maintenant = new Date("2030-01-01T00:00:00Z");
+    expect(b.reserver(1000)).toBe(true);
     expect(b.reserver(1)).toBe(false);
   });
   it("[C-598] la levée du budget du jour est réservée à l'administrateur, motivée et tracée", async () => {

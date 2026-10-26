@@ -1,10 +1,11 @@
 // Port du journal d'audit (C5). La table réelle est créée au lot 2 : ici, l'interface et une version en mémoire.
 export interface EntreeAudit {
-  action: "blocage_cle" | "levee_blocage_cle" | "levee_budget_jour";
+  action: "blocage_cle" | "levee_blocage_cle" | "levee_blocage_cle_echouee" | "levee_budget_jour";
   tenantId?: string;
   parQui: string;
   motif: string;
-  montantConsommeMicroCentimes: number;
+  // Absent quand la dépense n'a pas pu être lue (la clé est bloquée quand même).
+  montantConsommeMicroCentimes?: number;
 }
 export interface EntreeJournal extends EntreeAudit {
   quand: string;

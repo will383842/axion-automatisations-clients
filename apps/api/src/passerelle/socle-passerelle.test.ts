@@ -41,7 +41,7 @@ describe("passerelle : configuration (C-024, A-058)", () => {
   it("[A-058] attaque : aucun réglage hors de la liste connue de la version libre (aucune fonction enterprise)", () => {
     const permis: Record<string, string[]> = {
       "": ["model_list", "litellm_settings", "general_settings"],
-      litellm_settings: ["turn_off_message_logging", "cache", "set_verbose", "success_callback", "failure_callback", "callbacks"],
+      litellm_settings: ["turn_off_message_logging", "cache", "set_verbose", "success_callback", "failure_callback", "callbacks", "max_budget", "budget_duration"],
       general_settings: ["store_prompts_in_spend_logs", "database_url"],
     };
     expect(Object.keys(config()).sort()).toEqual(permis[""]?.slice().sort());

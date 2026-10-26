@@ -45,7 +45,8 @@ export type CodeStockage =
   | "identifiants_etrangers"
   | "identifiants_illisibles"
   | "acces_refuse"
-  | "brique_indisponible";
+  | "brique_indisponible"
+  | "nettoyage_incomplet";
 
 export class ErreurStockage extends Error {
   constructor(readonly code: CodeStockage) {
@@ -89,7 +90,10 @@ export function creerStockage(o: { s3: PortS3; coffre: CoffreIdentifiants }) {
       try {
         await o.coffre.ranger(tenantId, id);
       } catch (e) {
-        await o.s3.supprimerUtilisateur(compartiment).catch(() => undefined);
+        // Si la suppression échoue aussi, un utilisateur actif reste sans copie : on le signale, sans identifiant dans l'erreur.
+        await o.s3.supprimerUtilisateur(compartiment).catch(() => {
+          throw new ErreurStockage("nettoyage_incomplet");
+        });
         throw e;
       }
     },
@@ -209,7 +213,9 @@ export function creerPortS3Aws(o: { endpoint: string; admin: { cleAcces: string;
           if (!k?.AccessKeyId || !k.SecretAccessKey) throw new ErreurStockage("brique_indisponible");
           return { cleAcces: k.AccessKeyId, secret: k.SecretAccessKey, compartiment };
         } catch (e) {
-          await supprimerUtilisateur(compartiment).catch(() => undefined);
+          await supprimerUtilisateur(compartiment).catch(() => {
+            throw new ErreurStockage("nettoyage_incomplet");
+          });
           throw e;
         }
       } catch (e) {

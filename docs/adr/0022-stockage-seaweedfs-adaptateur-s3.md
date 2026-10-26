@@ -25,6 +25,7 @@ L'ADR 0015 retient SeaweedFS (Apache-2.0) et laisse à l'étape 2 : l'image épi
 ## Conséquences
 - Le code appelant ne parle que le port `PortS3` : une autre brique ne réécrit que `creerPortS3Aws`.
 - Les tests `*.int.test.ts` lancent l'image du fragment compose et essaient les droits sur la vraie brique : isolation entre clients et vers les compartiments communs, refus anonyme, refus 403 après lecture du coffre, création simultanée, artefact immuable, lien signé expiré.
+- Limite connue : si le coffre échoue puis que la suppression de l'utilisateur échoue aussi, un utilisateur actif reste sans copie de ses clés et toute nouvelle création répond `deja_cree`. L'échec n'est pas avalé : l'erreur `nettoyage_incomplet` (sans identifiant) est levée pour que l'opérateur supprime l'utilisateur à la main avant de refaire la création.
 - Non fait ici : second remplaçant permissif (toujours « non constaté », voir ADR 0015), table du registre en base, chiffrement des fichiers par la clé du client (lot 2b).
 
 2026-10-26

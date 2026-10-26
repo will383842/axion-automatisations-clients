@@ -32,7 +32,7 @@ jobs:
       - name: Lancer le socle
         run: ops/socle/lancer.sh
       - name: Tests d'intégration
-        run: pnpm exec vitest run --project integration --reporter=default --reporter=json --outputFile=rapport-integration.json
+        run: pnpm exec vitest run --project integration --reporter=json --outputFile=rapport-integration.json
         env:
           SOCLE_INTEGRATION: "1"
       - name: Compter les tests d'intégration

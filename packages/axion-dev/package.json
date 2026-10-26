@@ -1,0 +1,20 @@
+{
+  "name": "@axion-auto/axion-dev",
+  "version": "0.0.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "main": "src/index.ts",
+  "bin": { "axion-dev": "src/index.ts" },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json --allowImportingTsExtensions"
+  },
+  "dependencies": {
+    "@axion-auto/contrats": "workspace:*",
+    "@axion-auto/harnais": "workspace:*",
+    "@axion-auto/sdk-module": "workspace:*",
+    "create-axion-module": "workspace:*",
+    "tsx": "4.23.15",
+    "zod": "^4.6.7"
+  }
+}

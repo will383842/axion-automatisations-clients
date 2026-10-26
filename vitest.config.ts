@@ -22,7 +22,7 @@ export default defineConfig({
   test: {
     projects: [
       { test: { name: "scripts", root: "./scripts", retry, exclude: excludeDefaut } },
-      ...[...dossiers("apps"), ...dossiers("packages")].map((d) => ({ test: { name: d, root: `./${d}`, retry, exclude: excludeDefaut } })),
+      ...[...dossiers("apps"), ...dossiers("packages"), ...(existsSync("modules") ? dossiers("modules") : [])].map((d) => ({ test: { name: d, root: `./${d}`, retry, exclude: excludeDefaut } })),
       // Scénarios de bout en bout rouges au départ (ADR 0005, T0-21).
       { test: { name: "tests/e2e", root: "./tests/e2e", retry, exclude: excludeDefaut } },
       // Vide sans SOCLE_INTEGRATION=1, pour que « vitest run » ne lance jamais ces tests faute de services.

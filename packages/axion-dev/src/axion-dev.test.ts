@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage } from "node:http";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
@@ -22,6 +22,8 @@ const lancer = async (argv: string[], env: Record<string, string> = {}, options:
 
 beforeAll(async () => {
   mkdirSync(join(racine, "modules"));
+  // Le tsconfig.json du modèle étend la base du dépôt : on en met une vide à la racine de l'essai.
+  writeFileSync(join(racine, "tsconfig.base.json"), "{}");
   await creerModule(CODE, racine);
 });
 afterAll(() => rmSync(racine, { recursive: true, force: true }));

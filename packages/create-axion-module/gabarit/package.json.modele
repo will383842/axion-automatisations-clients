@@ -5,6 +5,9 @@
   "license": "UNLICENSED",
   "type": "module",
   "main": "src/module.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json --allowImportingTsExtensions"
+  },
   "dependencies": {
     "@axion-auto/sdk-module": "workspace:*",
     "zod": "^4.6.7"

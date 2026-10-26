@@ -11,3 +11,5 @@ coverage/
 *.pem
 *.key
 next-env.d.ts
+artefact/
+packages/axion-dev/.essai-*

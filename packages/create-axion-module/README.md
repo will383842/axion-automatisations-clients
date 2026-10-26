@@ -1,6 +1,6 @@
 # create-axion-module
 
-Modèle de départ d'une automatisation : `pnpm create axion-module <code>`.
+Modèle de départ d'une automatisation : `pnpm creer-module <code>` (script racine, à lancer à la racine du dépôt ; jamais `pnpm create`, qui irait chercher un paquet du même nom sur npm).
 
 1. Crée `modules/<code>/` : paquet `@axion-auto/<code>`, version `0.1.0`, `apiMoteur` à la version courante de C4.
 2. Le manifeste contient 20 cas d'essai inventés (dont 1 panne et 1 e-mail piégé), la fonction `migrer` et un test.

@@ -20,7 +20,7 @@ export async function executer(argv: string[], c: Contexte): Promise<number> {
     if (commande === "test") return await test(c.cwd, c.ecrire);
     if (commande === "essai") return await essai(c.cwd, reste[reste.indexOf("--cas") + 1], c.ecrire);
     if (commande === "emballer") return await emballer(c.cwd, c.ecrire);
-    if (commande === "publier") return await publier(c.cwd, { env: c.env, recette: reste.includes("--recette"), recetteConfiguree: c.recetteConfiguree, fetch: c.fetch ?? fetch }, c.ecrire);
+    if (commande === "publier") return await publier(c.cwd, { env: c.env, recette: reste.includes("--recette"), recetteConfiguree: c.recetteConfiguree ?? c.env["AXION_RECETTE_ORIGINE"], fetch: c.fetch ?? fetch }, c.ecrire);
   } catch (e) {
     c.ecrire(`erreur : ${(e as Error).message}`);
     return commande === "publier" ? 3 : commande === "emballer" ? 2 : 1;

@@ -30,7 +30,7 @@ export async function creerModule(code: string, racine: string): Promise<string>
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const code = process.argv[2];
   if (!code) {
-    console.error("usage : pnpm create axion-module <code>");
+    console.error("usage : pnpm creer-module <code>");
     process.exit(1);
   }
   creerModule(code, process.cwd()).then(

@@ -15,3 +15,6 @@ C-493 → test « [C-493] garde-briques accepte valkey » (scripts/garde-briques
 A-381 → ADR 0016, scripts/garde-briques.ts (clé `derivee`, attestation, refus de `build:`) et tests [A-381] de scripts/garde-briques-derivee.test.ts, 2026-10-25
 A-052 → test « [A-052] un travail d'une instance d'une autre cellule est refusé » (apps/executeur/src/files/files.test.ts), 2026-10-26
 A-268 → tests [A-268] de apps/executeur/src/files/files.test.ts (paliers 2, 4 et 8, concurrence, configuration validée), 2026-10-26
+A-386 → ADR 0027, packages/connecteur-gmail/README.md et tests [A-386] de packages/connecteur-gmail/src/*.test.ts (envoi RFC 2822, portées étroites, vérification après coup sur faux Gmail, accès refusé), 2026-10-26
+A-405 → test « [A-405] le connecteur Gmail passe la suite messagerie sur enregistrements » (packages/connecteur-gmail/src/connecteur.test.ts), 2026-10-26
+A-406 → test « [A-406] aucun corps de message dans les journaux du connecteur (marqueur unique) » (packages/connecteur-gmail/src/connecteur.test.ts), 2026-10-26

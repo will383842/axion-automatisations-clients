@@ -86,7 +86,7 @@ describe("connecteur Gmail sur réponses enregistrées", () => {
   });
 
   it("[A-386] les portées demandées sont les plus étroites pour le module d'exemple", () => {
-    const demande = (actions: string[], portees: string[]) => ({ connecteurs: [{ famille: "messagerie", actions, portees }] });
+    const demande = (actions: string[], portees: string[]) => ({ connecteurs: [{ famille: "messagerie", actions, portees, garantie: "au_plus_une_fois" as const }] });
     const sansEtiquette = demande(["lister_nouveaux", "lire", "creer_brouillon", "envoyer"], ["gmail.readonly", "gmail.compose"]);
     const lecture = creerConnecteurGmail({ url: BASE, actions: sansEtiquette.connecteurs[0]!.actions });
     expect(lecture.declaration.portees).toEqual(["gmail.readonly", "gmail.compose"]);

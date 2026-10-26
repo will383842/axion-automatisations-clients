@@ -1,4 +1,4 @@
-import type { Garantie } from "@axion-auto/sdk-module";
+import type { Garantie, PasserelleIa } from "@axion-auto/sdk-module";
 import type { Configuration } from "@axion-auto/contrats/src/c4/configuration.ts";
 import type { EtatVoulu } from "@axion-auto/contrats/src/c4/etat-voulu.ts";
 import type { Evenement } from "@axion-auto/contrats/src/c4/evenements-executeur.ts";
@@ -75,4 +75,7 @@ export interface Ports {
   connecteurs: Connecteurs;
   console: Console;
   horloge: Horloge;
+  // Branchés en 4B : sans passerelle, une étape qui appelle l'IA échoue en « ia_indisponible » ; sans file de motifs, le motif est ignoré.
+  ia?: PasserelleIa;
+  motifs?: { noter(instanceId: string, executionId: string, etape: string, texte: string): void };
 }

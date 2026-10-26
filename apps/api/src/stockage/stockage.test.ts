@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, it } from "vitest";
 import { lireYaml } from "../../../../scripts/garde-compose.js";
-import { verifierBriques } from "../../../../scripts/garde-briques.js";
 import type { Coffre } from "../coffre/coffre.js";
 import { creerCoffreIdentifiants, creerStockage, ErreurStockage, type IdentifiantsS3, type PortS3, type RegistreReferences } from "./stockage.js";
 
@@ -324,8 +324,8 @@ describe("brique SeaweedFS et ADR 0022", () => {
     const brique = JSON.parse(texte("ops/briques/stockage.json")) as Record<string, unknown>;
     expect(brique).toMatchObject({ nom: "stockage", image: "chrislusf/seaweedfs", version: "4.51", empreinte: EMPREINTE_IMAGE, licence: "Apache-2.0", livree: false, lieu: "local" });
     expect(brique).not.toHaveProperty("derivee");
-    const erreurs = verifierBriques([{ fichier: "ops/briques/stockage.json", contenu: brique }], [{ nom: "compose.stockage.yml", texte: texte("ops/socle/compose.stockage.yml") }]);
-    expect(erreurs).toEqual([]);
+    // La vraie garde, sur tous les fichiers de briques et tous les composes (elle sort en erreur au premier refus).
+    expect(() => execFileSync("node", ["scripts/garde-briques.ts"], { cwd: racine("."), stdio: "pipe" })).not.toThrow();
   });
 
   it("[A-061] le service stockage : réseau interne seulement, aucun port, volume séparé, secret par variable et jamais en clair", () => {
@@ -344,7 +344,7 @@ describe("brique SeaweedFS et ADR 0022", () => {
   });
 
   it("[A-061] initialiser.sh crée exports, factures, suivi et artefacts, vérifie leur présence et n'ouvre aucun accès anonyme", () => {
-    const t = texte("ops/socle/stockage/initialiser.sh");
+    const t = texte("ops/socle/stockage/initialiser.sh").split("\n").filter((l) => !l.trim().startsWith("#")).join("\n");
     expect(t).toMatch(/for c in exports factures suivi artefacts/);
     expect(t).toContain("s3.bucket.create");
     expect(t).not.toMatch(/anonym|public-read|s3\.configure/i);

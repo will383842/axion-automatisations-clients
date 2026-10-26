@@ -1,0 +1,30 @@
+# ADR 0022 — Stockage SeaweedFS : adaptateur S3, droits par compartiment, création atomique
+
+Numéro 0022 réservé à l'étape 2 de T1A-11 (la fiche disait 0008). Complète l'ADR 0015, qui a choisi la brique.
+
+## Contexte
+L'ADR 0015 retient SeaweedFS (Apache-2.0) et laisse à l'étape 2 : l'image épinglée, l'adaptateur réel et l'essai des droits par compartiment, « à tester, pas à supposer ». La relecture de la première étape a laissé six points : création non atomique, écriture non conditionnelle des artefacts, lecture des identifiants hors du coffre de T1A-06, refus 403 non testé après lecture du coffre, oracle d'existence sur `artefacts`, test mal nommé.
+
+## Constat du 2026-10-26
+- Image : `chrislusf/seaweedfs`, étiquette `4.51`, publiée le 2026-10-26 sur Docker Hub (API `hub.docker.com/v2/repositories/chrislusf/seaweedfs/tags`). Empreinte de l'index multi-architectures : `sha256:f7a49e3f3972ebed5be2ed4befa4a0c68eb7bdddba6e692d42729ceb545134b8`. L'étiquette 4.50 de l'ADR 0015 est dépassée.
+- Licence : fichier `LICENSE` de `seaweedfs/seaweedfs` lu sur `raw.githubusercontent.com` le même jour : Apache License 2.0.
+- Contenu de l'image (manifeste lu sur le registre) : Alpine 3.24.3, entrée `entrypoint.sh` qui démarre en root, corrige le propriétaire de `/data` puis abandonne les droits (`su-exec`) vers l'utilisateur `seaweed`. Le binaire `weed` de l'image (version 4.51) a servi aux essais ci-dessous.
+- Essais faits avec ce binaire, le 2026-10-26 : l'identité administrateur créée par `AWS_ACCESS_KEY_ID` et `AWS_SECRET_ACCESS_KEY` ; l'API IAM embarquée (`-s3.iam.readOnly=false`) crée utilisateur, politique et clés ; une politique limitée à `arn:aws:s3:::cli-x` et `cli-x/*` donne 403 sur tout autre compartiment, en lecture et en écriture ; un second `CreateUser` du même nom répond `EntityAlreadyExists` (409) ; `PutObject` avec `If-None-Match: *` sur une clé existante répond 412 ; une requête sans signature répond 403 partout ; un lien signé expiré répond 403 ; la liste des compartiments d'un client ne contient que le sien ; `/healthz` répond 200 sans signature.
+
+## Décisions
+- **Image amont, aucune image dérivée.** L'ADR 0014 réserve l'image dérivée à une image amont qui échoue à la garde Trivy. Trivy n'est pas encore branché sur les images inscrites (ADR 0016) : l'amont épinglée par empreinte suffit aujourd'hui. Les étiquettes cosign `.sig` sont visibles sur Docker Hub pour cette famille d'images, mais la garde ne les vérifie pas : seule l'attestation GitHub des images dérivées est vérifiée. Si Trivy refuse ensuite l'amont, on passera par une image dérivée selon l'ADR 0014.
+- **Brique** : `ops/briques/stockage.json` (non livrée, lieu `local`), fragment `ops/socle/compose.stockage.yml` : réseau `interne` seul, aucun port, volume `stockage-donnees` séparé. Le secret administrateur est `SOCLE_STOCKAGE_MOT_DE_PASSE` (généré au lancement, inscrit à l'inventaire des secrets) ; la clé administrateur est un nom, pas un secret.
+- **Compartiments communs** : `ops/socle/stockage/initialiser.sh` crée `exports`, `factures`, `suivi` et `artefacts` par `weed shell`, sans les recréer, puis vérifie leur présence. Aucune identité anonyme n'existe : toute requête non signée est refusée.
+- **Droits par compartiment** : un utilisateur IAM `cli-<id>` par client, avec une politique `GetObject`, `PutObject`, `ListBucket` limitée à son compartiment (jamais de suppression, jamais d'autre compartiment). Le jeu administrateur ne sert qu'à créer compartiments et utilisateurs.
+- **Création atomique** : la brique tranche. `CreateUser` refuse un doublon, donc de deux créations simultanées une seule réussit (l'autre reçoit `deja_cree`). Si le coffre échoue ensuite, l'utilisateur est supprimé (clés, politique, utilisateur) : aucun jeu de clés actif sans copie, et la création peut être refaite.
+- **Coffre par référence (T1A-06)** : le jeu de clés est rangé par `rangerIdentifiant` et relu par `lireValeur` avec la référence `bao:clients/<client>/<uuid>`. Un port `RegistreReferences` garde la correspondance client → référence (ce n'est pas un secret). Son stockage en base viendra avec une migration, hors des fichiers de cette fiche : le port est prêt, l'implémentation de production reste à faire. Dans le coffre réel, seul le rôle `courtier` lit une valeur : l'appelant fournit le coffre avec ce rôle. Limite connue : si l'écriture du registre échoue après le coffre, une valeur sans référence reste dans le coffre ; elle est inutilisable, puisque l'utilisateur est supprimé.
+- **Artefacts** : écriture conditionnelle côté brique (`If-None-Match: *`), jamais d'écrasement ; identifiants du seul compartiment `artefacts`, vérifiés à la création. Pas d'oracle d'existence : la réponse est la même pour un contenu nouveau ou déjà rangé, sans lecture avant l'écriture ; les artefacts viennent de la plateforme seule, aucun client n'a d'identifiants sur ce compartiment.
+- **Refus** : le client de la brique ne laisse sortir que des codes (`acces_refuse`, `brique_indisponible`) ; ni message ni pile de la bibliothèque, donc aucune clé dans une erreur.
+- **Dépendances** : `@aws-sdk/client-s3` et `@aws-sdk/s3-request-presigner`, comme la fiche, plus `@aws-sdk/client-iam` (Apache-2.0, même famille) : l'API S3 ne crée pas d'utilisateur, l'API IAM embarquée de la brique le fait. Écart à la fiche, à valider par l'architecte ; la seule autre voie était de signer à la main les requêtes IAM.
+
+## Conséquences
+- Le code appelant ne parle que le port `PortS3` : une autre brique ne réécrit que `creerPortS3Aws`.
+- Les tests `*.int.test.ts` lancent l'image du fragment compose et essaient les droits sur la vraie brique : isolation entre clients et vers les compartiments communs, refus anonyme, refus 403 après lecture du coffre, création simultanée, artefact immuable, lien signé expiré.
+- Non fait ici : second remplaçant permissif (toujours « non constaté », voir ADR 0015), table du registre en base, chiffrement des fichiers par la clé du client (lot 2b).
+
+2026-10-26

@@ -126,6 +126,24 @@ importers:
         specifier: 19.3.0
         version: 19.3.0(@types/react@19.3.0)
 
+  packages/axion-dev:
+    dependencies:
+      '@axion-auto/contrats':
+        specifier: workspace:*
+        version: link:../contrats
+      '@axion-auto/harnais':
+        specifier: workspace:*
+        version: link:../harnais
+      '@axion-auto/sdk-module':
+        specifier: workspace:*
+        version: link:../sdk-module
+      create-axion-module:
+        specifier: workspace:*
+        version: link:../create-axion-module
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
+
   packages/connecteur-imap:
     dependencies:
       '@axion-auto/connecteurs-commun':
@@ -168,6 +186,12 @@ importers:
       zod:
         specifier: ^4.6.7
         version: 4.6.7
+
+  packages/create-axion-module:
+    dependencies:
+      '@axion-auto/sdk-module':
+        specifier: workspace:*
+        version: link:../sdk-module
 
   packages/design:
     dependencies:

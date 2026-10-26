@@ -6,6 +6,10 @@
   "type": "module",
   "main": "src/index.ts",
   "scripts": {
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json --allowImportingTsExtensions"
+  },
+  "dependencies": {
+    "@axion-auto/contrats": "workspace:*",
+    "@axion-auto/sdk-module": "workspace:*"
   }
 }

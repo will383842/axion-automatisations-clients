@@ -1,0 +1,35 @@
+{
+  "nom": "pagination",
+  "appels": [
+    {
+      "methode": "listerNouveaux",
+      "reponse": {
+        "ids": [
+          "m-1",
+          "m-2"
+        ],
+        "suivant": "c-2"
+      }
+    },
+    {
+      "methode": "listerNouveaux",
+      "reponse": {
+        "ids": [
+          "m-3",
+          "m-4"
+        ],
+        "suivant": "c-4"
+      }
+    },
+    {
+      "methode": "listerNouveaux",
+      "reponse": {
+        "ids": [
+          "m-5"
+        ],
+        "suivant": null
+      }
+    }
+  ],
+  "envoyes": 0
+}

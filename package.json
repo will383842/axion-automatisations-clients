@@ -7,7 +7,7 @@
   "engines": { "node": ">=22" },
   "scripts": {
     "verifier": "pnpm -r typecheck && pnpm lint && pnpm test",
-    "creer-module": "node packages/create-axion-module/src/index.ts",
+    "creer-module": "tsx packages/create-axion-module/src/index.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "eslint .",
     "prepare": "git rev-parse --git-dir >/dev/null 2>&1 && git config core.hooksPath .githooks || true",
@@ -21,6 +21,7 @@
     "js-yaml": "4.3.2",
     "libpg-query": "17.8.1",
     "typescript": "^5.6.0",
+    "tsx": "4.23.15",
     "typescript-eslint": "^8.0.0",
     "vitest": "^4.1.12"
   }

@@ -203,7 +203,7 @@ const SCRIPTS_OK = new Set([
   "pnpm -r typecheck && pnpm lint && pnpm test", "eslint .", "vitest run", "vitest run --reporter=json --outputFile=rapport-tests.json",
   "git rev-parse --git-dir >/dev/null 2>&1 && git config core.hooksPath .githooks || true", "cd ../.. && vitest run --project packages/contrats", "cd ../.. && vitest run --project packages/sdk-module",
   "node scripts/signer-fixtures.ts && node scripts/empreinte.ts", "node scripts/generer-css.ts",
-  "node packages/create-axion-module/src/index.ts",
+  "tsx packages/create-axion-module/src/index.ts",
 ]);
 export function verifierScriptsPaquets(fichiers: Fichier[]): string[] {
   const erreurs: string[] = [];

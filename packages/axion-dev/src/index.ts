@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env tsx
 import { pathToFileURL } from "node:url";
 import { emballer } from "./emballer.ts";
 import { essai } from "./essai.ts";

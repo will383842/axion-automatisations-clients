@@ -129,7 +129,7 @@ describe("corrections de relecture (tour 1)", () => {
 
   it("[C-242] le modèle se lance par le script racine creer-module, jamais par pnpm create", () => {
     const racinePkg = JSON.parse(lire("package.json")) as { scripts: Record<string, string> };
-    expect(racinePkg.scripts["creer-module"]).toBe("node packages/create-axion-module/src/index.ts");
+    expect(racinePkg.scripts["creer-module"]).toBe("tsx packages/create-axion-module/src/index.ts");
     for (const f of ["packages/create-axion-module/README.md", "docs/adr/0028-modele-de-depart-et-axion-dev.md", "packages/create-axion-module/src/index.ts"]) {
       expect(lire(f)).not.toContain("pnpm create axion-module");
       if (f !== "packages/create-axion-module/src/index.ts") expect(lire(f)).toContain("pnpm creer-module");

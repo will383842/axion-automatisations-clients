@@ -112,6 +112,8 @@ async function demander(n: Navigateur, extra: Record<string, string> = {}) {
   const q = formulaire({ client_id: "console", response_type: "code", scope: "openid", redirect_uri: REDIRECTION, state: "s", code_challenge: p.challenge, code_challenge_method: "S256", ...extra });
   return { r: await n.requete(`${OIDC("equipe")}/auth?${q}`), verifier: p.verifier };
 }
+// Message d'erreur affiché par Keycloak dans une page, pour comprendre un refus.
+const messageDe = (html: string) => /kc-feedback-text[^>]*>\s*([^<]+)/.exec(html)?.[1]?.trim() ?? html.slice(0, 200);
 const codeDe = (r: Response) => new URL(r.headers.get("location") ?? "http://sans.redirection.test").searchParams.get("code");
 
 async function echanger(codeAutorisation: string, verifier: string): Promise<Json> {
@@ -133,7 +135,7 @@ async function connecter(n: Navigateur, u: Utilisateur, extra: Record<string, st
   expect(pageOtp(pageDeuxieme), "le mot de passe seul mène au formulaire TOTP").toBe(true);
   const rOtp = await n.requete(action(pageDeuxieme), { method: "POST", body: formulaire({ otp: prochainCode(u) }) });
   const c = codeDe(rOtp);
-  expect(c, "code d'autorisation attendu après le TOTP").toBeTruthy();
+  expect(c, `code d'autorisation attendu après le TOTP (${rOtp.status} ${rOtp.headers.get("location") ?? messageDe(await rOtp.text())})`).toBeTruthy();
   return echanger(c ?? "", verifier);
 }
 
@@ -201,7 +203,7 @@ describe("Keycloak réel : double facteur et sessions", { timeout: 60_000 }, () 
     const faux = await direct(u, { totp: "000000" });
     expect(((await faux.json()) as Json)["access_token"]).toBeUndefined();
     const complet = await direct(u, { totp: prochainCode(u) });
-    expect(complet.status).toBe(200);
+    expect(complet.status, await complet.clone().text()).toBe(200);
     expect(((await complet.json()) as Json)["access_token"]).toBeTypeOf("string");
   });
 

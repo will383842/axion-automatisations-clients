@@ -7,7 +7,8 @@ import { fileURLToPath } from "node:url";
 const SESSION_MAX = 8 * 3600;
 const JETON_MAX = 300;
 const FACTEUR_ECHECS_MAX = 5;
-const SECRET_ENV = /^\$\{env\.[A-Z][A-Z0-9_]*\}$/;
+// Keycloak ne substitue que la forme sans préfixe : « ${env.NOM} » resterait un secret littéral (constaté contre le vrai Keycloak).
+const SECRET_ENV = /^\$\{[A-Z][A-Z0-9_]*\}$/;
 // Seuls authentificateurs permis dans le flux de navigateur de l'équipe : tout autre (SMS, fournisseur d'identité, clé d'accès seule…) est refusé.
 // La condition de niveau d'authentification ne sert qu'à poser le niveau « mfa » (acr) APRÈS le double facteur, qui reste REQUIRED à part.
 const PERMIS = new Set(["auth-cookie", "auth-username-password-form", "auth-otp-form", "webauthn-authenticator", "conditional-level-of-authentication"]);
@@ -53,7 +54,7 @@ function verifierClients(r: Objet, echec: (m: string) => void): void {
       const v = c[cle];
       if (!Array.isArray(v) || v.includes("offline_access")) echec(`client « ${id} » : ${cle} doit être déclaré, sans offline_access`);
     }
-    if (c["secret"] !== undefined && !(typeof c["secret"] === "string" && SECRET_ENV.test(c["secret"]))) echec(`client « ${id} » : secret en clair (utiliser \${env.NOM})`);
+    if (c["secret"] !== undefined && !(typeof c["secret"] === "string" && SECRET_ENV.test(c["secret"]))) echec(`client « ${id} » : secret en clair (utiliser \${NOM})`);
   }
 }
 

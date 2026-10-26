@@ -24,7 +24,7 @@ services:
       C: while read -r l; do case $$l in *UP*) exit 0;; esac; done <&3
       KC_BOOTSTRAP_ADMIN_USERNAME: admin-socle
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${SOCLE_KEYCLOAK_ADMIN_MOT_DE_PASSE:?mot de passe de test absent}
-      # Substitués dans les fichiers de royaume (${env.KC_SECRET_…}).
+      # Substitués par l'import dans les fichiers de royaume (forme « dollar, accolade, nom »).
       KC_SECRET_CONSOLE: ${SOCLE_KEYCLOAK_SECRET_CONSOLE:?secret de test absent}
       KC_SECRET_PORTAIL: ${SOCLE_KEYCLOAK_SECRET_PORTAIL:?secret de test absent}
     volumes:

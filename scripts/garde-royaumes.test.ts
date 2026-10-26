@@ -53,7 +53,7 @@ function equipe(): Royaume {
         standardFlowEnabled: true,
         directAccessGrantsEnabled: false,
         implicitFlowEnabled: false,
-        secret: "${env.KC_SECRET_CONSOLE}",
+        secret: "${KC_SECRET_CONSOLE}",
         attributes: { "pkce.code.challenge.method": "S256" },
         defaultClientScopes: ["basic", "profile"],
         optionalClientScopes: [],
@@ -92,6 +92,9 @@ describe("garde-royaumes : octroi direct et clients", () => {
   it("[LOT1-kc] refuse un secret de client en clair", () => {
     const r = equipe();
     r.clients[0].secret = "valeur-en-clair";
+    expect(verifier(r).join()).toMatch(/secret/);
+    // La forme « ${env.NOM} » n'est pas substituée par l'import de Keycloak : elle resterait un secret littéral.
+    r.clients[0].secret = "${env.KC_SECRET_CONSOLE}";
     expect(verifier(r).join()).toMatch(/secret/);
   });
   it("[LOT1-kc] refuse un client sans PKCE S256 et le flux implicite", () => {

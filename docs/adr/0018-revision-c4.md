@@ -39,3 +39,5 @@ Aussi : deux étapes du même nom sont refusées par `defineAutomation`, et le n
 - Le noyau de l'exécuteur suit seulement les types : le contexte, la clé d'intention et la console simulée.
 
 2026-10-26
+
+> Note : `contrats.sha256` est remplacé par `packages/contrats/empreintes/` (un fichier par contrat), voir l'ADR 0019.

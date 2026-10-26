@@ -2,7 +2,6 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import config from "../vitest.config.js";
-import { analyserArguments, verifierConsigne } from "./compter-tests.js";
 import { verifierCompose } from "./garde-compose.js";
 
 const lire = (chemin: string) => readFileSync(fileURLToPath(new URL(`../${chemin}`, import.meta.url)), "utf8");
@@ -115,24 +114,6 @@ describe("garde-compose", () => {
   });
 });
 
-describe("options de compter-tests", () => {
-  it("[C-538] --rapport et --reference sont lus, avec les valeurs par défaut d'avant", () => {
-    expect(analyserArguments(["rapport-tests.json"])).toEqual({ rapport: "rapport-tests.json", reference: "spec/compte-tests.json" });
-    expect(analyserArguments([])).toEqual({ rapport: "rapport-tests.json", reference: "spec/compte-tests.json" });
-    expect(analyserArguments(["--rapport", "r.json", "--reference", "spec/compte-tests-integration.json"])).toEqual({
-      rapport: "r.json",
-      reference: "spec/compte-tests-integration.json",
-    });
-  });
-  it("[C-538] le message de consigne cite le fichier de référence passé", () => {
-    expect(verifierConsigne(1, 2, "spec/compte-tests-integration.json")[0]).toContain("spec/compte-tests-integration.json");
-    expect(verifierConsigne(1, 2)[0]).toContain("spec/compte-tests.json");
-  });
-  it("[C-538] une option sans valeur est refusée", () => {
-    expect(() => analyserArguments(["--rapport"])).toThrow();
-  });
-});
-
 describe("tests d'intégration et lancement", () => {
   it("[C-538] les projets par défaut excluent **/*.int.test.ts, le projet integration les prend", () => {
     const projets = (config.test?.projects ?? []) as { test: { name: string; exclude: string[]; include?: string[] } }[];
@@ -148,6 +129,24 @@ describe("tests d'intégration et lancement", () => {
     expect(t).toMatch(/^permissions:\n\s+contents: read/m);
     expect(t).not.toMatch(/^\s*environment:/m);
     expect(t).toMatch(/if: always\(\)/);
-    expect(t).toMatch(/compte-tests-integration\.json/);
+    expect(t).toMatch(/compter-tests\.ts --projet integration --rapport rapport-integration\.json/);
+    expect(t).not.toMatch(/--reference|compte-tests-integration\.json/);
+    expect(t).toMatch(/fetch-depth: 2/);
+  });
+});
+
+describe("compteur de tests mesuré par la CI", () => {
+  it("[C-538] aucun total de tests n'est plus écrit dans le dépôt", () => {
+    for (const f of ["spec/compte-tests.json", "spec/compte-tests-integration.json"]) expect(existsSync(fileURLToPath(new URL(`../${f}`, import.meta.url))), f).toBe(false);
+  });
+  it("[C-538] le job compter-tests mesure la base dans le même job, sans --reference ni origin/main", () => {
+    const t = lire(".github/workflows/ci.yml");
+    const job = t.slice(t.indexOf("  compter-tests:"), t.indexOf("  licences:"));
+    expect(job).toMatch(/fetch-depth: 2/);
+    expect(job).toMatch(/node scripts\/compter-tests\.ts rapport-tests\.json/);
+    expect(job).not.toMatch(/--reference|origin\/main|fetch-depth: 0/);
+  });
+  it("[C-538] la liste blanche des commandes ne garde plus --reference", () => {
+    expect(lire("scripts/garde-licences.ts")).not.toMatch(/--reference|compte-tests-integration/);
   });
 });

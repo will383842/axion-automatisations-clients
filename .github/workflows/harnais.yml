@@ -5,6 +5,11 @@ on:
     branches: [main]
 permissions:
   contents: read
+# Une PR qui reçoit un nouveau commit annule ses exécutions devenues inutiles (la file GitHub est partagée par toutes les sessions).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   harnais:
     name: harnais

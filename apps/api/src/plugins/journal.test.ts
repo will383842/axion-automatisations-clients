@@ -13,6 +13,52 @@ describe("masquage des secrets dans le journal de l'API", () => {
     for (const f of formes) expect(m.masquer(`avant ${f} après`)).toBe("avant [masqué] après");
   });
 
+  it("[A-005] le masqueur cache un secret à guillemet et à barre oblique recopié dans un message qui contient déjà du JSON (double échappement)", () => {
+    const m = creerMasqueur();
+    const secret = `${MARQUEUR}"ab\\cd`;
+    m.ajouter(secret);
+    const message = `réponse du service : ${JSON.stringify({ k: secret })}`;
+    const ligne = JSON.stringify({ msg: message });
+    expect(ligne).not.toContain(secret);
+    const sortie = m.masquer(ligne);
+    expect(sortie).toContain("[masqué]");
+    expect(sortie).not.toContain(MARQUEUR);
+    expect(sortie).not.toContain("ab");
+  });
+
+  it("[A-005] le masqueur cache la forme de formulaire (espace → +), dans un message et dans l'adresse journalisée", async () => {
+    const m = creerMasqueur();
+    const secret = `${MARQUEUR} val+x`;
+    m.ajouter(secret);
+    const formulaire = new URLSearchParams({ q: secret }).toString();
+    expect(formulaire).toContain("+val%2Bx");
+    expect(m.masquer(formulaire)).toBe("q=[masqué]");
+    const lignes: string[] = [];
+    const serveur = construireServeur({ journal: creerFluxJournal(m, (l) => lignes.push(l)) });
+    serveur.get("/p", async () => {
+      throw new Error("échec");
+    });
+    await serveur.inject({ method: "GET", url: `/p?${formulaire}` });
+    await serveur.close();
+    const sortie = lignes.join("");
+    expect(sortie).toContain("[masqué]");
+    expect(sortie).not.toContain(MARQUEUR);
+    expect(sortie).not.toContain("val%2Bx");
+  });
+
+  it.each(["a", "ab", "abc", "utilisateur:"])("[A-005] le masqueur cache le base64 et le base64url d'une valeur composée (préfixe « %s », secret non aligné sur 3 octets)", (prefixe) => {
+    for (const secret of [`${MARQUEUR}-12`, `${MARQUEUR}-123`, `${MARQUEUR}-1234`]) {
+      const m = creerMasqueur();
+      m.ajouter(secret);
+      for (const codage of ["base64", "base64url"] as const) {
+        const entete = `Basic ${Buffer.from(`${prefixe}${secret}`).toString(codage)}`;
+        const milieu = entete.slice(6 + 4, -4); // sans les caractères de bord, qui dépendent du voisin
+        expect(m.masquer(entete)).not.toContain(milieu);
+        expect(m.masquer(entete)).toContain("[masqué]");
+      }
+    }
+  });
+
   it("[A-005] le masqueur ignore une valeur vide et laisse le reste du texte intact", () => {
     const m = creerMasqueur();
     m.ajouter("");

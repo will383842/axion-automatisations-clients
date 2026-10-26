@@ -6,7 +6,7 @@ import { ouvrirMicrosoft365 } from "./connecteur.ts";
 // Suite de nuit contre le tenant développeur de test (workflow de nuit, à venir : voir la PR). Sautée partout ailleurs ;
 // quand la nuit la demande, un tenant non configuré la rend ROUGE (jamais verte par défaut).
 const nuit = process.env["NUIT_CONNECTEURS"] === "1";
-const itNuit = nuit ? it : it.skip;
+const itNuit = nuit ? it : it.skip; // fiche: T4-11
 const REQUIS = ["GRAPH_URL", "GRAPH_JETON_TEST", "GRAPH_COMPTE_TEST", "GRAPH_DESTINATAIRE_TEST"] as const;
 const pause = (ms: number) => new Promise((ok) => setTimeout(ok, ms));
 

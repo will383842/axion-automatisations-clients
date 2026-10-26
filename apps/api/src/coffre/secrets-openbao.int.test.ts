@@ -1,8 +1,8 @@
 import { execFileSync } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
-import { readFileSync, writeSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { afterAll, afterEach, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import { lireYaml } from "../../../../scripts/garde-compose.js";
 import { creerFluxJournal, creerMasqueur } from "../plugins/journal.js";
 import { creerLecteurSecretsOpenBao } from "../secrets-openbao.js";
@@ -18,9 +18,6 @@ const docker = (...args: string[]) => execFileSync("docker", args, { encoding: "
 const compose = lireYaml(readFileSync(racineDepot("ops/socle/compose.openbao.yml"), "utf8")) as unknown as { services: { openbao: { image: string } } };
 const lances: string[] = [];
 afterAll(() => { for (const id of lances) try { docker("rm", "-f", id); } catch { /* déjà arrêté */ } });
-
-// DIAGNOSTIC TEMPORAIRE : écrit les messages d'échec sur la sortie d'erreur (le rapport JSON de la CI ne les montre pas).
-afterEach((ctx) => { if (ctx.task.result?.state === "fail") writeSync(2, `ECHEC ${ctx.task.name} :: ${(ctx.task.result.errors ?? []).map((e) => String(e.message).slice(0, 300)).join(" | ")}\n`); });
 
 async function admin(url: string, jeton: string, methode: string, chemin: string, corps: unknown): Promise<unknown> {
   const r = await fetch(`${url}/v1/${chemin}`, { method: methode, headers: { "X-Vault-Token": jeton, "Content-Type": "application/json" }, body: JSON.stringify(corps) });
@@ -65,8 +62,7 @@ async function preparer() {
   await admin(url, racine, "POST", "technique/data/essai/jeton", { data: { valeur: marqueur } });
   await admin(url, racine, "POST", "sys/policies/acl/lecteur-essai", { policy: 'path "technique/data/essai/*" { capabilities = ["read"] }' });
   for (const r of ["api", "courtier", "equipe"]) await admin(url, racine, "POST", `sys/policies/acl/${r}`, { policy: readFileSync(racineDepot(`ops/socle/openbao/politiques/${r}.hcl`), "utf8") });
-  const diag: typeof fetch = async (u, i) => { const r = await fetch(u, i); if (r.status >= 400) writeSync(2, `HTTP ${r.status} ${i?.method ?? "GET"} ${String(u).replace(url, "")} ${(await r.clone().text()).slice(0, 200)}\n`); return r; }; // DIAGNOSTIC TEMPORAIRE
-  const jeton = async (politique: string): Promise<OptionsBao> => ({ url, fetch: diag, jeton: ((await admin(url, racine, "POST", "auth/token/create", { policies: [politique], no_default_policy: true })) as { auth: { client_token: string } }).auth.client_token });
+  const jeton = async (politique: string): Promise<OptionsBao> => ({ url, jeton: ((await admin(url, racine, "POST", "auth/token/create", { policies: [politique], no_default_policy: true })) as { auth: { client_token: string } }).auth.client_token });
   return { url, racine, marqueur, jeton, jetonLecteur: (await jeton("lecteur-essai")).jeton, jetonEquipe: (await jeton("equipe")).jeton };
 }
 

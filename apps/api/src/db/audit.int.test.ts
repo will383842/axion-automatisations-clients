@@ -1,3 +1,4 @@
+import { writeSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
@@ -15,7 +16,8 @@ const it = (nom: string, fn: () => Promise<void>) =>
     try {
       await fn();
     } catch (e) {
-      console.log("ECHEC", nom, String((e as Error).message).slice(0, 600));
+      writeSync(2, `ECHEC ${nom} : ${String((e as Error).message).slice(0, 600)}
+`);
       throw e;
     }
   });
@@ -23,7 +25,8 @@ const avecDiag = async (f: () => Promise<void>) => {
   try {
     await f();
   } catch (e) {
-    console.log("ECHEC migrer", String((e as Error).message).slice(0, 800));
+    writeSync(2, `ECHEC migrer ${String((e as Error).message).slice(0, 800)}
+`);
     throw e;
   }
 };

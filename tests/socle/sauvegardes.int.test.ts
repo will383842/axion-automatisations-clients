@@ -224,18 +224,25 @@ describe("sauvegardes (archivage continu, complète de nuit, restauration)", () 
     expect(infoPgBackRest()).toMatch(/"cipher"\s*:\s*"aes-256-cbc"/);
   });
 
-  it("[C-049] expirer.sh branche retention.ts sur la liste réelle de pgBackRest : rien ne part dans le mois, tout sauf la plus récente part dans cinq ans", () => {
+  it("[C-049] expirer.sh branche retention.ts sur la liste réelle de pgBackRest : une quotidienne par jour, rien d'expiré pour des sauvegardes futures, expiration réelle des complètes en trop", () => {
     // Il faut au moins deux complètes pour que « tout sauf la plus récente » ait un sens : on en ajoute une au besoin.
     if (completes().length < 2) dans("postgres", "/opt/sauvegardes/sauvegarder-nuit.sh");
     const labels = completes();
     expect(labels.length).toBeGreaterThanOrEqual(2);
-    const aujourdhui = new Date().toISOString().slice(0, 10);
+    const hier = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
     const simuler = (jour: string) => sortie(script("expirer.sh"), ["--simuler"], { env: { ...process.env, EXPIRER_AUJOURDHUI: jour } }).split("\n").filter(Boolean);
-    expect(simuler(aujourdhui)).toEqual([]);
+    // Le jour même, une seule quotidienne est gardée : les autres complètes du jour partent (retention.ts).
+    expect(simuler(new Date().toISOString().slice(0, 10))).toEqual(labels.slice(0, -1));
+    // « Hier » : toutes les sauvegardes d'essai sont datées après aujourd'hui, donc intouchables.
+    expect(simuler(hier)).toEqual([]);
+    // Dans cinq ans : tout part, sauf la plus récente, toujours gardée.
     expect(simuler("2030-01-01")).toEqual(labels.slice(0, -1));
-    // Exécution réelle le jour même : rien à expirer, sortie 0, aucune sauvegarde perdue.
-    sortie(script("expirer.sh"), [], { env: { ...process.env, EXPIRER_AUJOURDHUI: aujourdhui } });
+    // Exécution réelle avec la date d'hier : rien à expirer, sortie 0, aucune sauvegarde perdue.
+    sortie(script("expirer.sh"), [], { env: { ...process.env, EXPIRER_AUJOURDHUI: hier } });
     expect(completes()).toEqual(labels);
+    // Exécution réelle le jour même : pgbackrest expire --set retire pour de bon les complètes en trop, la plus récente reste.
+    sortie(script("expirer.sh"), [], { env: { ...process.env, EXPIRER_AUJOURDHUI: new Date().toISOString().slice(0, 10) } });
+    expect(completes()).toEqual(labels.slice(-1));
   }, 120_000);
 
   it("[C-052] la grappe sauvegardée ne contient aucune base cli_", () => {

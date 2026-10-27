@@ -53,7 +53,7 @@ else
         filer "http://localhost:8888/buckets/$COMPARTIMENT/$rel" >"$provisoire"
         ranger "$rel"
       fi
-    done < <(printf '%s' "$liste" | sed 's/},{/}\n{/g')
+    done < <(printf '%s\n' "$liste" | sed 's/},{/}\n{/g')
   }
   parcourir ""
 fi

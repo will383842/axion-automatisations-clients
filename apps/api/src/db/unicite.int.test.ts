@@ -110,12 +110,24 @@ describe("règles C5 d'unicité et de clés étrangères sur le vrai PostgreSQL"
   });
 
   // btree_gist permet l'opérateur « différent » sur uuid : EXCLUDE (tenant_id WITH <>, ressource WITH =) est un oracle (23P01) bien que tenant_id soit dans la clé.
+  // Si l'image PostgreSQL n'a pas btree_gist (ou si le rôle ne peut pas le créer), l'essai porte sur le même contrôle avec un type natif :
+  // tenant_id de type int4range, opérateur « && » (signalé) contre « = » (accepté). Le contrôle ne regarde que le nom de colonne et l'opérateur.
   it("[A-163] @isolation une contrainte EXCLUDE dont l'opérateur sur tenant_id n'est pas « = » est signalée, celle avec « = » est acceptée", async () => {
-    await migration.query(`CREATE EXTENSION IF NOT EXISTS btree_gist SCHEMA ${SCHEMA}`);
-    await migration.query(`${table("c_exclu_ko", `${IDENTITE}, ressource text NOT NULL, EXCLUDE USING gist (tenant_id WITH <>, ressource WITH =)`)}
-      ${table("c_exclu_ok", `${IDENTITE}, ressource text NOT NULL, EXCLUDE USING gist (tenant_id WITH =, ressource WITH =)`)}`);
-    const trouves = await ecarts();
-    expect(trouves).toEqual([`unicite_sans_tenant ${SCHEMA}.c_exclu_ko.c_exclu_ko_tenant_id_ressource_excl`]);
+    let gist = false;
+    try {
+      await migration.query(`CREATE EXTENSION IF NOT EXISTS btree_gist SCHEMA ${SCHEMA}`);
+      gist = true;
+    } catch {
+      gist = false;
+    }
+    const colonnes = gist ? "tenant_id uuid NOT NULL" : "tenant_id int4range NOT NULL";
+    const ko = gist ? "EXCLUDE USING gist (tenant_id WITH <>, ressource WITH =)" : "EXCLUDE USING gist (tenant_id WITH &&)";
+    const ok = gist ? "EXCLUDE USING gist (tenant_id WITH =, ressource WITH =)" : "EXCLUDE USING gist (tenant_id WITH =)";
+    // Tables écrites à la main : le gabarit `table()` crée un index btree sur tenant_id, inutile ici (un range n'a pas d'index btree utile pour le contrôle).
+    await migration.query(`CREATE TABLE ${SCHEMA}.c_exclu_ko (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, ${colonnes}, ressource text NOT NULL, ${ko});
+      CREATE TABLE ${SCHEMA}.c_exclu_ok (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, ${colonnes}, ressource text NOT NULL, ${ok})`);
+    const trouves = (await ecarts()).filter((e) => e.includes("c_exclu"));
+    expect(trouves.length === 1 && trouves[0] === `unicite_sans_tenant ${SCHEMA}.c_exclu_ko.c_exclu_ko_${gist ? "tenant_id_ressource" : "tenant_id"}_excl`, `btree_gist ${gist ? "présent" : "absent"} : ${trouves.join(" | ")}`).toBe(true);
     await migration.query(`DROP TABLE ${SCHEMA}.c_exclu_ko, ${SCHEMA}.c_exclu_ok`);
   });
 });

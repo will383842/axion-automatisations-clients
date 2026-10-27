@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import pg from "pg";
 import { describe, expect, it } from "vitest";
-import { migrer } from "./migrer.js";
+import { migrer, VERROU_MIGRATION } from "./migrer.js";
 
 // Tests contre le socle lancé par ops/socle/lancer.sh (job socle-integration), même méthode que roles.int.test.ts.
 const docker = (...args: string[]) => execFileSync("docker", args, { encoding: "utf8" }).trim();
@@ -114,19 +114,61 @@ describe("migrer, avec le socle", () => {
     }
   });
 
-  it("[A-189] deux migrer() simultanés n'appliquent la migration qu'une fois", async () => {
+  it("[A-189] trois migrer() simultanés attendent le verrou puis n'appliquent la migration qu'une fois", async () => {
     const dossier = dossierEssai(1700000000200);
     const journal = { schema: "essai_verrou_a189", table: "__migrations" };
     const lecture = new pg.Client({ connectionString: urlDe("console_migration", DIRECT()) });
+    const retenue = new pg.Client({ connectionString: urlDe("console_migration", DIRECT()) });
     await lecture.connect();
+    await retenue.connect();
     try {
       await lecture.query("DROP TABLE IF EXISTS public.essai_migration_a189; DROP SCHEMA IF EXISTS essai_verrou_a189 CASCADE");
-      const resultats = await Promise.allSettled([1, 2, 3].map(() => migrer({ url: urlDe("console_migration", DIRECT()), dossier, journal })));
+      // Course déterministe : l'essai tient le verrou, les trois migrer() démarrent et doivent TOUS attendre (pg_locks, granted = false).
+      await retenue.query("SELECT pg_advisory_lock($1)", [VERROU_MIGRATION.toString()]);
+      const enCours = [1, 2, 3].map(() => migrer({ url: urlDe("console_migration", DIRECT()), dossier, journal }));
+      let attente = 0;
+      for (let k = 0; k < 100 && attente < 3; k++) {
+        const { rows } = await lecture.query("SELECT count(*)::int AS n FROM pg_locks WHERE locktype = 'advisory' AND NOT granted");
+        attente = rows[0]?.["n"] as number;
+        if (attente < 3) await new Promise((r) => setTimeout(r, 100));
+      }
+      // Sans le verrou dans migrer(), personne n'attend.
+      expect(attente).toBeGreaterThanOrEqual(3);
+      expect((await lecture.query("SELECT to_regclass('essai_verrou_a189.__migrations')::text AS t")).rows[0]?.["t"]).toBeNull();
+      await retenue.query("SELECT pg_advisory_unlock($1)", [VERROU_MIGRATION.toString()]);
+      const resultats = await Promise.allSettled(enCours);
       expect(resultats.map((r) => (r.status === "rejected" ? String(r.reason) : "ok"))).toEqual(["ok", "ok", "ok"]);
       const n = await lecture.query("SELECT count(*)::int AS n FROM essai_verrou_a189.__migrations");
       expect(n.rows[0]?.["n"]).toBe(1);
     } finally {
+      await retenue.end().catch(() => undefined);
       await lecture.query("DROP TABLE IF EXISTS public.essai_migration_a189; DROP SCHEMA IF EXISTS essai_verrou_a189 CASCADE").catch(() => undefined);
+      await lecture.end();
+    }
+  });
+
+  it("[A-189] une migration insérée au milieu du journal, sous la date de la dernière appliquée, est refusée au lieu d'être sautée", async () => {
+    const racine = mkdtempSync(join(tmpdir(), "migrer-"));
+    const ecrire = (nom: string, entrees: [string, number, string][]) => {
+      const dossier = join(racine, nom);
+      mkdirSync(join(dossier, "meta"), { recursive: true });
+      for (const [tag, , sql] of entrees) writeFileSync(join(dossier, `${tag}.sql`), sql);
+      writeFileSync(join(dossier, "meta/_journal.json"), JSON.stringify({ version: "7", dialect: "postgresql", entries: entrees.map(([tag, when], idx) => ({ idx, version: "7", when, tag, breakpoints: true })) }));
+      return dossier;
+    };
+    const x: [string, number, string] = ["0000_x", 1700000000300, "CREATE TABLE essai_milieu_x_a189 (id integer);\n"];
+    const a: [string, number, string] = ["0002_a", 1700000000500, "CREATE TABLE essai_milieu_a_a189 (id integer);\n"];
+    const b: [string, number, string] = ["0001_b", 1700000000400, "CREATE TABLE essai_milieu_b_a189 (id integer);\n"];
+    const journal = { schema: "essai_milieu_a189", table: "__migrations" };
+    const url = urlDe("console_migration", DIRECT());
+    const lecture = new pg.Client({ connectionString: url });
+    await lecture.connect();
+    try {
+      await migrer({ url, dossier: ecrire("avant", [x, a]), journal });
+      await expect(migrer({ url, dossier: ecrire("apres", [x, b, a]), journal })).rejects.toThrow(/0001_b/);
+      expect((await lecture.query("SELECT to_regclass('public.essai_milieu_b_a189')::text AS t")).rows[0]?.["t"]).toBeNull();
+    } finally {
+      await lecture.query("DROP TABLE IF EXISTS public.essai_milieu_x_a189, public.essai_milieu_a_a189, public.essai_milieu_b_a189; DROP SCHEMA IF EXISTS essai_milieu_a189 CASCADE").catch(() => undefined);
       await lecture.end();
     }
   });

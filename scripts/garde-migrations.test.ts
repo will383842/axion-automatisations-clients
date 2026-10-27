@@ -283,3 +283,61 @@ describe("fonctions permises dans les migrations", () => {
     for (const f of liste.fonctions) expect(f["empreinte"]).toMatch(/^[0-9a-f]{64}$/);
   });
 });
+
+// Correctifs de la relecture sécurité de la PR 93.
+describe("fonctions permises : durcissement", () => {
+  const definer = (reglages: string, corps = "AS $$ SELECT p_valeur $$") => `CREATE FUNCTION public.audit_exemple(p_valeur text) RETURNS text LANGUAGE sql SECURITY DEFINER ${reglages} ${corps}`;
+  const SEC = refus(1, "SECURITY DEFINER sans search_path");
+
+  it("[A-233] ALTER FUNCTION (SECURITY DEFINER, OWNER TO, SET, RESET) est refusé, listé ou non", () => {
+    for (const sql of [
+      "ALTER FUNCTION public.f(text) SECURITY DEFINER;",
+      "ALTER FUNCTION public.f(text) OWNER TO console_proprietaire;",
+      "ALTER FUNCTION public.f(text) SET search_path = public;",
+      "ALTER FUNCTION public.f(text) RESET ALL;",
+      "ALTER PROCEDURE public.p() SECURITY DEFINER;",
+      "ALTER ROUTINE public.f(text) SECURITY DEFINER;",
+    ]) {
+      expect(analyserFichier(sql, [entree(FONCTION)]).length, sql).toBeGreaterThan(0);
+      expect(analyserFichier(sql, []).length, sql).toBeGreaterThan(0);
+    }
+    expect(analyserFichier("ALTER FUNCTION public.f(text) SECURITY DEFINER;", [])[0]).toContain("ALTER FUNCTION");
+    expect(analyserFichier("ALTER FUNCTION public.f(text) OWNER TO console_proprietaire;", [])[0]).toContain("ALTER FUNCTION");
+  });
+
+  it("[A-233] SECURITY DEFINER exige un seul SET search_path = pg_catalog, pg_temp, même listé", () => {
+    const mauvais = [
+      "SET search_path = public",
+      "SET search_path = pg_catalog",
+      "SET search_path = pg_temp, pg_catalog",
+      "SET search_path = pg_catalog, pg_temp, public",
+      "SET search_path = pg_catalog SET search_path FROM CURRENT",
+      "SET search_path = pg_catalog, pg_temp SET search_path = pg_catalog, pg_temp",
+      "SET search_path = pg_catalog, pg_temp SET search_path TO DEFAULT",
+      "SET search_path TO DEFAULT",
+    ];
+    for (const reglage of mauvais) {
+      const texte = definer(reglage);
+      expect(analyserFichier(`${texte};`, [entree(texte)]), reglage).toEqual([SEC]);
+    }
+    const bon = definer("SET search_path = pg_catalog, pg_temp");
+    expect(analyserFichier(`${bon};`, [entree(bon)])).toEqual([]);
+    const autreReglage = definer("SET search_path = pg_catalog, pg_temp SET work_mem = '1MB'");
+    expect(analyserFichier(`${autreReglage};`, [entree(autreReglage)])).toEqual([]);
+  });
+
+  it("[A-233] une fonction listée qui contient set_config ou pg_settings reste refusée", () => {
+    const base = "CREATE FUNCTION public.audit_exemple(p_valeur text";
+    const cas: [string, string][] = [
+      ["corps BEGIN ATOMIC", `${base}) RETURNS text LANGUAGE sql BEGIN ATOMIC SELECT set_config('a', 'b', false); END`],
+      ["valeur par défaut de paramètre", `${base} DEFAULT set_config('a', 'b', false)) RETURNS text LANGUAGE sql AS $$ SELECT 1 $$`],
+      ["pg_settings dans BEGIN ATOMIC", `${base}) RETURNS text LANGUAGE sql BEGIN ATOMIC SELECT name::text FROM pg_catalog.pg_settings; END`],
+      ["set_config qualifié", `${base}) RETURNS text LANGUAGE sql BEGIN ATOMIC SELECT pg_catalog.set_config('a', 'b', true); END`],
+    ];
+    for (const [nomCas, texte] of cas) {
+      const erreurs = analyserFichier(`${texte};`, [entree(texte)]);
+      expect(erreurs.length, nomCas).toBeGreaterThan(0);
+      expect(erreurs.join("\n"), nomCas).not.toContain("CREATE FUNCTION");
+    }
+  });
+});

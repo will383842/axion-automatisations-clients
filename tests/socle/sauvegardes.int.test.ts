@@ -379,6 +379,8 @@ const scenario = (): Promise<Scenario> => {
     const cible = conteneur("sftp-essai");
     const r: Scenario = { pireTaux: 0, attenteFinale: 0, abandonne: false, ecritureApres: false };
     const mesures: Mesure[] = [];
+    let pauses = 0;
+    let dureePauses = 0;
     sql("console", "create table if not exists essai_disque (id bigserial primary key, v text)");
     try {
       sortie("docker", ["stop", cible]);
@@ -391,10 +393,18 @@ const scenario = (): Promise<Scenario> => {
           return x.utilises / x.total;
         };
         if (occupation() > 0.65) {
-          await attendre(() => {
+          const debutPause = Date.now();
+          const redescendu = await attendre(() => {
             sql("console", "checkpoint");
             return occupation() <= 0.65;
           }, 150);
+          pauses++;
+          dureePauses += Date.now() - debutPause;
+          if (!redescendu) {
+            throw new Error(
+              `Le volume des journaux est resté à ${(occupation() * 100).toFixed(0)} % (seuil de reprise 65 %) après ${Math.round((Date.now() - debutPause) / 1000)} s d'attente au tour ${tour} : pgBackRest n'abandonne pas les journaux assez vite.`,
+            );
+          }
         }
         sql("console", "insert into essai_disque (v) select repeat(md5(g::text), 40) from generate_series(1, 20000) g");
         sql("console", "select pg_switch_wal()");
@@ -407,6 +417,7 @@ const scenario = (): Promise<Scenario> => {
           r.premiere = { decision: d, taux: m.utilises / m.total, recue: recus[recus.length - 1] ?? "" };
         }
       }
+      console.info(`[C-602] ${pauses} pause(s) d'écriture, ${Math.round(dureePauses / 1000)} s au total`);
       // Le plafond agit dans l'archiveur, qui a quelques secondes de retard sur l'écriture : on attend le premier abandon (borné).
       r.abandonne = await attendre(() => abandons() > 0, 150);
       await attendre(() => enAttente() <= PLAFOND, 90);

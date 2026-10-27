@@ -40,3 +40,8 @@ C-608 → partie contrat : `POST /factures-ponctuelles` porte le client, l'autom
 C-536 → partie contrats : règle de la cellule de C4 (test « [C-536] » de packages/contrats/src/c4/c4.test.ts) et règle C5 `base_cli_partagee` (test « [C-536] » de packages/contrats/src/c5/invariants.test.ts, PostgreSQL jetable), ADR 0031, 2026-10-26 ; forme de cellule alignée sur le coffre et rôles d'administration en liste exacte (tests « [C-536] » de packages/contrats/src/c4/c4.test.ts et src/c5/invariants.test.ts), ADR 0033, 2026-10-27
 A-256 → partie contrat : `effacement.demande` sans aucune action de suppression (test « [A-256] » de packages/contrats/src/c3/c3.test.ts, ADR 0031), 2026-10-26
 C-538 → ADR 0033, packages/contrats/VERSION (commun, C1, C2, C3, C6 en 1.0.0), fixtures-gelees/1.0.0/, empreintes/ et contrats.sha256 ; tests « [C-538] » de packages/contrats/src/contrats.test.ts (empreintes, sommaire, gel, archive relue contrat par contrat, archive 1.0.0 scellée par empreinte et constantes de commun non rétrécies), 2026-10-27
+C-377 → CLAUDE.md (sections 1 et 7) et docs/adr/0006-fiches-dans-le-depot-prive.md, 2026-10-27
+C-379 → .claude/skills/ (module-automatisation, connecteur, harnais), 2026-10-27
+C-382 → ops/environnement-cloud.md, 2026-10-27
+C-393 → ops/environnement-cloud.md (réseau limité, variables, commande d'installation), 2026-10-27
+C-435 → plan du dépôt privé, section 5.1 (ordre des lots), 2026-10-27

@@ -2,13 +2,31 @@ import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it as itBase } from "vitest";
 import { controlerInvariants, type Requete } from "../../../../packages/contrats/src/c5/invariants.js";
 import { avecClient, avecEquipe } from "./client-actif.js";
 import { migrer } from "./migrer.js";
 
 // Journal d'audit chaîné (T2-01a), contre le socle lancé par ops/socle/lancer.sh (job socle-integration).
 // Les essais tournent en parallèle sur une base partagée : identifiants de client tirés au hasard, chaîne vérifiée sur TOUTES les lignes du journal.
+// DIAG-TEMP : le rapport JSON de la CI cache les messages d'échec ; on les écrit dans la sortie standard.
+const it = (nom: string, fn: () => Promise<void>) =>
+  itBase(nom, async () => {
+    try {
+      await fn();
+    } catch (e) {
+      console.log("ECHEC", nom, String((e as Error).message).slice(0, 600));
+      throw e;
+    }
+  });
+const avecDiag = async (f: () => Promise<void>) => {
+  try {
+    await f();
+  } catch (e) {
+    console.log("ECHEC migrer", String((e as Error).message).slice(0, 800));
+    throw e;
+  }
+};
 const docker = (...args: string[]) => execFileSync("docker", args, { encoding: "utf8" }).trim();
 const conteneur = (service: string) =>
   docker("ps", "-q", "--filter", "label=com.docker.compose.project=socle", "--filter", `label=com.docker.compose.service=${service}`);
@@ -61,7 +79,7 @@ const ecrire = (tenant: string | null, entite: string, entiteId: string, nouvell
     : avecClient(app, tenant, (c) => c.query(AJOUTER, [tenant, opts?.acteur ?? "agent-essai", "insertion", entite, entiteId, null, JSON.stringify(nouvelle)]), opts);
 
 beforeAll(async () => {
-  await migrer({ url: `postgres://console_migration:${motDePasseDe("console_migration")}@${DIRECT.host}:${DIRECT.port}/console`, dossier: fileURLToPath(new URL("../../drizzle", import.meta.url)) });
+  await avecDiag(() => migrer({ url: `postgres://console_migration:${motDePasseDe("console_migration")}@${DIRECT.host}:${DIRECT.port}/console`, dossier: fileURLToPath(new URL("../../drizzle", import.meta.url)) }));
 }, 120_000);
 afterAll(async () => {
   await migration.query(`DROP SCHEMA IF EXISTS ${SCHEMA_ESSAI} CASCADE`).catch(() => undefined);

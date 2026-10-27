@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
-import { INVARIANTS_C5, VOCABULAIRE, controlerInvariants, type Ecart, type Requete } from "./invariants.ts";
+import { INVARIANTS_C5, ROLES_ADMINISTRATION, VOCABULAIRE, controlerInvariants, type Ecart, type Requete } from "./invariants.ts";
 
 // Ces tests ont besoin d'un PostgreSQL : l'URL d'un serveur jetable est dans CONTRATS_PG_URL
 // (job contrats-pg de la CI). Sans elle, ils sont sautés et la PR le dit.
@@ -238,7 +238,7 @@ describe.skipIf(!URL_PG)("C5 invariants du schéma", () => { // fiche: T0-16
     try {
       psql(undefined, `REVOKE CONNECT ON DATABASE ${b1} FROM PUBLIC; REVOKE CONNECT ON DATABASE ${b2} FROM PUBLIC;
         GRANT CONNECT ON DATABASE ${b1} TO ${partage}, ${seul}, ${admin}; GRANT CONNECT ON DATABASE ${b2} TO ${partage}, ${admin}`);
-      const e = await controlerInvariants(requeteSur(b1), b1);
+      const e = await controlerInvariants(requeteSur(b1), b1, { rolesApplication: /^app(_|$)/, rolesAdministration: [admin] });
       expect(e).toContainEqual({ regle: "base_cli_partagee", objet: partage });
       expect(e).not.toContainEqual({ regle: "base_cli_partagee", objet: seul });
       expect(e).not.toContainEqual({ regle: "base_cli_partagee", objet: admin });
@@ -247,5 +247,23 @@ describe.skipIf(!URL_PG)("C5 invariants du schéma", () => { // fiche: T0-16
       psql(undefined, `DROP DATABASE IF EXISTS ${b2}`);
       psql(undefined, `DROP ROLE IF EXISTS ${partage}, ${seul}, ${admin}`);
     }
+  });
+});
+
+describe("C5 : rôles d'administration en liste exacte (tour 2 de T0-30, ADR 0033)", () => {
+  // Faux catalogue : seule la requête des bases cli_ partagées rend des lignes.
+  const partages = (noms: string[]): Requete => async (sql) => (sql.includes("HAVING count(DISTINCT d.datname) > 1") ? noms.map((nom) => ({ nom, bases: 2 })) : []);
+
+  it("[C-536] aucun rôle n'est exempté par son nom : admin_app et console_proprietaire sont signalés sans liste exacte", async () => {
+    expect(ROLES_ADMINISTRATION).toEqual([]);
+    const e = await controlerInvariants(partages(["admin_app", "proprietaire", "console_proprietaire"]), "console");
+    for (const nom of ["admin_app", "proprietaire", "console_proprietaire"]) expect(e, nom).toContainEqual({ regle: "base_cli_partagee", objet: nom });
+  });
+
+  it("[C-536] seuls les rôles nommés exactement dans rolesAdministration sont permis sur plusieurs bases cli_", async () => {
+    const e = await controlerInvariants(partages(["cli_proprietaire", "cli_proprietaire_2", "admin_app"]), "console", { rolesApplication: /^app(_|$)/, rolesAdministration: ["cli_proprietaire"] });
+    expect(e).not.toContainEqual({ regle: "base_cli_partagee", objet: "cli_proprietaire" });
+    expect(e).toContainEqual({ regle: "base_cli_partagee", objet: "cli_proprietaire_2" });
+    expect(e).toContainEqual({ regle: "base_cli_partagee", objet: "admin_app" });
   });
 });

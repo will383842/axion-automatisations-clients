@@ -2,7 +2,8 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { calculerEmpreintes, calculerSommaire } from "../scripts/empreinte.ts";
 import { CELLULES, CLES_TEST, constantes, schemasJson } from "../scripts/signer-fixtures.ts";
-import { CONTRATS, lireVersions } from "../scripts/versions.ts";
+import { CONTRATS, CONTRATS_GELES, lireVersions } from "../scripts/versions.ts";
+import { CONTROLES_ARCHIVE } from "./archives.ts";
 import { Fait } from "./c2/faits.ts";
 import { PREFIXE_C1, ROUTES_C1, type RouteC1 } from "./c1/routes.ts";
 import { verifier } from "./commun/signature.ts";
@@ -41,9 +42,19 @@ describe("fixtures signées", () => {
     expect(sommaire).toMatch(/ {2}VERSION\n$/);
   });
 
-  it("[LOT0-contrats] la version de chaque fichier généré est celle de VERSION, tous les contrats en 0.x", () => {
+  it("[C-538] gel 1.0.0 : commun, C1, C2, C3 et C6 en 1.x ; C4 et C5 restent en 0.x (ADR 0033)", () => {
     const v = lireVersions(racine.pathname);
-    for (const c of CONTRATS) expect(v[c], c).toMatch(/^0\.\d+\.\d+$/);
+    expect(CONTRATS_GELES).toEqual(["commun", "c1", "c2", "c3", "c6"]);
+    for (const c of CONTRATS) expect(v[c], c).toMatch(CONTRATS_GELES.includes(c) ? /^1\.\d+\.\d+$/ : /^0\.\d+\.\d+$/);
+  });
+
+  it("[C-538] l'archive 1.0.0 contient les fixtures de chaque contrat gelé, et seulement eux", () => {
+    expect(readdirSync(new URL("fixtures-gelees/1.0.0/", racine)).sort()).toEqual([...CONTRATS_GELES].sort());
+    for (const c of CONTRATS_GELES) expect(readdirSync(new URL(`fixtures-gelees/1.0.0/${c}/`, racine)).length, c).toBeGreaterThan(0);
+  });
+
+  it("[LOT0-contrats] la version de chaque fichier généré est celle de VERSION", () => {
+    const v = lireVersions(racine.pathname);
     expect((json("fixtures/c1/json-schema.json") as { version: string }).version).toBe(v.c1);
     expect((json("fixtures/c2/json-schema.json") as { version: string }).version).toBe(v.c2);
     expect((json("fixtures/c3/json-schema.json") as { c3: { version: string } }).c3.version).toBe(v.c3);
@@ -109,15 +120,62 @@ describe("fixtures signées", () => {
     }
   });
 
-  it("[LOT0-contrats] les fixtures archivées d'une version gelée restent valides (non-régression, README)", () => {
+  it("[C-538] les fixtures archivées d'une version gelée restent valides, pour chaque contrat archivé (non-régression, README)", () => {
     const archives = new URL("fixtures-gelees/", racine);
     const versions = existsSync(archives) ? readdirSync(archives) : [];
+    expect(versions.every((v) => /^\d+\.\d+\.\d+$/.test(v))).toBe(true);
+    let vus = 0;
     for (const v of versions) {
-      for (const c of readdirSync(new URL(`${v}/c2/`, archives)).filter((f) => f !== "json-schema.json")) {
-        const { cas: liste } = JSON.parse(readFileSync(new URL(`${v}/c2/${c}`, archives), "utf8")) as { cas: Cas[] };
-        for (const x of liste.filter((y) => y.valide)) expect(Fait.safeParse(JSON.parse(x.corps)).success, `${v} ${c} ${x.nom}`).toBe(true);
+      for (const c of readdirSync(new URL(`${v}/`, archives))) {
+        const controle = CONTROLES_ARCHIVE[c];
+        expect(controle, `${v}/${c} : aucun contrôle d'archive`).toBeDefined();
+        for (const f of readdirSync(new URL(`${v}/${c}/`, archives))) {
+          for (const [nom, ok] of controle?.(f, JSON.parse(readFileSync(new URL(`${v}/${c}/${f}`, archives), "utf8"))) ?? []) {
+            expect(ok, `${v} ${c}/${f} ${nom}`).toBe(true);
+            vus++;
+          }
+        }
       }
     }
-    expect(versions.every((v) => /^\d+\.\d+\.\d+$/.test(v))).toBe(true);
+    if (versions.length > 0) expect(vus).toBeGreaterThan(60);
+  });
+
+  it("[C-538] le contrôle d'archive refuse un exemple valide devenu invalide, dans chaque contrat gelé", () => {
+    const casC1 = (JSON.parse(lire("fixtures/c1/devis.json")) as { cas: Cas[] }).cas.find((c) => c.valide) as Cas;
+    const faux = { ...casC1, corps: JSON.stringify({ ...JSON.parse(casC1.corps), axiCli: undefined }) };
+    expect(CONTROLES_ARCHIVE.c1?.("devis.json", { cas: [faux] }).every(([, ok]) => ok)).toBe(false);
+    const casC3 = (JSON.parse(lire("fixtures/c3/plan.resume.json")) as { cas: Cas[] }).cas.find((c) => c.valide) as Cas;
+    expect(CONTROLES_ARCHIVE.c3?.("plan.resume.json", { cas: [{ ...casC3, corps: "{}" }] }).every(([, ok]) => ok)).toBe(false);
+    const jetons = JSON.parse(lire("fixtures/c6/jetons.json")) as { cas: { valide: boolean }[] };
+    expect(CONTROLES_ARCHIVE.c6?.("jetons.json", { ...jetons, cas: jetons.cas.map((x) => ({ ...x, valide: true })) }).every(([, ok]) => ok)).toBe(false);
+    const k = JSON.parse(lire("fixtures/commun/constantes.json")) as { codesErreur: Record<string, number> };
+    expect(CONTROLES_ARCHIVE.commun?.("constantes.json", { ...k, codesErreur: { ...k.codesErreur, code_retire: 400 } }).every(([, ok]) => ok)).toBe(false);
+  });
+});
+
+describe("documents du gel (mineurs du tour 2 de T0-30)", () => {
+  const depot = new URL("../../", racine);
+  const doc = (p: string) => readFileSync(new URL(p, depot), "utf8");
+
+  it("[LOT0-contrats] php/README.md fait copier les fixtures et empreintes de commun avec celles de C3, et dit la même chose pour axion-ia", () => {
+    const php = lire("php/README.md");
+    for (const m of ["fixtures/c3/", "empreintes/c3.sha256", "fixtures/commun/", "empreintes/commun.sha256", "axion-ia", "fixtures/c1/", "fixtures/c2/", "fixtures/c6/"]) expect(php, m).toContain(m);
+  });
+
+  it("[LOT0-contrats] le README dit comment appliquer x-axion-regles (ajv et autre validateur)", () => {
+    expect(lire("README.md")).toMatch(/addKeyword\(["`]?x-axion-regles/);
+    expect(lire("README.md")).toContain("autre validateur");
+  });
+
+  it("[LOT0-contrats] le CHANGELOG décrit GET /statuts et GET /faits chacun dans sa phrase, et porte l'entrée 1.0.0", () => {
+    const journal = lire("CHANGELOG.md");
+    const statuts = journal.split("\n").filter((l) => l.includes("GET /statuts"));
+    expect(statuts.length).toBeGreaterThan(0);
+    for (const l of statuts) expect(l).not.toMatch(/limite|GET \/faits/);
+    expect(journal).toMatch(/^## .*1\.0\.0/m);
+  });
+
+  it("[LOT0-contrats] l'en-tête de l'ADR 0024 dit qu'il est accepté", () => {
+    expect(doc("docs/adr/0024-reauthentification-requise-dans-les-contrats.md").split("\n")[2]).toMatch(/Statut : \*?\*?accepté/);
   });
 });

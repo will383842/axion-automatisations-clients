@@ -163,7 +163,7 @@ describe("documents du gel (mineurs du tour 2 de T0-30)", () => {
   });
 
   it("[LOT0-contrats] le README dit comment appliquer x-axion-regles (ajv et autre validateur)", () => {
-    expect(lire("README.md")).toMatch(/addKeyword\(["`]?x-axion-regles/);
+    expect(lire("README.md")).toMatch(/addKeyword\(\{ keyword: "x-axion-regles"/);
     expect(lire("README.md")).toContain("autre validateur");
   });
 

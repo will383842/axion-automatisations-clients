@@ -9,8 +9,8 @@ services:
       PGBACKREST_STANZA: commun
       # P : réglages d'archivage (archive_timeout = 300 s : un journal part au plus toutes les 5 minutes, perte sous 15 minutes)
       P: -c archive_mode=on -c archive_timeout=300 -c wal_level=replica
-      # C : commande d'archivage, qui lit la phrase à l'usage (sans extension : la garde prendrait un nom de fichier pour un domaine)
-      C: archive_command=/opt/sauvegardes/archiver %p
+      # C : commande d'archivage, qui lit la phrase à l'usage (sans extension, la garde prendrait un nom de fichier pour un domaine ; « pgbackrest » dans le nom, que pgbackrest check exige)
+      C: archive_command=/opt/sauvegardes/pgbackrest-archiver %p
       # Q : configuration copiée avant tout ; un échec (fichier absent ou en double) arrête le démarrage au lieu de le laisser sans archivage
       Q: cp /opt/sauvegardes/pgbackrest.conf.m* /tmp/pgbackrest.conf && eval "$$G"
     entrypoint: ['sh', '-c', 'eval "$$Q" && exec docker-entrypoint.$$X postgres $$P -c "$$C"']

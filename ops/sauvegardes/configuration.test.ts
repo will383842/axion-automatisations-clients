@@ -8,7 +8,7 @@ const lire = (chemin: string) => readFileSync(new URL(chemin, import.meta.url), 
 const compose = lire("../socle/compose.sauvegardes.yml");
 const modele = lire("./pgbackrest.conf.modele");
 const nuit = lire("./sauvegarder-nuit.sh");
-const archiveur = lire("./archiver");
+const archiveur = lire("./pgbackrest-archiver");
 const bases = lire("../socle/postgres/init/01-bases.sql");
 const lignesActives = (texte: string) => texte.split("\n").filter((l) => !/^\s*(#|--)/.test(l));
 const services = (load(compose) as { services: Record<string, { entrypoint?: string[]; volumes?: string[]; environment?: Record<string, string> }> }).services;
@@ -16,7 +16,7 @@ const services = (load(compose) as { services: Record<string, { entrypoint?: str
 describe("configuration des sauvegardes (lecture statique)", () => {
   it("[C-045] l'archivage continu passe par pgBackRest vers la cible SFTP", () => {
     expect(compose).toMatch(/archive_mode=on/);
-    expect(services["postgres"]?.environment?.["C"]).toBe("archive_command=/opt/sauvegardes/archiver %p");
+    expect(services["postgres"]?.environment?.["C"]).toBe("archive_command=/opt/sauvegardes/pgbackrest-archiver %p");
     expect(lignesActives(archiveur).join("\n")).toMatch(/pgbackrest archive-push/);
     expect(lignesActives(modele)).toContain("repo1-type=sftp");
   });

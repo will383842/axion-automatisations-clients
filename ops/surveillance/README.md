@@ -7,3 +7,4 @@
 - La sonde EXTÉRIEURE (hors du serveur de la console) et son lieu.
 - L'envoi Telegram réel, sans nom de client, sans adresse ni nom d'hôte.
 - Les valeurs réelles de `PLAFOND_JOURNAUX_EN_ATTENTE` et `SEUIL_ALERTE_DISQUE` (lot 8a).
+- Le repérage des journaux abandonnés (`EtatArchivage.journauxAbandonnes`) : l'essai le lit dans le journal de pgBackRest (« dropped »), la sonde du serveur devra faire de même.

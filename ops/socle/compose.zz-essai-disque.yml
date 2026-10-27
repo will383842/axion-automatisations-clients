@@ -1,0 +1,14 @@
+# Fragment d'essai, lancé seulement sur la CI : les journaux d'écriture (WAL) de PostgreSQL vont sur un petit volume en mémoire,
+# et le plafond des journaux en attente d'archivage est réduit, pour éprouver l'alerte et le plafond en quelques secondes (C-602).
+# Volume 256 Mo, journaux de 16 Mo, max_wal_size 48 Mo, plafond 64 Mo (4 journaux : avant la création de la stanza, Keycloak en écrit déjà 3) : le plafond est atteint bien avant que le volume soit plein.
+# Le dossier des journaux est choisi à la création de la grappe (POSTGRES_INITDB_WALDIR) : un montage sur pg_wal ferait échouer initdb.
+services:
+  postgres:
+    environment:
+      POSTGRES_INITDB_WALDIR: /wal-essai
+      PGBACKREST_ARCHIVE_PUSH_QUEUE_MAX: 64MiB
+      # P : mêmes réglages que compose.sauvegardes.yml, plus max_wal_size (sans lui, 1 Go de journaux dépasseraient le volume d'essai)
+      P: -c archive_mode=on -c archive_timeout=300 -c wal_level=replica -c max_wal_size=48MB -c min_wal_size=32MB
+    tmpfs:
+      - /wal-essai:size=256m,mode=0700,uid=999,gid=999
+    networks: [interne]

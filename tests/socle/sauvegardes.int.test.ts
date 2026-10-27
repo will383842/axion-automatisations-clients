@@ -4,6 +4,10 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync, mkdirSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
+import { envoyerAlerteDisque } from "../../apps/api/src/alertes/recepteur-test.ts";
+import { decider, type Decision, type Mesure, type Parametres } from "../../ops/surveillance/disque.ts";
 import { creerPortS3Aws } from "../../apps/api/src/stockage/stockage.ts";
 
 // Tests contre le socle lancé par ops/socle/lancer.sh (job socle-integration), avec ops/socle/compose.sauvegardes.yml.
@@ -323,4 +327,123 @@ describe("sauvegardes (archivage continu, complète de nuit, restauration)", () 
       rmSync(racine, { recursive: true, force: true });
     }
   }, 180_000);
+});
+
+// Disque plein (T1A-15, C-602). Ces essais sont ICI, et non dans un fichier à part : ils arrêtent la cible SFTP, et Vitest lance les fichiers
+// d'intégration en parallèle (un fichier séparé couperait la cible sous les sauvegardes ci-dessus). Ils passent donc en dernier, dans ce fichier.
+// Le fragment ops/socle/compose.zz-essai-disque.yml met les journaux sur un volume de 256 Mo et le plafond à 64 Mo (journaux de 16 Mo).
+const WAL = "/wal-essai";
+const SEGMENT = 16 * 1024 * 1024;
+const PLAFOND = 64 * 1024 * 1024;
+const PARAMETRES: Parametres = { seuilAlerte: 0.8, plafondJournaux: PLAFOND, horizonReveilMs: 6 * 3_600_000 };
+const MESSAGE_INTERROMPU = "Archivage interrompu";
+
+const enAttente = () => Number(dans("postgres", "sh", "-c", `ls ${WAL}/archive_status | grep -c '[.]ready$' || true`).trim()) * SEGMENT;
+const mesurer = (): Mesure => {
+  const r = sortie("docker", ["exec", "-i", conteneur("postgres"), "sh", "-s", "--", WAL, `${WAL}/archive_status`], {
+    input: readFileSync(join(process.cwd(), "ops/surveillance/surveiller-disque.sh"), "utf8"),
+  });
+  return JSON.parse(r) as Mesure;
+};
+const journalPgBackRest = () => spawnSync("docker", ["exec", conteneur("postgres"), "sh", "-c", "cat /var/log/pgbackrest/*.log 2>/dev/null || true"], { encoding: "utf8" }).stdout;
+// Heure (ms) de la 1re ligne « dropped » du journal pgBackRest : début de la perte de garantie (le journal est en UTC dans le conteneur).
+const debutAbandon = (): number | undefined => {
+  const m = /^(\d{4}-\d\d-\d\d) (\d\d:\d\d:\d\d)[.\d]* .*dropped/im.exec(journalPgBackRest());
+  return m ? Date.parse(`${m[1]}T${m[2]}Z`) : undefined;
+};
+const abandons = () => journalPgBackRest().split(/\r?\n/).filter((l) => /dropped/i.test(l)).length;
+
+interface Scenario {
+  premiere?: { decision: Decision; taux: number; recue: string };
+  pireTaux: number;
+  attenteFinale: number;
+  abandonne: boolean;
+  alerteInterrompu?: { decision: Decision; recue: string };
+  ecritureApres: boolean;
+}
+let scenarioPromise: Promise<Scenario> | undefined;
+// Joué une fois, à la première demande : cible SFTP arrêtée, écriture bornée (douze tours au plus), relance de la cible dans « finally ».
+const scenario = (): Promise<Scenario> => {
+  scenarioPromise ??= (async () => {
+    const recus: string[] = [];
+    const recepteur = createServer((req, rep) => {
+      let corps = "";
+      req.on("data", (c: Buffer) => (corps += c.toString()));
+      req.on("end", () => {
+        recus.push(corps);
+        rep.writeHead(200).end("ok");
+      });
+    });
+    await new Promise<void>((ok) => recepteur.listen(0, "127.0.0.1", ok));
+    const url = `http://127.0.0.1:${(recepteur.address() as AddressInfo).port}`;
+    const cible = conteneur("sftp-essai");
+    const r: Scenario = { pireTaux: 0, attenteFinale: 0, abandonne: false, ecritureApres: false };
+    const mesures: Mesure[] = [];
+    sql("console", "create table if not exists essai_disque (id bigserial primary key, v text)");
+    try {
+      sortie("docker", ["stop", cible]);
+      for (let tour = 0; tour < 12; tour++) {
+        sql("console", "insert into essai_disque (v) select repeat(md5(g::text), 40) from generate_series(1, 20000) g");
+        sql("console", "select pg_switch_wal()");
+        const m = mesurer();
+        mesures.push(m);
+        r.pireTaux = Math.max(r.pireTaux, m.utilises / m.total);
+        const d = decider(mesures, PARAMETRES, Date.now());
+        if (!r.premiere && d.niveau !== "rien") {
+          await envoyerAlerteDisque(url, d.message);
+          r.premiere = { decision: d, taux: m.utilises / m.total, recue: recus[recus.length - 1] ?? "" };
+        }
+      }
+      // Le plafond agit dans l'archiveur, qui a quelques secondes de retard sur l'écriture : on attend le premier abandon (borné).
+      r.abandonne = await attendre(() => abandons() > 0, 150);
+      await attendre(() => enAttente() <= PLAFOND, 90);
+      const m = mesurer();
+      mesures.push(m);
+      r.pireTaux = Math.max(r.pireTaux, m.utilises / m.total);
+      r.attenteFinale = m.journauxEnAttente;
+      if (r.abandonne) {
+        const d = decider(mesures, PARAMETRES, Date.now(), { journauxAbandonnes: true, dernierArchivage: debutAbandon() });
+        await envoyerAlerteDisque(url, d.message);
+        r.alerteInterrompu = { decision: d, recue: recus[recus.length - 1] ?? "" };
+      }
+      // La base accepte encore des écritures, cible toujours coupée.
+      const avant = Number(sql("console", "select count(*) from essai_disque"));
+      sql("console", "insert into essai_disque (v) values ('apres-plafond')");
+      r.ecritureApres = Number(sql("console", "select count(*) from essai_disque")) === avant + 1;
+    } finally {
+      // Toujours relancer la cible, même en cas d'échec : les essais suivants et l'arrêt du socle en dépendent.
+      spawnSync("docker", ["start", cible]);
+      recepteur.close();
+    }
+    return r;
+  })();
+  return scenarioPromise;
+};
+
+describe("disque plein : plafond des journaux en attente et alerte (cible SFTP arrêtée)", () => {
+  it("[C-602] archivage coupé (cible SFTP arrêtée) et écriture continue : l'alerte de saturation arrive dans le récepteur de test avant 80 % du disque", async () => {
+    const r = await scenario();
+    expect(r.premiere, "aucune alerte reçue").toBeDefined();
+    expect(r.premiere?.decision.niveau).not.toBe("rien");
+    expect(r.premiere?.taux).toBeLessThan(0.8);
+    expect(r.premiere?.recue).toContain(r.premiere?.decision.message);
+  }, 600_000);
+
+  it("[C-602] le plafond des journaux en attente est atteint avant que le disque soit plein, et la base accepte encore des écritures", async () => {
+    const r = await scenario();
+    expect(r.abandonne, "pgBackRest n'a abandonné aucun journal (plafond sans effet)").toBe(true);
+    expect(r.pireTaux).toBeLessThan(0.95);
+    // L'archiveur a quelques secondes de retard sur l'écriture : le pic peut dépasser le plafond un instant, mais la file revient sous lui (à un journal près).
+    expect(r.attenteFinale).toBeLessThanOrEqual(PLAFOND + SEGMENT);
+    expect(r.ecritureApres).toBe(true);
+  }, 600_000);
+
+  it("[C-602] l'alerte « archivage interrompu » part quand des journaux sont abandonnés", async () => {
+    const r = await scenario();
+    expect(r.alerteInterrompu, "aucune alerte d'abandon").toBeDefined();
+    expect(r.alerteInterrompu?.decision.niveau).toBe("plafond_atteint");
+    expect(r.alerteInterrompu?.recue).toContain(MESSAGE_INTERROMPU);
+    expect(r.alerteInterrompu?.recue).toMatch(/depuis \d\d:\d\d UTC/);
+    expect(r.alerteInterrompu?.recue).not.toMatch(/sftp-essai|postgres|\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/);
+  }, 600_000);
 });

@@ -105,7 +105,7 @@ describe("règles C5 d'unicité et de clés étrangères sur le vrai PostgreSQL"
   });
 
   it("[A-163] @isolation un index unique d'une partition attachée est contrôlé comme celui d'une table", async () => {
-    await migration.query(`CREATE TABLE ${SCHEMA}.executions (id bigint NOT NULL, tenant_id uuid NOT NULL, cree_le date NOT NULL, PRIMARY KEY (tenant_id, id, cree_le)) PARTITION BY RANGE (cree_le);
+    await migration.query(`CREATE TABLE ${SCHEMA}.executions (id bigint NOT NULL, tenant_id uuid NOT NULL, cree_le date NOT NULL, courriel text, PRIMARY KEY (tenant_id, id, cree_le)) PARTITION BY RANGE (cree_le);
       CREATE TABLE ${SCHEMA}.executions_2026_10 (id bigint NOT NULL, tenant_id uuid NOT NULL, cree_le date NOT NULL, courriel text);
       CREATE UNIQUE INDEX executions_2026_10_courriel ON ${SCHEMA}.executions_2026_10 (courriel);
       ALTER TABLE ${SCHEMA}.executions ATTACH PARTITION ${SCHEMA}.executions_2026_10 FOR VALUES FROM ('2026-10-01') TO ('2026-11-01')`);

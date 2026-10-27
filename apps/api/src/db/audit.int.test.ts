@@ -2,13 +2,23 @@ import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { writeSync } from "node:fs";
+import { afterAll, beforeAll, describe, expect, it as itBase } from "vitest";
 import { controlerInvariants, type Requete } from "../../../../packages/contrats/src/c5/invariants.js";
 import { avecClient, avecEquipe } from "./client-actif.js";
 import { migrer } from "./migrer.js";
 
 // Journal d'audit chaîné (T2-01a), contre le socle lancé par ops/socle/lancer.sh (job socle-integration).
 // Les essais tournent en parallèle sur une base partagée : identifiants de client tirés au hasard, chaîne vérifiée sur TOUTES les lignes du journal.
+const it = (nom: string, fn: () => Promise<void>) =>
+  itBase(nom, async () => {
+    try {
+      await fn();
+    } catch (e) {
+      writeSync(2, `ECHEC ${nom} : ${String((e as Error).message).slice(0, 700)}` + String.fromCharCode(10));
+      throw e;
+    }
+  });
 const docker = (...args: string[]) => execFileSync("docker", args, { encoding: "utf8" }).trim();
 const conteneur = (service: string) =>
   docker("ps", "-q", "--filter", "label=com.docker.compose.project=socle", "--filter", `label=com.docker.compose.service=${service}`);

@@ -19,6 +19,9 @@ services:
       R: set -- $$L; [ $$# -eq 1 ] && "$$1" && eval "$$G"
       C: archive_command=pgbackrest archive-push %p
       E: exec docker-entrypoint.$$X postgres $$P -c "$$C"
+    # init : l'archivage ASYNCHRONE (archive-async=y) laisse un processus pgBackRest orphelin ; si PostgreSQL est le processus 1 du conteneur, il le prend pour un
+    # serveur planté (« server process exited with exit code 103 ») et relance une récupération en boucle. Un init (tini) recueille les orphelins.
+    init: true
     entrypoint: ['sh', '-c', 'eval "$$R" && eval "$$E"']
     volumes:
       - ../sauvegardes:/opt/sauvegardes:ro

@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
 import Fastify, { type FastifyInstance } from "fastify";
+import { Redis } from "ioredis";
 import { afterAll, describe, expect, it } from "vitest";
 import { EN_TETES, signer } from "../../../../packages/contrats/src/commun/signature.js";
 import { ouvrirConnexion, type Connexion } from "../files/connexion.js";
@@ -11,11 +12,20 @@ import { enregistrerCanal } from "./verifier-entrant.js";
 const docker = (...args: string[]) => execFileSync("docker", args, { encoding: "utf8" }).trim();
 const conteneur = () => docker("ps", "-q", "--filter", "label=com.docker.compose.project=socle", "--filter", "label=com.docker.compose.service=valkey");
 const attendre = (ms: number) => new Promise((ok) => setTimeout(ok, ms));
-function parametres() {
-  const id = conteneur();
-  const ip = docker("inspect", "-f", "{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}", id).split(" ")[0] ?? "";
-  const env = JSON.parse(docker("inspect", "-f", "{{json .Config.Env}}", id)) as string[];
-  return { host: ip, port: 6379, password: env.find((e) => e.startsWith("VALKEY_MOT_DE_PASSE="))?.slice("VALKEY_MOT_DE_PASSE=".length) ?? "" };
+// Un autre fichier de test arrête et relance ce même Valkey : on attend qu'il soit de nouveau là, et ici on ne l'arrête jamais.
+async function parametres() {
+  for (let i = 0; i < 60; i++) {
+    const id = conteneur();
+    if (id) {
+      try {
+        const ip = docker("inspect", "-f", "{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}", id).split(" ")[0] ?? "";
+        const env = JSON.parse(docker("inspect", "-f", "{{json .Config.Env}}", id)) as string[];
+        if (ip) return { host: ip, port: 6379, password: env.find((e) => e.startsWith("VALKEY_MOT_DE_PASSE="))?.slice("VALKEY_MOT_DE_PASSE=".length) ?? "" };
+      } catch { /* en cours de relance */ }
+    }
+    await attendre(1000);
+  }
+  throw new Error("Valkey du socle introuvable");
 }
 const connexions: Connexion[] = [];
 afterAll(async () => { for (const c of connexions) await c.quit().catch(() => undefined); });
@@ -40,21 +50,26 @@ function monter(connexion: Connexion) {
 
 describe("anti-rejeu dans le vrai Valkey", () => {
   it("[A-345] Valkey arrêté : la requête est refusée, jamais acceptée", async () => {
-    const connexion = await ouvrirConnexion(parametres());
+    const connexion = await ouvrirConnexion(await parametres());
     connexions.push(connexion);
     const { serveur, traites, requete } = monter(connexion);
     const q = requete();
     expect((await serveur.inject(q)).statusCode).toBe(200);
     expect((await serveur.inject(q)).json().erreur.code).toBe("rejeu");
-    const id = conteneur();
-    docker("stop", id);
+    // Valkey devenu injoignable, sans toucher au service partagé : connexion coupée, puis serveur qui ne répond pas.
+    connexion.client.disconnect();
+    const coupe = await serveur.inject(requete());
+    expect([coupe.statusCode, coupe.json().erreur.code]).toEqual([503, "porte_fermee"]);
+    const muet = new Redis({ host: "127.0.0.1", port: 9, maxRetriesPerRequest: null, retryStrategy: () => 200 });
+    muet.on("error", () => undefined);
     try {
-      const r = await serveur.inject(requete());
+      const sans = monter({ client: muet } as Connexion);
+      const r = await sans.serveur.inject(sans.requete());
       expect([r.statusCode, r.json().erreur.code]).toEqual([503, "porte_fermee"]);
-      expect(traites).toHaveLength(1);
+      expect(sans.traites).toHaveLength(0);
     } finally {
-      docker("start", id);
-      for (let i = 0; i < 60 && docker("inspect", "-f", "{{.State.Health.Status}}", id) !== "healthy"; i++) await attendre(1000);
+      muet.disconnect();
     }
-  });
+    expect(traites).toHaveLength(1);
+  }, 60_000);
 });

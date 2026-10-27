@@ -2,7 +2,7 @@
 # Expiration des sauvegardes complètes, pilotée par retention.ts (C-049) : 30 quotidiennes et 12 mensuelles.
 #   expirer.sh              lit la liste réelle (pgbackrest info), calcule, puis fait expirer chaque ensemble désigné (pgbackrest expire --set)
 #   expirer.sh --simuler    imprime les identifiants qui seraient expirés, sans rien supprimer
-# Tourne sur l'HÔTE (il faut Node 22+ et docker), après sauvegarder-nuit.sh. pgBackRest n'a aucune rétention automatique (9999 complètes) :
+# Tourne sur l'HÔTE (il faut Node 22.18 ou plus, pour lancer retention.ts sans option, et docker), après sauvegarder-nuit.sh. pgBackRest n'a aucune rétention automatique (9999 complètes) :
 # tant que ce script n'a pas tourné, rien n'est jamais effacé.
 # Variables : SAUVEGARDE_PROJET (défaut socle) · EXPIRER_AUJOURDHUI (AAAA-MM-JJ UTC, pour les essais ; défaut : date du jour UTC).
 # Sur une cible en AJOUT SEUL, « pgbackrest expire » échoue : le script sort alors en erreur (voir README, lot 1-B).

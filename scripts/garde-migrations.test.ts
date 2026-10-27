@@ -315,6 +315,10 @@ describe("fonctions permises : durcissement", () => {
       "SET search_path = pg_catalog, pg_temp SET search_path = pg_catalog, pg_temp",
       "SET search_path = pg_catalog, pg_temp SET search_path TO DEFAULT",
       "SET search_path TO DEFAULT",
+      'SET search_path = pg_catalog, pg_temp SET "SEARCH_PATH" = public',
+      'SET search_path = pg_catalog, pg_temp SET "Search_Path" FROM CURRENT',
+      'SET "SEARCH_PATH" = pg_catalog, pg_temp SET search_path = public',
+      "SET SEARCH_PATH = pg_catalog, pg_temp SET Search_Path = pg_catalog, pg_temp",
     ];
     for (const reglage of mauvais) {
       const texte = definer(reglage);
@@ -322,6 +326,11 @@ describe("fonctions permises : durcissement", () => {
     }
     const bon = definer("SET search_path = pg_catalog, pg_temp");
     expect(analyserFichier(`${bon};`, [entree(bon)])).toEqual([]);
+    // Casse et guillemets : PostgreSQL ramène le nom à la forme officielle, un réglage unique en majuscules reste accepté.
+    for (const reglage of ["SET SEARCH_PATH = pg_catalog, pg_temp", 'SET "search_path" = pg_catalog, pg_temp']) {
+      const texte = definer(reglage);
+      expect(analyserFichier(`${texte};`, [entree(texte)]), reglage).toEqual([]);
+    }
     const autreReglage = definer("SET search_path = pg_catalog, pg_temp SET work_mem = '1MB'");
     expect(analyserFichier(`${autreReglage};`, [entree(autreReglage)])).toEqual([]);
   });

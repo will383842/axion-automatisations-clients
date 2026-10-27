@@ -1,0 +1,27 @@
+{
+  "type": "entreprise.devenue_cliente",
+  "cas": [
+    {
+      "nom": "valide",
+      "valide": true,
+      "cle": "cle-test-c3-crm-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c3-crm-a",
+      "horodatage": "1792800000",
+      "methode": "POST",
+      "chemin": "/api/crm/v1/evenements",
+      "corps": "{\"event_id\":\"11111111-1111-4111-8111-111111111111\",\"schema_version\":1,\"occurred_at\":\"2026-10-24T10:00:00Z\",\"emitted_at\":\"2026-10-24T10:00:01Z\",\"sequence\":1,\"producer\":\"axion-crm\",\"subject_ref\":{\"crmCompanyId\":\"crm-0001\"},\"event_type\":\"entreprise.devenue_cliente\",\"payload\":{\"crmCompanyId\":\"crm-0001\",\"siren\":\"812345676\",\"siret\":\"81234567600011\",\"raisonSociale\":\"Lemoine Rénovation\",\"adresse\":{\"ligne1\":\"1 rue d'essai\",\"codePostal\":\"75001\",\"ville\":\"Ville-Test\",\"pays\":\"FR\"},\"contacts\":[{\"nom\":\"Camille Test\",\"email\":\"contact@exemple.fr\"}]}}",
+      "signature": "v1=cb6d5c02d44bceb06aff625f0b7a8fe6422cf7bf3e66e99ebdf6b6c063131108"
+    },
+    {
+      "nom": "SIREN de 8 chiffres",
+      "valide": false,
+      "cle": "cle-test-c3-crm-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c3-crm-a",
+      "horodatage": "1792800000",
+      "methode": "POST",
+      "chemin": "/api/crm/v1/evenements",
+      "corps": "{\"event_id\":\"11111111-1111-4111-8111-111111111111\",\"schema_version\":1,\"occurred_at\":\"2026-10-24T10:00:00Z\",\"emitted_at\":\"2026-10-24T10:00:01Z\",\"sequence\":1,\"producer\":\"axion-crm\",\"subject_ref\":{\"crmCompanyId\":\"crm-0001\"},\"event_type\":\"entreprise.devenue_cliente\",\"payload\":{\"crmCompanyId\":\"crm-0001\",\"siren\":\"81234567\",\"siret\":\"81234567600011\",\"raisonSociale\":\"Lemoine Rénovation\",\"adresse\":{\"ligne1\":\"1 rue d'essai\",\"codePostal\":\"75001\",\"ville\":\"Ville-Test\",\"pays\":\"FR\"},\"contacts\":[{\"nom\":\"Camille Test\",\"email\":\"contact@exemple.fr\"}]}}",
+      "signature": "v1=fbce688f04ef017080bda72edce177809ef5a5a9ae284e5dd178f628656d83b3"
+    }
+  ]
+}

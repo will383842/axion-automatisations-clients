@@ -1,0 +1,21 @@
+{
+  "nom": "lecture",
+  "echanges": [
+    {
+      "methode": "GET",
+      "chemin": "/gmail/v1/users/me/messages/m-1",
+      "statut": 200,
+      "corps": {
+        "id": "m-1",
+        "payload": {
+          "headers": [
+            {
+              "name": "Subject",
+              "value": "Sujet 1"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,57 @@
+{
+  "nom": "etiquette",
+  "echanges": [
+    {
+      "methode": "GET",
+      "chemin": "/gmail/v1/users/me/labels",
+      "statut": 200,
+      "corps": {
+        "labels": []
+      }
+    },
+    {
+      "methode": "POST",
+      "chemin": "/gmail/v1/users/me/labels",
+      "statut": 200,
+      "corps": {
+        "id": "Label_1",
+        "name": "a-traiter"
+      }
+    },
+    {
+      "methode": "POST",
+      "chemin": "/gmail/v1/users/me/messages/m-1/modify",
+      "statut": 200,
+      "corps": {
+        "id": "m-1",
+        "labelIds": [
+          "Label_1"
+        ]
+      }
+    },
+    {
+      "methode": "GET",
+      "chemin": "/gmail/v1/users/me/messages/m-1",
+      "statut": 200,
+      "corps": {
+        "id": "m-1",
+        "labelIds": [
+          "Label_1"
+        ]
+      }
+    },
+    {
+      "methode": "GET",
+      "chemin": "/gmail/v1/users/me/labels",
+      "statut": 200,
+      "corps": {
+        "labels": [
+          {
+            "id": "Label_1",
+            "name": "a-traiter"
+          }
+        ]
+      }
+    }
+  ]
+}

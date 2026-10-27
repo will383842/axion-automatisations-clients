@@ -16,7 +16,7 @@ import { LIMITES_DEBIT, RETRY_AFTER_MAX_SECONDES } from "../src/commun/debit.ts"
 import { ErreurSchema, STATUT_PAR_CODE } from "../src/commun/erreurs.ts";
 import { CURSEUR_INITIAL, PERIODE_MAX_MOIS, TERMES } from "../src/commun/identifiants.ts";
 import { REGLES_FOND } from "../src/commun/regles-fond.ts";
-import { ANTI_REJEU_SECONDES, CONSERVATION_IDEMPOTENCE_JOURS, EN_TETES, FENETRE_SECONDES, signer } from "../src/commun/signature.ts";
+import { ANTI_REJEU_SECONDES, CHAINE_SIGNEE, CONSERVATION_IDEMPOTENCE_JOURS, EN_TETES, FENETRE_SECONDES, signer } from "../src/commun/signature.ts";
 import { lireVersions } from "./versions.ts";
 
 // Fixtures signées avec des clés de TEST (valeur en clair, jamais une vraie clé), une clé par sens, et JSON Schema 2020-12.
@@ -60,7 +60,7 @@ export function constantes() {
   return {
     commun: {
       version: v.commun,
-      chaineSignee: "v1\\n<horodatage>\\n<MÉTHODE>\\n<chemin + requête>\\n<sha256 hex du corps brut>",
+      chaineSignee: CHAINE_SIGNEE,
       enTetes: EN_TETES,
       fenetreSecondes: FENETRE_SECONDES,
       antiRejeuSecondes: ANTI_REJEU_SECONDES,
@@ -75,7 +75,7 @@ export function constantes() {
       curseurInitial: CURSEUR_INITIAL,
       reglesFond: Object.keys(REGLES_FOND),
     },
-    c5: { version: v.c5, invariants: INVARIANTS_C5, regles: REGLES_C5, vocabulaire: VOCABULAIRE, tableMigrations: TABLE_MIGRATIONS, rolesAdministration: ROLES_ADMINISTRATION.source },
+    c5: { version: v.c5, invariants: INVARIANTS_C5, regles: REGLES_C5, vocabulaire: VOCABULAIRE, tableMigrations: TABLE_MIGRATIONS, rolesAdministration: ROLES_ADMINISTRATION },
     c6: {
       version: v.c6,
       route: ROUTE_C6,
@@ -98,7 +98,7 @@ function cas(sens: keyof typeof CLES_TEST, nom: string, valide: boolean, methode
 
 const AXI = "AXI-CLI-000001";
 const ligne = { libelle: "Ligne d'essai", quantite: 1, prixUnitaireHtCentimes: 12345, activite: "automatisation", tauxTvaBps: 2000 };
-const plan = { axiCli: AXI, referenceContratConsole: "contrat-0001", montantHtCentimesParPeriode: 12345, periodeMois: 6, premiereEcheance: "2026-11-01", engagementMois: 12 };
+const plan = { axiCli: AXI, codeAutomatisation: "tri-courriels", referenceAbonnementConsole: "abonnement-0001", referenceContratConsole: "contrat-0001", montantHtCentimesParPeriode: 12345, periodeMois: 6, premiereEcheance: "2026-11-01", engagementMois: 12 };
 const client = {
   consoleClientId: "console-cli-0001",
   siren: SIREN,
@@ -180,7 +180,7 @@ const C1: Record<keyof typeof ROUTES_C1, CasC1> = {
   "plans-recurrents": {
     methode: "POST",
     ok: ["/plans-recurrents", plan],
-    invalides: [["client absent", "/plans-recurrents", sans(plan, "axiCli")], ["période de 3 mois", "/plans-recurrents", { ...plan, periodeMois: 3 }]],
+    invalides: [["client absent", "/plans-recurrents", sans(plan, "axiCli")], ["automatisation absente", "/plans-recurrents", sans(plan, "codeAutomatisation")], ["abonnement absent", "/plans-recurrents", sans(plan, "referenceAbonnementConsole")], ["période de 3 mois", "/plans-recurrents", { ...plan, periodeMois: 3 }]],
     reponses: [r(201, "plan", true, { idPlan: "plan-0001" }), r(201, "plan absent", false, {})],
   },
   "plans-recurrents-clore": {

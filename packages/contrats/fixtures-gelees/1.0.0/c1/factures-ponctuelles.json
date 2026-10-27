@@ -1,0 +1,90 @@
+{
+  "route": "factures-ponctuelles",
+  "cas": [
+    {
+      "nom": "valide",
+      "valide": true,
+      "cle": "cle-test-c1-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c1-console-a",
+      "horodatage": "1792800000",
+      "methode": "POST",
+      "chemin": "/api/console/v1/factures-ponctuelles",
+      "corps": "{\"axiCli\":\"AXI-CLI-000001\",\"codeAutomatisation\":\"tri-courriels\",\"nature\":\"mise_en_place\",\"debutPeriode\":\"2026-11-01\",\"finPeriode\":\"2026-11-30\",\"referenceBonDeCommande\":\"bdc-0001\",\"lignes\":[{\"libelle\":\"Ligne d'essai\",\"quantite\":1,\"prixUnitaireHtCentimes\":12345,\"activite\":\"automatisation\",\"tauxTvaBps\":2000}],\"acompteBps\":3000}",
+      "signature": "v1=8d4fc447e71eb1dc72a7f02dbb782a6749cc88f45a240b0c5befa36e73d59b55"
+    },
+    {
+      "nom": "nature d'abonnement",
+      "valide": false,
+      "cle": "cle-test-c1-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c1-console-a",
+      "horodatage": "1792800000",
+      "methode": "POST",
+      "chemin": "/api/console/v1/factures-ponctuelles",
+      "corps": "{\"axiCli\":\"AXI-CLI-000001\",\"codeAutomatisation\":\"tri-courriels\",\"nature\":\"abonnement\",\"debutPeriode\":\"2026-11-01\",\"finPeriode\":\"2026-11-30\",\"referenceBonDeCommande\":\"bdc-0001\",\"lignes\":[{\"libelle\":\"Ligne d'essai\",\"quantite\":1,\"prixUnitaireHtCentimes\":12345,\"activite\":\"automatisation\",\"tauxTvaBps\":2000}],\"acompteBps\":3000}",
+      "signature": "v1=0cb7b6cb57f72dc5f516d9f0a104a98fe608de618dd24ca670aa8497b39515fc"
+    },
+    {
+      "nom": "sans client ni automatisation",
+      "valide": false,
+      "cle": "cle-test-c1-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c1-console-a",
+      "horodatage": "1792800000",
+      "methode": "POST",
+      "chemin": "/api/console/v1/factures-ponctuelles",
+      "corps": "{\"nature\":\"mise_en_place\",\"debutPeriode\":\"2026-11-01\",\"finPeriode\":\"2026-11-30\",\"referenceBonDeCommande\":\"bdc-0001\",\"lignes\":[{\"libelle\":\"Ligne d'essai\",\"quantite\":1,\"prixUnitaireHtCentimes\":12345,\"activite\":\"automatisation\",\"tauxTvaBps\":2000}],\"acompteBps\":3000}",
+      "signature": "v1=c33e2a09f5b9307d428db2a759758e479c21f43081315afe274b911dfbdd899b"
+    },
+    {
+      "nom": "sans lignes",
+      "valide": false,
+      "cle": "cle-test-c1-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c1-console-a",
+      "horodatage": "1792800000",
+      "methode": "POST",
+      "chemin": "/api/console/v1/factures-ponctuelles",
+      "corps": "{\"axiCli\":\"AXI-CLI-000001\",\"codeAutomatisation\":\"tri-courriels\",\"nature\":\"mise_en_place\",\"debutPeriode\":\"2026-11-01\",\"finPeriode\":\"2026-11-30\",\"referenceBonDeCommande\":\"bdc-0001\",\"lignes\":[],\"acompteBps\":3000}",
+      "signature": "v1=d0877d6b0956cf8a427ec2188bb7a12d58522e3e87cbc1549421dbe422c4b91c"
+    },
+    {
+      "nom": "acompte au-delà de 100 %",
+      "valide": false,
+      "cle": "cle-test-c1-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c1-console-a",
+      "horodatage": "1792800000",
+      "methode": "POST",
+      "chemin": "/api/console/v1/factures-ponctuelles",
+      "corps": "{\"axiCli\":\"AXI-CLI-000001\",\"codeAutomatisation\":\"tri-courriels\",\"nature\":\"mise_en_place\",\"debutPeriode\":\"2026-11-01\",\"finPeriode\":\"2026-11-30\",\"referenceBonDeCommande\":\"bdc-0001\",\"lignes\":[{\"libelle\":\"Ligne d'essai\",\"quantite\":1,\"prixUnitaireHtCentimes\":12345,\"activite\":\"automatisation\",\"tauxTvaBps\":2000}],\"acompteBps\":10001}",
+      "signature": "v1=72a4fbbd2b10c2ff792b3ec20b70fc62a18220dc721cfa2b22084b4758bce9b1"
+    },
+    {
+      "nom": "période inversée",
+      "valide": false,
+      "cle": "cle-test-c1-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c1-console-a",
+      "horodatage": "1792800000",
+      "methode": "POST",
+      "chemin": "/api/console/v1/factures-ponctuelles",
+      "corps": "{\"axiCli\":\"AXI-CLI-000001\",\"codeAutomatisation\":\"tri-courriels\",\"nature\":\"mise_en_place\",\"debutPeriode\":\"2026-12-01\",\"finPeriode\":\"2026-11-30\",\"referenceBonDeCommande\":\"bdc-0001\",\"lignes\":[{\"libelle\":\"Ligne d'essai\",\"quantite\":1,\"prixUnitaireHtCentimes\":12345,\"activite\":\"automatisation\",\"tauxTvaBps\":2000}],\"acompteBps\":3000}",
+      "signature": "v1=4e8790fb4974f23e780439987a1bf76603a2162a29ee70291ce4ba887da8bc64"
+    }
+  ],
+  "reponses": [
+    {
+      "statut": 201,
+      "nom": "brouillon",
+      "valide": true,
+      "corps": {
+        "idBrouillon": "brouillon-0001"
+      }
+    },
+    {
+      "statut": 201,
+      "nom": "facture émise",
+      "valide": false,
+      "corps": {
+        "idBrouillon": "brouillon-0001",
+        "numeroFacture": "AXI-FACT-000001"
+      }
+    }
+  ]
+}

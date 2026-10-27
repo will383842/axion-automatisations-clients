@@ -2,7 +2,7 @@ import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:f
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import { calculerEmpreintes } from "../../scripts/empreinte.ts";
-import { ROUTES_C4, celluleDeLaCle, controlerLecture, controlerPaquet } from "./cellule.ts";
+import { ROUTES_C4, celluleDeLaCle, controlerLecture, controlerPaquet, emplacementCoffre } from "./cellule.ts";
 import { Configuration, DUREE_CACHE_MAX_SECONDES } from "./configuration.ts";
 import { EtatVoulu } from "./etat-voulu.ts";
 import { Paquet } from "./evenements-executeur.ts";
@@ -125,6 +125,22 @@ describe("contrat C4 : échanges exécuteur ↔ console", () => {
       if (!c.valide) expect(controlerPaquet(c.cle, paquet, celluleDe)).toEqual({ ok: false, code: "action_interdite", statut: 403 });
     }
     for (const c of cellules.lectures) expect(controlerLecture(c.cle, c.instanceId, celluleDe).ok, c.nom).toBe(c.valide);
+  });
+
+  it("[C-536] une seule forme de cellule, celle du coffre : minuscules, chiffres et tirets ; X-Axion-Cle c4:<cellule>:<kid> ↔ technique/echanges/c4-<cellule>/<kid>", () => {
+    expect(emplacementCoffre("c4:auto-run-1:a")).toEqual({ canal: "c4-auto-run-1", kid: "a" });
+    expect(emplacementCoffre("c4:auto-run-1:cle-2")).toEqual({ canal: "c4-auto-run-1", kid: "cle-2" });
+    for (const cle of ["c4:Auto_Run:a", "c4:auto_run:a", "c4:auto-run-1:A", "c4:-auto:a", "c4:auto-:a", "c4:auto-run-1:a_b", `c4:${"a".repeat(65)}:a`]) {
+      expect(celluleDeLaCle(cle), cle).toBeNull();
+      expect(emplacementCoffre(cle), cle).toBeNull();
+    }
+    // Même motif que le coffre (apps/api/src/coffre/cles-echanges.ts : CANAL et KID).
+    const CANAL = /^c4-[a-z0-9]+(?:-[a-z0-9]+)*$/;
+    const KID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+    for (const c of [...cellules.paquets, ...cellules.lectures].map((x) => x.cle).filter((x) => x.startsWith("c4:"))) {
+      const e = emplacementCoffre(c);
+      expect(e && CANAL.test(e.canal) && KID.test(e.kid), c).toBe(true);
+    }
   });
 
   it("[LOT0-c4] la cellule se lit dans l'identifiant de clé c4:<cellule>:<n>, sans ambiguïté", () => {

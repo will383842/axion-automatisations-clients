@@ -17,7 +17,7 @@ organisations, contacts, abonnements, instances, configurations, connexions (ré
 - Les partitions ont leur propre RLS, FORCE et politique : PostgreSQL n'applique pas celles du parent à une lecture directe.
 - Le rôle de l'application ne possède aucune table, et n'est ni superutilisateur ni BYPASSRLS.
 - Une base `cli_%` n'est pas ouverte à `PUBLIC` (droit CONNECT).
-- Un rôle par client : aucun rôle (hors superutilisateur et rôles d'administration `admin_…`, `proprietaire_…`) n'a CONNECT sur plus d'une base `cli_%` (`base_cli_partagee`).
+- Un rôle par client : aucun rôle (hors superutilisateur et rôles d'administration nommés exactement par `rolesAdministration`, vide par défaut) n'a CONNECT sur plus d'une base `cli_%` (`base_cli_partagee`).
 - Journal d'audit : déclencheurs actifs (origine ou toujours, pas « réplique ») qui refusent UPDATE, DELETE et TRUNCATE (ajout seul).
 - Argent en entiers (`%_centimes`), jamais en `numeric`, `real` ou `double`.
 - Vocabulaire en énumération, pas en `text`.

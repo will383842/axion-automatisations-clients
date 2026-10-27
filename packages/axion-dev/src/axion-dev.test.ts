@@ -124,6 +124,38 @@ describe("axion-dev", () => {
   });
 });
 
+describe("reprise après coupure (tour 2 de T0-30)", () => {
+  it("[LOT0-contrats] une coupure après réception, reprise dans la même seconde : re-signée plus tard, jamais refusée en rejeu", async () => {
+    const vus = new Set<string>();
+    const dejaVu = (cle: string, signature: string) => vus.has(`${cle} ${signature}`) || (vus.add(`${cle} ${signature}`), false);
+    const verdicts: string[] = [];
+    const serveur = createServer((req: IncomingMessage, rep) => {
+      const morceaux: Buffer[] = [];
+      req.on("data", (m: Buffer) => morceaux.push(m));
+      req.on("end", () => {
+        const h = (n: string) => String(req.headers[n.toLowerCase()] ?? "");
+        const signee = { cle: h("X-Axion-Cle"), horodatage: h("X-Axion-Horodatage"), methode: req.method ?? "", chemin: req.url ?? "", corps: Buffer.concat(morceaux), signature: h("X-Axion-Signature") };
+        // Horloge du serveur figée sur l'horodatage du premier essai : la reprise arrive « dans la même seconde ».
+        const v = verifier([{ id: "recette", secret: SECRET }], signee, Number(verdicts.length === 0 ? signee.horodatage : verdicts[0]), dejaVu);
+        verdicts.push(verdicts.length === 0 ? signee.horodatage : v.ok ? "ok" : v.code);
+        // Premier essai : reçu et noté par l'anti-rejeu, puis la connexion est coupée avant la réponse.
+        if (verdicts.length === 1) return void req.socket.destroy();
+        rep.statusCode = v.ok ? 200 : 401;
+        rep.end();
+      });
+    });
+    await new Promise<void>((ok) => serveur.listen(0, "127.0.0.1", ok));
+    const url = `http://127.0.0.1:${(serveur.address() as AddressInfo).port}/versions`;
+    try {
+      const r = await lancer(["publier", "--recette"], { AXION_RECETTE_URL: url, AXION_RECETTE_SECRET: SECRET }, { recetteConfiguree: new URL(url).origin });
+      expect(verdicts.slice(1)).toEqual(["ok"]);
+      expect(r.code).toBe(0);
+    } finally {
+      serveur.close();
+    }
+  });
+});
+
 describe("corrections de relecture (tour 1)", () => {
   const depot = fileURLToPath(new URL("../../../", import.meta.url));
   const lire = (chemin: string) => readFileSync(join(depot, chemin), "utf8");

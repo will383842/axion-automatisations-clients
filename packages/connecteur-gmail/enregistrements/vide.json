@@ -1,0 +1,22 @@
+{
+  "nom": "vide",
+  "echanges": [
+    {
+      "methode": "GET",
+      "chemin": "/gmail/v1/users/me/profile",
+      "statut": 200,
+      "corps": {
+        "emailAddress": "lemoine@exemple.fr",
+        "historyId": "100"
+      }
+    },
+    {
+      "methode": "GET",
+      "chemin": "/gmail/v1/users/me/messages",
+      "statut": 200,
+      "corps": {
+        "resultSizeEstimate": 0
+      }
+    }
+  ]
+}

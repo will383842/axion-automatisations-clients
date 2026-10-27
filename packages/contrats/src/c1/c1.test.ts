@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Centimes } from "../commun/argent.ts";
 import { STATUT_PAR_CODE } from "../commun/erreurs.ts";
+import { PeriodeMois } from "../commun/identifiants.ts";
 import { ROUTES_C1 } from "./routes.ts";
 import { verifierLigneDevis } from "./regles.ts";
 import { CloreRequete, DevisRequete, FacturePonctuelleRequete, PlanRequete, RattrapageRequete, StatutsReponse } from "./schemas.ts";
@@ -44,11 +45,30 @@ describe("contrat C1", () => {
 
   it("[LOT0-c1] devis, plan et facture ponctuelle nomment le client : sans axiCli, refusés", () => {
     expect(DevisRequete.safeParse({ referencePropositionConsole: "prop-1", lignes: [ligne] }).success).toBe(false);
-    const plan = { axiCli: AXI, referenceContratConsole: "contrat-0001", montantHtCentimesParPeriode: 12345, periodeMois: 6, premiereEcheance: "2026-11-01", engagementMois: 12 };
+    const plan = { axiCli: AXI, codeAutomatisation: "tri-courriels", referenceAbonnementConsole: "abonnement-0001", referenceContratConsole: "contrat-0001", montantHtCentimesParPeriode: 12345, periodeMois: 6, premiereEcheance: "2026-11-01", engagementMois: 12 };
     expect(PlanRequete.safeParse(plan).success).toBe(true);
     expect(PlanRequete.safeParse(sans(plan, "axiCli")).success).toBe(false);
     expect(FacturePonctuelleRequete.safeParse(ponctuelle).success).toBe(true);
     expect(FacturePonctuelleRequete.safeParse(sans(ponctuelle, "axiCli")).success).toBe(false);
+  });
+
+  it("[LOT0-c1] le plan récurrent porte l'automatisation et l'abonnement que la ligne C2 exige : sans eux, refusé (avant le gel)", () => {
+    const plan = { axiCli: AXI, codeAutomatisation: "tri-courriels", referenceAbonnementConsole: "abonnement-0001", referenceContratConsole: "contrat-0001", montantHtCentimesParPeriode: 12345, periodeMois: 6, premiereEcheance: "2026-11-01", engagementMois: 12 };
+    expect(PlanRequete.safeParse(plan).success).toBe(true);
+    expect(PlanRequete.safeParse(sans(plan, "codeAutomatisation")).success).toBe(false);
+    expect(PlanRequete.safeParse(sans(plan, "referenceAbonnementConsole")).success).toBe(false);
+    // Ce que la ligne de facture C2 rend obligatoire et qui ne peut venir que du plan.
+    for (const champ of ["codeAutomatisation", "referenceAbonnementConsole"]) {
+      expect(Object.keys(PlanRequete.shape), champ).toContain(champ);
+      expect(PlanRequete.shape[champ as keyof typeof PlanRequete.shape].safeParse(undefined).success, champ).toBe(false);
+    }
+  });
+
+  it("[LOT0-c1] chaque période acceptée par C1 (1, 6, 12 mois) est une PeriodeMois commune ; 3 mois reste refusé en 1.0.0 (ADR 0033)", () => {
+    const accepte = (m: number) => PlanRequete.shape.periodeMois.safeParse(m).success;
+    expect([1, 6, 12].every(accepte)).toBe(true);
+    expect(accepte(3)).toBe(false);
+    for (let m = 0; m <= 13; m++) if (accepte(m)) expect(PeriodeMois.safeParse(m).success, String(m)).toBe(true);
   });
 
   it("[C-608] une facture ponctuelle porte son automatisation, ses lignes et un acompte de 0 à 100 %", () => {

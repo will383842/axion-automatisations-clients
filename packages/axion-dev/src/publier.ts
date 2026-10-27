@@ -1,6 +1,6 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { EN_TETES, signer } from "@axion-auto/contrats/src/commun/signature.ts";
+import { EN_TETES, horodatageSuivant, signer } from "@axion-auto/contrats/src/commun/signature.ts";
 import { empreinteArtefact, type Artefact } from "@axion-auto/sdk-module/src/emballage/signer.ts";
 import { DOSSIER_ARTEFACT } from "./emballer.ts";
 
@@ -24,7 +24,8 @@ function adresseRecette(valeur: string | undefined, configuree: string | undefin
   }
 }
 
-// Envoie l'artefact signé à l'import de la recette. Chaque essai est re-signé (nouvel horodatage) ; l'Idempotency-Key reste la même.
+// Envoie l'artefact signé à l'import de la recette. Chaque essai est re-signé avec un horodatage strictement plus récent
+// que le précédent (horodatageSuivant), même dans la même seconde : jamais pris pour un rejeu. L'Idempotency-Key reste la même.
 export async function publier(dossier: string, o: OptionsPublier, ecrire: (texte: string) => void): Promise<number> {
   if (!o.recette) return ecrire("publication refusée : seule la recette est permise (--recette) ; la publication au catalogue se fait dans la console"), 3;
   const url = adresseRecette(o.env["AXION_RECETTE_URL"], o.recetteConfiguree);
@@ -38,8 +39,9 @@ export async function publier(dossier: string, o: OptionsPublier, ecrire: (texte
   const corps = JSON.stringify({ fichiers: Object.fromEntries(Object.entries(fichiers).map(([n, c]) => [n, Buffer.from(c).toString("base64")])) });
   const cle = `publier-${empreinteArtefact(fichiers)}`;
 
+  let horodatage: string | undefined;
   for (let i = 1; i <= TENTATIVES; i++) {
-    const horodatage = String(Math.floor(Date.now() / 1000));
+    horodatage = horodatageSuivant(horodatage, Date.now() / 1000);
     try {
       const r = await o.fetch(url, {
         method: "POST",

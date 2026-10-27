@@ -1,0 +1,75 @@
+{
+  "route": "statuts",
+  "cas": [
+    {
+      "nom": "valide",
+      "valide": true,
+      "cle": "cle-test-c1-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c1-console-a",
+      "horodatage": "1792800000",
+      "methode": "GET",
+      "chemin": "/api/console/v1/statuts?depuis=0",
+      "corps": "",
+      "signature": "v1=feb533de3fbe2c50bc57f86e2ae9d904a2ccc211392a68467ebae9c8840dd978"
+    },
+    {
+      "nom": "curseur absent",
+      "valide": false,
+      "cle": "cle-test-c1-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c1-console-a",
+      "horodatage": "1792800000",
+      "methode": "GET",
+      "chemin": "/api/console/v1/statuts",
+      "corps": "",
+      "signature": "v1=a84735198b9ae6e4451e66c6f4e7150fbb39fd215de4e525e9de7fbc408d0cfc"
+    },
+    {
+      "nom": "curseur vide",
+      "valide": false,
+      "cle": "cle-test-c1-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c1-console-a",
+      "horodatage": "1792800000",
+      "methode": "GET",
+      "chemin": "/api/console/v1/statuts?depuis=",
+      "corps": "",
+      "signature": "v1=0066abf01a0e81e0ded32d85de185c6c000268b6ccd31e0c6be6d3b16011d827"
+    }
+  ],
+  "reponses": [
+    {
+      "statut": 200,
+      "nom": "statuts",
+      "valide": true,
+      "corps": {
+        "elements": [
+          {
+            "type": "devis",
+            "reference": "AXI-DEV-000001",
+            "statut": "signe"
+          },
+          {
+            "type": "facture",
+            "reference": "AXI-FACT-000001",
+            "statut": "payee"
+          }
+        ],
+        "curseur": "c-0002"
+      }
+    },
+    {
+      "statut": 200,
+      "nom": "statut en texte libre",
+      "valide": false,
+      "corps": {
+        "elements": [
+          {
+            "type": "devis",
+            "reference": "AXI-DEV-000001",
+            "statut": "Signé le 3"
+          }
+        ],
+        "curseur": "c-0002"
+      }
+    }
+  ]
+}

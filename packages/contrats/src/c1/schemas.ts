@@ -37,8 +37,13 @@ export const LigneDevis = z.strictObject({
 export const DevisRequete = z.strictObject({ axiCli: AxiCli, referencePropositionConsole: Texte, lignes: z.array(LigneDevis).min(1) });
 export const DevisReponse = z.strictObject({ numeroDevis: Texte });
 
+// Un plan = un abonnement = une automatisation : le plan porte ce que chaque ligne de facture C2 rend obligatoire
+// (`codeAutomatisation`, `referenceAbonnementConsole`), sinon le Hub ne saurait pas la remplir (ADR 0033, avant le gel).
+// Période : 1, 6 ou 12 mois en 1.0.0, sous-ensemble de PeriodeMois ; l'élargir viendra avec T7-29, Hub d'abord (additif).
 export const PlanRequete = z.strictObject({
   axiCli: AxiCli,
+  codeAutomatisation: CodeAutomatisation,
+  referenceAbonnementConsole: Texte,
   referenceContratConsole: Texte,
   montantHtCentimesParPeriode: Centimes,
   periodeMois: z.union([z.literal(1), z.literal(6), z.literal(12)]),

@@ -1,0 +1,66 @@
+{
+  "nom": "pagination",
+  "echanges": [
+    {
+      "methode": "GET",
+      "chemin": "/gmail/v1/users/me/profile",
+      "statut": 200,
+      "corps": {
+        "emailAddress": "lemoine@exemple.fr",
+        "historyId": "100"
+      }
+    },
+    {
+      "methode": "GET",
+      "chemin": "/gmail/v1/users/me/messages",
+      "statut": 200,
+      "corps": {
+        "messages": [
+          {
+            "id": "m-1",
+            "threadId": "m-1"
+          },
+          {
+            "id": "m-2",
+            "threadId": "m-2"
+          }
+        ],
+        "nextPageToken": "t1",
+        "resultSizeEstimate": 2
+      }
+    },
+    {
+      "methode": "GET",
+      "chemin": "/gmail/v1/users/me/messages",
+      "statut": 200,
+      "corps": {
+        "messages": [
+          {
+            "id": "m-3",
+            "threadId": "m-3"
+          },
+          {
+            "id": "m-4",
+            "threadId": "m-4"
+          }
+        ],
+        "nextPageToken": "t2",
+        "resultSizeEstimate": 2
+      }
+    },
+    {
+      "methode": "GET",
+      "chemin": "/gmail/v1/users/me/messages",
+      "statut": 200,
+      "corps": {
+        "messages": [
+          {
+            "id": "m-5",
+            "threadId": "m-5"
+          }
+        ],
+        "resultSizeEstimate": 1
+      }
+    }
+  ]
+}

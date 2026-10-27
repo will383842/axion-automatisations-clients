@@ -1,7 +1,7 @@
 {
   "fonctions": [
     {"fichier":"0001_journal_audit_fonctions.sql","nom":"audit_contenu","empreinte":"fbd855ce044999e193116acab586cf522915349542014387a2686f0c5f71a0a0","adr":"0042"},
-    {"fichier":"0001_journal_audit_fonctions.sql","nom":"audit_inserer","empreinte":"cd4656f7423beaec294a7896ab152e8a6ba824c400a31eac3c7f87e16641351e","adr":"0042"},
+    {"fichier":"0001_journal_audit_fonctions.sql","nom":"audit_inserer","empreinte":"239674398a81d911c9397cf0518fc30666b743b25554e9398fe20e6fd7a4c98b","adr":"0042"},
     {"fichier":"0001_journal_audit_fonctions.sql","nom":"audit_ajouter","empreinte":"a945d25e8c2ae608b522af8d7a79908b2e0dbcc8c30e5a0a438e59bf5cbf90b9","adr":"0042"},
     {"fichier":"0001_journal_audit_fonctions.sql","nom":"audit_ecrire","empreinte":"ddc5f32080f18852767f1759d3643a683d37e3894f30319332d559430d1f5c5d","adr":"0042"},
     {"fichier":"0001_journal_audit_fonctions.sql","nom":"audit_refuser","empreinte":"16fb88851ab54cc14f93b1a88aa3f46f8d9a9e079758a05b232d1a8fa923b5a2","adr":"0042"}

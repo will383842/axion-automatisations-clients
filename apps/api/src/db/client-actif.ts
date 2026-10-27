@@ -43,7 +43,7 @@ const ACTEUR_MAX = 128;
 // Pas de caractère de contrôle (saut de ligne, nul) dans l'acteur : il finit dans le journal d'audit.
 const CONTROLE = /\p{Cc}/u;
 
-function verifierAppelant(appelant: Appelant): void {
+export function verifierAppelant(appelant: Appelant): void {
   const acteur = appelant.acteur;
   if (typeof acteur !== "string" || acteur.trim() === "" || acteur.length > ACTEUR_MAX || CONTROLE.test(acteur)) throw new Error("acteur invalide (1 à 128 caractères, sans caractère de contrôle)");
   // Une adresse avec zone (« fe80::1%eth0 ») est une IP pour Node mais pas pour le type inet de PostgreSQL : refusée.

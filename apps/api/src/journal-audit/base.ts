@@ -1,5 +1,5 @@
 import type { Pool } from "pg";
-import { avecClient } from "../db/client-actif.ts";
+import { avecClient, verifierAppelant } from "../db/client-actif.ts";
 import type { EntreeAudit, JournalAudit } from "./port.ts";
 
 // Journal d'audit en base (C5) : écrit par public.audit_ajouter, jamais par un INSERT (console_app n'en a pas le droit).
@@ -14,6 +14,7 @@ function entiteDe(entree: EntreeAudit): string {
 export function creerJournalAuditBase(pool: Pool): JournalAudit {
   return {
     async ecrire(entree) {
+      verifierAppelant({ acteur: entree.parQui });
       const montant = entree.montantConsommeMicroCentimes;
       if (montant !== undefined && !Number.isSafeInteger(montant)) throw new Error("montant du journal d'audit : un entier est attendu");
       const nouvelle = JSON.stringify({ motif: entree.motif, ...(montant === undefined ? {} : { montant_consomme_micro_centimes: montant }) });

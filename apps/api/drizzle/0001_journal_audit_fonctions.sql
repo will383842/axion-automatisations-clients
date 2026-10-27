@@ -20,6 +20,7 @@ RETURNS bigint
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
+SET lock_timeout = '5s'
 AS $fonction$
 DECLARE
   v_id bigint;
@@ -27,8 +28,13 @@ DECLARE
   v_precedente text;
   v_empreinte text;
 BEGIN
-  -- Une seule écriture à la fois dans la chaîne : le verrou tient jusqu'à la fin de la transaction, la lecture de la dernière empreinte vient après lui.
-  PERFORM pg_advisory_xact_lock(7410020241028);
+  -- En REPEATABLE READ ou SERIALIZABLE, la photo des données est prise avant le verrou : deux écritures verraient la même dernière empreinte et la chaîne fourcherait.
+  IF current_setting('transaction_isolation') <> 'read committed' THEN
+    RAISE EXCEPTION 'audit_inserer : niveau d''isolation de la transaction refusé (READ COMMITTED exigé)';
+  END IF;
+  -- Une seule écriture à la fois dans la chaîne. Le verrou de table, tenu jusqu'à la fin de la transaction, n'est pas à la portée de console_app
+  -- (il demande un droit d'écriture sur la table) ; la lecture de la dernière empreinte vient après lui, avec une photo neuve.
+  LOCK TABLE public.journal_audit IN SHARE ROW EXCLUSIVE MODE;
   SELECT j.empreinte INTO v_precedente FROM public.journal_audit j ORDER BY j.id DESC LIMIT 1;
   v_id := nextval(pg_get_serial_sequence('public.journal_audit', 'id')::regclass);
   v_empreinte := encode(sha256(convert_to(coalesce(v_precedente, '') || public.audit_contenu(v_id, p_tenant, p_acteur, p_action, p_entite, p_entite_id, p_ancienne, p_nouvelle, p_ip, v_cree), 'UTF8')), 'hex');

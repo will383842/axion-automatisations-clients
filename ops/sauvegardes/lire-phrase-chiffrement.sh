@@ -36,7 +36,9 @@ else
     *" 200 "*) ;;
     *) echo "OpenBao a refusé la lecture : ${statut:-aucune réponse}" >&2; exit 1 ;;
   esac
-  phrase="$(printf '%s' "$reponse" | sed -n 's/.*"phrase":"\([^"]*\)".*/\1/p' | head -n 1)"
+  # JSON avec ou sans espaces autour des deux-points.
+  motif='s/.*"phrase" *: *"\([^"]*\)".*/\1/p'
+  phrase="$(printf '%s' "$reponse" | sed -n "$motif" | head -n 1)"
 fi
 
 [ -n "$phrase" ] || { echo "phrase de chiffrement introuvable" >&2; exit 1; }

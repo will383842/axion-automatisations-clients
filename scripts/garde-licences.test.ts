@@ -274,7 +274,9 @@ describe("garde-licences : liste blanche des workflows", () => {
   });
   it("[C-020] les scripts de package.json sont dans la liste blanche, texte exact", () => {
     const racine = fileURLToPath(new URL("..", import.meta.url));
-    const paquets = readdirSync(racine, { recursive: true, encoding: "utf8" }).filter((f) => /(^|\/)package\.json$/.test(f) && !f.includes("node_modules")).map((f) => ({ nom: f, texte: readFileSync(`${racine}${f}`, "utf8") }));
+    // Parcours sans entrer dans node_modules ni .git : les parcourir en entier dépassait le délai de 5 s sous charge.
+    const trouver = (rel: string): string[] => readdirSync(`${racine}${rel}`, { withFileTypes: true }).flatMap((d) => (d.name === "node_modules" || d.name === ".git" ? [] : d.isDirectory() ? trouver(`${rel}${d.name}/`) : d.name === "package.json" ? [`${rel}${d.name}`] : []));
+    const paquets = trouver("").map((f) => ({ nom: f, texte: readFileSync(`${racine}${f}`, "utf8") }));
     expect(paquets.length).toBeGreaterThan(3);
     expect(verifierScriptsPaquets(paquets)).toEqual([]);
     const script = (cmd: unknown) => verifierScriptsPaquets([{ nom: "package.json", texte: JSON.stringify({ scripts: { ci: cmd } }) }]);

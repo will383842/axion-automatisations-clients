@@ -34,7 +34,7 @@ const NOEUDS = new Map([
   ["DropStmt", "DROP"], ["DropOwnedStmt", "DROP"], ["DropRoleStmt", "DROP"], ["DropdbStmt", "DROP"], ["DropTableSpaceStmt", "DROP"], ["DropSubscriptionStmt", "DROP"], ["DropUserMappingStmt", "DROP"],
   ["RenameStmt", "RENAME"], ["TruncateStmt", "TRUNCATE"], ["AlterObjectSchemaStmt", "SET SCHEMA"],
   ["VariableSetStmt", "SET"], ["AlterDatabaseSetStmt", "ALTER DATABASE SET"], ["AlterRoleSetStmt", "ALTER ROLE SET"],
-  ["DoStmt", "DO"], ["CreateFunctionStmt", "CREATE FUNCTION"], ["CallStmt", "CALL"], ["ExecuteStmt", "EXECUTE"], ["TransactionStmt", "COMMIT/ROLLBACK"],
+  ["AlterFunctionStmt", "ALTER FUNCTION"], ["DoStmt", "DO"], ["CreateFunctionStmt", "CREATE FUNCTION"], ["CallStmt", "CALL"], ["ExecuteStmt", "EXECUTE"], ["TransactionStmt", "COMMIT/ROLLBACK"],
 ]);
 
 function etiquettes(noeud: unknown, trouvees: string[]): void {
@@ -48,6 +48,8 @@ function etiquettes(noeud: unknown, trouvees: string[]): void {
       if (sousType === "AT_AlterColumnType") trouvees.push("ALTER … TYPE");
       else if (sousType.startsWith("AT_Drop")) trouvees.push("DROP");
     }
+    // ALTER FUNCTION … OWNER TO : un autre propriétaire change qui exécute une fonction SECURITY DEFINER.
+    if (cle === "AlterOwnerStmt" && /^OBJECT_(FUNCTION|PROCEDURE|ROUTINE)$/.test((valeur as { objectType?: string }).objectType ?? "")) trouvees.push("ALTER FUNCTION");
     if (cle === "AlterEnumStmt" && (valeur as { oldVal?: string }).oldVal) trouvees.push("RENAME");
     if (cle === "AlterDomainStmt" && (valeur as { subtype?: string }).subtype === "X") trouvees.push("DROP");
     // pg_settings porte une règle ON UPDATE qui appelle set_config : toute relation de ce nom (RangeVar), quel que soit le schéma, est refusée.
@@ -69,7 +71,16 @@ function texteInstruction(texte: string, s: { stmt_location?: number; stmt_len?:
 }
 const empreinteDe = (texte: string) => createHash("sha256").update(texte, "utf8").digest("hex");
 
-type Option = { DefElem?: { defname?: string; arg?: { VariableSetStmt?: { kind?: string; name?: string }; Boolean?: { boolval?: boolean } } } };
+type Option = { DefElem?: { defname?: string; arg?: { VariableSetStmt?: { kind?: string; name?: string; args?: { A_Const?: { sval?: { sval?: string } } }[] }; Boolean?: { boolval?: boolean } } } };
+
+// SECURITY DEFINER : UN SEUL réglage search_path, en valeur explicite « pg_catalog, pg_temp » (pg_temp en dernier, jamais public).
+function cheminSur(options: Option[]): boolean {
+  const chemins = options.filter((o) => o.DefElem?.defname === "set" && o.DefElem.arg?.VariableSetStmt?.name === "search_path");
+  const reglage = chemins[0]?.DefElem?.arg?.VariableSetStmt;
+  if (chemins.length !== 1 || reglage?.kind !== "VAR_SET_VALUE") return false;
+  const valeurs = (reglage.args ?? []).map((a) => a.A_Const?.sval?.sval);
+  return valeurs.length === 2 && valeurs[0] === "pg_catalog" && valeurs[1] === "pg_temp";
+}
 type Fonction = { nom: string; options: Option[]; estProcedure: boolean; corps: object };
 function racineFonction(stmt: unknown): Fonction | undefined {
   const f = (stmt as { CreateFunctionStmt?: { funcname?: { String?: { sval?: string } }[]; options?: Option[]; is_procedure?: boolean } } | undefined)?.CreateFunctionStmt;
@@ -102,8 +113,7 @@ function analyserMorceau(nom: string, texte: string, fonctions: readonly Fonctio
         trouvees = [];
         etiquettes({ ...fonction.corps, options: fonction.options.filter((o) => o.DefElem?.defname !== "set") }, trouvees);
         const definer = fonction.options.some((o) => o.DefElem?.defname === "security" && o.DefElem.arg?.Boolean?.boolval === true);
-        const cheminFixe = fonction.options.some((o) => o.DefElem?.defname === "set" && o.DefElem.arg?.VariableSetStmt?.kind === "VAR_SET_VALUE" && o.DefElem.arg.VariableSetStmt.name === "search_path");
-        if (definer && !cheminFixe) trouvees.push("SECURITY DEFINER sans search_path");
+        if (definer && !cheminSur(fonction.options)) trouvees.push("SECURITY DEFINER sans search_path");
       }
     }
     return trouvees.map((t) => `${nom}:${ligne}: instruction interdite : ${t}`);

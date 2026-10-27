@@ -1,5 +1,5 @@
 {
-  "version": "0.3.0",
+  "version": "0.4.0",
   "invariants": [
     {
       "n": 1,
@@ -54,7 +54,9 @@
     "base_cli_partagee",
     "journal_modifiable",
     "argent_non_entier",
-    "vocabulaire_en_texte"
+    "vocabulaire_en_texte",
+    "unicite_sans_tenant",
+    "etrangere_sans_tenant"
   ],
   "vocabulaire": [
     "statut",

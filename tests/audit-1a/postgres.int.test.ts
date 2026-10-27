@@ -206,7 +206,7 @@ describe.each(["console", "moteur"] as const)("audit 1-A · PostgreSQL à traver
   // Défaut constaté (T1A-19, PR 90, 1re exécution) : aucune règle C5 ne signale une contrainte d'unicité sans tenant_id (oracle prouvé ci-dessus).
   // Correction : une règle « unicite_sans_tenant » dans packages/contrats/src/c5/invariants.ts (tout index unique d'une table à tenant_id
   // porte tenant_id, sauf la clé d'identité générée). À faire au lot 2, avant la première table métier.
-  it.fails(`[${id("A-163")}] @isolation @lot-2 les invariants C5 signalent une contrainte UNIQUE qui ne porte pas tenant_id (oracle d'existence entre clients)`, async () => {
+  it(`[${id("A-163")}] @isolation @lot-2 les invariants C5 signalent une contrainte UNIQUE qui ne porte pas tenant_id (oracle d'existence entre clients)`, async () => {
     await migration.query(`CREATE TABLE ${SCHEMA}.comptes2 (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, tenant_id uuid NOT NULL, courriel text NOT NULL UNIQUE)`);
     try {
       await appliquerModele(migration, base, "comptes2");

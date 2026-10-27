@@ -17,12 +17,12 @@ const requeteSur = (base: string): Requete => async (sql) => {
 
 const CONFORME = `
   CREATE TYPE statut_dossier AS ENUM ('ouvert', 'clos');
-  CREATE TABLE dossiers (id bigint PRIMARY KEY, tenant_id uuid NOT NULL, montant_centimes bigint NOT NULL, statut statut_dossier);
+  CREATE TABLE dossiers (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, tenant_id uuid NOT NULL, montant_centimes bigint NOT NULL, statut statut_dossier);
   CREATE INDEX dossiers_tenant ON dossiers (tenant_id, id);
   ALTER TABLE dossiers ENABLE ROW LEVEL SECURITY;
   ALTER TABLE dossiers FORCE ROW LEVEL SECURITY;
   CREATE POLICY isolation ON dossiers USING (tenant_id = current_setting('app.tenant_id')::uuid);
-  CREATE TABLE journal_audit (id bigint PRIMARY KEY, tenant_id uuid NOT NULL, action text NOT NULL);
+  CREATE TABLE journal_audit (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, tenant_id uuid NOT NULL, action text NOT NULL);
   CREATE INDEX journal_audit_tenant ON journal_audit (tenant_id, id);
   ALTER TABLE journal_audit ENABLE ROW LEVEL SECURITY;
   ALTER TABLE journal_audit FORCE ROW LEVEL SECURITY;
@@ -113,7 +113,7 @@ describe.skipIf(!URL_PG)("C5 invariants du schéma", () => { // fiche: T0-16
   });
 
   it("[LOT0-c5] une colonne montant_centimes en numeric est signalée", async () => {
-    await avec("argent", `CREATE TABLE lignes (id bigint PRIMARY KEY, tenant_id uuid NOT NULL, montant_centimes numeric, prix_ht double precision, total real);`,
+    await avec("argent", `CREATE TABLE lignes (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, tenant_id uuid NOT NULL, montant_centimes numeric, prix_ht double precision, total real);`,
       (e) => {
         expect(e).toContainEqual({ regle: "argent_non_entier", objet: "lignes.montant_centimes" });
         expect(e).toContainEqual({ regle: "argent_non_entier", objet: "lignes.prix_ht" });

@@ -16,6 +16,8 @@ export const REGLES_C5 = [
   "journal_modifiable",
   "argent_non_entier",
   "vocabulaire_en_texte",
+  "unicite_sans_tenant",
+  "etrangere_sans_tenant",
 ] as const;
 export type Regle = (typeof REGLES_C5)[number];
 
@@ -36,6 +38,13 @@ export type Options = {
 export const TABLE_MIGRATIONS = "__migrations";
 // Défaut : aucun (échec fermé). Seul le superutilisateur est hors contrôle.
 export const ROLES_ADMINISTRATION: readonly string[] = [];
+
+// Seule table où tenant_id peut être NULL : les lignes d'équipe du journal d'audit n'ont pas de client (T2-01a).
+// La colonne doit exister ; RLS, FORCE et index restent exigés. Liste fermée : aucune option d'appel ne l'étend.
+export const TENANT_FACULTATIF: readonly string[] = Object.freeze(["public.journal_audit"]);
+// Unicités permises sans tenant_id : liste fermée et vide. Une entrée ne s'ajoute qu'avec sa raison, relue en 2 tours (ADR 0040).
+// Aucune option d'appel ne l'étend.
+export const EXCEPTIONS_UNICITE: readonly { table: string; index: string; raison: string }[] = Object.freeze([]);
 
 // Les 8 invariants de l'annexe A : contrôlés ici dès la version 0, ou à brancher au lot 2 (README.md).
 export const INVARIANTS_C5 = [
@@ -78,6 +87,24 @@ const ROLES = `
          EXISTS (SELECT 1 FROM pg_roles x WHERE (x.rolsuper OR x.rolbypassrls) AND x.oid <> r.oid AND pg_has_role(r.oid, x.oid, 'MEMBER')) AS contourne_par_membre
   FROM pg_roles r`;
 
+// Index unique (clé primaire, UNIQUE, EXCLUDE, partiel ou sur expression compris) : porte-t-il tenant_id dans sa clé ?
+// `identite_generee` : clé d'une seule colonne en identité GENERATED ALWAYS (l'appelant ne peut pas la fournir).
+const UNIQUES = `
+  SELECT i.indrelid::int AS oid, ic.relname AS "index", i.indisprimary AS primaire,
+    EXISTS (SELECT 1 FROM generate_series(0, i.indnkeyatts - 1) s JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = i.indkey[s]
+            WHERE a.attname = 'tenant_id') AS porte_tenant,
+    (i.indnkeyatts = 1 AND EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = i.indrelid AND a.attnum = i.indkey[0] AND a.attidentity = 'a')) AS identite_generee
+  FROM pg_index i JOIN pg_class ic ON ic.oid = i.indexrelid
+  WHERE i.indisunique OR i.indisexclusion`;
+// Clé étrangère : lie-t-elle tenant_id à tenant_id, à la même position ?
+const ETRANGERES = `
+  SELECT c.conrelid::int AS oid, c.confrelid::int AS cible, c.conname AS nom,
+    EXISTS (SELECT 1 FROM generate_subscripts(c.conkey, 1) k
+            JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = c.conkey[k]
+            JOIN pg_attribute b ON b.attrelid = c.confrelid AND b.attnum = c.confkey[k]
+            WHERE a.attname = 'tenant_id' AND b.attname = 'tenant_id') AS lie_tenant
+  FROM pg_constraint c WHERE c.contype = 'f'`;
+
 const TGTYPE_DELETE = 8;
 const TGTYPE_UPDATE = 16;
 const TGTYPE_TRUNCATE = 32;
@@ -119,8 +146,9 @@ export async function controlerInvariants(
   if (!NOM_BASE.test(nomBase)) throw new Error("nom de base invalide");
   const migrations = options.tableMigrations ?? TABLE_MIGRATIONS;
   if (!NOM_BASE.test(migrations)) throw new Error("nom de table de migrations invalide");
-  const [tables, colonnes, politiques, index, declencheurs, roles] = await Promise.all([
+  const [tables, colonnes, politiques, index, declencheurs, roles, uniques, etrangeres] = await Promise.all([
     requete(tablesSql(migrations)), requete(COLONNES), requete(POLITIQUES), requete(INDEX), requete(DECLENCHEURS), requete(ROLES),
+    requete(UNIQUES), requete(ETRANGERES),
   ]);
   const ecarts: Ecart[] = [];
   const noter = (regle: Regle, objet: string) => ecarts.push({ regle, objet });
@@ -136,7 +164,8 @@ export async function controlerInvariants(
     const objet = t.schema === "public" ? nom : cleTable(t.schema, nom);
     const siennes = politiques.filter((p) => p.schema === t.schema && p.table === nom);
     const tenant = colonnes.find((c) => c.schema === t.schema && c.table === nom && c.colonne === "tenant_id");
-    if (!tenant || tenant.nullable !== "NO") noter("tenant_id_absent", objet);
+    const facultatif = TENANT_FACULTATIF.includes(cleTable(t.schema, nom));
+    if (!tenant || (tenant.nullable !== "NO" && !facultatif)) noter("tenant_id_absent", objet);
     if (!t.rls || siennes.length === 0) noter("rls_absente", objet);
     if (siennes.some(politiqueOuverte)) noter("politique_ouverte", objet);
     if (!t.force_rls) noter("force_rls_absent", objet);
@@ -149,6 +178,24 @@ export async function controlerInvariants(
       const couvre = (bit: number) => siens.some((d) => (Number(d.type) & bit) !== 0);
       if (!couvre(TGTYPE_UPDATE) || !couvre(TGTYPE_DELETE) || !couvre(TGTYPE_TRUNCATE)) noter("journal_modifiable", objet);
     }
+  }
+
+  // Une unicité sans tenant_id sur une table à tenant_id est un oracle d'existence entre clients (23505), même si RLS cache la ligne.
+  const nomDe = new Map(tables.map((t) => [t.oid, t]));
+  const aTenant = (t: Record<string, unknown> | undefined) => t !== undefined && colonnes.some((c) => c.schema === t.schema && c.table === t.nom && c.colonne === "tenant_id");
+  const objetDe = (t: Record<string, unknown>) => (t.schema === "public" ? String(t.nom) : cleTable(t.schema, t.nom));
+  for (const u of uniques) {
+    const t = nomDe.get(u.oid as number);
+    if (!t || !aTenant(t) || u.porte_tenant) continue;
+    if (u.primaire && u.identite_generee) continue;
+    if (EXCEPTIONS_UNICITE.some((e) => e.table === objetDe(t) && e.index === u.index)) continue;
+    noter("unicite_sans_tenant", `${objetDe(t)}.${u.index}`);
+  }
+  // Une clé étrangère entre deux tables à tenant_id doit lier tenant_id à tenant_id : sinon oracle (23503) et rattachement entre clients.
+  for (const f of etrangeres) {
+    const source = nomDe.get(f.oid as number);
+    const cible = nomDe.get(f.cible as number);
+    if (source && cible && aTenant(source) && aTenant(cible) && !f.lie_tenant) noter("etrangere_sans_tenant", `${objetDe(source)}.${f.nom}`);
   }
 
   for (const c of colonnes) {

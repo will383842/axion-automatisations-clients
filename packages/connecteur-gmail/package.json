@@ -1,0 +1,11 @@
+{
+  "name": "@axion-auto/connecteur-gmail",
+  "version": "0.0.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "main": "src/connecteur.ts",
+  "dependencies": {
+    "@axion-auto/connecteurs-commun": "workspace:*"
+  }
+}

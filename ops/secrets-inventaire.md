@@ -17,6 +17,9 @@ Les secrets de l'équipe vivent dans Bitwarden ou sous `technique/` d'OpenBao, J
 | `MIGRATION_DATABASE_URL` | production | environnement cloud, le temps d'une migration (le mot de passe du rôle qui modifie le schéma vient d'OpenBao) | à chaque départ d'un administrateur |
 | `APP_VERSION` | aucun | environnement de construction | sans objet |
 | `HUB_URL` | aucun | environnement cloud | sans objet |
+| `GMAIL_URL` | aucun | environnement cloud | sans objet |
+| `CONNECTEUR_GMAIL_OUVERT` | aucun | environnement cloud | sans objet |
+| `CONNECTEURS_MESSAGERIE_OUVERT` | aucun | environnement cloud | sans objet |
 | `CRM_URL` | aucun | environnement cloud | sans objet |
 | `PLAFOND_CLE_CLIENT_MICROCENTIMES` | aucun | environnement cloud | sans objet |
 | `PLAFOND_PASSERELLE_JOUR_MICROCENTIMES` | aucun | environnement cloud | sans objet |

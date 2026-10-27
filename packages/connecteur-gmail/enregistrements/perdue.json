@@ -1,0 +1,10 @@
+{
+  "nom": "perdue",
+  "echanges": [
+    {
+      "methode": "POST",
+      "chemin": "/gmail/v1/users/me/messages/send",
+      "reseau": true
+    }
+  ]
+}

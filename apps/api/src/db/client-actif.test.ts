@@ -69,6 +69,48 @@ describe("avecClient", () => {
   });
 });
 
+describe("avecClient, acteur et adresse", () => {
+  it("[A-178] fixe acteur et IP avec la portée de la transaction, dans la même transaction que le client actif", async () => {
+    const { pool, appels } = fauxPool();
+    await avecClient(pool, CLIENT_A, async () => 1, { acteur: "agent-test", ip: "192.0.2.17" });
+    expect(textes(appels)).toEqual(["BEGIN", "SELECT set_config('app.tenant_id', $1, true)", "SELECT set_config('app.acteur', $1, true), set_config('app.ip', $2, true)", "COMMIT"]);
+    expect(appels[2]?.[1]).toEqual(["agent-test", "192.0.2.17"]);
+  });
+
+  it("[A-178] sans IP, l'IP fixée est vide ; une adresse IPv6 est acceptée", async () => {
+    const sans = fauxPool();
+    await avecClient(sans.pool, CLIENT_A, async () => 1, { acteur: "agent-test" });
+    expect(sans.appels[2]?.[1]).toEqual(["agent-test", ""]);
+    const v6 = fauxPool();
+    await avecClient(v6.pool, CLIENT_A, async () => 1, { acteur: "agent-test", ip: "2001:db8::17" });
+    expect(v6.appels[2]?.[1]).toEqual(["agent-test", "2001:db8::17"]);
+  });
+
+  it("[A-178] avecClient refuse une IP mal formée et un acteur vide, sans prendre de connexion", async () => {
+    const mauvais = [
+      { acteur: "", ip: "192.0.2.17" },
+      { acteur: "   ", ip: "192.0.2.17" },
+      { acteur: "x".repeat(129), ip: "192.0.2.17" },
+      { acteur: "agent\nforge", ip: "192.0.2.17" },
+      { acteur: "agent-test", ip: "300.1.1.1" },
+      { acteur: "agent-test", ip: "192.0.2.17'; --" },
+      { acteur: "agent-test", ip: "192.0.2.17/24" },
+      { acteur: "agent-test", ip: "fe80::1%eth0" },
+      { acteur: "agent-test", ip: "" },
+    ];
+    for (const options of mauvais) {
+      const { pool } = fauxPool();
+      await expect(avecClient(pool, CLIENT_A, async () => 1, options)).rejects.toThrow(/acteur|adresse/);
+      expect(pool.connect).not.toHaveBeenCalled();
+    }
+  });
+
+  it("[A-178] accepte un acteur de 128 caractères exactement", async () => {
+    const { pool } = fauxPool();
+    await expect(avecClient(pool, CLIENT_A, async () => 1, { acteur: "x".repeat(128) })).resolves.toBe(1);
+  });
+});
+
 describe("avecEquipe", () => {
   it("[A-164] lit en transaction en lecture seule, sans client actif", async () => {
     const { pool, client, appels } = fauxPool();

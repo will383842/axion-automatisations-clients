@@ -54,9 +54,7 @@ describe("règles C5 d'unicité et de clés étrangères sur le vrai PostgreSQL"
     await migration.query(`CREATE SCHEMA ${SCHEMA}`);
   }, 60_000);
   afterEach((ctx) => {
-    for (const e of ctx.task.result?.errors ?? []) writeSync(2, `ECHEC-UNICITE ${ctx.task.name} :: ${String(e.message).replaceAll("
-", " / ")}
-`);
+    for (const e of ctx.task.result?.errors ?? []) writeSync(2, `ECHEC-UNICITE ${ctx.task.name} :: ${String(e.message).replaceAll("\n", " / ")}\n`);
   });
   afterAll(async () => {
     await nettoyer().catch(() => undefined);

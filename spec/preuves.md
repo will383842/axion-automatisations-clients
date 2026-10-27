@@ -45,3 +45,4 @@ C-379 → .claude/skills/ (module-automatisation, connecteur, harnais), 2026-10-
 C-382 → ops/environnement-cloud.md, 2026-10-27
 C-393 → ops/environnement-cloud.md (réseau limité, variables, commande d'installation), 2026-10-27
 C-435 → plan du dépôt privé, section 5.1 (ordre des lots), 2026-10-27
+C-526 → partie documentaire : tableau des modèles d'IA (dépôt privé, plan/mesures-lot-1/prix-modeles-ia.md), 2026-10-27, provisoire ; calcul du coût : à prouver par T4-54 et T3-36 (C-639)

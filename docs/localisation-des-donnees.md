@@ -13,6 +13,8 @@ Toutes tournent chez AXION IA (lieu `local`) ; aucune n'est livrée chez un clie
 | `greenmail` | faux serveur IMAP/SMTP des tests du connecteur | `local` : messages d'essai seulement |
 | `postgres` | base de données | `local` : serveur d'AXION IA |
 | `postgres-socle` | base de données du socle de développement (avec pg_partman) | `local` : serveur d'AXION IA |
+| `pgbackrest` | sauvegardes chiffrées de la base (avec l'image du socle) | `local` : serveur d'AXION IA ; la copie part chiffrée vers la cible de sauvegarde |
+| `sftp-essai` | cible d'essai des sauvegardes (CI seulement) | `local` : ne garde que des données d'essai |
 | `pgbouncer` | répartiteur de connexions | `local` : ne garde aucune donnée |
 | `valkey` | files de tâches | `local` : serveur d'AXION IA |
 | `openbao` | coffre à secrets | `local` : serveur d'AXION IA |

@@ -343,10 +343,14 @@ const mesurer = (): Mesure => {
   const r = sortie("docker", ["exec", "-i", conteneur("postgres"), "sh", "-s", "--", WAL, `${WAL}/archive_status`], {
     input: readFileSync(join(process.cwd(), "ops/surveillance/surveiller-disque.sh"), "utf8"),
   });
-  // Le dossier des journaux en attente est mesuré par les fichiers « .ready » (un journal = 16 Mo), pas par la taille du dossier de statut.
-  return { ...(JSON.parse(r) as Mesure), journauxEnAttente: enAttente() };
+  return JSON.parse(r) as Mesure;
 };
 const journalPgBackRest = () => spawnSync("docker", ["exec", conteneur("postgres"), "sh", "-c", "cat /var/log/pgbackrest/*.log 2>/dev/null || true"], { encoding: "utf8" }).stdout;
+// Heure (ms) de la 1re ligne « dropped » du journal pgBackRest : début de la perte de garantie (le journal est en UTC dans le conteneur).
+const debutAbandon = (): number | undefined => {
+  const m = /^(\d{4}-\d\d-\d\d) (\d\d:\d\d:\d\d)[.\d]* .*dropped/im.exec(journalPgBackRest());
+  return m ? Date.parse(`${m[1]}T${m[2]}Z`) : undefined;
+};
 const abandons = () => journalPgBackRest().split(/\r?\n/).filter((l) => /dropped/i.test(l)).length;
 
 interface Scenario {
@@ -398,7 +402,7 @@ const scenario = (): Promise<Scenario> => {
       r.pireTaux = Math.max(r.pireTaux, m.utilises / m.total);
       r.attenteFinale = m.journauxEnAttente;
       if (r.abandonne) {
-        const d = decider(mesures, PARAMETRES, Date.now(), { journauxAbandonnes: true });
+        const d = decider(mesures, PARAMETRES, Date.now(), { journauxAbandonnes: true, dernierArchivage: debutAbandon() });
         await envoyerAlerteDisque(url, d.message);
         r.alerteInterrompu = { decision: d, recue: recus[recus.length - 1] ?? "" };
       }
@@ -439,6 +443,7 @@ describe("disque plein : plafond des journaux en attente et alerte (cible SFTP a
     expect(r.alerteInterrompu, "aucune alerte d'abandon").toBeDefined();
     expect(r.alerteInterrompu?.decision.niveau).toBe("plafond_atteint");
     expect(r.alerteInterrompu?.recue).toContain(MESSAGE_INTERROMPU);
+    expect(r.alerteInterrompu?.recue).toMatch(/depuis \d\d:\d\d UTC/);
     expect(r.alerteInterrompu?.recue).not.toMatch(/sftp-essai|postgres|\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/);
   }, 600_000);
 });

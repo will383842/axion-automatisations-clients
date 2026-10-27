@@ -109,3 +109,16 @@ describe("configuration", () => {
     expect(config.crmUrl).toBeUndefined();
   });
 });
+
+describe("interrupteurs des canaux", () => {
+  it("[C-510] CONSOLE_HUB_ACTIF et CONSOLE_CRM_ACTIF sont fermés par défaut", () => {
+    expect(chargerConfig({ NODE_ENV: "test" }, dossier())).toMatchObject({ hubActif: false, crmActif: false });
+    expect(chargerConfig({ NODE_ENV: "test", CONSOLE_HUB_ACTIF: "", CONSOLE_CRM_ACTIF: "0" }, dossier())).toMatchObject({ hubActif: false, crmActif: false });
+  });
+
+  it("[C-510] chaque interrupteur s'ouvre seul, et une valeur douteuse est refusée", () => {
+    expect(chargerConfig({ NODE_ENV: "test", CONSOLE_HUB_ACTIF: "1" }, dossier())).toMatchObject({ hubActif: true, crmActif: false });
+    expect(chargerConfig({ NODE_ENV: "test", CONSOLE_CRM_ACTIF: "true" }, dossier())).toMatchObject({ hubActif: false, crmActif: true });
+    expect(refus({ NODE_ENV: "test", CONSOLE_HUB_ACTIF: "oui" })).toContain("CONSOLE_HUB_ACTIF");
+  });
+});

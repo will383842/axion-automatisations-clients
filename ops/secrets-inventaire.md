@@ -21,6 +21,8 @@ Les secrets de l'équipe vivent dans Bitwarden ou sous `technique/` d'OpenBao, J
 | `CONNECTEUR_GMAIL_OUVERT` | aucun | environnement cloud | sans objet |
 | `CONNECTEURS_MESSAGERIE_OUVERT` | aucun | environnement cloud | sans objet |
 | `CRM_URL` | aucun | environnement cloud | sans objet |
+| `CONSOLE_HUB_ACTIF` | aucun | environnement cloud (interrupteur du canal Hub, fermé par défaut) | sans objet |
+| `CONSOLE_CRM_ACTIF` | aucun | environnement cloud (interrupteur du canal CRM, fermé par défaut) | sans objet |
 | `PLAFOND_CLE_CLIENT_MICROCENTIMES` | aucun | environnement cloud | sans objet |
 | `PLAFOND_PASSERELLE_JOUR_MICROCENTIMES` | aucun | environnement cloud | sans objet |
 | `SEUIL_RYTHME_ANORMAL` | aucun | environnement cloud | sans objet |

@@ -19,10 +19,13 @@ const IMAGE_SONDE = (lireYaml(readFileSync(racine("ops/socle/compose.valkey.yml"
 // Le job ne montre pas le rapport JSON : chaque échec et le bilan du fichier vont sur la sortie d'erreur (jamais une valeur secrète).
 const FICHIER = import.meta.url.split("/").pop() ?? "";
 const bilan = { verts: 0, rouges: 0, attendus: 0 };
-// Une erreur hors de tout test (socket, minuterie) fait échouer le job sans nommer de test : on la nomme (nom et code, jamais le message).
+// Une erreur hors de tout test (socket, minuterie) fait échouer le job sans nommer de test : on la nomme (nom et code, jamais le message),
+// et le fichier échoue en fin de course (écouter l'événement retire à Vitest son propre constat : on le rend ici).
+const nonGerees: string[] = [];
 for (const evenement of ["uncaughtException", "unhandledRejection"] as const) {
   process.on(evenement, (e: unknown) => {
     const err = e instanceof Error ? e : new Error(typeof e);
+    nonGerees.push(`${evenement} ${err.name}`);
     writeSync(2, `ERREUR NON GEREE ${FICHIER} (${evenement}) : ${err.name} ${(err as { code?: string }).code ?? ""} ${(err.stack ?? "").split("\n").filter((l) => l.includes("audit-1a")).slice(0, 2).map((l) => l.trim()).join(" | ")}\n`);
   });
 }
@@ -39,6 +42,7 @@ afterEach((ctx) => {
 });
 afterAll(() => {
   writeSync(2, `BILAN ${FICHIER} : ${bilan.verts} verts, ${bilan.rouges} rouges, ${bilan.attendus} défauts attendus\n`);
+  if (nonGerees.length > 0) throw new Error(`erreurs hors test : ${nonGerees.join(", ")}`);
 });
 // Une préparation qui échoue ne passe par aucun afterEach : on l'écrit aussi.
 const garder = <T>(f: () => T | Promise<T>) => async () => {

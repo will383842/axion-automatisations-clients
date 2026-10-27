@@ -29,10 +29,13 @@ const CONTENU_B = `CONTENU-DE-B-${randomBytes(8).toString("hex")}`;
 // Le job ne montre pas le rapport JSON : chaque échec et le bilan du fichier vont sur la sortie d'erreur (jamais une valeur secrète).
 const FICHIER = import.meta.url.split("/").pop() ?? "";
 const bilan = { verts: 0, rouges: 0, attendus: 0 };
-// Une erreur hors de tout test (socket, minuterie) fait échouer le job sans nommer de test : on la nomme (nom et code, jamais le message).
+// Une erreur hors de tout test (socket, minuterie) fait échouer le job sans nommer de test : on la nomme (nom et code, jamais le message),
+// et le fichier échoue en fin de course (écouter l'événement retire à Vitest son propre constat : on le rend ici).
+const nonGerees: string[] = [];
 for (const evenement of ["uncaughtException", "unhandledRejection"] as const) {
   process.on(evenement, (e: unknown) => {
     const err = e instanceof Error ? e : new Error(typeof e);
+    nonGerees.push(`${evenement} ${err.name}`);
     writeSync(2, `ERREUR NON GEREE ${FICHIER} (${evenement}) : ${err.name} ${(err as { code?: string }).code ?? ""} ${(err.stack ?? "").split("\n").filter((l) => l.includes("audit-1a")).slice(0, 2).map((l) => l.trim()).join(" | ")}\n`);
   });
 }
@@ -49,6 +52,7 @@ afterEach((ctx) => {
 });
 afterAll(() => {
   writeSync(2, `BILAN ${FICHIER} : ${bilan.verts} verts, ${bilan.rouges} rouges, ${bilan.attendus} défauts attendus\n`);
+  if (nonGerees.length > 0) throw new Error(`erreurs hors test : ${nonGerees.join(", ")}`);
 });
 // Une préparation qui échoue ne passe par aucun afterEach : on l'écrit aussi.
 const garder = <T>(f: () => T | Promise<T>) => async () => {
@@ -201,17 +205,18 @@ describe("audit 1-A · stockage d'objets", () => {
   it("[A-061] @isolation les identifiants de A n'ouvrent pas l'API IAM : ni liste, ni clé pour B, ni droit élargi, ni suppression de B", async () => {
     const iam = iamDe(idA);
     try {
-      const essais: [string, Promise<unknown>][] = [
-        ["lister les utilisateurs", iam.send(new IAM.ListUsersCommand({}))],
-        ["créer une clé pour B", iam.send(new IAM.CreateAccessKeyCommand({ UserName: `cli-${B}` }))],
-        ["lister les clés de B", iam.send(new IAM.ListAccessKeysCommand({ UserName: `cli-${B}` }))],
-        ["élargir sa politique", iam.send(new IAM.PutUserPolicyCommand({ UserName: `cli-${A}`, PolicyName: "compartiment", PolicyDocument: JSON.stringify({ Version: "2012-10-17", Statement: [{ Effect: "Allow", Action: ["s3:*"], Resource: ["arn:aws:s3:::*"] }] }) }))],
-        ["lire la politique de B", iam.send(new IAM.GetUserPolicyCommand({ UserName: `cli-${B}`, PolicyName: "compartiment" }))],
-        ["créer un utilisateur", iam.send(new IAM.CreateUserCommand({ UserName: `cli-${randomUUID()}` }))],
-        ["supprimer B", iam.send(new IAM.DeleteUserCommand({ UserName: `cli-${B}` }))],
+      const essais: [string, () => Promise<unknown>][] = [
+        ["lister les utilisateurs", () => iam.send(new IAM.ListUsersCommand({}))],
+        ["créer une clé pour B", () => iam.send(new IAM.CreateAccessKeyCommand({ UserName: `cli-${B}` }))],
+        ["lister les clés de B", () => iam.send(new IAM.ListAccessKeysCommand({ UserName: `cli-${B}` }))],
+        ["élargir sa politique", () => iam.send(new IAM.PutUserPolicyCommand({ UserName: `cli-${A}`, PolicyName: "compartiment", PolicyDocument: JSON.stringify({ Version: "2012-10-17", Statement: [{ Effect: "Allow", Action: ["s3:*"], Resource: ["arn:aws:s3:::*"] }] }) }))],
+        ["lire la politique de B", () => iam.send(new IAM.GetUserPolicyCommand({ UserName: `cli-${B}`, PolicyName: "compartiment" }))],
+        ["créer un utilisateur", () => iam.send(new IAM.CreateUserCommand({ UserName: `cli-${randomUUID()}` }))],
+        ["supprimer B", () => iam.send(new IAM.DeleteUserCommand({ UserName: `cli-${B}` }))],
       ];
       const acceptes: string[] = [];
-      for (const [quoi, p] of essais) if ((await issue(p)) === "ok") acceptes.push(quoi);
+      // Une demande à la fois, lancée au moment d'être attendue.
+      for (const [quoi, appel] of essais) if ((await issue(appel())) === "ok") acceptes.push(quoi);
       expect(acceptes).toEqual([]);
       await pause(1500);
       // Les droits de A n'ont pas grandi, et B garde les siens.

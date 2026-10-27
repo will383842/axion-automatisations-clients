@@ -10,7 +10,7 @@ if [ "${SAUVEGARDE_ESSAI:-}" = "1" ]; then
   exit 0
 fi
 
-: "${BAO_ADDR:?adresse d'OpenBao absente}" "${BAO_JETON_FICHIER:?fichier du jeton absent}"
+: "${BAO_ADDR:?adresse OpenBao absente}" "${BAO_JETON_FICHIER:?fichier du jeton absent}"
 hote="${BAO_ADDR%%:*}"
 port="${BAO_ADDR##*:}"
 jeton="$(cat "$BAO_JETON_FICHIER")"
@@ -19,6 +19,7 @@ exec 3<>"/dev/tcp/${hote}/${port}"
 printf 'GET /v1/technique/data/sauvegardes HTTP/1.0\r\nHost: %s\r\nX-Vault-Token: %s\r\n\r\n' "$hote" "$jeton" >&3
 reponse="$(cat <&3)"
 exec 3<&-
-phrase="$(printf '%s' "$reponse" | sed -n 's/.*"phrase":"\([^"]*\)".*/\1/p' | head -n 1)"
+motif='s/.*"phrase" *: *"\([^"]*\)".*/\1/p'
+phrase="$(printf '%s' "$reponse" | sed -n "$motif" | head -n 1)"
 [ -n "$phrase" ] || { echo "phrase de chiffrement introuvable dans OpenBao" >&2; exit 1; }
 printf '%s\n' "$phrase"

@@ -34,7 +34,7 @@ describe("suite de comportement partagée", () => {
         chemin: "/api/console/v1/clients/retrouver-ou-creer",
         corps: (v) => ({
           consoleClientId: `console-${v}`,
-          siren: "123456789",
+          siren: genererSiren(creerGenerateur("comportement-t2-13")),
           raisonSociale: `Garage Fontaine ${v}`,
           adresse: { ligne1: "1 rue d'essai", codePostal: "75001", ville: "Ville-Test", pays: "FR" },
           contactFacturation: { nom: "Camille Test", email: "contact@exemple.fr" },

@@ -23,6 +23,8 @@ const retrouver = (siren: string | undefined, raisonSociale: string) => ({
 const g = creerGenerateur("bouchons-t2-13");
 const SIREN_BERTIN = genererSiren(g);
 const SIREN_RIVOIRE = genererSiren(g);
+const SIREN_FONTAINE = genererSiren(g);
+const SIREN_LEMOINE = genererSiren(g);
 let hub: BouchonHub;
 let crm: BouchonCrm;
 let recus: unknown[] = [];
@@ -55,19 +57,19 @@ afterAll(async () => {
 
 describe("bouchon du Hub", () => {
   it("[C-537] le bouchon du Hub refuse une signature fausse et un rejeu comme le contrat l'écrit", async () => {
-    const fausse = await envoyerSigne(hub.url, { ...ident, secret: "TEST-NE-PAS-UTILISER-autre" }, "POST", RETROUVER, retrouver("123456789", "Garage Fontaine"));
+    const fausse = await envoyerSigne(hub.url, { ...ident, secret: "TEST-NE-PAS-UTILISER-autre" }, "POST", RETROUVER, retrouver(SIREN_FONTAINE, "Garage Fontaine"));
     expect([fausse.statut, fausse.corps.erreur.code]).toEqual([401, "signature_invalide"]);
     const options = { horodatage: maintenant(), cleIdempotence: cleDIntention("test", "rejeu") };
-    const premier = await envoyerSigne(hub.url, ident, "POST", RETROUVER, retrouver("123456789", "Garage Fontaine"), options);
-    const rejeu = await envoyerSigne(hub.url, ident, "POST", RETROUVER, retrouver("123456789", "Garage Fontaine"), options);
+    const premier = await envoyerSigne(hub.url, ident, "POST", RETROUVER, retrouver(SIREN_FONTAINE, "Garage Fontaine"), options);
+    const rejeu = await envoyerSigne(hub.url, ident, "POST", RETROUVER, retrouver(SIREN_FONTAINE, "Garage Fontaine"), options);
     expect([premier.statut, rejeu.statut, rejeu.corps.erreur.code]).toEqual([200, 401, "rejeu"]);
   });
 
   it("[C-537] même clé, même corps : même réponse et Idempotency-Replayed", async () => {
     const cleIdempotence = cleDIntention("test", "doublon");
-    const a = await envoyerSigne(hub.url, ident, "POST", RETROUVER, retrouver("123456789", "Garage Fontaine"), { cleIdempotence, horodatage: maintenant() - 10 });
+    const a = await envoyerSigne(hub.url, ident, "POST", RETROUVER, retrouver(SIREN_FONTAINE, "Garage Fontaine"), { cleIdempotence, horodatage: maintenant() - 10 });
     const avant = hub.etat().effets.length;
-    const b = await envoyerSigne(hub.url, ident, "POST", RETROUVER, retrouver("123456789", "Garage Fontaine"), { cleIdempotence, horodatage: maintenant() - 11 });
+    const b = await envoyerSigne(hub.url, ident, "POST", RETROUVER, retrouver(SIREN_FONTAINE, "Garage Fontaine"), { cleIdempotence, horodatage: maintenant() - 11 });
     expect(b.entetes.get("Idempotency-Replayed")).toBe("true");
     expect(b.corps).toEqual(a.corps);
     expect(hub.etat().effets.length).toBe(avant);
@@ -75,8 +77,8 @@ describe("bouchon du Hub", () => {
 
   it("[C-537] même clé, corps différent : 409 cle_reutilisee", async () => {
     const cleIdempotence = cleDIntention("test", "reutilisee");
-    await envoyerSigne(hub.url, ident, "POST", RETROUVER, retrouver("123456789", "Garage Fontaine"), { cleIdempotence, horodatage: maintenant() - 20 });
-    const b = await envoyerSigne(hub.url, ident, "POST", RETROUVER, retrouver("123456789", "Atelier Autre"), { cleIdempotence, horodatage: maintenant() - 21 });
+    await envoyerSigne(hub.url, ident, "POST", RETROUVER, retrouver(SIREN_FONTAINE, "Garage Fontaine"), { cleIdempotence, horodatage: maintenant() - 20 });
+    const b = await envoyerSigne(hub.url, ident, "POST", RETROUVER, retrouver(SIREN_FONTAINE, "Atelier Autre"), { cleIdempotence, horodatage: maintenant() - 21 });
     expect([b.statut, b.corps.erreur.code]).toEqual([409, "cle_reutilisee"]);
   });
 
@@ -88,7 +90,7 @@ describe("bouchon du Hub", () => {
     expect([trancher.statut, trancher.corps.resultat]).toEqual([202, "a_trancher"]);
     const absorbee = await envoyerSigne(hub.url, ident, "POST", RETROUVER, retrouver(SIREN_RIVOIRE, "Boulangerie Rivoire"), hors(3));
     expect([absorbee.statut, absorbee.corps.erreur.code]).toEqual([422, "fiche_absorbee"]);
-    const ligne = (tauxTvaBps: number) => ({ referencePropositionConsole: "prop-1", lignes: [{ libelle: "Essai", quantite: 1, prixUnitaireHtCentimes: 123456, activite: "automatisation", tauxTvaBps }] });
+    const ligne = (tauxTvaBps: number) => ({ axiCli: "AXI-CLI-000002", referencePropositionConsole: "prop-1", lignes: [{ libelle: "Essai", quantite: 1, prixUnitaireHtCentimes: 123456, activite: "automatisation", tauxTvaBps }] });
     const tva = await envoyerSigne(hub.url, ident, "POST", "/api/console/v1/devis", ligne(550), hors(4));
     expect([tva.statut, tva.corps.erreur.code]).toEqual([422, "tva_interdite"]);
     const devis = await envoyerSigne(hub.url, ident, "POST", "/api/console/v1/devis", ligne(2000), hors(5));
@@ -111,7 +113,7 @@ describe("bouchon du Hub", () => {
 
   it("[LOT2-bouchons] couper() répond 503 porte_fermee", async () => {
     hub.couper();
-    const r = await envoyerSigne(hub.url, ident, "POST", RETROUVER, retrouver("123456789", "Garage Fontaine"), { cleIdempotence: cleDIntention("test", "coupe") });
+    const r = await envoyerSigne(hub.url, ident, "POST", RETROUVER, retrouver(SIREN_FONTAINE, "Garage Fontaine"), { cleIdempotence: cleDIntention("test", "coupe") });
     hub.rouvrir();
     expect([r.statut, r.corps.erreur.code]).toEqual([503, "porte_fermee"]);
   });
@@ -119,10 +121,10 @@ describe("bouchon du Hub", () => {
   it("[LOT2-bouchons] tuerApresReception() crée la fiche sans répondre", async () => {
     const avant = hub.etat().effets.length;
     hub.tuerApresReception();
-    await expect(envoyerSigne(hub.url, ident, "POST", RETROUVER, retrouver("987654321", "Lemoine Rénovation"), { cleIdempotence: cleDIntention("test", "tue") })).rejects.toThrow();
+    await expect(envoyerSigne(hub.url, ident, "POST", RETROUVER, retrouver(SIREN_LEMOINE, "Lemoine Rénovation"), { cleIdempotence: cleDIntention("test", "tue") })).rejects.toThrow();
     expect(hub.etat().effets.length).toBe(avant + 1);
     // Le nouvel essai (autre horodatage, même clé) ne recrée rien et rend la réponse perdue.
-    const reprise = await envoyerSigne(hub.url, ident, "POST", RETROUVER, retrouver("987654321", "Lemoine Rénovation"), { cleIdempotence: cleDIntention("test", "tue"), horodatage: maintenant() - 40 });
+    const reprise = await envoyerSigne(hub.url, ident, "POST", RETROUVER, retrouver(SIREN_LEMOINE, "Lemoine Rénovation"), { cleIdempotence: cleDIntention("test", "tue"), horodatage: maintenant() - 40 });
     expect([reprise.statut, reprise.entetes.get("Idempotency-Replayed")]).toEqual([200, "true"]);
     expect(hub.etat().effets.length).toBe(avant + 1);
   });

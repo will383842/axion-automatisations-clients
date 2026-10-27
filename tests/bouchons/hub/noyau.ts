@@ -58,14 +58,17 @@ export async function demarrerNoyau(options: OptionsNoyau) {
         const cle = String(req.headers[EN_TETES.cle.toLowerCase()] ?? "");
         const signature = String(req.headers[EN_TETES.signature.toLowerCase()] ?? "");
         const secret = options.cles[cle];
+        // Anti-rejeu : le contrat appelle `dejaVu` après une signature valide ; le couple (clé, signature) ne passe qu'une fois.
+        const dejaVu = (c: string, s: string) => {
+          const couple = `${c}|${s}`;
+          if (vus.has(couple)) return true;
+          vus.add(couple);
+          return false;
+        };
         const verdict = secret
-          ? verifier(secret, String(req.headers[EN_TETES.horodatage.toLowerCase()] ?? ""), methode, cheminComplet, brut, signature, maintenant())
+          ? verifier([{ id: cle, secret }], { cle, horodatage: String(req.headers[EN_TETES.horodatage.toLowerCase()] ?? ""), methode, chemin: cheminComplet, corps: brut, signature }, maintenant(), dejaVu)
           : ({ ok: false, code: "signature_invalide" } as const);
-        if (!verdict.ok) return repondre(erreur(verdict.code, "Signature refusée."));
-        // Anti-rejeu : le couple (clé, signature) ne passe qu'une fois.
-        const couple = `${cle}|${signature}`;
-        if (vus.has(couple)) return repondre(erreur("rejeu", "Requête déjà reçue."));
-        vus.add(couple);
+        if (!verdict.ok) return repondre(erreur(verdict.code, verdict.code === "rejeu" ? "Requête déjà reçue." : "Signature refusée."));
 
         let corps: unknown;
         try {

@@ -1,8 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { writeSync } from "node:fs";
 import pg from "pg";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { controlerInvariants, type Requete } from "../../../../packages/contrats/src/c5/invariants.js";
 
 // Tests contre le socle lancé par ops/socle/lancer.sh (job socle-integration), même méthode de connexion que isolation.int.test.ts :
@@ -53,9 +52,6 @@ describe("règles C5 d'unicité et de clés étrangères sur le vrai PostgreSQL"
     await nettoyer();
     await migration.query(`CREATE SCHEMA ${SCHEMA}`);
   }, 60_000);
-  afterEach((ctx) => {
-    for (const e of ctx.task.result?.errors ?? []) writeSync(2, `ECHEC-UNICITE ${ctx.task.name} :: ${String(e.message).replaceAll("\n", " / ")}\n`);
-  });
   afterAll(async () => {
     await nettoyer().catch(() => undefined);
     await migration.end().catch(() => undefined);

@@ -2,7 +2,8 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { migrer } from "./migrer.js";
+import { TABLE_MIGRATIONS } from "../../../../packages/contrats/src/c5/invariants.js";
+import { JOURNAL_PAR_DEFAUT, migrer, VERROU_MIGRATION } from "./migrer.js";
 
 describe("outil de migration", () => {
   it("[A-189] attaque : migrer refuse l'URL du rôle applicatif avant toute connexion", async () => {
@@ -29,5 +30,22 @@ describe("outil de migration", () => {
     writeFileSync(join(dossier, "meta/_journal.json"), JSON.stringify({ version: "7", dialect: "postgresql", entries: [{ idx: 0, version: "7", when: 0, tag: "0000_a", breakpoints: true }] }));
     writeFileSync(join(dossier, "0000_a.sql"), "DROP TABLE a;\n");
     await expect(migrer({ url: "postgres://console_migration@hote.test:5432/console", dossier })).rejects.toThrow(/instruction interdite : DROP/);
+  });
+
+  it("[A-189] migrer refuse un nom de journal hors de ^[a-z0-9_]+$, avant toute connexion", async () => {
+    for (const journal of [
+      { schema: "public; DROP TABLE a", table: "__migrations" },
+      { schema: "essai", table: "Journal" },
+      { schema: "", table: "__migrations" },
+      { schema: "essai", table: "a-b" },
+    ]) {
+      await expect(migrer({ url: "postgres://console_migration@hote.test:5432/console", dossier: "/inexistant", journal }), JSON.stringify(journal)).rejects.toThrow(/nom de journal/);
+    }
+  });
+
+  it("[A-189] le journal des migrations par défaut est public.__migrations et le verrou est celui de migrer", () => {
+    expect(JOURNAL_PAR_DEFAUT).toEqual({ schema: "public", table: TABLE_MIGRATIONS });
+    expect(TABLE_MIGRATIONS).toBe("__migrations");
+    expect(typeof VERROU_MIGRATION).toBe("bigint");
   });
 });

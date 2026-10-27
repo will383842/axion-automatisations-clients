@@ -27,13 +27,13 @@ const urlDe = (role: string, hote: string) => `postgres://${role}:${motDePasseDe
 const DIRECT = () => adresse("postgres", 5432, process.env["SOCLE_PG_DIRECT"]);
 
 // Migration d'essai : dossier temporaire du test, jamais apps/api/drizzle/.
-function dossierEssai(): string {
+function dossierEssai(when = 1700000000000): string {
   const dossier = mkdtempSync(join(tmpdir(), "migrer-"));
   mkdirSync(join(dossier, "meta"));
   writeFileSync(join(dossier, "0000_essai.sql"), "CREATE TABLE essai_migration_a189 (id integer);\n");
   writeFileSync(
     join(dossier, "meta/_journal.json"),
-    JSON.stringify({ version: "7", dialect: "postgresql", entries: [{ idx: 0, version: "7", when: 1700000000000, tag: "0000_essai", breakpoints: true }] }),
+    JSON.stringify({ version: "7", dialect: "postgresql", entries: [{ idx: 0, version: "7", when, tag: "0000_essai", breakpoints: true }] }),
   );
   return dossier;
 }
@@ -41,20 +41,22 @@ function dossierEssai(): string {
 describe("migrer, avec le socle", () => {
   it("[A-189] migrer applique une migration d'essai avec console_migration et refuse de tourner avec console_app", async () => {
     const dossier = dossierEssai();
-    await expect(migrer({ url: urlDe("console_app", DIRECT()), dossier })).rejects.toThrow(/console_migration/);
-    await migrer({ url: urlDe("console_migration", DIRECT()), dossier });
+    // Journal d'essai dans son propre schéma : public.__migrations ne reçoit jamais de migration d'essai (sauf l'essai dédié plus bas).
+    const journal = { schema: "essai_a189", table: "__migrations" };
+    await expect(migrer({ url: urlDe("console_app", DIRECT()), dossier, journal })).rejects.toThrow(/console_migration/);
+    await migrer({ url: urlDe("console_migration", DIRECT()), dossier, journal });
     // Rejouée, la migration ne s'applique pas deux fois.
-    await migrer({ url: urlDe("console_migration", DIRECT()), dossier });
-    // Lecture avec le rôle de migration (propriétaire du schéma drizzle) ; la table d'essai est retirée ensuite.
+    await migrer({ url: urlDe("console_migration", DIRECT()), dossier, journal });
+    // Lecture avec le rôle de migration (propriétaire du schéma d'essai) ; la table d'essai est retirée ensuite.
     const lecture = new pg.Client({ connectionString: urlDe("console_migration", DIRECT()) });
     await lecture.connect();
     try {
       const table = await lecture.query("SELECT to_regclass('public.essai_migration_a189')::text AS t");
       expect(table.rows[0]?.["t"]).toBe("essai_migration_a189");
-      const journal = await lecture.query("SELECT count(*)::int AS n FROM drizzle.__drizzle_migrations");
+      const journal = await lecture.query("SELECT count(*)::int AS n FROM essai_a189.__migrations");
       expect(journal.rows[0]?.["n"]).toBe(1);
     } finally {
-      await lecture.query("DROP TABLE IF EXISTS public.essai_migration_a189; DROP SCHEMA IF EXISTS drizzle CASCADE").catch(() => undefined);
+      await lecture.query("DROP TABLE IF EXISTS public.essai_migration_a189; DROP SCHEMA IF EXISTS essai_a189 CASCADE").catch(() => undefined);
       await lecture.end();
     }
   });
@@ -73,13 +75,13 @@ describe("migrer, avec le socle", () => {
     const avant = process.env["PGOPTIONS"];
     process.env["PGOPTIONS"] = "-c standard_conforming_strings=off";
     try {
-      await migrer({ url: urlDe("console_migration", DIRECT()), dossier });
+      await migrer({ url: urlDe("console_migration", DIRECT()), dossier, journal: { schema: "essai_a233", table: "__migrations" } });
     } finally {
       if (avant === undefined) delete process.env["PGOPTIONS"];
       else process.env["PGOPTIONS"] = avant;
       const nettoyage = new pg.Client({ connectionString: urlDe("console_migration", DIRECT()) });
       await nettoyage.connect();
-      await nettoyage.query("DROP TABLE IF EXISTS public.essai_scs_a233; DROP SCHEMA IF EXISTS drizzle CASCADE").catch(() => undefined);
+      await nettoyage.query("DROP TABLE IF EXISTS public.essai_scs_a233; DROP SCHEMA IF EXISTS essai_a233 CASCADE").catch(() => undefined);
       await nettoyage.end();
     }
   });
@@ -90,5 +92,42 @@ describe("migrer, avec le socle", () => {
     writeFileSync(join(dossier, "0000_enc.sql"), "UPDATE pg_settings SET setting = 'GBK' WHERE name = 'client_encoding';\n--> statement-breakpoint\nSELECT E'\u20ac\\'; DROP TABLE essai_enc_a233; --';\n");
     writeFileSync(join(dossier, "meta/_journal.json"), JSON.stringify({ version: "7", dialect: "postgresql", entries: [{ idx: 0, version: "7", when: 1700000000002, tag: "0000_enc", breakpoints: true }] }));
     await expect(migrer({ url: urlDe("console_migration", DIRECT()), dossier })).rejects.toThrow(/pg_settings/);
+  });
+
+  it("[A-189] le journal des migrations est public.__migrations", async () => {
+    const when = 1700000000100;
+    const dossier = dossierEssai(when);
+    await migrer({ url: urlDe("console_migration", DIRECT()), dossier });
+    const lecture = new pg.Client({ connectionString: urlDe("console_migration", DIRECT()) });
+    await lecture.connect();
+    try {
+      const journal = await lecture.query("SELECT count(*)::int AS n FROM public.__migrations WHERE created_at = $1", [when]);
+      expect(journal.rows[0]?.["n"]).toBe(1);
+      // Rien dans le journal par défaut de drizzle : les invariants C5 n'exemptent que public.__migrations.
+      const ancien = await lecture.query("SELECT count(*)::int AS n FROM drizzle.__drizzle_migrations WHERE created_at = $1", [when]).catch(() => ({ rows: [{ n: 0 }] }));
+      expect(ancien.rows[0]?.["n"]).toBe(0);
+    } finally {
+      // On retire seulement la ligne d'essai : le journal réel reste en place.
+      await lecture.query("DELETE FROM public.__migrations WHERE created_at = $1", [when]).catch(() => undefined);
+      await lecture.query("DROP TABLE IF EXISTS public.essai_migration_a189").catch(() => undefined);
+      await lecture.end();
+    }
+  });
+
+  it("[A-189] deux migrer() simultanés n'appliquent la migration qu'une fois", async () => {
+    const dossier = dossierEssai(1700000000200);
+    const journal = { schema: "essai_verrou_a189", table: "__migrations" };
+    const lecture = new pg.Client({ connectionString: urlDe("console_migration", DIRECT()) });
+    await lecture.connect();
+    try {
+      await lecture.query("DROP TABLE IF EXISTS public.essai_migration_a189; DROP SCHEMA IF EXISTS essai_verrou_a189 CASCADE");
+      const resultats = await Promise.allSettled([1, 2, 3].map(() => migrer({ url: urlDe("console_migration", DIRECT()), dossier, journal })));
+      expect(resultats.map((r) => (r.status === "rejected" ? String(r.reason) : "ok"))).toEqual(["ok", "ok", "ok"]);
+      const n = await lecture.query("SELECT count(*)::int AS n FROM essai_verrou_a189.__migrations");
+      expect(n.rows[0]?.["n"]).toBe(1);
+    } finally {
+      await lecture.query("DROP TABLE IF EXISTS public.essai_migration_a189; DROP SCHEMA IF EXISTS essai_verrou_a189 CASCADE").catch(() => undefined);
+      await lecture.end();
+    }
   });
 });

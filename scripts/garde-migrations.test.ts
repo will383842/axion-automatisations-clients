@@ -1,9 +1,10 @@
+import { createHash } from "node:crypto";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { analyserSql, gardeMigrations } from "./garde-migrations.ts";
+import { analyserSql, empreintesFonctions, gardeMigrations, verifierDossier } from "./garde-migrations.ts";
 
 const FIXTURES = fileURLToPath(new URL("./__fixtures__/migrations", import.meta.url));
 const analyser = (sql: string) => analyserSql("m.sql", sql);
@@ -184,3 +185,101 @@ describe("garde des migrations", () => {
 function lireFixture(nom: string): string {
   return readFileSync(`${FIXTURES}/${nom}.sql`, "utf8");
 }
+
+// Fonctions permises (A-233) : liste fermée, une entrée = un fichier, un nom de fonction et l'empreinte SHA-256 de son texte.
+const FONCTION = [
+  "CREATE FUNCTION public.audit_exemple(p_valeur text) RETURNS text",
+  "LANGUAGE sql SECURITY DEFINER SET search_path = pg_catalog, pg_temp",
+  "AS $$ SELECT p_valeur $$",
+].join("\n");
+const sha = (texte: string) => createHash("sha256").update(texte, "utf8").digest("hex");
+const entree = (texte = FONCTION, surcharge: Record<string, string> = {}) => ({ fichier: "0001_fonctions.sql", nom: "audit_exemple", empreinte: sha(texte), adr: "0041", ...surcharge });
+const FICHIER = "apps/api/drizzle/0001_fonctions.sql";
+const analyserFichier = (sql: string, fonctions: ReturnType<typeof entree>[]) => analyserSql(FICHIER, sql, fonctions);
+const refus = (ligne: number, etiquette: string) => `${FICHIER}:${ligne}: instruction interdite : ${etiquette}`;
+
+describe("fonctions permises dans les migrations", () => {
+  it("[A-233] une fonction absente de la liste fermée est refusée", () => {
+    expect(analyserFichier(`${FONCTION};`, [])).toEqual([refus(1, "CREATE FUNCTION"), refus(1, "SET")]);
+    // Listée sous un autre fichier ou un autre nom : refusée aussi.
+    expect(analyserFichier(`${FONCTION};`, [entree(FONCTION, { fichier: "0002_autre.sql" })]).length).toBeGreaterThan(0);
+    expect(analyserFichier(`${FONCTION};`, [entree(FONCTION, { nom: "autre_nom" })]).length).toBeGreaterThan(0);
+  });
+
+  it("[A-233] une fonction listée au texte identique est acceptée, fin de ligne CRLF comprise", () => {
+    expect(analyserFichier(`${FONCTION};\n`, [entree()])).toEqual([]);
+    expect(analyserFichier(`${FONCTION.replace(/\n/g, "\r\n")};\r\n`, [entree()])).toEqual([]);
+    // Après des caractères accentués : les positions de libpg-query sont en octets.
+    expect(analyserFichier(`COMMENT ON TABLE é IS 'éé';\nSELECT 1;\n${FONCTION};\n`, [entree()])).toEqual([]);
+    expect(analyserFichier(`CREATE TABLE é (id int);\n--> statement-breakpoint\n${FONCTION};\n`, [entree()])).toEqual([]);
+  });
+
+  it("[A-233] une fonction listée dont le texte a changé d'un caractère est refusée", () => {
+    for (const modifie of [FONCTION.replace("p_valeur $$", "p_valeur  $$"), FONCTION.replace("SELECT", "select"), FONCTION.replace("audit_exemple(", "audit_exemple (")]) {
+      expect(analyserFichier(`${modifie};`, [entree()]).join("\n"), modifie).toContain("CREATE FUNCTION");
+    }
+    expect(analyserFichier(`${FONCTION};`, [entree()])).toEqual([]);
+  });
+
+  it("[A-233] SECURITY DEFINER sans SET search_path est refusé même listé", () => {
+    const base = "CREATE FUNCTION public.audit_exemple(p_valeur text) RETURNS text LANGUAGE sql SECURITY DEFINER";
+    for (const reglage of ["", " SET search_path FROM CURRENT", " SET work_mem = '1MB'"]) {
+      const texte = `${base}${reglage} AS $$ SELECT p_valeur $$`;
+      expect(analyserFichier(`${texte};`, [entree(texte)]), reglage).toEqual([refus(1, "SECURITY DEFINER sans search_path")]);
+    }
+  });
+
+  it("[A-233] CREATE PROCEDURE et DO restent refusés, et la liste ne lève que les étiquettes de SA fonction", () => {
+    const procedure = "CREATE PROCEDURE public.audit_exemple() LANGUAGE sql AS $$ SELECT 1 $$";
+    expect(analyserFichier(`${procedure};`, [entree(procedure)]).join("\n")).toContain("CREATE FUNCTION");
+    expect(analyserFichier("DO $$ BEGIN PERFORM 1; END $$;", [entree()])).toEqual([refus(1, "DO")]);
+    const suite = `${FONCTION};\nCALL public.audit_exemple();\nSELECT set_config('a','b',false);\nSET search_path = x;`;
+    expect(analyserFichier(suite, [entree()])).toEqual([refus(4, "CALL"), refus(5, "set_config"), refus(6, "SET")]);
+    // Une seconde fonction, non listée, reste refusée.
+    const deux = `${FONCTION};\n${FONCTION.replace("audit_exemple", "autre")};`;
+    expect(analyserFichier(deux, [entree()])).toEqual([refus(4, "CREATE FUNCTION"), refus(4, "SET")]);
+  });
+
+  it("[A-233] une entrée de la liste sans instruction correspondante est signalée", () => {
+    const racine = mkdtempSync(join(tmpdir(), "garde-fn-"));
+    const dossier = join(racine, "apps/api/drizzle");
+    mkdirSync(join(dossier, "meta"), { recursive: true });
+    writeFileSync(join(dossier, "meta/_journal.json"), JSON.stringify({ version: "7", dialect: "postgresql", entries: [{ idx: 0, version: "7", when: 1, tag: "0001_fonctions", breakpoints: true }] }));
+    writeFileSync(join(dossier, "0001_fonctions.sql"), `${FONCTION};\n`);
+    expect(gardeMigrations(racine, [entree()])).toEqual([]);
+    const morte = entree(FONCTION, { nom: "fonction_morte" });
+    expect(gardeMigrations(racine, [entree(), morte])).toEqual(["scripts/garde-migrations-fonctions.json : entrée sans instruction correspondante : 0001_fonctions.sql fonction_morte"]);
+    // Texte modifié après le calcul de l'empreinte : la fonction est refusée et l'entrée est morte.
+    writeFileSync(join(dossier, "0001_fonctions.sql"), `${FONCTION.replace("SELECT", "select")};\n`);
+    const erreurs = gardeMigrations(racine, [entree()]).join("\n");
+    expect(erreurs).toContain("CREATE FUNCTION");
+    expect(erreurs).toContain("entrée sans instruction correspondante");
+  });
+
+  it("[A-233] les dates when du journal des migrations croissent strictement", () => {
+    const racine = mkdtempSync(join(tmpdir(), "garde-when-"));
+    const dossier = join(racine, "apps/api/drizzle");
+    mkdirSync(join(dossier, "meta"), { recursive: true });
+    writeFileSync(join(dossier, "0000_a.sql"), "CREATE TABLE a (id int);\n");
+    writeFileSync(join(dossier, "0001_b.sql"), "CREATE TABLE b (id int);\n");
+    const journal = (...whens: unknown[]) =>
+      writeFileSync(join(dossier, "meta/_journal.json"), JSON.stringify({ version: "7", dialect: "postgresql", entries: whens.map((when, idx) => ({ idx, version: "7", when, tag: idx ? "0001_b" : "0000_a", breakpoints: true })) }));
+    journal(1000, 2000);
+    expect(verifierDossier(dossier)).toEqual([]);
+    for (const [premier, second] of [[2000, 1000], [1000, 1000], [1000, "2000"], [1000, null]]) {
+      journal(premier, second);
+      expect(verifierDossier(dossier, racine).join("\n"), `${premier} ${second}`).toContain("apps/api/drizzle/meta/_journal.json : dates when non strictement croissantes");
+    }
+  });
+
+  it("[A-233] --empreintes donne le nom et l'empreinte de chaque fonction du fichier", () => {
+    expect(empreintesFonctions(`CREATE TABLE a (id int);\n--> statement-breakpoint\n${FONCTION};\n`)).toEqual([{ nom: "audit_exemple", empreinte: sha(FONCTION) }]);
+    expect(empreintesFonctions(`${FONCTION.replace(/\n/g, "\r\n")};`)).toEqual([{ nom: "audit_exemple", empreinte: sha(FONCTION) }]);
+  });
+
+  it("[A-233] la liste réelle est fermée : forme vérifiée, vide tant qu'aucune fonction n'est relue", () => {
+    const liste: { fonctions: Record<string, string>[] } = JSON.parse(readFileSync(fileURLToPath(new URL("./garde-migrations-fonctions.json", import.meta.url)), "utf8"));
+    expect(Object.keys(liste)).toEqual(["fonctions"]);
+    for (const f of liste.fonctions) expect(f["empreinte"]).toMatch(/^[0-9a-f]{64}$/);
+  });
+});

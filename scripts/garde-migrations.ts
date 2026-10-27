@@ -75,7 +75,7 @@ type Option = { DefElem?: { defname?: string; arg?: { VariableSetStmt?: { kind?:
 
 // SECURITY DEFINER : UN SEUL réglage search_path, en valeur explicite « pg_catalog, pg_temp » (pg_temp en dernier, jamais public).
 function cheminSur(options: Option[]): boolean {
-  const chemins = options.filter((o) => o.DefElem?.defname === "set" && o.DefElem.arg?.VariableSetStmt?.name === "search_path");
+  const chemins = options.filter((o) => o.DefElem?.defname === "set" && o.DefElem.arg?.VariableSetStmt?.name?.toLowerCase() === "search_path");
   const reglage = chemins[0]?.DefElem?.arg?.VariableSetStmt;
   if (chemins.length !== 1 || reglage?.kind !== "VAR_SET_VALUE") return false;
   const valeurs = (reglage.args ?? []).map((a) => a.A_Const?.sval?.sval);

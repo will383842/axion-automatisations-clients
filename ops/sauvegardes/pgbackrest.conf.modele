@@ -19,6 +19,13 @@ repo1-retention-full=9999
 repo1-retention-archive-type=full
 repo1-retention-archive=30
 start-fast=y
+# Plafond des journaux en attente (C-602, T1A-15). Cible SFTP injoignable : sans plafond, pg_wal remplit le disque et la base s'arrête.
+# archive-push-queue-max n'agit qu'en archivage ASYNCHRONE (archive-async=y) : au-delà du plafond, pgBackRest abandonne les journaux
+# en attente (avertissement dans son journal) au lieu de remplir le disque, et la base continue. La reprise à un instant précis n'est
+# alors plus garantie : l'alerte « archivage interrompu » part (ops/surveillance/disque.ts).
+# Valeur [À DÉFINIR] (lot 8a, PLAFOND_JOURNAUX_EN_ATTENTE) ; l'essai la réduit par PGBACKREST_ARCHIVE_PUSH_QUEUE_MAX (ops/socle/compose.zz-essai-disque.yml).
+archive-async=y
+archive-push-queue-max=4GiB
 
 [commun]
 pg1-path=/var/lib/postgresql/data

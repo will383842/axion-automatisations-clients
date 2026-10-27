@@ -112,4 +112,12 @@ describe("configuration des sauvegardes (lecture statique)", () => {
     expect(creees.length).toBeGreaterThanOrEqual(4);
     expect(creees.some((c) => /cli_/i.test(c))).toBe(false);
   });
+
+  it("[C-602] le modèle règle le plafond de la file d'archivage et l'archivage asynchrone (sans lui, le plafond n'agit pas)", () => {
+    const actives = lignesActives(modele);
+    expect(actives).toContain("archive-async=y");
+    expect(actives.some((l) => /^archive-push-queue-max=\d+(KiB|MiB|GiB|TiB)$/.test(l))).toBe(true);
+    // La phrase reste hors du modèle : l'archivage asynchrone ne change pas la lecture unique au démarrage (C-593).
+    expect(modele).not.toMatch(/cipher-pass/);
+  });
 });

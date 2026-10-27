@@ -46,10 +46,10 @@ const AJOUTER = "SELECT public.audit_ajouter($1::uuid, $2, $3::public.action_aud
 const vide = (v: unknown) => v === null || v === "";
 
 // Nombre de lignes dont le chaînage est faux, sur tout le journal : précédente ≠ empreinte de la ligne d'avant, ou empreinte ≠ sha256(précédente || contenu canonique).
-async function lignesCassees(): Promise<number> {
-  const { rows } = await migration.query(`
+async function lignesCassees(source = "public.journal_audit", cx: { query: pg.Pool["query"] } = migration): Promise<number> {
+  const { rows } = await cx.query(`
     SELECT count(*)::int AS n FROM (
-      SELECT j.*, lag(j.empreinte) OVER (ORDER BY j.id) AS avant FROM public.journal_audit j
+      SELECT j.*, lag(j.empreinte) OVER (ORDER BY j.id) AS avant FROM ${source} j
     ) t
     WHERE t.empreinte_precedente IS DISTINCT FROM t.avant
        OR t.empreinte <> encode(sha256(convert_to(coalesce(t.avant, '') || public.audit_contenu(t.id, t.tenant_id, t.acteur, t.action, t.entite, t.entite_id, t.ancienne, t.nouvelle, t.ip, t.cree_le), 'UTF8')), 'hex')`);
@@ -97,19 +97,98 @@ describe("journal d'audit chaîné, avec le socle", () => {
     expect(await lignesCassees()).toBe(0);
   });
 
-  it("[C-028] @isolation le propriétaire lui-même ne peut ni modifier ni vider le journal : le déclencheur lève une erreur", async () => {
-    // Politique RLS mise à part, le déclencheur BEFORE UPDATE OR DELETE et BEFORE TRUNCATE refuse même le propriétaire.
-    await expect(migration.query("TRUNCATE public.journal_audit")).rejects.toThrow(/ajout seul/);
+  it("[C-028] @isolation le déclencheur refuse UPDATE, DELETE et TRUNCATE au propriétaire, RLS écartée", async () => {
+    await ecrire(randomUUID(), "essai_declencheur", "d1");
+    // Le propriétaire n'a pas de politique UPDATE ni DELETE : la RLS cacherait les lignes et le déclencheur ne tirerait jamais.
+    // Dans une transaction annulée, on écarte la RLS pour que la seule barrière restante soit le déclencheur.
+    for (const sql of ["UPDATE public.journal_audit SET acteur = 'forge'", "DELETE FROM public.journal_audit", "TRUNCATE public.journal_audit"]) {
+      const c = await migration.connect();
+      try {
+        await c.query("BEGIN");
+        await c.query("ALTER TABLE public.journal_audit NO FORCE ROW LEVEL SECURITY");
+        await expect(c.query(sql), sql).rejects.toMatchObject({ code: "42501", message: expect.stringContaining("ajout seul") });
+      } finally {
+        await c.query("ROLLBACK").catch(() => undefined);
+        c.release();
+      }
+    }
+    const forge = await migration.query("SELECT count(*)::int AS n FROM public.journal_audit WHERE acteur = 'forge'");
+    expect(forge.rows[0]?.["n"]).toBe(0);
+    expect(await lignesCassees()).toBe(0);
+  });
+
+  it("[C-028] @isolation la chaîne refuse REPEATABLE READ et SERIALIZABLE (photo prise avant le verrou), READ COMMITTED reste accepté", async () => {
+    const A = randomUUID();
+    for (const niveau of ["REPEATABLE READ", "SERIALIZABLE"]) {
+      const c = await app.connect();
+      try {
+        await c.query(`BEGIN ISOLATION LEVEL ${niveau}`);
+        await c.query("SELECT set_config('app.tenant_id', $1, true)", [A]);
+        await expect(c.query(AJOUTER, [A, "agent-essai", "insertion", "essai_isolation_niveau", niveau, null, null]), niveau).rejects.toThrow(/niveau d'isolation/);
+      } finally {
+        await c.query("ROLLBACK").catch(() => undefined);
+        c.release();
+      }
+    }
+    await avecClient(app, A, (c) => c.query(AJOUTER, [A, "agent-essai", "insertion", "essai_isolation_niveau", "rc", null, null]));
+    const { rows } = await migration.query("SELECT entite_id FROM public.journal_audit WHERE entite = 'essai_isolation_niveau' AND tenant_id = $1", [A]);
+    expect(rows.map((r) => r.entite_id)).toEqual(["rc"]);
+    expect(await lignesCassees()).toBe(0);
+  });
+
+  it("[C-028] @isolation un console_app ne peut pas verrouiller le journal ni bloquer les écritures d'audit", async () => {
+    const A = randomUUID();
+    const gene = await app.connect();
+    try {
+      await gene.query("BEGIN");
+      await gene.query("SELECT set_config('app.tenant_id', $1, true)", [A]);
+      await gene.query("SELECT count(*) FROM public.journal_audit");
+      // Aucun verrou qui bloque les écritures n'est à sa portée : ni verrou de table, ni verrou consultatif à clé connue de l'audit.
+      await expect(gene.query("LOCK TABLE public.journal_audit IN SHARE ROW EXCLUSIVE MODE")).rejects.toMatchObject({ code: "42501" });
+      await gene.query("ROLLBACK");
+      await gene.query("BEGIN");
+      await gene.query("SELECT pg_advisory_xact_lock(7410020241028)");
+      const debut = Date.now();
+      await ecrire(randomUUID(), "essai_verrou", "v1");
+      expect(Date.now() - debut).toBeLessThan(4000);
+    } finally {
+      await gene.query("ROLLBACK").catch(() => undefined);
+      gene.release();
+    }
+  });
+
+  it("[C-028] la vérification de chaîne détecte une rupture, une valeur modifiée et une fourche (chaîne fabriquée)", async () => {
     const c = await migration.connect();
     try {
-      await c.query("BEGIN");
-      await c.query("SELECT set_config('row_security', 'off', true)");
-      await expect(c.query("UPDATE public.journal_audit SET acteur = 'forge'")).rejects.toThrow(/ajout seul|row_security|row-level security/);
+      await c.query("CREATE TEMP TABLE chaine_essai (LIKE public.journal_audit)");
+      let precedente: string | null = null;
+      for (let i = 1; i <= 3; i++) {
+        const r: pg.QueryResult = await c.query(
+          `INSERT INTO chaine_essai (id, acteur, action, entite, cree_le, empreinte_precedente, empreinte)
+           SELECT $1::bigint, 'agent-essai', 'insertion', 'essai_chaine', t.ts, $2::text,
+                  encode(sha256(convert_to(coalesce($2::text, '') || public.audit_contenu($1::bigint, NULL, 'agent-essai', 'insertion', 'essai_chaine', NULL, NULL, NULL, NULL, t.ts), 'UTF8')), 'hex')
+           FROM (SELECT clock_timestamp() AS ts) t RETURNING empreinte`,
+          [i, precedente],
+        );
+        precedente = r.rows[0].empreinte as string;
+      }
+      const verifier = () => lignesCassees("pg_temp.chaine_essai", c);
+      expect(await verifier()).toBe(0);
+      await c.query("UPDATE chaine_essai SET acteur = 'forge' WHERE id = 2");
+      expect(await verifier()).toBeGreaterThan(0);
+      await c.query("UPDATE chaine_essai SET acteur = 'agent-essai' WHERE id = 2");
+      expect(await verifier()).toBe(0);
+      await c.query("UPDATE chaine_essai SET empreinte_precedente = 'x' WHERE id = 3");
+      expect(await verifier()).toBeGreaterThan(0);
+      await c.query("UPDATE chaine_essai SET empreinte_precedente = (SELECT empreinte FROM chaine_essai WHERE id = 2) WHERE id = 3");
+      expect(await verifier()).toBe(0);
+      // Fourche : une ligne qui reprend la précédente d'une autre.
+      await c.query("DELETE FROM chaine_essai WHERE id = 2");
+      expect(await verifier()).toBeGreaterThan(0);
     } finally {
-      await c.query("ROLLBACK").catch(() => undefined);
+      await c.query("DROP TABLE IF EXISTS pg_temp.chaine_essai").catch(() => undefined);
       c.release();
     }
-    expect(await lignesCassees()).toBe(0);
   });
 
   it("[C-028] 50 écritures parallèles à travers PgBouncer donnent une chaîne continue", async () => {

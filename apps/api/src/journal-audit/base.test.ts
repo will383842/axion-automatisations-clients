@@ -44,4 +44,12 @@ describe("journal d'audit en base (port)", () => {
     await expect(creerJournalAuditBase(pool).ecrire({ action: "levee_budget_jour", parQui: "admin-essai", motif: "reprise" })).rejects.toThrow("panne simulée");
     expect(client.release).toHaveBeenCalledWith(undefined);
   });
+
+  it("[A-131] un parQui vide, trop long ou avec caractère de contrôle (saut de ligne, nul) est refusé avant toute connexion", async () => {
+    for (const parQui of ["", "   ", "a".repeat(129), "admin" + String.fromCharCode(10) + "forge", "admin" + String.fromCharCode(0) + "forge"]) {
+      const { pool } = fauxPool();
+      await expect(creerJournalAuditBase(pool).ecrire({ action: "levee_budget_jour", parQui, motif: "m" })).rejects.toThrow(/acteur/);
+      expect(pool.connect).not.toHaveBeenCalled();
+    }
+  });
 });

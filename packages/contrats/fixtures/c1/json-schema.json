@@ -1,9 +1,11 @@
 {
-  "version": "0.1.0",
+  "version": "0.2.0",
   "routes": {
     "clients-retrouver-ou-creer": {
       "methode": "POST",
       "chemin": "/clients/retrouver-ou-creer",
+      "limite": "c1",
+      "antiDoublon": "idempotency_key",
       "requete": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -14,7 +16,10 @@
           },
           "siren": {
             "type": "string",
-            "pattern": "^[0-9]{9}$"
+            "pattern": "^[0-9]{9}$",
+            "x-axion-regles": [
+              "siren_luhn"
+            ]
           },
           "siret": {
             "type": "string",
@@ -28,6 +33,10 @@
             "type": "object",
             "properties": {
               "ligne1": {
+                "type": "string",
+                "minLength": 1
+              },
+              "ligne2": {
                 "type": "string",
                 "minLength": 1
               },
@@ -83,97 +92,52 @@
       "reponses": {
         "200": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
-          "anyOf": [
-            {
-              "type": "object",
-              "properties": {
-                "resultat": {
-                  "type": "string",
-                  "enum": [
-                    "retrouve",
-                    "cree"
-                  ]
-                },
-                "axiCli": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              },
-              "required": [
-                "resultat",
-                "axiCli"
-              ],
-              "additionalProperties": false
+          "type": "object",
+          "properties": {
+            "resultat": {
+              "type": "string",
+              "enum": [
+                "retrouve",
+                "cree"
+              ]
             },
-            {
-              "type": "object",
-              "properties": {
-                "resultat": {
-                  "type": "string",
-                  "const": "a_trancher"
-                },
-                "idDemande": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              },
-              "required": [
-                "resultat",
-                "idDemande"
-              ],
-              "additionalProperties": false
+            "axiCli": {
+              "type": "string",
+              "minLength": 1
             }
-          ]
+          },
+          "required": [
+            "resultat",
+            "axiCli"
+          ],
+          "additionalProperties": false
         },
         "202": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
-          "anyOf": [
-            {
-              "type": "object",
-              "properties": {
-                "resultat": {
-                  "type": "string",
-                  "enum": [
-                    "retrouve",
-                    "cree"
-                  ]
-                },
-                "axiCli": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              },
-              "required": [
-                "resultat",
-                "axiCli"
-              ],
-              "additionalProperties": false
+          "type": "object",
+          "properties": {
+            "resultat": {
+              "type": "string",
+              "const": "a_trancher"
             },
-            {
-              "type": "object",
-              "properties": {
-                "resultat": {
-                  "type": "string",
-                  "const": "a_trancher"
-                },
-                "idDemande": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              },
-              "required": [
-                "resultat",
-                "idDemande"
-              ],
-              "additionalProperties": false
+            "idDemande": {
+              "type": "string",
+              "minLength": 1
             }
-          ]
+          },
+          "required": [
+            "resultat",
+            "idDemande"
+          ],
+          "additionalProperties": false
         }
       }
     },
     "clients-statut": {
       "methode": "POST",
       "chemin": "/clients/{axiCli}/statut",
+      "limite": "c1",
+      "antiDoublon": "idempotency_key",
       "requete": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -226,10 +190,16 @@
     "devis": {
       "methode": "POST",
       "chemin": "/devis",
+      "limite": "c1",
+      "antiDoublon": "idempotency_key",
       "requete": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
         "properties": {
+          "axiCli": {
+            "type": "string",
+            "minLength": 1
+          },
           "referencePropositionConsole": {
             "type": "string",
             "minLength": 1
@@ -251,7 +221,7 @@
                 },
                 "prixUnitaireHtCentimes": {
                   "type": "integer",
-                  "minimum": -9007199254740991,
+                  "minimum": 0,
                   "maximum": 9007199254740991
                 },
                 "activite": {
@@ -260,7 +230,7 @@
                 },
                 "tauxTvaBps": {
                   "type": "integer",
-                  "minimum": -9007199254740991,
+                  "minimum": 0,
                   "maximum": 9007199254740991
                 }
               },
@@ -276,6 +246,7 @@
           }
         },
         "required": [
+          "axiCli",
           "referencePropositionConsole",
           "lignes"
         ],
@@ -301,17 +272,23 @@
     "plans-recurrents": {
       "methode": "POST",
       "chemin": "/plans-recurrents",
+      "limite": "c1",
+      "antiDoublon": "idempotency_key",
       "requete": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
         "properties": {
+          "axiCli": {
+            "type": "string",
+            "minLength": 1
+          },
           "referenceContratConsole": {
             "type": "string",
             "minLength": 1
           },
           "montantHtCentimesParPeriode": {
             "type": "integer",
-            "minimum": -9007199254740991,
+            "minimum": 0,
             "maximum": 9007199254740991
           },
           "periodeMois": {
@@ -342,6 +319,7 @@
           }
         },
         "required": [
+          "axiCli",
           "referenceContratConsole",
           "montantHtCentimesParPeriode",
           "periodeMois",
@@ -370,6 +348,8 @@
     "plans-recurrents-clore": {
       "methode": "POST",
       "chemin": "/plans-recurrents/{idPlan}/clore",
+      "limite": "c1",
+      "antiDoublon": "idempotency_key",
       "requete": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -381,7 +361,14 @@
           },
           "motif": {
             "type": "string",
-            "minLength": 1
+            "enum": [
+              "fin_engagement",
+              "resiliation",
+              "fin_de_contrat",
+              "changement_de_palier",
+              "changement_de_regroupement",
+              "autre"
+            ]
           }
         },
         "required": [
@@ -418,10 +405,20 @@
     "factures-ponctuelles": {
       "methode": "POST",
       "chemin": "/factures-ponctuelles",
+      "limite": "c1",
+      "antiDoublon": "idempotency_key",
       "requete": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
         "properties": {
+          "axiCli": {
+            "type": "string",
+            "minLength": 1
+          },
+          "codeAutomatisation": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{1,62}$"
+          },
           "nature": {
             "type": "string",
             "enum": [
@@ -442,15 +439,67 @@
           "referenceBonDeCommande": {
             "type": "string",
             "minLength": 1
+          },
+          "lignes": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "libelle": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "quantite": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "prixUnitaireHtCentimes": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "activite": {
+                  "type": "string",
+                  "const": "automatisation"
+                },
+                "tauxTvaBps": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "libelle",
+                "quantite",
+                "prixUnitaireHtCentimes",
+                "activite",
+                "tauxTvaBps"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "acompteBps": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000
           }
         },
         "required": [
+          "axiCli",
+          "codeAutomatisation",
           "nature",
           "debutPeriode",
           "finPeriode",
-          "referenceBonDeCommande"
+          "referenceBonDeCommande",
+          "lignes",
+          "acompteBps"
         ],
-        "additionalProperties": false
+        "additionalProperties": false,
+        "x-axion-regles": [
+          "periode_ordonnee"
+        ]
       },
       "reponses": {
         "201": {
@@ -472,12 +521,15 @@
     "statuts": {
       "methode": "GET",
       "chemin": "/statuts",
+      "limite": "c1",
+      "antiDoublon": "lecture",
       "requete": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
         "properties": {
           "depuis": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
           }
         },
         "required": [
@@ -493,35 +545,95 @@
             "elements": {
               "type": "array",
               "items": {
-                "type": "object",
-                "properties": {
-                  "type": {
-                    "type": "string",
-                    "enum": [
-                      "devis",
-                      "facture",
-                      "paiement"
-                    ]
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "const": "devis"
+                      },
+                      "reference": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "statut": {
+                        "type": "string",
+                        "enum": [
+                          "envoye",
+                          "signe",
+                          "refuse",
+                          "expire"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "reference",
+                      "statut"
+                    ],
+                    "additionalProperties": false
                   },
-                  "reference": {
-                    "type": "string",
-                    "minLength": 1
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "const": "facture"
+                      },
+                      "reference": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "statut": {
+                        "type": "string",
+                        "enum": [
+                          "brouillon",
+                          "emise",
+                          "payee_partiellement",
+                          "payee"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "reference",
+                      "statut"
+                    ],
+                    "additionalProperties": false
                   },
-                  "statut": {
-                    "type": "string",
-                    "minLength": 1
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "const": "paiement"
+                      },
+                      "reference": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "statut": {
+                        "type": "string",
+                        "enum": [
+                          "recu",
+                          "rejete"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "reference",
+                      "statut"
+                    ],
+                    "additionalProperties": false
                   }
-                },
-                "required": [
-                  "type",
-                  "reference",
-                  "statut"
-                ],
-                "additionalProperties": false
+                ]
               }
             },
             "curseur": {
-              "type": "string"
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,128}$"
             }
           },
           "required": [
@@ -535,6 +647,8 @@
     "clients-apporteurs": {
       "methode": "GET",
       "chemin": "/clients/{axiCli}/apporteurs",
+      "limite": "c1",
+      "antiDoublon": "lecture",
       "reponses": {
         "200": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -572,13 +686,23 @@
     "faits": {
       "methode": "GET",
       "chemin": "/faits",
+      "limite": "c1",
+      "antiDoublon": "lecture",
       "requete": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
         "properties": {
           "apres": {
             "type": "string",
-            "pattern": "^[0-9]+$"
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "limite": {
+            "type": "string",
+            "pattern": "^(500|[1-4][0-9]{2}|[1-9][0-9]?)$"
+          },
+          "axiCli": {
+            "type": "string",
+            "minLength": 1
           }
         },
         "required": [
@@ -592,6 +716,7 @@
           "type": "object",
           "properties": {
             "faits": {
+              "maxItems": 500,
               "type": "array",
               "items": {
                 "oneOf": [
@@ -899,95 +1024,365 @@
                         "const": "facture.emise"
                       },
                       "payload": {
-                        "type": "object",
-                        "properties": {
-                          "numeroFacture": {
-                            "type": "string",
-                            "minLength": 1
-                          },
-                          "idPlan": {
-                            "type": "string",
-                            "minLength": 1
-                          },
-                          "nature": {
-                            "type": "string",
-                            "enum": [
-                              "abonnement",
-                              "mise_en_place",
-                              "complement_prorata"
-                            ]
-                          },
-                          "debutPeriode": {
-                            "type": "string",
-                            "format": "date",
-                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
-                          },
-                          "finPeriode": {
-                            "type": "string",
-                            "format": "date",
-                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
-                          },
-                          "montantHtCentimes": {
-                            "type": "integer",
-                            "minimum": -9007199254740991,
-                            "maximum": 9007199254740991
-                          },
-                          "montantTvaCentimes": {
-                            "type": "integer",
-                            "minimum": -9007199254740991,
-                            "maximum": 9007199254740991
-                          },
-                          "montantTtcCentimes": {
-                            "type": "integer",
-                            "minimum": -9007199254740991,
-                            "maximum": 9007199254740991
-                          },
-                          "dateEmission": {
-                            "type": "string",
-                            "format": "date",
-                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
-                          },
-                          "dateEcheance": {
-                            "type": "string",
-                            "format": "date",
-                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
-                          },
-                          "pdf": {
+                        "oneOf": [
+                          {
                             "type": "object",
                             "properties": {
-                              "url": {
+                              "numeroFacture": {
                                 "type": "string",
-                                "format": "uri"
+                                "minLength": 1
                               },
-                              "expireAt": {
+                              "idPlan": {
                                 "type": "string",
-                                "format": "date-time",
-                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                                "minLength": 1
                               },
-                              "sha256": {
+                              "idBrouillon": {
                                 "type": "string",
-                                "pattern": "^[0-9a-f]{64}$"
+                                "minLength": 1
+                              },
+                              "referenceBonDeCommande": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "referenceAbonnementConsole": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "montantHtCentimes": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "montantTvaCentimes": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "montantTtcCentimes": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "dateEmission": {
+                                "type": "string",
+                                "format": "date",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                              },
+                              "dateEcheance": {
+                                "type": "string",
+                                "format": "date",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                              },
+                              "pdf": {
+                                "type": "object",
+                                "properties": {
+                                  "url": {
+                                    "type": "string",
+                                    "format": "uri"
+                                  },
+                                  "expireAt": {
+                                    "type": "string",
+                                    "format": "date-time",
+                                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                                  },
+                                  "sha256": {
+                                    "type": "string",
+                                    "pattern": "^[0-9a-f]{64}$"
+                                  }
+                                },
+                                "required": [
+                                  "url",
+                                  "expireAt",
+                                  "sha256"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "lignes": {
+                                "minItems": 1,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "referenceAbonnementConsole": {
+                                      "type": "string",
+                                      "minLength": 1
+                                    },
+                                    "codeAutomatisation": {
+                                      "type": "string",
+                                      "pattern": "^[a-z][a-z0-9-]{1,62}$"
+                                    },
+                                    "idPlan": {
+                                      "type": "string",
+                                      "minLength": 1
+                                    },
+                                    "libelle": {
+                                      "type": "string",
+                                      "minLength": 1
+                                    },
+                                    "debutPeriode": {
+                                      "type": "string",
+                                      "format": "date",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                                    },
+                                    "finPeriode": {
+                                      "type": "string",
+                                      "format": "date",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                                    },
+                                    "periodeMois": {
+                                      "type": "integer",
+                                      "minimum": 1,
+                                      "maximum": 12
+                                    },
+                                    "terme": {
+                                      "type": "string",
+                                      "enum": [
+                                        "a_echoir",
+                                        "echu"
+                                      ]
+                                    },
+                                    "montantHtCentimes": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 9007199254740991
+                                    },
+                                    "tauxTvaBps": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 9007199254740991
+                                    }
+                                  },
+                                  "required": [
+                                    "referenceAbonnementConsole",
+                                    "codeAutomatisation",
+                                    "libelle",
+                                    "debutPeriode",
+                                    "finPeriode",
+                                    "periodeMois",
+                                    "terme",
+                                    "montantHtCentimes",
+                                    "tauxTvaBps"
+                                  ],
+                                  "additionalProperties": false,
+                                  "x-axion-regles": [
+                                    "periode_ordonnee"
+                                  ]
+                                }
+                              },
+                              "nature": {
+                                "type": "string",
+                                "const": "abonnement"
+                              },
+                              "debutPeriode": {
+                                "type": "string",
+                                "format": "date",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                              },
+                              "finPeriode": {
+                                "type": "string",
+                                "format": "date",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
                               }
                             },
                             "required": [
-                              "url",
-                              "expireAt",
-                              "sha256"
+                              "numeroFacture",
+                              "montantHtCentimes",
+                              "montantTvaCentimes",
+                              "montantTtcCentimes",
+                              "dateEmission",
+                              "dateEcheance",
+                              "pdf",
+                              "nature",
+                              "debutPeriode",
+                              "finPeriode"
                             ],
-                            "additionalProperties": false
+                            "additionalProperties": false,
+                            "x-axion-regles": [
+                              "periode_ordonnee",
+                              "ht_tva_ttc"
+                            ]
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "numeroFacture": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "idPlan": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "idBrouillon": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "referenceBonDeCommande": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "referenceAbonnementConsole": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "montantHtCentimes": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "montantTvaCentimes": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "montantTtcCentimes": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "dateEmission": {
+                                "type": "string",
+                                "format": "date",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                              },
+                              "dateEcheance": {
+                                "type": "string",
+                                "format": "date",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                              },
+                              "pdf": {
+                                "type": "object",
+                                "properties": {
+                                  "url": {
+                                    "type": "string",
+                                    "format": "uri"
+                                  },
+                                  "expireAt": {
+                                    "type": "string",
+                                    "format": "date-time",
+                                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                                  },
+                                  "sha256": {
+                                    "type": "string",
+                                    "pattern": "^[0-9a-f]{64}$"
+                                  }
+                                },
+                                "required": [
+                                  "url",
+                                  "expireAt",
+                                  "sha256"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "lignes": {
+                                "minItems": 1,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "referenceAbonnementConsole": {
+                                      "type": "string",
+                                      "minLength": 1
+                                    },
+                                    "codeAutomatisation": {
+                                      "type": "string",
+                                      "pattern": "^[a-z][a-z0-9-]{1,62}$"
+                                    },
+                                    "idPlan": {
+                                      "type": "string",
+                                      "minLength": 1
+                                    },
+                                    "libelle": {
+                                      "type": "string",
+                                      "minLength": 1
+                                    },
+                                    "debutPeriode": {
+                                      "type": "string",
+                                      "format": "date",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                                    },
+                                    "finPeriode": {
+                                      "type": "string",
+                                      "format": "date",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                                    },
+                                    "periodeMois": {
+                                      "type": "integer",
+                                      "minimum": 1,
+                                      "maximum": 12
+                                    },
+                                    "terme": {
+                                      "type": "string",
+                                      "enum": [
+                                        "a_echoir",
+                                        "echu"
+                                      ]
+                                    },
+                                    "montantHtCentimes": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 9007199254740991
+                                    },
+                                    "tauxTvaBps": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 9007199254740991
+                                    }
+                                  },
+                                  "required": [
+                                    "referenceAbonnementConsole",
+                                    "codeAutomatisation",
+                                    "libelle",
+                                    "debutPeriode",
+                                    "finPeriode",
+                                    "periodeMois",
+                                    "terme",
+                                    "montantHtCentimes",
+                                    "tauxTvaBps"
+                                  ],
+                                  "additionalProperties": false,
+                                  "x-axion-regles": [
+                                    "periode_ordonnee"
+                                  ]
+                                }
+                              },
+                              "nature": {
+                                "type": "string",
+                                "enum": [
+                                  "mise_en_place",
+                                  "complement_prorata",
+                                  "stockage",
+                                  "solde_engagement"
+                                ]
+                              },
+                              "debutPeriode": {
+                                "type": "string",
+                                "format": "date",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                              },
+                              "finPeriode": {
+                                "type": "string",
+                                "format": "date",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                              }
+                            },
+                            "required": [
+                              "numeroFacture",
+                              "montantHtCentimes",
+                              "montantTvaCentimes",
+                              "montantTtcCentimes",
+                              "dateEmission",
+                              "dateEcheance",
+                              "pdf",
+                              "nature"
+                            ],
+                            "additionalProperties": false,
+                            "x-axion-regles": [
+                              "periode_ordonnee",
+                              "ht_tva_ttc"
+                            ]
                           }
-                        },
-                        "required": [
-                          "numeroFacture",
-                          "nature",
-                          "montantHtCentimes",
-                          "montantTvaCentimes",
-                          "montantTtcCentimes",
-                          "dateEmission",
-                          "dateEcheance",
-                          "pdf"
-                        ],
-                        "additionalProperties": false
+                        ]
                       }
                     },
                     "required": [
@@ -1063,7 +1458,7 @@
                           },
                           "montantCentimes": {
                             "type": "integer",
-                            "minimum": -9007199254740991,
+                            "minimum": 0,
                             "maximum": 9007199254740991
                           },
                           "dateReception": {
@@ -1162,7 +1557,7 @@
                           },
                           "montantHtCentimes": {
                             "type": "integer",
-                            "minimum": -9007199254740991,
+                            "minimum": 0,
                             "maximum": 9007199254740991
                           }
                         },
@@ -1511,7 +1906,10 @@
                         "properties": {
                           "siren": {
                             "type": "string",
-                            "pattern": "^[0-9]{9}$"
+                            "pattern": "^[0-9]{9}$",
+                            "x-axion-regles": [
+                              "siren_luhn"
+                            ]
                           },
                           "siret": {
                             "type": "string",
@@ -1626,10 +2024,19 @@
                   }
                 ]
               }
+            },
+            "suivant": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+            },
+            "complet": {
+              "type": "boolean"
             }
           },
           "required": [
-            "faits"
+            "faits",
+            "suivant",
+            "complet"
           ],
           "additionalProperties": false
         }

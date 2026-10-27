@@ -41,6 +41,11 @@ describe("garde-licences : exceptions nommées (dépendances de développement)"
   it("refuse la même licence sur un autre paquet que celui nommé", () => {
     expect(verifierLicences({ "BlueOak-1.0.0": paquet("argparse") }, new Set(), new Set())).not.toEqual([]);
   });
+  it("[C-597] accepte axe-core et son lien Playwright (MPL-2.0) en développement, les refuse en production (ADR 0027)", () => {
+    const axe = { "MPL-2.0": [{ name: "axe-core" }, { name: "@axe-core/playwright" }] };
+    expect(verifierLicences(axe, new Set(), new Set())).toEqual([]);
+    expect(verifierLicences(axe, new Set(), new Set(["axe-core"]))).toHaveLength(1);
+  });
   it("refuse argparse ou minimatch quand ils sont une dépendance de production", () => {
     expect(verifierLicences(dev, new Set(), new Set(["argparse", "minimatch"]))).toHaveLength(2);
   });

@@ -7,9 +7,10 @@ import { brancherBase, creerPool } from "./plugins/base.js";
 import { brancherErreurs } from "./plugins/erreurs.js";
 import { routeSante } from "./routes/sante.js";
 
-export function construireServeur(options: { config?: Config; pool?: pg.Pool } = {}) {
+// journal : flux qui masque les secrets (plugins/journal.ts). Sans flux, aucun journal n'est écrit (interrupteur fermé).
+export function construireServeur(options: { config?: Config; pool?: pg.Pool; journal?: { write(ligne: string): void } } = {}) {
   // id_trace : toujours choisi par le serveur, l'en-tête du client est ignoré.
-  const serveur = Fastify({ genReqId: () => randomUUID(), requestIdHeader: false });
+  const serveur = Fastify({ genReqId: () => randomUUID(), requestIdHeader: false, ...(options.journal ? { logger: { level: "info", stream: options.journal } } : {}) });
   brancherErreurs(serveur);
   brancherBase(serveur, options.pool);
   routeSante(serveur);

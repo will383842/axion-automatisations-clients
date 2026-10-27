@@ -1,0 +1,74 @@
+{
+  "version": "0.2.0",
+  "invariants": [
+    {
+      "n": 1,
+      "texte": "table métier : tenant_id NOT NULL, politique RLS, FORCE ROW LEVEL SECURITY, index qui commence par tenant_id",
+      "etat": "controle"
+    },
+    {
+      "n": 2,
+      "texte": "l'application ne se connecte jamais avec le rôle propriétaire, ni avec un rôle qui contourne la RLS",
+      "etat": "controle"
+    },
+    {
+      "n": 3,
+      "texte": "base cli_<id> fermée à PUBLIC et un rôle par client : aucun rôle hors administration n'ouvre deux bases cli_",
+      "etat": "controle"
+    },
+    {
+      "n": 4,
+      "texte": "journal d'audit en ajout seul (UPDATE, DELETE, TRUNCATE refusés) ; chaînage par hachage",
+      "etat": "controle_en_partie"
+    },
+    {
+      "n": 5,
+      "texte": "argent en entiers ; tout vocabulaire en énumération",
+      "etat": "controle"
+    },
+    {
+      "n": 6,
+      "texte": "unicités : une ligne de facture d'abonnement par (abonnement, début de période) hors avoirs, sur chaque ligne de chaque facture groupée ou seule ; bon de commande et facture de départ par (client, automatisation) ; Idempotency-Key de la boîte d'envoi ; event_id des faits reçus",
+      "etat": "a_brancher_lot_2"
+    },
+    {
+      "n": 7,
+      "texte": "le texte des demandes vit dans cli_<id>, la base console n'en garde que les métadonnées",
+      "etat": "a_brancher_lot_2"
+    },
+    {
+      "n": 8,
+      "texte": "migrations additives N / N-1, montante et descendante testées",
+      "etat": "a_brancher_lot_2"
+    }
+  ],
+  "regles": [
+    "tenant_id_absent",
+    "rls_absente",
+    "politique_ouverte",
+    "role_contourne_rls",
+    "force_rls_absent",
+    "index_tenant_absent",
+    "proprietaire_application",
+    "base_cli_ouverte",
+    "base_cli_partagee",
+    "journal_modifiable",
+    "argent_non_entier",
+    "vocabulaire_en_texte"
+  ],
+  "vocabulaire": [
+    "statut",
+    "etat",
+    "nature",
+    "canal",
+    "famille",
+    "classe",
+    "niveau",
+    "moyen",
+    "motif",
+    "role",
+    "garantie"
+  ],
+  "tableMigrations": "__migrations",
+  "rolesAdministration": "^(admin|proprietaire)(_|$)"
+}

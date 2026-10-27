@@ -17,15 +17,19 @@ organisations, contacts, abonnements, instances, configurations, connexions (ré
 - Les partitions ont leur propre RLS, FORCE et politique : PostgreSQL n'applique pas celles du parent à une lecture directe.
 - Le rôle de l'application ne possède aucune table, et n'est ni superutilisateur ni BYPASSRLS.
 - Une base `cli_%` n'est pas ouverte à `PUBLIC` (droit CONNECT).
+- Un rôle par client : aucun rôle (hors superutilisateur et rôles d'administration `admin_…`, `proprietaire_…`) n'a CONNECT sur plus d'une base `cli_%` (`base_cli_partagee`).
 - Journal d'audit : déclencheurs actifs (origine ou toujours, pas « réplique ») qui refusent UPDATE, DELETE et TRUNCATE (ajout seul).
 - Argent en entiers (`%_centimes`), jamais en `numeric`, `real` ou `double`.
 - Vocabulaire en énumération, pas en `text`.
 
 ## À brancher au lot 2
 - Chaînage par hachage du journal d'audit.
-- Unicités (facture d'abonnement, bon de commande, clé d'idempotence, `event_id`).
+- Unicités : une ligne de facture d'abonnement par (abonnement, début de période), hors avoirs, sur chaque ligne d'une facture groupée ou seule ; bon de commande et facture de départ par (client, automatisation) ; clé d'idempotence de la boîte d'envoi ; `event_id` des faits reçus.
 - Texte des demandes dans `cli_<id>` seulement.
 - Règle N / N-1 des migrations, montante et descendante.
 
 ## Lancer les tests
-Ils demandent un PostgreSQL jetable : `CONTRATS_PG_URL=postgresql://… pnpm test -- c5`. Sans cette variable, ils sont sautés (le job de CI `contrats-pg` reste à écrire : lot 2 / T0-30).
+Ils demandent un PostgreSQL jetable : `CONTRATS_PG_URL=postgresql://… pnpm test -- c5`. Sans cette variable, ils sont sautés. Le job de CI `contrats-pg` reste à écrire : C5 reste en 0.x tant qu'il n'existe pas (ADR 0031).
+
+## Ce qui passe le fil
+`fixtures/c5/invariants.json` (généré) : les 8 invariants et leur état, les règles, le vocabulaire, la table de migrations. Son empreinte est `empreintes/c5.sha256`.

@@ -23,5 +23,33 @@
       "corps": "",
       "signature": "v1=91ed930e0aa3d9e85325954817572daddfd1ecf7a5d13f6f63b299163347155a"
     }
+  ],
+  "reponses": [
+    {
+      "statut": 200,
+      "nom": "apporteurs",
+      "valide": true,
+      "corps": {
+        "apporteurs": [
+          {
+            "idApporteur": "apporteur-0001",
+            "nom": "Atelier Bertin"
+          }
+        ]
+      }
+    },
+    {
+      "statut": 200,
+      "nom": "nom vide",
+      "valide": false,
+      "corps": {
+        "apporteurs": [
+          {
+            "idApporteur": "apporteur-0001",
+            "nom": ""
+          }
+        ]
+      }
+    }
   ]
 }

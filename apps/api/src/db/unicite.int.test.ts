@@ -86,4 +86,37 @@ describe("règles C5 d'unicité et de clés étrangères sur le vrai PostgreSQL"
     expect(await ecarts()).toEqual([`etrangere_sans_tenant ${SCHEMA}.enfants_ko.enfants_ko_parent_id_fkey`]);
     await migration.query(`DROP TABLE ${SCHEMA}.enfants_ok, ${SCHEMA}.enfants_ko, ${SCHEMA}.parents`);
   });
+
+  it("[A-163] @isolation une clé étrangère à positions croisées (tenant_id vers autre colonne) est signalée", async () => {
+    await migration.query(`${table("croise_parent", `${IDENTITE}, autre uuid NOT NULL, UNIQUE (autre, tenant_id)`)}
+      ${table("croise_enfant", `${IDENTITE}, x uuid NOT NULL, FOREIGN KEY (tenant_id, x) REFERENCES ${SCHEMA}.croise_parent (autre, tenant_id)`)}`);
+    expect(await ecarts()).toEqual([`etrangere_sans_tenant ${SCHEMA}.croise_enfant.croise_enfant_tenant_id_x_fkey`]);
+    await migration.query(`DROP TABLE ${SCHEMA}.croise_enfant, ${SCHEMA}.croise_parent`);
+  });
+
+  it("[A-163] @isolation un index unique qui n'a tenant_id qu'en INCLUDE est signalé", async () => {
+    await migration.query(`${table("c_include", `${IDENTITE}, courriel text NOT NULL`)} CREATE UNIQUE INDEX c_include_courriel ON ${SCHEMA}.c_include (courriel) INCLUDE (tenant_id)`);
+    expect(await ecarts()).toEqual([`unicite_sans_tenant ${SCHEMA}.c_include.c_include_courriel`]);
+    await migration.query(`DROP TABLE ${SCHEMA}.c_include`);
+  });
+
+  it("[A-163] @isolation un index unique d'une partition attachée est contrôlé comme celui d'une table", async () => {
+    await migration.query(`CREATE TABLE ${SCHEMA}.executions (id bigint NOT NULL, tenant_id uuid NOT NULL, cree_le date NOT NULL, PRIMARY KEY (tenant_id, id, cree_le)) PARTITION BY RANGE (cree_le);
+      CREATE TABLE ${SCHEMA}.executions_2026_10 (id bigint NOT NULL, tenant_id uuid NOT NULL, cree_le date NOT NULL, courriel text);
+      CREATE UNIQUE INDEX executions_2026_10_courriel ON ${SCHEMA}.executions_2026_10 (courriel);
+      ALTER TABLE ${SCHEMA}.executions ATTACH PARTITION ${SCHEMA}.executions_2026_10 FOR VALUES FROM ('2026-10-01') TO ('2026-11-01')`);
+    expect(await ecarts()).toEqual([`unicite_sans_tenant ${SCHEMA}.executions_2026_10.executions_2026_10_courriel`]);
+    await migration.query(`DROP TABLE ${SCHEMA}.executions`);
+  });
+
+  // btree_gist permet l'opérateur « différent » sur uuid : EXCLUDE (tenant_id WITH <>, ressource WITH =) est un oracle (23P01) bien que tenant_id soit dans la clé.
+  it("[A-163] @isolation une contrainte EXCLUDE dont l'opérateur sur tenant_id n'est pas « = » est signalée, celle avec « = » est acceptée", async () => {
+    await migration.query(`CREATE EXTENSION IF NOT EXISTS btree_gist SCHEMA ${SCHEMA}`);
+    await migration.query(`SET search_path = ${SCHEMA}, public; ${table("c_exclu_ko", `${IDENTITE}, ressource text NOT NULL, EXCLUDE USING gist (tenant_id WITH <>, ressource WITH =)`)}
+      ${table("c_exclu_ok", `${IDENTITE}, ressource text NOT NULL, EXCLUDE USING gist (tenant_id WITH =, ressource WITH =)`)}`);
+    const trouves = await ecarts();
+    await migration.query("RESET search_path");
+    expect(trouves).toEqual([`unicite_sans_tenant ${SCHEMA}.c_exclu_ko.c_exclu_ko_tenant_id_ressource_excl`]);
+    await migration.query(`DROP TABLE ${SCHEMA}.c_exclu_ko, ${SCHEMA}.c_exclu_ok`);
+  });
 });

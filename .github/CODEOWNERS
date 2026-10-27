@@ -6,3 +6,7 @@ package.json @will383842
 /.npmrc @will383842
 /.nvmrc @will383842
 /.pnpmfile.cjs @will383842
+
+# Contrats gelés en 1.0.0 (ADR 0033) : toute modification exige l'accord du propriétaire.
+/packages/contrats/fixtures-gelees/ @will383842
+/packages/contrats/empreintes/ @will383842

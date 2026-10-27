@@ -383,6 +383,19 @@ const scenario = (): Promise<Scenario> => {
     try {
       sortie("docker", ["stop", cible]);
       for (let tour = 0; tour < 12; tour++) {
+        // Cause du rouge du 27/10 (exécution 40466326312) : sans pause, 12 tours (environ 600 Mo de journaux) vont plus vite que l'archiveur, qui
+        // n'abandonne qu'à chaque nouvel appel de pgBackRest (environ une minute après un échec) ; le volume de 256 Mo se remplit et PostgreSQL
+        // s'arrête (PANIC). On temporise donc l'écriture au-dessus de 65 % du volume, en attendant l'abandon des journaux, comme le ferait une charge réelle.
+        const occupation = () => {
+          const x = mesurer();
+          return x.utilises / x.total;
+        };
+        if (occupation() > 0.65) {
+          await attendre(() => {
+            sql("console", "checkpoint");
+            return occupation() <= 0.65;
+          }, 150);
+        }
         sql("console", "insert into essai_disque (v) select repeat(md5(g::text), 40) from generate_series(1, 20000) g");
         sql("console", "select pg_switch_wal()");
         const m = mesurer();

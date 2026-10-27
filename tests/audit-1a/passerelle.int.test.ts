@@ -163,7 +163,7 @@ beforeAll(garder(async () => {
   cleB = valeurs.get(refB) ?? "";
   // Empreinte de la clé gardée par LiteLLM (SHA-256 hexadécimal de la clé) : c'est elle qui figure dans le journal de dépense.
   jetonB = createHash("sha256").update(cleB).digest("hex");
-  const infoB = JSON.parse((await appeler(MAITRE, "GET", `/key/info?key=${encodeURIComponent(cleB)}`)).texte || "{}") as { key?: string; info?: Record<string, unknown> };
+  const infoB = JSON.parse((await appeler(MAITRE, "GET", `/key/info?key=${jetonB}`)).texte || "{}") as { key?: string; info?: Record<string, unknown> };
   // Forme de la réponse (noms des champs seulement, jamais une valeur) : la lecture de consommation (consommation.ts) en dépend.
   writeSync(2, `FORME /key/info : ${JSON.stringify(Object.keys(infoB))} info ${JSON.stringify(Object.keys(infoB.info ?? {}).sort())} ; empreinte = key : ${infoB.key === jetonB}, = info.token : ${infoB.info?.["token"] === jetonB}\n`);
   for (const [cle, modele] of [[cleA, "claude-standard"], [cleA, "claude-standard"], [cleB, "mistral-souverain"]] as const) {
@@ -272,7 +272,7 @@ describe("audit 1-A · passerelle d'IA (LiteLLM réel)", () => {
       ["POST", "/key/update", { key: cleB, models: ["gpt-option"], max_budget: 0 }],
       ["POST", "/key/update", { key: jetonB, models: ["gpt-option"], max_budget: 0 }],
       ["POST", "/key/block", { key: cleB }],
-      ["POST", `/key/${encodeURIComponent(cleB)}/regenerate`, {}],
+      ["POST", `/key/${jetonB}/regenerate`, {}],
       ["POST", "/key/regenerate", { key: cleB }],
       ["POST", "/key/delete", { key_aliases: [`cli-${B}`] }],
       ["POST", "/key/delete", { keys: [cleB] }],
@@ -285,7 +285,7 @@ describe("audit 1-A · passerelle d'IA (LiteLLM réel)", () => {
     }
     expect(acceptees).toEqual([]);
     // B intacte : même alias, mêmes modèles, toujours utilisable ; A n'a pas élargi ses modèles.
-    const infoB = JSON.parse((await appeler(MAITRE, "GET", `/key/info?key=${encodeURIComponent(cleB)}`)).texte) as { info?: { key_alias?: string; models?: string[]; blocked?: boolean | null } };
+    const infoB = JSON.parse((await appeler(MAITRE, "GET", `/key/info?key=${jetonB}`)).texte) as { info?: { key_alias?: string; models?: string[]; blocked?: boolean | null } };
     expect(infoB.info?.key_alias).toBe(`cli-${B}`);
     expect([...(infoB.info?.models ?? [])].sort()).toEqual(["claude-standard", "mistral-souverain"]);
     expect(infoB.info?.blocked ?? false).toBe(false);

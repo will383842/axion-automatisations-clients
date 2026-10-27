@@ -60,7 +60,7 @@ Les secrets de l'équipe vivent dans Bitwarden ou sous `technique/` d'OpenBao, J
 | `JETON_ROLE_API` | production | environnement cloud | période de 768 h, à recréer avant l'échéance |
 | `JETON_ROLE_SECOURS` | equipe | Bitwarden | recréé avant chaque échéance |
 | `INSTANTANE_RAFT` | equipe | stockage de secours chiffré, distinct du gestionnaire de mots de passe, avec d'autres membres | à chaque copie de secours |
-| `PHRASE_SAUVEGARDES` | equipe | OpenBao `technique/sauvegardes` (32 octets aléatoires au moins), plus une copie hors ligne (même règle que les parts : un lieu, pas Bitwarden seul) | pas de rotation sur un dépôt existant (pgBackRest ne change pas la phrase d'un dépôt) : nouvelle phrase = nouveau dépôt (repo ou stanza neufs, première complète), l'ancien dépôt et son ancienne phrase gardés jusqu'à l'expiration de ses sauvegardes ; la copie hors ligne se vérifie à chaque départ d'un administrateur |
+| `PHRASE_SAUVEGARDES` | equipe | OpenBao `technique/sauvegardes` (32 octets aléatoires au moins), plus une copie hors ligne (même règle que les parts : un lieu, pas Bitwarden seul) | nouvelle phrase = nouveau dépôt ou nouvelle stanza ; ancien dépôt et ancienne phrase gardés jusqu'à expiration (pgBackRest ne change pas la phrase d'un dépôt existant) |
 
 ## Secrets de la chaîne de déploiement
 

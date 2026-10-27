@@ -62,6 +62,8 @@ describe("sauvegardes (archivage continu, complète de nuit, restauration)", () 
   it("[C-045] l'archivage continu est actif et un segment de journal arrive sur la cible", async () => {
     expect(sql("console", "show archive_mode")).toBe("on");
     const avant = fichiersCible().filter((f) => f.includes("/archive/")).length;
+    // pg_switch_wal() ne fait rien si aucun journal n'a été écrit depuis le dernier changement de segment : on écrit d'abord.
+    sql("console", "update essai_sauvegarde set note = note where id = 1");
     sql("console", "select pg_switch_wal()");
     const arrive = await attendre(() => fichiersCible().filter((f) => f.includes("/archive/")).length > avant, 60);
     expect(arrive).toBe(true);

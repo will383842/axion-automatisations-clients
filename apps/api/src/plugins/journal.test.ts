@@ -26,7 +26,7 @@ describe("masquage des secrets dans le journal de l'API", () => {
     expect(sortie).not.toContain("ab");
   });
 
-  it("[A-005] le masqueur cache la forme de formulaire (espace → +), dans un message et dans l'adresse journalisée", async () => {
+  it("[A-005] le masqueur cache la forme de formulaire (espace → +), dans un message d'erreur (l'adresse journalisée n'a plus de paramètres)", async () => {
     const m = creerMasqueur();
     const secret = `${MARQUEUR} val+x`;
     m.ajouter(secret);
@@ -36,7 +36,7 @@ describe("masquage des secrets dans le journal de l'API", () => {
     const lignes: string[] = [];
     const serveur = construireServeur({ journal: creerFluxJournal(m, (l) => lignes.push(l)) });
     serveur.get("/p", async () => {
-      throw new Error("échec");
+      throw new Error(`échec ${formulaire}`);
     });
     await serveur.inject({ method: "GET", url: `/p?${formulaire}` });
     await serveur.close();

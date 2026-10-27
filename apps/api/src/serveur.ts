@@ -4,13 +4,14 @@ import Fastify from "fastify";
 import type pg from "pg";
 import { chargerConfig, type Config } from "./config.js";
 import { brancherBase, creerPool } from "./plugins/base.js";
+import { serialiseursJournal } from "./journal/serialiseur-req.js";
 import { brancherErreurs } from "./plugins/erreurs.js";
 import { routeSante } from "./routes/sante.js";
 
-// journal : flux qui masque les secrets (plugins/journal.ts). Sans flux, aucun journal n'est écrit (interrupteur fermé).
+// journal : flux qui masque les secrets (plugins/journal.ts) ; les sérialiseurs (journal/serialiseur-req.ts) retirent la partie « ?… » de l'adresse, l'hôte et l'IP (base: {} retire aussi le nom de la machine). Sans flux, aucun journal n'est écrit (interrupteur fermé).
 export function construireServeur(options: { config?: Config; pool?: pg.Pool; journal?: { write(ligne: string): void } } = {}) {
   // id_trace : toujours choisi par le serveur, l'en-tête du client est ignoré.
-  const serveur = Fastify({ genReqId: () => randomUUID(), requestIdHeader: false, ...(options.journal ? { logger: { level: "info", stream: options.journal } } : {}) });
+  const serveur = Fastify({ genReqId: () => randomUUID(), requestIdHeader: false, ...(options.journal ? { logger: { level: "info", stream: options.journal, base: {}, serializers: serialiseursJournal } } : {}) });
   brancherErreurs(serveur);
   brancherBase(serveur, options.pool);
   routeSante(serveur);

@@ -27,12 +27,15 @@ export type Options = {
   rolesApplication: RegExp;
   // Seule table exemptée (schéma public) : celle des migrations. Défaut : `__migrations`.
   tableMigrations?: string;
-  // Rôles d'administration (propriétaire des bases, migrations) : seuls permis sur plusieurs bases `cli_%`.
-  rolesAdministration?: RegExp;
+  // Rôles d'administration (propriétaire des bases cli_, migrations) : seuls permis sur plusieurs bases `cli_%`.
+  // Liste EXACTE de noms, fournie par l'appelant (le lot 2b nomme ses rôles selon la convention du socle,
+  // `<base>_proprietaire`, `<base>_migration`) : aucun rôle n'est exempté par la forme de son nom.
+  rolesAdministration?: readonly string[];
 };
 
 export const TABLE_MIGRATIONS = "__migrations";
-export const ROLES_ADMINISTRATION = /^(admin|proprietaire)(_|$)/;
+// Défaut : aucun (échec fermé). Seul le superutilisateur est hors contrôle.
+export const ROLES_ADMINISTRATION: readonly string[] = [];
 
 // Les 8 invariants de l'annexe A : contrôlés ici dès la version 0, ou à brancher au lot 2 (README.md).
 export const INVARIANTS_C5 = [
@@ -166,7 +169,7 @@ export async function controlerInvariants(
       AND pg_has_role(r.oid, a.grantee, 'MEMBER') AND NOT r.rolsuper AND r.rolname NOT LIKE 'pg\\_%'
     GROUP BY r.rolname HAVING count(DISTINCT d.datname) > 1`);
   const administration = options.rolesAdministration ?? ROLES_ADMINISTRATION;
-  for (const p of partages) if (!administration.test(String(p.nom))) noter("base_cli_partagee", String(p.nom));
+  for (const p of partages) if (!administration.includes(String(p.nom))) noter("base_cli_partagee", String(p.nom));
 
   if (nomBase.startsWith("cli_")) {
     const ouverte = await requete(

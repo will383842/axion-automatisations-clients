@@ -1,0 +1,38 @@
+{
+  "type": "avoir.emis",
+  "cas": [
+    {
+      "nom": "valide",
+      "valide": true,
+      "cle": "cle-test-c2-hub-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c2-hub-a",
+      "horodatage": "1792800000",
+      "methode": "POST",
+      "chemin": "/api/hub/v1/faits",
+      "corps": "{\"event_id\":\"11111111-1111-4111-8111-111111111111\",\"schema_version\":1,\"occurred_at\":\"2026-10-24T10:00:00Z\",\"emitted_at\":\"2026-10-24T10:00:01Z\",\"producer\":\"axion-ia-hub\",\"subject_ref\":{\"axiCli\":\"AXI-CLI-000001\",\"consoleClientId\":\"console-cli-0001\"},\"sequence\":1,\"event_type\":\"avoir.emis\",\"payload\":{\"numeroAvoir\":\"AXI-AVOIR-000001\",\"numeroFactureOrigine\":\"AXI-FACT-000001\",\"montantHtCentimes\":100}}",
+      "signature": "v1=b0f4f7d43d86f6fc3e292c2e94fb66acdee1d2711a54de8d4ddf8266c9d1e655"
+    },
+    {
+      "nom": "event_id invalide",
+      "valide": false,
+      "cle": "cle-test-c2-hub-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c2-hub-a",
+      "horodatage": "1792800000",
+      "methode": "POST",
+      "chemin": "/api/hub/v1/faits",
+      "corps": "{\"event_id\":\"pas-un-uuid\",\"schema_version\":1,\"occurred_at\":\"2026-10-24T10:00:00Z\",\"emitted_at\":\"2026-10-24T10:00:01Z\",\"producer\":\"axion-ia-hub\",\"subject_ref\":{\"axiCli\":\"AXI-CLI-000001\",\"consoleClientId\":\"console-cli-0001\"},\"sequence\":1,\"event_type\":\"avoir.emis\",\"payload\":{\"numeroAvoir\":\"AXI-AVOIR-000001\",\"numeroFactureOrigine\":\"AXI-FACT-000001\",\"montantHtCentimes\":100}}",
+      "signature": "v1=ba3238789b180b0893a099ed67940a831e24d1f9e735736bdaaeab5b70c3b380"
+    },
+    {
+      "nom": "montant négatif",
+      "valide": false,
+      "cle": "cle-test-c2-hub-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c2-hub-a",
+      "horodatage": "1792800000",
+      "methode": "POST",
+      "chemin": "/api/hub/v1/faits",
+      "corps": "{\"event_id\":\"11111111-1111-4111-8111-111111111111\",\"schema_version\":1,\"occurred_at\":\"2026-10-24T10:00:00Z\",\"emitted_at\":\"2026-10-24T10:00:01Z\",\"producer\":\"axion-ia-hub\",\"subject_ref\":{\"axiCli\":\"AXI-CLI-000001\",\"consoleClientId\":\"console-cli-0001\"},\"sequence\":1,\"event_type\":\"avoir.emis\",\"payload\":{\"numeroAvoir\":\"AXI-AVOIR-000001\",\"numeroFactureOrigine\":\"AXI-FACT-000001\",\"montantHtCentimes\":-100}}",
+      "signature": "v1=c97c48af823089727bf9524bbfa613d95e9de00e1ab92ea12f0a5229fdb795ae"
+    }
+  ]
+}

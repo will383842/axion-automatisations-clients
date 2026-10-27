@@ -1,5 +1,5 @@
 {
-  "version": "0.2.0",
+  "version": "1.0.0",
   "routes": {
     "clients-retrouver-ou-creer": {
       "methode": "POST",
@@ -282,6 +282,14 @@
             "type": "string",
             "minLength": 1
           },
+          "codeAutomatisation": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{1,62}$"
+          },
+          "referenceAbonnementConsole": {
+            "type": "string",
+            "minLength": 1
+          },
           "referenceContratConsole": {
             "type": "string",
             "minLength": 1
@@ -320,6 +328,8 @@
         },
         "required": [
           "axiCli",
+          "codeAutomatisation",
+          "referenceAbonnementConsole",
           "referenceContratConsole",
           "montantHtCentimesParPeriode",
           "periodeMois",

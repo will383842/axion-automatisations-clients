@@ -5,7 +5,7 @@ import { EXCEPTIONS_UNICITE, TENANT_FACULTATIF, controlerInvariants, type Requet
 // Ces tests tournent sans base (job `tests`) ; les mêmes règles sont éprouvées sur un vrai PostgreSQL dans apps/api/src/db/unicite.int.test.ts.
 type Unique = { oid: number; index: string; primaire: boolean; porte_tenant: boolean; identite_generee: boolean };
 type Etrangere = { oid: number; cible: number; nom: string; lie_tenant: boolean };
-type Monde = { tables: string[]; nullable?: string[]; uniques?: Unique[]; etrangeres?: Etrangere[] };
+type Monde = { tables: string[]; nullable?: string[]; sansIndex?: string[]; uniques?: Unique[]; etrangeres?: Etrangere[] };
 
 const OPTIONS = { rolesApplication: /^app(_|$)/ };
 
@@ -21,7 +21,7 @@ function faux(monde: Monde): Requete {
       return tables.map((t) => ({ schema: "public", table: t.nom, colonne: "tenant_id", type: "uuid", nullable: (monde.nullable ?? []).includes(t.nom) ? "YES" : "NO" }));
     }
     if (sql.includes("pg_policies")) return tables.map((t) => ({ schema: "public", table: t.nom, permissive: "PERMISSIVE", cmd: "ALL", qual: "(tenant_id = current_setting('app.tenant_id')::uuid)", with_check: null }));
-    if (sql.includes("i.indisvalid")) return tables.map((t) => ({ oid: t.oid }));
+    if (sql.includes("i.indisvalid")) return tables.filter((t) => !(monde.sansIndex ?? []).includes(t.nom)).map((t) => ({ oid: t.oid }));
     if (sql.includes("pg_trigger")) {
       return tables.filter((t) => t.nom === "journal_audit").map((t) => ({ oid: t.oid, type: 8 | 16 | 32, actif: "O" }));
     }
@@ -67,5 +67,10 @@ describe("C5 · unicité et clés étrangères par client", () => {
     expect(Object.isFrozen(TENANT_FACULTATIF)).toBe(true);
     expect(await regles({ tables: ["journal_audit"], nullable: ["journal_audit"] })).toEqual([]);
     expect(await regles({ tables: ["notes"], nullable: ["notes"] })).toEqual([{ regle: "tenant_id_absent", objet: "notes" }]);
+  });
+
+  it("[A-119] @isolation journal_audit garde l'exigence d'un index commençant par tenant_id malgré son tenant_id facultatif", async () => {
+    const e = await controlerInvariants(faux({ tables: ["journal_audit"], nullable: ["journal_audit"], sansIndex: ["journal_audit"] }), "console", OPTIONS);
+    expect(e).toEqual([{ regle: "index_tenant_absent", objet: "journal_audit" }]);
   });
 });

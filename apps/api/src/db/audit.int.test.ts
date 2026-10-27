@@ -13,12 +13,13 @@ import { migrer } from "./migrer.js";
 const it = (nom: string, fn: () => Promise<void>) =>
   itBase(nom, async () => {
     try {
-      await fn();
+      let m: NodeJS.Timeout | undefined;
+      await Promise.race([fn(), new Promise<never>((_, rej) => { m = setTimeout(() => rej(new Error("DELAI 25 s depasse")), 25_000); })]).finally(() => clearTimeout(m));
     } catch (e) {
       writeSync(2, `ECHEC ${nom} : ${String((e as Error).message).slice(0, 700)}` + String.fromCharCode(10));
       throw e;
     }
-  });
+  }, 60_000);
 const docker = (...args: string[]) => execFileSync("docker", args, { encoding: "utf8" }).trim();
 const conteneur = (service: string) =>
   docker("ps", "-q", "--filter", "label=com.docker.compose.project=socle", "--filter", `label=com.docker.compose.service=${service}`);

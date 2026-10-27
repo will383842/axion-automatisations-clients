@@ -3,10 +3,11 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { calculerEmpreintes } from "../../scripts/empreinte.ts";
+import { lireVersions } from "../../scripts/versions.ts";
 import { signer, verifier } from "../commun/signature.ts";
-import { EvenementCrm, TYPES_CRM_VERS_CONSOLE, empreinteEmail, identifiantEvenementC3 } from "./evenements-crm-vers-console.ts";
+import { ACTIONS_CONSOLE, EvenementCrm, REACTIONS_CONSOLE, TYPES_CRM_VERS_CONSOLE, empreinteEmail, identifiantEvenementC3 } from "./evenements-crm-vers-console.ts";
 import { EvenementConsole, TYPES_V1, TYPES_V2, statutCrmDepuisHub, statutHubDepuisCrm } from "./evenements-console-vers-crm.ts";
-import { CHEMIN_LECTURE, LectureReponse, LectureRequete } from "./lecture-entreprise.ts";
+import { CHEMIN_LECTURE, LectureReponse, LectureRequete, ROUTES_C3 } from "./lecture-entreprise.ts";
 
 const racine = new URL("../../", import.meta.url);
 const lire = (p: string) => readFileSync(new URL(p, racine), "utf8");
@@ -28,6 +29,8 @@ const deConsole = (event_type: string, payload: unknown, extra: object = {}) => 
   ...base, producer: "axion-console", subject_ref: { consoleClientId: "console-cli-0001" }, event_type, payload, ...extra,
 });
 const personne = { personKey: "personne-0001", emailEmpreinte: empreinteEmail("Contact@exemple.fr") };
+const abonnement = { codeAutomatisation: "tri-courriels", palier: "palier-1", periodeMois: 6, terme: "a_echoir", prochaineEcheance: "2027-04-01" };
+const resume = { consoleClientId: "console-cli-0001", abonnements: [abonnement] };
 
 describe("contrat C3 : CRM vers console", () => {
   it("[LOT0-c3] les 6 types CRM vers console sont déclarés", () => {
@@ -64,20 +67,36 @@ describe("contrat C3 : CRM vers console", () => {
     expect(EvenementCrm.safeParse(deCrm("fiche.fusionnee", { crmCompanyIdAbsorbee: "crm-0002", crmCompanyIdGardee: "crm-0001" })).success).toBe(true);
     expect(EvenementCrm.safeParse(deCrm("fiche.fusionnee", { crmCompanyIdAbsorbee: "crm-0002", crmCompanyIdGardee: "crm-0001" }, { producer: "axion-ia-hub" })).success).toBe(false);
   });
+  it("[A-256] effacement.demande : coupure des envois, mise à l'écart, alerte et décision de Will ; jamais de suppression à réception", () => {
+    expect(REACTIONS_CONSOLE["effacement.demande"]).toEqual(["couper_envois_commerciaux", "mettre_personne_a_l_ecart", "alerter_will", "attendre_decision_de_will"]);
+    expect(Object.keys(REACTIONS_CONSOLE).sort()).toEqual([...TYPES_CRM_VERS_CONSOLE].sort());
+    for (const action of ACTIONS_CONSOLE) expect(action).not.toMatch(/suppr|effac|detrui|purg|delete|drop|vider/);
+  });
 });
 
 describe("contrat C3 : console vers CRM", () => {
-  it("[LOT0-c3] les 7 types V1 sont déclarés, les 2 types V2 sont marqués V2", () => {
-    expect([...TYPES_V1].sort()).toEqual(["automatisation.activee", "client.cree", "client.statut", "contrat.resilie", "impaye.signale", "plan.resume", "renouvellement.proche"]);
+  it("[LOT0-c3] les 8 types V1 sont déclarés, les 2 types V2 sont marqués V2", () => {
+    expect([...TYPES_V1].sort()).toEqual(["automatisation.activee", "automatisation.fin_programmee", "client.cree", "client.statut", "contrat.resilie", "impaye.signale", "plan.resume", "renouvellement.proche"]);
     expect([...TYPES_V2].sort()).toEqual(["maintenance.fin_incluse", "risque_depart"]);
   });
   it("[LOT0-c3] un événement V2 est refusé en V1", () => {
     for (const t of TYPES_V2) expect(EvenementConsole.safeParse(deConsole(t, { consoleClientId: "console-cli-0001" })).success).toBe(false);
   });
   it("[LOT0-c3] plan.resume ne porte aucun montant", () => {
-    const resume = { consoleClientId: "console-cli-0001", codesAutomatisation: ["tri-courriels"], palier: "palier-1", periodeMois: 6, prochaineEcheance: "2027-04-01" };
     expect(EvenementConsole.safeParse(deConsole("plan.resume", resume)).success).toBe(true);
     expect(EvenementConsole.safeParse(deConsole("plan.resume", { ...resume, montantHtCentimes: 1000 })).success).toBe(false);
+    expect(EvenementConsole.safeParse(deConsole("plan.resume", { ...resume, abonnements: [{ ...abonnement, montantHtCentimes: 1000 }] })).success).toBe(false);
+  });
+  it("[LOT0-c3] plan.resume porte un abonnement par automatisation, chacun avec sa période libre, son terme et son échéance", () => {
+    const deux = { ...resume, abonnements: [abonnement, { codeAutomatisation: "relances", palier: "palier-2", periodeMois: 3, terme: "echu", prochaineEcheance: "2027-02-01" }] };
+    expect(EvenementConsole.safeParse(deConsole("plan.resume", deux)).success).toBe(true);
+    expect(EvenementConsole.safeParse(deConsole("plan.resume", { ...resume, abonnements: [{ ...abonnement, periodeMois: 13 }] })).success).toBe(false);
+    expect(EvenementConsole.safeParse(deConsole("plan.resume", { ...resume, abonnements: [] })).success).toBe(false);
+  });
+  it("[LOT0-c3] la fin d'une seule automatisation a son événement, distinct de la fin du contrat", () => {
+    const fin = { consoleClientId: "console-cli-0001", codeAutomatisation: "tri-courriels", dateFin: "2027-03-31" };
+    expect(EvenementConsole.safeParse(deConsole("automatisation.fin_programmee", fin)).success).toBe(true);
+    expect(EvenementConsole.safeParse(deConsole("automatisation.fin_programmee", { ...fin, codeAutomatisation: undefined })).success).toBe(false);
   });
   it("[LOT0-c3] client.statut accepte client, dormant, perdu et rien d'autre", () => {
     for (const statut of ["client", "dormant", "perdu"]) expect(EvenementConsole.safeParse(deConsole("client.statut", { consoleClientId: "console-cli-0001", statut })).success).toBe(true);
@@ -96,6 +115,10 @@ describe("contrat C3 : console vers CRM", () => {
 describe("contrat C3 : lecture par SIREN", () => {
   it("[LOT0-c3] le chemin de lecture est celui de l'annexe", () => {
     expect(CHEMIN_LECTURE).toBe("/api/console/v1/entreprises");
+  });
+  it("[LOT0-c3] les routes des événements C3 sont des constantes du contrat", () => {
+    expect(ROUTES_C3.crmVersConsole).toMatchObject({ methode: "POST", chemin: "/api/crm/v1/evenements", antiDoublon: "event_id" });
+    expect(ROUTES_C3.consoleVersCrm).toMatchObject({ methode: "POST", chemin: "/api/console/v1/evenements", antiDoublon: "event_id" });
   });
   it("[LOT0-c3] lecture avec siren ET siret refusée, comme sans aucun des deux", () => {
     expect(LectureRequete.safeParse({ siren: SIREN }).success).toBe(true);
@@ -124,8 +147,8 @@ describe("contrat C3 : lecture par SIREN", () => {
 // Fixtures : construites ici, comparées au disque ; ECRIRE_FIXTURES_C3=1 les réécrit (puis relancer node scripts/empreinte.ts).
 const HORODATAGE = "1792800000";
 const SENS = {
-  crm: { cle: "cle-test-c3-crm-a", secret: "TEST-NE-PAS-UTILISER-cle-c3-crm-a", chemin: "/api/crm/v1/evenements" },
-  console: { cle: "cle-test-c3-console-a", secret: "TEST-NE-PAS-UTILISER-cle-c3-console-a", chemin: "/api/console/v1/evenements" },
+  crm: { cle: "cle-test-c3-crm-a", secret: "TEST-NE-PAS-UTILISER-cle-c3-crm-a", chemin: ROUTES_C3.crmVersConsole.chemin },
+  console: { cle: "cle-test-c3-console-a", secret: "TEST-NE-PAS-UTILISER-cle-c3-console-a", chemin: ROUTES_C3.consoleVersCrm.chemin },
 } as const;
 const cas = (sens: keyof typeof SENS, nom: string, valide: boolean, methode: string, chemin: string, corps?: unknown) => {
   const brut = corps === undefined ? "" : JSON.stringify(corps);
@@ -136,7 +159,6 @@ const devenue = {
   crmCompanyId: "crm-0001", siren: SIREN, siret: `${SIREN}00011`, raisonSociale: "Lemoine Rénovation", adresse,
   contacts: [{ nom: "Camille Test", email: "contact@exemple.fr" }],
 };
-const resume = { consoleClientId: "console-cli-0001", codesAutomatisation: ["tri-courriels"], palier: "palier-1", periodeMois: 6, prochaineEcheance: "2027-04-01" };
 const fiche = { crmCompanyId: "crm-0001", raisonSociale: "Lemoine Rénovation", adresse, siretEtablissement: `${SIREN}00011` };
 const PAYLOADS_CRM: Record<string, [unknown, string, unknown]> = {
   "entreprise.devenue_cliente": [devenue, "SIREN de 8 chiffres", { ...devenue, siren: SIREN.slice(0, 8) }],
@@ -154,6 +176,7 @@ const PAYLOADS_CONSOLE: Record<string, [unknown, string, unknown]> = {
   "renouvellement.proche": [{ ...cid, dateRenouvellement: "2027-04-01" }, "date mal formée", { ...cid, dateRenouvellement: "01/04/2027" }],
   "impaye.signale": [{ ...cid, joursRetard: 12 }, "jours négatifs", { ...cid, joursRetard: -1 }],
   "automatisation.activee": [{ ...cid, codeAutomatisation: "tri-courriels", dateActivation: "2026-11-01" }, "code vide", { ...cid, codeAutomatisation: "", dateActivation: "2026-11-01" }],
+  "automatisation.fin_programmee": [{ ...cid, codeAutomatisation: "tri-courriels", dateFin: "2027-03-31" }, "date absente", { ...cid, codeAutomatisation: "tri-courriels" }],
   "contrat.resilie": [{ ...cid, dateResiliation: "2027-01-31" }, "date absente", cid],
 };
 const lectureGet = (q: string) => `${CHEMIN_LECTURE}?${q}`;
@@ -184,7 +207,7 @@ export function construireFixtures(): Record<string, unknown> {
   };
   sortie["json-schema.json"] = {
     c3: {
-      version: "0.1.0",
+      version: lireVersions(racine.pathname).c3,
       crmVersConsole: z.toJSONSchema(EvenementCrm, { target: "draft-2020-12", unrepresentable: "any" }),
       consoleVersCrm: z.toJSONSchema(EvenementConsole, { target: "draft-2020-12", unrepresentable: "any" }),
       lectureRequete: z.toJSONSchema(LectureRequete, { target: "draft-2020-12", unrepresentable: "any" }),
@@ -207,7 +230,7 @@ describe("fixtures signées de C3", () => {
       const { cas: liste } = v as { cas?: ReturnType<typeof cas>[] };
       for (const c of liste ?? []) {
         expect(c.secret.startsWith("TEST-NE-PAS-UTILISER-")).toBe(true);
-        expect(verifier(c.secret, c.horodatage, c.methode, c.chemin, Buffer.from(c.corps), c.signature, Number(c.horodatage))).toEqual({ ok: true });
+        expect(verifier([{ id: c.cle, secret: c.secret }], { ...c, corps: Buffer.from(c.corps) }, Number(c.horodatage), () => false)).toEqual({ ok: true, cle: c.cle });
         let conforme: boolean;
         if (c.methode === "GET") {
           conforme = c.chemin.startsWith(`${CHEMIN_LECTURE}?`) && LectureRequete.safeParse(Object.fromEntries(new URLSearchParams(c.chemin.split("?")[1]))).success;

@@ -1,0 +1,110 @@
+{
+  "instances": {
+    "inst-0001": "auto-run-1",
+    "inst-0002": "auto-run-1",
+    "inst-0101": "auto-run-2"
+  },
+  "paquets": [
+    {
+      "nom": "instances de la cellule qui signe",
+      "valide": true,
+      "cle": "c4:auto-run-1:a",
+      "corps": {
+        "evenements": [
+          {
+            "type": "debut",
+            "instanceId": "inst-0001",
+            "executionId": "exec-0001",
+            "a": "2026-10-24T10:00:00Z"
+          },
+          {
+            "type": "debut",
+            "instanceId": "inst-0002",
+            "executionId": "exec-0001",
+            "a": "2026-10-24T10:00:00Z"
+          }
+        ]
+      }
+    },
+    {
+      "nom": "instance d'une autre cellule",
+      "valide": false,
+      "cle": "c4:auto-run-1:a",
+      "corps": {
+        "evenements": [
+          {
+            "type": "debut",
+            "instanceId": "inst-0101",
+            "executionId": "exec-0001",
+            "a": "2026-10-24T10:00:00Z"
+          }
+        ]
+      }
+    },
+    {
+      "nom": "paquet mixte refusé en entier",
+      "valide": false,
+      "cle": "c4:auto-run-1:a",
+      "corps": {
+        "evenements": [
+          {
+            "type": "debut",
+            "instanceId": "inst-0001",
+            "executionId": "exec-0001",
+            "a": "2026-10-24T10:00:00Z"
+          },
+          {
+            "type": "debut",
+            "instanceId": "inst-0101",
+            "executionId": "exec-0001",
+            "a": "2026-10-24T10:00:00Z"
+          }
+        ]
+      }
+    },
+    {
+      "nom": "signal de vie au nom d'une autre cellule",
+      "valide": false,
+      "cle": "c4:auto-run-1:a",
+      "corps": {
+        "evenements": [
+          {
+            "type": "signal_de_vie",
+            "instanceId": "inst-0001",
+            "celluleId": "auto-run-2",
+            "a": "2026-10-24T10:00:30Z"
+          }
+        ]
+      }
+    },
+    {
+      "nom": "clé qui n'est pas une clé de cellule",
+      "valide": false,
+      "cle": "cle-test-c1-console-a",
+      "corps": {
+        "evenements": [
+          {
+            "type": "debut",
+            "instanceId": "inst-0001",
+            "executionId": "exec-0001",
+            "a": "2026-10-24T10:00:00Z"
+          }
+        ]
+      }
+    }
+  ],
+  "lectures": [
+    {
+      "nom": "configuration de sa propre instance",
+      "valide": true,
+      "cle": "c4:auto-run-2:b",
+      "instanceId": "inst-0101"
+    },
+    {
+      "nom": "configuration d'une instance d'une autre cellule",
+      "valide": false,
+      "cle": "c4:auto-run-2:b",
+      "instanceId": "inst-0001"
+    }
+  ]
+}

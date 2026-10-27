@@ -9,6 +9,17 @@
       "horodatage": "1792800000",
       "methode": "POST",
       "chemin": "/api/console/v1/plans-recurrents",
+      "corps": "{\"axiCli\":\"AXI-CLI-000001\",\"referenceContratConsole\":\"contrat-0001\",\"montantHtCentimesParPeriode\":12345,\"periodeMois\":6,\"premiereEcheance\":\"2026-11-01\",\"engagementMois\":12}",
+      "signature": "v1=2c0a2758d166dc598c4c9ccd78d82032ffdaa49d96b4134f720769659502f04e"
+    },
+    {
+      "nom": "client absent",
+      "valide": false,
+      "cle": "cle-test-c1-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c1-console-a",
+      "horodatage": "1792800000",
+      "methode": "POST",
+      "chemin": "/api/console/v1/plans-recurrents",
       "corps": "{\"referenceContratConsole\":\"contrat-0001\",\"montantHtCentimesParPeriode\":12345,\"periodeMois\":6,\"premiereEcheance\":\"2026-11-01\",\"engagementMois\":12}",
       "signature": "v1=5f9a0e56831412cbd26738bae406fd6079605eff5e63e194b54e7b481aa5795a"
     },
@@ -20,8 +31,24 @@
       "horodatage": "1792800000",
       "methode": "POST",
       "chemin": "/api/console/v1/plans-recurrents",
-      "corps": "{\"referenceContratConsole\":\"contrat-0001\",\"montantHtCentimesParPeriode\":12345,\"periodeMois\":3,\"premiereEcheance\":\"2026-11-01\",\"engagementMois\":12}",
-      "signature": "v1=66c5290162bd0d32317b9d2bc526eaeb24fc9caa8a2caf1cda5ed785d9170485"
+      "corps": "{\"axiCli\":\"AXI-CLI-000001\",\"referenceContratConsole\":\"contrat-0001\",\"montantHtCentimesParPeriode\":12345,\"periodeMois\":3,\"premiereEcheance\":\"2026-11-01\",\"engagementMois\":12}",
+      "signature": "v1=ec9126d0ce1841d101835417680bf095b16fb5f42df852aa2fe73eb5004db948"
+    }
+  ],
+  "reponses": [
+    {
+      "statut": 201,
+      "nom": "plan",
+      "valide": true,
+      "corps": {
+        "idPlan": "plan-0001"
+      }
+    },
+    {
+      "statut": 201,
+      "nom": "plan absent",
+      "valide": false,
+      "corps": {}
     }
   ]
 }

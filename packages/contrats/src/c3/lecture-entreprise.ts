@@ -1,20 +1,21 @@
 import { z } from "zod";
-// Lecture d'une entreprise du CRM : GET /api/console/v1/entreprises?siren= ou ?siret= (exactement un des deux).
-export const CHEMIN_LECTURE = "/api/console/v1/entreprises";
-const luhn = (s: string) => {
-  let somme = 0;
-  [...s].reverse().forEach((c, i) => {
-    let d = Number(c);
-    if (i % 2 === 1 && (d *= 2) > 9) d -= 9;
-    somme += d;
-  });
-  return somme % 10 === 0;
-};
-// SIREN : 9 chiffres et contrôle de Luhn. SIRET : 14 chiffres.
-export const Siren = z.string().regex(/^[0-9]{9}$/).refine(luhn, "SIREN invalide");
-export const Siret = z.string().regex(/^[0-9]{14}$/);
-const Texte = z.string().min(1);
-export const Adresse = z.strictObject({ ligne1: Texte, ligne2: Texte.optional(), codePostal: Texte, ville: Texte, pays: z.literal("FR") });
+import { Adresse, Siren, Siret, Texte } from "../commun/identifiants.ts";
+import type { RouteContrat } from "../commun/routes.ts";
+
+// SIREN, SIRET et adresse : formes communes (src/commun/identifiants.ts), réexportées pour les appelants de C3.
+export { Adresse, Siren, Siret };
+
+// Routes de C3, signées (un secret par sens). Les événements poussés se dédoublonnent par event_id (ADR 0031).
+export const ROUTES_C3 = {
+  // Le CRM pousse vers l'API de la console.
+  crmVersConsole: { methode: "POST", chemin: "/api/crm/v1/evenements", limite: "c3_crm_vers_console", antiDoublon: "event_id" },
+  // La console pousse vers le CRM.
+  consoleVersCrm: { methode: "POST", chemin: "/api/console/v1/evenements", limite: "c3_console_vers_crm", antiDoublon: "event_id" },
+  // Lecture d'une entreprise du CRM : ?siren= ou ?siret= (exactement un des deux).
+  lecture: { methode: "GET", chemin: "/api/console/v1/entreprises", limite: "c3_lecture", antiDoublon: "lecture" },
+} as const satisfies Record<string, RouteContrat>;
+export const CHEMIN_LECTURE = ROUTES_C3.lecture.chemin;
+
 export const LectureRequete = z.union([z.strictObject({ siren: Siren }), z.strictObject({ siret: Siret })]);
 // Les champs foreign_id et external_ref du CRM ne font pas partie du contrat : le schéma strict les refuse.
 export const LectureReponse = z.strictObject({

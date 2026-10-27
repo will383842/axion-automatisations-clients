@@ -72,7 +72,12 @@ const ecrire = (tenant: string | null, entite: string, entiteId: string, nouvell
     : avecClient(app, tenant, (c) => c.query(AJOUTER, [tenant, opts?.acteur ?? "agent-essai", "insertion", entite, entiteId, null, JSON.stringify(nouvelle)]), opts);
 
 beforeAll(async () => {
+  try {
   await migrer({ url: `postgres://console_migration:${motDePasseDe("console_migration")}@${DIRECT.host}:${DIRECT.port}/console`, dossier: fileURLToPath(new URL("../../drizzle", import.meta.url)) });
+  } catch (e) {
+    writeSync(2, `ECHEC migrer : ${String((e as Error).message).slice(0, 900)}` + String.fromCharCode(10));
+    throw e;
+  }
 }, 120_000);
 afterAll(async () => {
   await migration.query(`DROP SCHEMA IF EXISTS ${SCHEMA_ESSAI} CASCADE`).catch(() => undefined);

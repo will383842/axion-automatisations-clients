@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { readFileSync, writeSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
@@ -161,8 +161,11 @@ beforeAll(garder(async () => {
   refB = (await cles().creerCleClient(B, { modelesPermis: ["claude-standard", "mistral-souverain"] })).reference;
   cleA = valeurs.get(refA) ?? "";
   cleB = valeurs.get(refB) ?? "";
-  jetonB = String(((JSON.parse((await appeler(MAITRE, "GET", `/key/info?key=${encodeURIComponent(cleB)}`)).texte) as { info?: { token?: string } }).info ?? {}).token ?? "");
-  expect(jetonB.length).toBeGreaterThan(10);
+  // Empreinte de la clé gardée par LiteLLM (SHA-256 hexadécimal de la clé) : c'est elle qui figure dans le journal de dépense.
+  jetonB = createHash("sha256").update(cleB).digest("hex");
+  const infoB = JSON.parse((await appeler(MAITRE, "GET", `/key/info?key=${encodeURIComponent(cleB)}`)).texte || "{}") as { key?: string; info?: Record<string, unknown> };
+  // Forme de la réponse (noms des champs seulement, jamais une valeur) : la lecture de consommation (consommation.ts) en dépend.
+  writeSync(2, `FORME /key/info : ${JSON.stringify(Object.keys(infoB))} info ${JSON.stringify(Object.keys(infoB.info ?? {}).sort())} ; empreinte = key : ${infoB.key === jetonB}, = info.token : ${infoB.info?.["token"] === jetonB}\n`);
   for (const [cle, modele] of [[cleA, "claude-standard"], [cleA, "claude-standard"], [cleB, "mistral-souverain"]] as const) {
     const r = await discuter(cle, modele, `bonjour ${MARQUEUR}`);
     if (r.statut !== 200) throw new Error(`appel d'essai refusé (${r.statut})`);

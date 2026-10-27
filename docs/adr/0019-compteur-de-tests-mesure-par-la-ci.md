@@ -19,3 +19,5 @@
 - Coût : installation de la base (`pnpm install --frozen-lockfile`, qui réutilise le magasin pnpm quand il le peut ; l'option `--offline` est retirée car elle a échoué en CI faute de paquet dans le magasin).
 - Hors de cet ADR : regroupement des workflows et mode « PR d'intégration » (PR à part).
 - L'accord de l'architecte reste à obtenir pour la partie contrats (CLAUDE.md §5).
+
+> Note (26/10/2026) : l'ensemble couvert par les empreintes change (fixtures de chaque contrat seulement, commun et C5 compris) et `contrats.sha256` revient comme sommaire : voir les ADR 0031 et 0032.

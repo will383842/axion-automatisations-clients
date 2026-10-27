@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 // C4 : l'exécuteur lit la configuration d'une instance, puis la garde en cache 24 h au plus.
+// Une instance n'est servie qu'à la cellule qui l'exécute (cellule.ts) : jamais les réglages d'un autre client.
 export const PREFIXE_C4 = "/api/executeur/v1";
 export const DUREE_CACHE_MAX_SECONDES = 86400;
 

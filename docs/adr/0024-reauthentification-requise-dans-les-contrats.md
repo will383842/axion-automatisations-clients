@@ -16,3 +16,5 @@ Ajouter `reauthentification_requise` (statut 401) à la liste des codes d'erreur
 ## Conséquences si accepté
 - Une PR de contrat ajoute le code et met à jour les empreintes de contrat (ADR 0019).
 - Si refusé, la réponse reprend un code existant et la console reconnaît la réauthentification par un autre signal.
+
+> Note (26/10/2026) : proposition acceptée par l'ADR 0031 ; le code est dans `packages/contrats/src/commun/erreurs.ts`.

@@ -2,7 +2,7 @@ import type { preHandlerAsyncHookHandler } from "fastify";
 import { refuser } from "./oidc.ts";
 
 // Réauthentification des actions sensibles (C-003) : connexion de moins de 5 minutes ET double facteur (acr « mfa »).
-// À placer APRÈS exigerJeton. Le code « reauthentification_requise » n'est pas encore dans packages/contrats : voir la description de la PR.
+// À placer APRÈS exigerJeton. Le code « reauthentification_requise » est un code du contrat (ADR 0024, accepté par l'ADR 0031).
 const AGE_MAX_SECONDES = 300;
 const TOLERANCE_HORLOGE_SECONDES = 5;
 const NIVEAU_DOUBLE_FACTEUR = "mfa";

@@ -99,7 +99,8 @@ describe("axion-dev", () => {
       req.on("end", () => {
         const corps = Buffer.concat(morceaux);
         const h = (n: string) => String(req.headers[n.toLowerCase()] ?? "");
-        const v = verifier(SECRET, h("X-Axion-Horodatage"), req.method ?? "", req.url ?? "", corps, h("X-Axion-Signature"), Math.floor(Date.now() / 1000));
+        const signee = { cle: h("X-Axion-Cle"), horodatage: h("X-Axion-Horodatage"), methode: req.method ?? "", chemin: req.url ?? "", corps, signature: h("X-Axion-Signature") };
+        const v = verifier([{ id: "recette", secret: SECRET }], signee, Math.floor(Date.now() / 1000), () => false);
         const { fichiers } = JSON.parse(corps.toString("utf8")) as { fichiers: Record<string, string> };
         recus.push({ cle: h("Idempotency-Key"), verdict: v.ok, fichiers: Object.keys(fichiers) });
         // Première tentative refusée en panne passagère : la reprise est re-signée avec la même Idempotency-Key.

@@ -88,11 +88,14 @@ const ROLES = `
   FROM pg_roles r`;
 
 // Index unique (clé primaire, UNIQUE, EXCLUDE, partiel ou sur expression compris) : porte-t-il tenant_id dans sa clé ?
-// `identite_generee` : clé d'une seule colonne en identité GENERATED ALWAYS (l'appelant ne peut pas la fournir).
+// Pour une contrainte EXCLUDE, l'opérateur appliqué à tenant_id doit être « = » : avec « <> » (btree_gist), l'erreur 23P01 reste un oracle.
+// `identite_generee` : clé d'une seule colonne en identité GENERATED ALWAYS, compteur global sans valeur métier (risque résiduel : INSERT … OVERRIDING SYSTEM VALUE, ADR 0040).
 const UNIQUES = `
   SELECT i.indrelid::int AS oid, ic.relname AS "index", i.indisprimary AS primaire,
     EXISTS (SELECT 1 FROM generate_series(0, i.indnkeyatts - 1) s JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = i.indkey[s]
-            WHERE a.attname = 'tenant_id') AS porte_tenant,
+            WHERE a.attname = 'tenant_id'
+              AND (NOT i.indisexclusion OR EXISTS (SELECT 1 FROM pg_constraint c JOIN pg_operator o ON o.oid = c.conexclop[s + 1]
+                                                   WHERE c.conindid = i.indexrelid AND c.contype = 'x' AND o.oprname = '='))) AS porte_tenant,
     (i.indnkeyatts = 1 AND EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = i.indrelid AND a.attnum = i.indkey[0] AND a.attidentity = 'a')) AS identite_generee
   FROM pg_index i JOIN pg_class ic ON ic.oid = i.indexrelid
   WHERE i.indisunique OR i.indisexclusion`;

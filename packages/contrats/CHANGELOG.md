@@ -3,7 +3,7 @@
 Une entrée par version, par contrat. Procédure : `README.md` et ADR 0032.
 
 ## 2026-10-27 · c5 0.4.0 (ouverture du lot 2, ADR 0040)
-- Règle `unicite_sans_tenant` : tout index unique d'une table à `tenant_id` porte `tenant_id` (seule exemption : clé primaire en identité `GENERATED ALWAYS`). Liste `EXCEPTIONS_UNICITE` fermée et vide.
+- Règle `unicite_sans_tenant` : tout index unique d'une table à `tenant_id` porte `tenant_id` (seule exemption : clé primaire en identité `GENERATED ALWAYS` ; une contrainte EXCLUDE doit appliquer `=` à `tenant_id`). Liste `EXCEPTIONS_UNICITE` fermée et vide.
 - Règle `etrangere_sans_tenant` : une clé étrangère entre deux tables à `tenant_id` lie `tenant_id` à `tenant_id`.
 - `TENANT_FACULTATIF` (`public.journal_audit`) : seule table où `tenant_id` peut être NULL. Les deux règles s'ajoutent à la fin de `REGLES_C5`. Rétrécissement (0.x) : un schéma qui passait peut maintenant être signalé.
 

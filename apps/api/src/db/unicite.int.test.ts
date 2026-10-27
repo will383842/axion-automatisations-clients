@@ -112,10 +112,9 @@ describe("règles C5 d'unicité et de clés étrangères sur le vrai PostgreSQL"
   // btree_gist permet l'opérateur « différent » sur uuid : EXCLUDE (tenant_id WITH <>, ressource WITH =) est un oracle (23P01) bien que tenant_id soit dans la clé.
   it("[A-163] @isolation une contrainte EXCLUDE dont l'opérateur sur tenant_id n'est pas « = » est signalée, celle avec « = » est acceptée", async () => {
     await migration.query(`CREATE EXTENSION IF NOT EXISTS btree_gist SCHEMA ${SCHEMA}`);
-    await migration.query(`SET search_path = ${SCHEMA}, public; ${table("c_exclu_ko", `${IDENTITE}, ressource text NOT NULL, EXCLUDE USING gist (tenant_id WITH <>, ressource WITH =)`)}
+    await migration.query(`${table("c_exclu_ko", `${IDENTITE}, ressource text NOT NULL, EXCLUDE USING gist (tenant_id WITH <>, ressource WITH =)`)}
       ${table("c_exclu_ok", `${IDENTITE}, ressource text NOT NULL, EXCLUDE USING gist (tenant_id WITH =, ressource WITH =)`)}`);
     const trouves = await ecarts();
-    await migration.query("RESET search_path");
     expect(trouves).toEqual([`unicite_sans_tenant ${SCHEMA}.c_exclu_ko.c_exclu_ko_tenant_id_ressource_excl`]);
     await migration.query(`DROP TABLE ${SCHEMA}.c_exclu_ko, ${SCHEMA}.c_exclu_ok`);
   });

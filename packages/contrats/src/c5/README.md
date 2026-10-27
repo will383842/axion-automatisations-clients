@@ -18,7 +18,7 @@ organisations, contacts, abonnements, instances, configurations, connexions (ré
 - Le rôle de l'application ne possède aucune table, et n'est ni superutilisateur ni BYPASSRLS.
 - Une base `cli_%` n'est pas ouverte à `PUBLIC` (droit CONNECT).
 - Un rôle par client : aucun rôle (hors superutilisateur et rôles d'administration nommés exactement par `rolesAdministration`, vide par défaut) n'a CONNECT sur plus d'une base `cli_%` (`base_cli_partagee`).
-- Unicité (`unicite_sans_tenant`) : tout index unique d'une table à `tenant_id` (clé primaire, UNIQUE, EXCLUDE, partiel, sur expression) porte `tenant_id`. Seule exemption : la clé primaire d'une seule colonne en identité `GENERATED ALWAYS`. Liste d'exceptions `EXCEPTIONS_UNICITE` fermée et vide.
+- Unicité (`unicite_sans_tenant`) : tout index unique d'une table à `tenant_id` (clé primaire, UNIQUE, EXCLUDE, partiel, sur expression) porte `tenant_id`. Seule exemption : la clé primaire d'une seule colonne en identité `GENERATED ALWAYS` (compteur sans valeur métier, ADR 0040). Une contrainte EXCLUDE doit appliquer `=` à `tenant_id`. Liste d'exceptions `EXCEPTIONS_UNICITE` fermée et vide.
 - Clés étrangères (`etrangere_sans_tenant`) : entre deux tables à `tenant_id`, la clé lie `tenant_id` à `tenant_id`. Seule table à `tenant_id` facultatif : `public.journal_audit` (`TENANT_FACULTATIF`) ; RLS, FORCE et index restent exigés.
 - Journal d'audit : déclencheurs actifs (origine ou toujours, pas « réplique ») qui refusent UPDATE, DELETE et TRUNCATE (ajout seul).
 - Argent en entiers (`%_centimes`), jamais en `numeric`, `real` ou `double`.

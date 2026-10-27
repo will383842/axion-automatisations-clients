@@ -32,8 +32,8 @@ const CONFORME = `
   CREATE TRIGGER journal_ajout_seul_tronque BEFORE TRUNCATE ON journal_audit FOR EACH STATEMENT EXECUTE FUNCTION refuser_modif();
 `;
 const TENANT = "tenant_id = current_setting('app.tenant_id')::uuid";
-const NOTES = "CREATE TABLE notes (id bigint PRIMARY KEY, tenant_id uuid NOT NULL); CREATE INDEX n_t ON notes (tenant_id); ALTER TABLE notes ENABLE ROW LEVEL SECURITY; ALTER TABLE notes FORCE ROW LEVEL SECURITY;";
-const EXECUTIONS = `CREATE TABLE executions (id bigint, tenant_id uuid NOT NULL, cree_le date NOT NULL, PRIMARY KEY (id, cree_le)) PARTITION BY RANGE (cree_le);
+const NOTES = "CREATE TABLE notes (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, tenant_id uuid NOT NULL); CREATE INDEX n_t ON notes (tenant_id); ALTER TABLE notes ENABLE ROW LEVEL SECURITY; ALTER TABLE notes FORCE ROW LEVEL SECURITY;";
+const EXECUTIONS = `CREATE TABLE executions (id bigint, tenant_id uuid NOT NULL, cree_le date NOT NULL, PRIMARY KEY (tenant_id, id, cree_le)) PARTITION BY RANGE (cree_le);
   CREATE INDEX executions_tenant ON executions (tenant_id, id);
   ALTER TABLE executions ENABLE ROW LEVEL SECURITY; ALTER TABLE executions FORCE ROW LEVEL SECURITY;
   CREATE POLICY isolation ON executions USING (${TENANT});`;
@@ -214,7 +214,7 @@ describe.skipIf(!URL_PG)("C5 invariants du schéma", () => { // fiche: T0-16
   });
 
   it("[C-536] un index qui ne commence pas par tenant_id (INCLUDE, expression, partiel) est signalé", async () => {
-    const base = "(id bigint PRIMARY KEY, tenant_id uuid NOT NULL)";
+    const base = "(id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, tenant_id uuid NOT NULL)";
     const regime = (t: string) => `ALTER TABLE ${t} ENABLE ROW LEVEL SECURITY; ALTER TABLE ${t} FORCE ROW LEVEL SECURITY; CREATE POLICY p ON ${t} USING (${TENANT});`;
     for (const [nom, index] of [["inc", "(id) INCLUDE (tenant_id)"], ["expr", "(lower(tenant_id::text))"], ["part", "(tenant_id) WHERE id > 0"], ["autre", "(id, tenant_id)"]] as const) {
       await avec(`idx_${nom}`, `CREATE TABLE notes ${base}; CREATE INDEX n_t ON notes ${index}; ${regime("notes")}`,

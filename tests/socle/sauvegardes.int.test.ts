@@ -1,8 +1,9 @@
 import { spawnSync } from "node:child_process";
+import { writeSync } from "node:fs";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 // Tests contre le socle lancé par ops/socle/lancer.sh (job socle-integration), avec ops/socle/compose.sauvegardes.yml.
 // Tout se passe sur des conteneurs jetables : la cible SFTP d'essai imite la Storage Box (l'« ajout seul » ne s'y prouve pas, lot 1-B).
@@ -41,9 +42,17 @@ beforeAll(() => {
     dans("postgres", "/opt/sauvegardes/sauvegarder-nuit.sh");
   } catch (e) {
     const journal = spawnSync("docker", ["exec", conteneur("postgres"), "sh", "-c", "tail -n 60 /var/log/pgbackrest/*.log 2>&1"], { encoding: "utf8" }).stdout;
-    throw new Error(`${String(e)}\n--- journal pgBackRest\n${journal}`);
+    const detail = `${String(e)}\n--- journal pgBackRest\n${journal}`;
+    writeSync(2, `ECHEC beforeAll\n${detail}\n`);
+    throw new Error(detail);
   }
 }, 240_000);
+
+// Le job lance Vitest avec le seul rapport JSON : un échec n'y est pas lisible. On l'écrit donc sur la sortie d'erreur du processus (descripteur 2).
+afterEach((ctx) => {
+  const erreurs = ctx.task.result?.errors ?? [];
+  if (ctx.task.result?.state === "fail") writeSync(2, `ECHEC ${ctx.task.name}\n${erreurs.map((e) => e.message).join("\n")}\n`);
+});
 
 afterAll(() => {
   if (restaure) spawnSync("docker", ["rm", "-f", "-v", restaure]);

@@ -1,12 +1,19 @@
+import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { calculerEmpreintes, calculerSommaire } from "../scripts/empreinte.ts";
+import { calculerEmpreinteArchive, calculerEmpreintes, calculerSommaire } from "../scripts/empreinte.ts";
 import { CELLULES, CLES_TEST, constantes, schemasJson } from "../scripts/signer-fixtures.ts";
 import { CONTRATS, CONTRATS_GELES, lireVersions } from "../scripts/versions.ts";
 import { CONTROLES_ARCHIVE } from "./archives.ts";
 import { Fait } from "./c2/faits.ts";
 import { PREFIXE_C1, ROUTES_C1, type RouteC1 } from "./c1/routes.ts";
-import { verifier } from "./commun/signature.ts";
+import { LIMITES_DEBIT, RETRY_AFTER_MAX_SECONDES } from "./commun/debit.ts";
+import { PERIODE_MAX_MOIS } from "./commun/identifiants.ts";
+import { TVA_AUTOMATISATION_BPS } from "./commun/argent.ts";
+import { ANTI_REJEU_SECONDES, FENETRE_SECONDES, verifier } from "./commun/signature.ts";
+
+// SHA-256 de empreintes/gelees-1.0.0.sha256, recopié dans l'ADR 0033. Ne change qu'avec une v2 (ADR).
+const SHA256_ARCHIVE_1_0_0 = "A_REMPLIR";
 
 const racine = new URL("../", import.meta.url);
 const lire = (p: string) => readFileSync(new URL(p, racine), "utf8");
@@ -24,7 +31,7 @@ describe("fixtures signées", () => {
   it("[C-538] une empreinte par contrat, commun et C5 compris, chaque fichier d'empreintes correspond aux fixtures de son contrat", () => {
     const attendu = calculerEmpreintes(racine.pathname);
     expect(Object.keys(attendu)).toEqual(["commun", "c1", "c2", "c3", "c4", "c5", "c6"]);
-    expect(readdirSync(new URL("empreintes/", racine)).sort()).toEqual(Object.keys(attendu).map((c) => `${c}.sha256`).sort());
+    expect(readdirSync(new URL("empreintes/", racine)).sort()).toEqual([...Object.keys(attendu).map((c) => `${c}.sha256`), "gelees-1.0.0.sha256"].sort());
     for (const [c, texte] of Object.entries(attendu)) {
       expect(texte, c).not.toBe("");
       expect(lire(`empreintes/${c}.sha256`), c).toBe(texte);
@@ -138,6 +145,35 @@ describe("fixtures signées", () => {
       }
     }
     if (versions.length > 0) expect(vus).toBeGreaterThan(60);
+  });
+
+  it("[C-538] l'archive 1.0.0 ne change jamais : une empreinte par fichier archivé, scellée par une constante (ADR 0033) et par contrats.sha256", () => {
+    const texte = calculerEmpreinteArchive(racine.pathname, "1.0.0");
+    const fichiers = texte.trimEnd().split("\n").map((l) => l.slice(66));
+    expect(fichiers.length).toBeGreaterThan(30);
+    expect(fichiers).toEqual([...fichiers].sort());
+    expect(fichiers.every((f) => f.startsWith("fixtures-gelees/1.0.0/"))).toBe(true);
+    expect(lire("empreintes/gelees-1.0.0.sha256")).toBe(texte);
+    expect(lire("contrats.sha256")).toMatch(/  empreintes\/gelees-1\.0\.0\.sha256\n/);
+    expect(createHash("sha256").update(texte).digest("hex")).toBe(SHA256_ARCHIVE_1_0_0);
+    expect(lire("../../docs/adr/0033-gel-des-contrats-en-1-0-0.md")).toContain(SHA256_ARCHIVE_1_0_0);
+  });
+
+  it("[C-538] les constantes de comportement de commun ne se rétrécissent pas : égalité pour la fenêtre, l'anti-rejeu, la TVA et le curseur ; jamais moins pour la période, Retry-After et le débit", () => {
+    const k = JSON.parse(lire("fixtures/commun/constantes.json")) as Record<string, unknown> & { limitesDebit: Record<string, { parMinute: number }> };
+    const ok = (archive: object) => CONTROLES_ARCHIVE.commun?.("constantes.json", archive).every(([, bon]) => bon);
+    expect(ok(k)).toBe(true);
+    expect(ok({ ...k, fenetreSecondes: FENETRE_SECONDES + 1 })).toBe(false);
+    expect(ok({ ...k, fenetreSecondes: FENETRE_SECONDES - 1 })).toBe(false);
+    expect(ok({ ...k, antiRejeuSecondes: ANTI_REJEU_SECONDES + 1 })).toBe(false);
+    expect(ok({ ...k, tvaAutomatisationBps: TVA_AUTOMATISATION_BPS + 1 })).toBe(false);
+    expect(ok({ ...k, curseurInitial: "1" })).toBe(false);
+    expect(ok({ ...k, periodeMaxMois: PERIODE_MAX_MOIS + 1 })).toBe(false);
+    expect(ok({ ...k, periodeMaxMois: PERIODE_MAX_MOIS - 1 })).toBe(true);
+    expect(ok({ ...k, retryAfterMaxSecondes: RETRY_AFTER_MAX_SECONDES + 1 })).toBe(false);
+    const c1 = k.limitesDebit.c1 as { parMinute: number };
+    expect(ok({ ...k, limitesDebit: { ...k.limitesDebit, c1: { ...c1, parMinute: LIMITES_DEBIT.c1.parMinute + 1 } } })).toBe(false);
+    expect(ok({ ...k, limitesDebit: { ...k.limitesDebit, c_retire: c1 } })).toBe(false);
   });
 
   it("[C-538] le contrôle d'archive refuse un exemple valide devenu invalide, dans chaque contrat gelé", () => {

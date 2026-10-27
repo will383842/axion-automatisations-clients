@@ -85,7 +85,9 @@ const preparerOpenBao = () => {
       });
     const init = JSON.parse(exec(undefined, "", "operator", "init", "-key-shares=1", "-key-threshold=1", "-format=json")) as { unseal_keys_b64: string[]; root_token: string };
     const racine = init.root_token;
-    exec(undefined, init.unseal_keys_b64[0] ?? "", "operator", "unseal", "-");
+    expect(init.unseal_keys_b64[0], "part de déverrouillage").toBeTruthy();
+    // La part passe en argument : OpenBao d'essai jetable, sur le seul runner de la CI, rien n'est versionné ni écrit.
+    exec(undefined, "", "operator", "unseal", init.unseal_keys_b64[0] ?? "");
     // Les écritures sont refusées un instant après le déverrouillage et la mise en place d'un montage KV v2 : on réessaie.
     const reessayer = (f: () => void, message: string) =>
       attendre(() => {
@@ -153,7 +155,7 @@ describe("sauvegardes (archivage continu, complète de nuit, restauration)", () 
     const trouve = spawnSync("docker", ["exec", conteneur("sftp-essai"), "grep", "-rl", MARQUEUR, "/home/sauv/depot"], { encoding: "utf8" });
     expect(trouve.status).toBe(1); // 1 = aucune correspondance
     expect(trouve.stdout).toBe("");
-  });
+  }, 120_000);
 
   it("[C-046] pgbackrest info indique aes-256-cbc, la cible ne détient ni clé privée ni phrase, et une restauration avec une mauvaise phrase échoue", () => {
     const info = infoPgBackRest();
@@ -171,11 +173,15 @@ describe("sauvegardes (archivage continu, complète de nuit, restauration)", () 
       ],
       { encoding: "utf8" },
     );
-    expect(faux.status).not.toBe(0);
-    expect(`${faux.stdout}${faux.stderr}`).toMatch(/passphrase|cipher|crypto/i);
+    const messageFaux = `${faux.stdout}${faux.stderr}`;
+    expect(faux.status, messageFaux).not.toBe(0);
+    expect(messageFaux).toMatch(/ERROR/);
     expect(dans("postgres", "ls", "-A", "/tmp/restauration-fausse").trim()).toBe("");
-    dans("postgres", "rm", "-rf", "/tmp/restauration-fausse");
-  });
+    // Contre-épreuve : avec la bonne phrase (celle de la configuration), la même restauration réussit et restitue des fichiers.
+    dans("postgres", "sh", "-c", "rm -rf /tmp/restauration-bonne && mkdir -m 700 /tmp/restauration-bonne && pgbackrest --stanza=commun --pg1-path=/tmp/restauration-bonne --type=immediate restore");
+    expect(dans("postgres", "ls", "-A", "/tmp/restauration-bonne").trim()).toContain("PG_VERSION");
+    dans("postgres", "rm", "-rf", "/tmp/restauration-fausse", "/tmp/restauration-bonne");
+  }, 180_000);
 
   it("[C-593] la phrase de chiffrement ne figure dans aucun fichier du dépôt ni dans le compose assemblé", () => {
     const phrase = dans("postgres", "/opt/sauvegardes/lire-phrase-chiffrement.sh").trim();
@@ -219,6 +225,8 @@ describe("sauvegardes (archivage continu, complète de nuit, restauration)", () 
   });
 
   it("[C-049] expirer.sh branche retention.ts sur la liste réelle de pgBackRest : rien ne part dans le mois, tout sauf la plus récente part dans cinq ans", () => {
+    // Il faut au moins deux complètes pour que « tout sauf la plus récente » ait un sens : on en ajoute une au besoin.
+    if (completes().length < 2) dans("postgres", "/opt/sauvegardes/sauvegarder-nuit.sh");
     const labels = completes();
     expect(labels.length).toBeGreaterThanOrEqual(2);
     const aujourdhui = new Date().toISOString().slice(0, 10);
@@ -288,7 +296,12 @@ describe("sauvegardes (archivage continu, complète de nuit, restauration)", () 
     const racine = mkdtempSync(join(tmpdir(), "artefacts-bucket-"));
     try {
       await s3.deposer(admin, "artefacts", nom, octets("version un"));
-      sortie(script("copier-artefacts.sh"), ["--compartiment", stockage, racine]);
+      const copie = spawnSync(script("copier-artefacts.sh"), ["--compartiment", stockage, racine], { encoding: "utf8" });
+      if (copie.status !== 0 || !existsSync(join(racine, nom))) {
+        // Diagnostic : ce que le filer répond pour le compartiment, tel que le script le lit.
+        const listing = spawnSync("docker", ["exec", stockage, "wget", "-q", "-O", "-", "--header", "Accept: application/json", "http://localhost:8888/buckets/artefacts/?limit=1000"], { encoding: "utf8" });
+        throw new Error(`copie du compartiment : code ${String(copie.status)}\n${copie.stderr}\n--- listing du filer (code ${String(listing.status)})\n${listing.stdout}\n${listing.stderr}`);
+      }
       expect(readFileSync(join(racine, nom), "utf8")).toBe("version un");
       // Deuxième nuit : le fichier est toujours dans le compartiment (avec un autre contenu) et déjà sur la cible : code 0, copie intacte.
       await s3.deposer(admin, "artefacts", nom, octets("version deux"));

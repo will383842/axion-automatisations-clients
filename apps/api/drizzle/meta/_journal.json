@@ -1,0 +1,20 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1793101632190,
+      "tag": "0000_journal_audit",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1793101638646,
+      "tag": "0001_journal_audit_fonctions",
+      "breakpoints": true
+    }
+  ]
+}

@@ -1,20 +1,25 @@
 # Sauvegardes (T1A-14) : redéfinit le service postgres de compose.postgres.yml (fusion des fichiers, ordre alphabétique) avec l'image pgBackRest et l'archivage,
 # et ajoute une cible SFTP d'essai qui imite la Storage Box. Réseau interne seulement. Clé SSH et phrase d'essai : générées au lancement, dans un volume jetable.
+# La cible d'essai ne reçoit QUE la clé publique (volume cle-publique) : ni la clé privée ni la phrase ne sont montées chez elle (chiffré avant départ, C-046).
 services:
   postgres:
     image: ghcr.io/will383842/axion-automatisations-clients/postgres-sauvegardes-pitr:16-r41-r75@sha256:05c30a0b3fbdb098f11f0a843fd1e61ce5c2f0726dca84840d68fe92c37f453a
     environment:
       SAUVEGARDE_ESSAI: "1"
-      PGBACKREST_CONFIG: /tmp/pgbackrest.conf
+      # La configuration (avec la phrase lue UNE fois au démarrage) vit en mémoire, droits 0400 : archive_command n'appelle jamais OpenBao
+      PGBACKREST_CONFIG: /dev/shm/pgbackrest.conf
       PGBACKREST_STANZA: commun
+      # Essai seulement : pas de compression, pour que la recherche du marqueur en clair (C-046) ait un sens
+      PGBACKREST_COMPRESS_TYPE: none
       # P : réglages d'archivage (archive_timeout = 300 s : un journal part au plus toutes les 5 minutes, perte sous 15 minutes)
       P: -c archive_mode=on -c archive_timeout=300 -c wal_level=replica
-      # L : lecture de la phrase (le motif évite d'écrire un nom de fichier que la garde prendrait pour un domaine) · C : phrase lue à l'usage · D : archivage · Q : configuration
-      L: /opt/sauvegardes/lire-phrase-*
-      C: archive_command=PGBACKREST_REPO1_CIPHER_PASS=$$($$L)
-      D: pgbackrest archive-push %p
-      Q: cp /opt/sauvegardes/pgbackrest.conf.* $$PGBACKREST_CONFIG
-    entrypoint: ['sh', '-c', 'eval "$$Q;$$G"; exec docker-entrypoint.$$X postgres $$P -c "$$C $$D"']
+      # L : préparation (le motif évite d'écrire un nom de fichier que la garde prendrait pour un domaine ; un seul fichier doit correspondre)
+      # R : prépare la configuration, ou le conteneur ne démarre pas · C : archivage · E : démarrage du serveur
+      L: /opt/sauvegardes/preparer-conf*
+      R: set -- $$L; [ $$# -eq 1 ] && "$$1" && eval "$$G"
+      C: archive_command=pgbackrest archive-push %p
+      E: exec docker-entrypoint.$$X postgres $$P -c "$$C"
+    entrypoint: ['sh', '-c', 'eval "$$R" && eval "$$E"']
     volumes:
       - ../sauvegardes:/opt/sauvegardes:ro
       - cles-sauvegarde:/cles:ro
@@ -26,17 +31,21 @@ services:
     image: ghcr.io/will383842/axion-automatisations-clients/postgres-sauvegardes-pitr:16-r41-r75@sha256:05c30a0b3fbdb098f11f0a843fd1e61ce5c2f0726dca84840d68fe92c37f453a
     restart: "no"
     user: "0:0"
+    # K : clé SSH · F : phrase (32 octets aléatoires) · E : droits (clé et phrase lisibles par postgres seul) · D : la clé publique seule va à la cible
     environment:
       K: ssh-keygen -q -t ed25519 -N "" -f /cles/id
-      F: openssl rand -hex 24 >/cles/phrase
-      D: chmod 644 /cles/id /cles/phrase; chown 1001:100 /depot
-    entrypoint: ['sh', '-c', 'eval "$$K" && eval "$$F" && eval "$$D" && exec sleep infinity']
+      F: openssl rand -hex 32 >/cles/phrase
+      E: chown postgres:postgres /cles /cles/id /cles/phrase
+      H: chmod 700 /cles /pub && chmod 600 /cles/id /cles/phrase
+      D: cp /cles/id.p* /pub/ && chmod 600 /pub/* && chown 1001:100 /depot
+    entrypoint: ['sh', '-c', 'eval "$$K&&$$F&&$$E&&$$H&&$$D" && exec sleep infinity']
     volumes:
       - cles-sauvegarde:/cles
+      - cle-publique:/pub
       - depot-sauvegardes:/depot
     networks: [interne]
     healthcheck:
-      test: ["CMD-SHELL", "test -s /cles/phrase"]
+      test: ["CMD-SHELL", "test -s /cles/phrase && test -s /pub/id.p*"]
       interval: 2s
       timeout: 3s
       retries: 30
@@ -48,9 +57,10 @@ services:
       cle-essai:
         condition: service_healthy
     volumes:
-      - cles-sauvegarde:/home/sauv/.ssh/keys:ro
+      - cle-publique:/home/sauv/.ssh/keys:ro
       - depot-sauvegardes:/home/sauv/depot
     networks: [interne]
 volumes:
   cles-sauvegarde: {}
+  cle-publique: {}
   depot-sauvegardes: {}

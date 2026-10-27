@@ -1,5 +1,5 @@
-# Modèle de configuration pgBackRest (C-045, C-046, C-049). Aucun secret ici : la phrase de chiffrement arrive par l'environnement
-# du processus (PGBACKREST_REPO1_CIPHER_PASS), lue dans OpenBao au moment de l'usage par lire-phrase-chiffrement.sh (C-593).
+# Modèle de configuration pgBackRest (C-045, C-046, C-049). Aucun secret ici : la phrase de chiffrement est lue dans OpenBao UNE FOIS
+# au démarrage du conteneur par preparer-configuration.sh, qui l'ajoute à une copie de ce modèle en mémoire (tmpfs, droits 0400, C-593).
 # Les valeurs repo1-sftp-* sont celles de la cible d'essai ; au lot 1-B elles désignent le sous-compte dédié de la Storage Box.
 [global]
 repo1-type=sftp
@@ -7,14 +7,17 @@ repo1-path=/depot
 repo1-sftp-host=sftp-essai
 repo1-sftp-host-user=sauv
 repo1-sftp-private-key-file=/cles/id
+# ESSAI SEULEMENT : au lot 1-B, « fingerprint » (empreinte de l'hôte épinglée) ; « none » hors essai est refusé par preparer-configuration.sh.
 repo1-sftp-host-key-check-type=none
 repo1-sftp-host-key-hash-type=sha256
 repo1-cipher-type=aes-256-cbc
-# Rétention (C-049), choix documenté : 30 sauvegardes complètes (les quotidiennes) dans ce dépôt ;
-# les 12 mensuelles vont dans un second dépôt (repo2, 1 sauvegarde par mois, 12 gardées) branché au lot 1-B.
-# retention.ts est le calcul de référence, vérifié par ses tests.
+# Rétention (C-049) : PAS de rétention automatique de pgBackRest (9999 complètes). L'expiration est pilotée par retention.ts
+# (30 quotidiennes + 12 mensuelles) : expirer.sh lui passe la liste des sauvegardes et fait expirer exactement ce qu'il désigne.
+# Les journaux (WAL) restent bornés : ceux des 30 dernières complètes, plus ce que les complètes gardées exigent pour être cohérentes.
 repo1-retention-full-type=count
-repo1-retention-full=30
+repo1-retention-full=9999
+repo1-retention-archive-type=full
+repo1-retention-archive=30
 start-fast=y
 
 [commun]

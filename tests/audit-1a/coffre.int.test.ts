@@ -33,6 +33,13 @@ const TECHNIQUE = marqueur("technique");
 // Le job ne montre pas le rapport JSON : chaque échec et le bilan du fichier vont sur la sortie d'erreur (jamais une valeur secrète).
 const FICHIER = import.meta.url.split("/").pop() ?? "";
 const bilan = { verts: 0, rouges: 0, attendus: 0 };
+// Une erreur hors de tout test (socket, minuterie) fait échouer le job sans nommer de test : on la nomme (nom et code, jamais le message).
+for (const evenement of ["uncaughtException", "unhandledRejection"] as const) {
+  process.on(evenement, (e: unknown) => {
+    const err = e instanceof Error ? e : new Error(typeof e);
+    writeSync(2, `ERREUR NON GEREE ${FICHIER} (${evenement}) : ${err.name} ${(err as { code?: string }).code ?? ""} ${(err.stack ?? "").split("\n").filter((l) => l.includes("audit-1a")).slice(0, 2).map((l) => l.trim()).join(" | ")}\n`);
+  });
+}
 afterEach((ctx) => {
   const r = ctx.task.result;
   const rouge = r?.state === "fail";

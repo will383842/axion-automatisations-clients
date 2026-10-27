@@ -1,0 +1,17 @@
+{
+  "nom": "sans_corps",
+  "echanges": [
+    {
+      "methode": "GET",
+      "chemin": "/gmail/v1/users/me/messages/m-1",
+      "statut": 200,
+      "corps": {
+        "id": "m-1",
+        "payload": {
+          "mimeType": "multipart/alternative",
+          "parts": []
+        }
+      }
+    }
+  ]
+}

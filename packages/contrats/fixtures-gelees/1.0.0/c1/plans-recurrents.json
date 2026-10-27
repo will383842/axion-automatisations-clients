@@ -1,0 +1,76 @@
+{
+  "route": "plans-recurrents",
+  "cas": [
+    {
+      "nom": "valide",
+      "valide": true,
+      "cle": "cle-test-c1-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c1-console-a",
+      "horodatage": "1792800000",
+      "methode": "POST",
+      "chemin": "/api/console/v1/plans-recurrents",
+      "corps": "{\"axiCli\":\"AXI-CLI-000001\",\"codeAutomatisation\":\"tri-courriels\",\"referenceAbonnementConsole\":\"abonnement-0001\",\"referenceContratConsole\":\"contrat-0001\",\"montantHtCentimesParPeriode\":12345,\"periodeMois\":6,\"premiereEcheance\":\"2026-11-01\",\"engagementMois\":12}",
+      "signature": "v1=07cd885517dad0befba288d31849dce1c78d7152f305be2b6ab54d406c50c2ff"
+    },
+    {
+      "nom": "client absent",
+      "valide": false,
+      "cle": "cle-test-c1-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c1-console-a",
+      "horodatage": "1792800000",
+      "methode": "POST",
+      "chemin": "/api/console/v1/plans-recurrents",
+      "corps": "{\"codeAutomatisation\":\"tri-courriels\",\"referenceAbonnementConsole\":\"abonnement-0001\",\"referenceContratConsole\":\"contrat-0001\",\"montantHtCentimesParPeriode\":12345,\"periodeMois\":6,\"premiereEcheance\":\"2026-11-01\",\"engagementMois\":12}",
+      "signature": "v1=5620c3938ee11997f04c4932d16ab3de54ae44263eff009d6b2abecc4f974608"
+    },
+    {
+      "nom": "automatisation absente",
+      "valide": false,
+      "cle": "cle-test-c1-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c1-console-a",
+      "horodatage": "1792800000",
+      "methode": "POST",
+      "chemin": "/api/console/v1/plans-recurrents",
+      "corps": "{\"axiCli\":\"AXI-CLI-000001\",\"referenceAbonnementConsole\":\"abonnement-0001\",\"referenceContratConsole\":\"contrat-0001\",\"montantHtCentimesParPeriode\":12345,\"periodeMois\":6,\"premiereEcheance\":\"2026-11-01\",\"engagementMois\":12}",
+      "signature": "v1=02eba8ca6417cd1b06e53cb3da55e181ea3c1df1fc891761aca00725620aa9a7"
+    },
+    {
+      "nom": "abonnement absent",
+      "valide": false,
+      "cle": "cle-test-c1-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c1-console-a",
+      "horodatage": "1792800000",
+      "methode": "POST",
+      "chemin": "/api/console/v1/plans-recurrents",
+      "corps": "{\"axiCli\":\"AXI-CLI-000001\",\"codeAutomatisation\":\"tri-courriels\",\"referenceContratConsole\":\"contrat-0001\",\"montantHtCentimesParPeriode\":12345,\"periodeMois\":6,\"premiereEcheance\":\"2026-11-01\",\"engagementMois\":12}",
+      "signature": "v1=7b50f41a1ec128311a19d0216ba9a4f5fba4c8971a0fbfec93d403368f44c2bf"
+    },
+    {
+      "nom": "période de 3 mois",
+      "valide": false,
+      "cle": "cle-test-c1-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c1-console-a",
+      "horodatage": "1792800000",
+      "methode": "POST",
+      "chemin": "/api/console/v1/plans-recurrents",
+      "corps": "{\"axiCli\":\"AXI-CLI-000001\",\"codeAutomatisation\":\"tri-courriels\",\"referenceAbonnementConsole\":\"abonnement-0001\",\"referenceContratConsole\":\"contrat-0001\",\"montantHtCentimesParPeriode\":12345,\"periodeMois\":3,\"premiereEcheance\":\"2026-11-01\",\"engagementMois\":12}",
+      "signature": "v1=155a66190bc04d3610fdc4c3fdaaa3ba1aae4701060ee00972a9c3c4f5da3053"
+    }
+  ],
+  "reponses": [
+    {
+      "statut": 201,
+      "nom": "plan",
+      "valide": true,
+      "corps": {
+        "idPlan": "plan-0001"
+      }
+    },
+    {
+      "statut": 201,
+      "nom": "plan absent",
+      "valide": false,
+      "corps": {}
+    }
+  ]
+}

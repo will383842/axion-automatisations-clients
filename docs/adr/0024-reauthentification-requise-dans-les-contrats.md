@@ -1,6 +1,6 @@
 # 0024 · Le code d'erreur `reauthentification_requise` dans `packages/contrats`
 
-Date : 26/10/2026 · Statut : **proposé** (en attente de l'accord de l'architecte ; aucun contrat n'est modifié par cette PR)
+Date : 26/10/2026 · Statut : **accepté** (ADR 0031 ; le code est entré dans la liste fermée de `packages/contrats`, gelée en 1.0.0 par l'ADR 0033)
 
 ## Contexte
 Une action sensible (secrets, publication d'une version, remboursement) exige une connexion de moins de 5 minutes avec double facteur (C-003). Le crochet `apps/api/src/auth/exiger-reauthentification.ts` répond alors `401` avec le code `reauthentification_requise`, et la console renvoie vers Keycloak avec `max_age=0`.
@@ -16,3 +16,5 @@ Ajouter `reauthentification_requise` (statut 401) à la liste des codes d'erreur
 ## Conséquences si accepté
 - Une PR de contrat ajoute le code et met à jour les empreintes de contrat (ADR 0019).
 - Si refusé, la réponse reprend un code existant et la console reconnaît la réauthentification par un autre signal.
+
+> Note (26/10/2026) : proposition acceptée par l'ADR 0031 ; le code est dans `packages/contrats/src/commun/erreurs.ts`.

@@ -2,12 +2,20 @@ import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:f
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import { calculerEmpreintes } from "../../scripts/empreinte.ts";
+import { ROUTES_C4, celluleDeLaCle, controlerLecture, controlerPaquet, emplacementCoffre } from "./cellule.ts";
 import { Configuration, DUREE_CACHE_MAX_SECONDES } from "./configuration.ts";
 import { EtatVoulu } from "./etat-voulu.ts";
 import { Paquet } from "./evenements-executeur.ts";
 import { deriverCleIntention } from "./intention.ts";
 
 const lire = (p: string) => JSON.parse(readFileSync(new URL(`../../fixtures/c4/${p}`, import.meta.url), "utf8")) as { cas: { nom: string; valide: boolean; corps: unknown }[] };
+interface Cellules {
+  instances: Record<string, string>;
+  paquets: { nom: string; valide: boolean; cle: string; corps: unknown }[];
+  lectures: { nom: string; valide: boolean; cle: string; instanceId: string }[];
+}
+const cellules = JSON.parse(readFileSync(new URL("../../fixtures/c4/cellules.json", import.meta.url), "utf8")) as Cellules;
+const celluleDe = (id: string) => cellules.instances[id] ?? null;
 
 const debut = { type: "debut", instanceId: "inst-0001", executionId: "exec-0001", a: "2026-10-24T10:00:00Z" };
 const fin = { type: "fin", instanceId: "inst-0001", executionId: "exec-0001", dureeMs: 1200, elements: 3, minutesGagnees: 15, jetons: 800, coutIaMicroCentimes: 4200 };
@@ -107,5 +115,41 @@ describe("contrat C4 : échanges exécuteur ↔ console", () => {
     } finally {
       rmSync(copie, { recursive: true, force: true });
     }
+  });
+
+  it("[C-536] la console refuse en 403 toute instance d'une autre cellule que celle de la clé ; un paquet mixte est refusé en entier", () => {
+    expect(cellules.paquets.some((c) => !c.valide) && cellules.lectures.some((c) => !c.valide)).toBe(true);
+    for (const c of cellules.paquets) {
+      const paquet = Paquet.parse(c.corps);
+      expect(controlerPaquet(c.cle, paquet, celluleDe).ok, c.nom).toBe(c.valide);
+      if (!c.valide) expect(controlerPaquet(c.cle, paquet, celluleDe)).toEqual({ ok: false, code: "action_interdite", statut: 403 });
+    }
+    for (const c of cellules.lectures) expect(controlerLecture(c.cle, c.instanceId, celluleDe).ok, c.nom).toBe(c.valide);
+  });
+
+  it("[C-536] une seule forme de cellule, celle du coffre : minuscules, chiffres et tirets ; X-Axion-Cle c4:<cellule>:<kid> ↔ technique/echanges/c4-<cellule>/<kid>", () => {
+    expect(emplacementCoffre("c4:auto-run-1:a")).toEqual({ canal: "c4-auto-run-1", kid: "a" });
+    expect(emplacementCoffre("c4:auto-run-1:cle-2")).toEqual({ canal: "c4-auto-run-1", kid: "cle-2" });
+    for (const cle of ["c4:Auto_Run:a", "c4:auto_run:a", "c4:auto-run-1:A", "c4:-auto:a", "c4:auto-:a", "c4:auto-run-1:a_b", `c4:${"a".repeat(65)}:a`]) {
+      expect(celluleDeLaCle(cle), cle).toBeNull();
+      expect(emplacementCoffre(cle), cle).toBeNull();
+    }
+    // Même motif que le coffre (apps/api/src/coffre/cles-echanges.ts : CANAL et KID).
+    const CANAL = /^c4-[a-z0-9]+(?:-[a-z0-9]+)*$/;
+    const KID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+    for (const c of [...cellules.paquets, ...cellules.lectures].map((x) => x.cle).filter((x) => x.startsWith("c4:"))) {
+      const e = emplacementCoffre(c);
+      expect(e && CANAL.test(e.canal) && KID.test(e.kid), c).toBe(true);
+    }
+  });
+
+  it("[LOT0-c4] la cellule se lit dans l'identifiant de clé c4:<cellule>:<n>, sans ambiguïté", () => {
+    expect(celluleDeLaCle("c4:auto-run-1:a")).toBe("auto-run-1");
+    for (const cle of ["c4:auto-run-1", "c4::a", "c1:auto-run-1:a", "c4:auto:run:a"]) expect(celluleDeLaCle(cle), cle).toBeNull();
+    expect(Object.values(ROUTES_C4).map((r) => r.chemin)).toEqual([
+      "/api/executeur/v1/instances/{instanceId}/configuration",
+      "/api/executeur/v1/instances/{instanceId}/etat-voulu",
+      "/api/executeur/v1/evenements",
+    ]);
   });
 });

@@ -35,7 +35,8 @@ function projet(opts: { deps?: Dep[]; inutilises?: Dep[]; extra?: string; source
 }
 const MIT = { licence: "MIT" };
 
-describe("construire un module", () => {
+// Chaque construction lance esbuild : sous charge, deux constructions dépassent le délai par défaut de 5 s.
+describe("construire un module", { timeout: 30_000 }, () => {
   it("[A-302] deux constructions du module d'exemple ont la même empreinte", async () => {
     const m = projet();
     const a = await construire(m, join(dirname(m), "sortie-a"));

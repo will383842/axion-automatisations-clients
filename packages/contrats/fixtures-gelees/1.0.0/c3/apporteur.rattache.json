@@ -1,0 +1,27 @@
+{
+  "type": "apporteur.rattache",
+  "cas": [
+    {
+      "nom": "valide",
+      "valide": true,
+      "cle": "cle-test-c3-crm-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c3-crm-a",
+      "horodatage": "1792800000",
+      "methode": "POST",
+      "chemin": "/api/crm/v1/evenements",
+      "corps": "{\"event_id\":\"11111111-1111-4111-8111-111111111111\",\"schema_version\":1,\"occurred_at\":\"2026-10-24T10:00:00Z\",\"emitted_at\":\"2026-10-24T10:00:01Z\",\"sequence\":1,\"producer\":\"axion-crm\",\"subject_ref\":{\"crmCompanyId\":\"crm-0001\"},\"event_type\":\"apporteur.rattache\",\"payload\":{\"crmCompanyId\":\"crm-0001\",\"apporteurId\":\"apporteur-0001\"}}",
+      "signature": "v1=2c6eb103a2f4a349818c901c8b7f630c538ee9bb077666c464f0f71a4263bfe8"
+    },
+    {
+      "nom": "apporteur vide",
+      "valide": false,
+      "cle": "cle-test-c3-crm-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c3-crm-a",
+      "horodatage": "1792800000",
+      "methode": "POST",
+      "chemin": "/api/crm/v1/evenements",
+      "corps": "{\"event_id\":\"11111111-1111-4111-8111-111111111111\",\"schema_version\":1,\"occurred_at\":\"2026-10-24T10:00:00Z\",\"emitted_at\":\"2026-10-24T10:00:01Z\",\"sequence\":1,\"producer\":\"axion-crm\",\"subject_ref\":{\"crmCompanyId\":\"crm-0001\"},\"event_type\":\"apporteur.rattache\",\"payload\":{\"crmCompanyId\":\"crm-0001\",\"apporteurId\":\"\"}}",
+      "signature": "v1=23860096e4a09541f19e1c40486aa66a4876e66338b823b2612e59e334ff6f91"
+    }
+  ]
+}

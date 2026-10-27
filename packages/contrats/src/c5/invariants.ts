@@ -3,18 +3,21 @@
 // Un contrôle renvoie la liste des écarts ; liste vide = schéma conforme.
 
 export type Ecart = { regle: Regle; objet: string };
-export type Regle =
-  | "tenant_id_absent"
-  | "rls_absente"
-  | "politique_ouverte"
-  | "role_contourne_rls"
-  | "force_rls_absent"
-  | "index_tenant_absent"
-  | "proprietaire_application"
-  | "base_cli_ouverte"
-  | "journal_modifiable"
-  | "argent_non_entier"
-  | "vocabulaire_en_texte";
+export const REGLES_C5 = [
+  "tenant_id_absent",
+  "rls_absente",
+  "politique_ouverte",
+  "role_contourne_rls",
+  "force_rls_absent",
+  "index_tenant_absent",
+  "proprietaire_application",
+  "base_cli_ouverte",
+  "base_cli_partagee",
+  "journal_modifiable",
+  "argent_non_entier",
+  "vocabulaire_en_texte",
+] as const;
+export type Regle = (typeof REGLES_C5)[number];
 
 // `sql` : une requête de lecture ; renvoie les lignes (colonnes nommées). L'appelant fournit la connexion.
 export type Requete = (sql: string) => Promise<Record<string, unknown>[]>;
@@ -24,9 +27,27 @@ export type Options = {
   rolesApplication: RegExp;
   // Seule table exemptée (schéma public) : celle des migrations. Défaut : `__migrations`.
   tableMigrations?: string;
+  // Rôles d'administration (propriétaire des bases cli_, migrations) : seuls permis sur plusieurs bases `cli_%`.
+  // Liste EXACTE de noms, fournie par l'appelant (le lot 2b nomme ses rôles selon la convention du socle,
+  // `<base>_proprietaire`, `<base>_migration`) : aucun rôle n'est exempté par la forme de son nom.
+  rolesAdministration?: readonly string[];
 };
 
 export const TABLE_MIGRATIONS = "__migrations";
+// Défaut : aucun (échec fermé). Seul le superutilisateur est hors contrôle.
+export const ROLES_ADMINISTRATION: readonly string[] = [];
+
+// Les 8 invariants de l'annexe A : contrôlés ici dès la version 0, ou à brancher au lot 2 (README.md).
+export const INVARIANTS_C5 = [
+  { n: 1, texte: "table métier : tenant_id NOT NULL, politique RLS, FORCE ROW LEVEL SECURITY, index qui commence par tenant_id", etat: "controle" },
+  { n: 2, texte: "l'application ne se connecte jamais avec le rôle propriétaire, ni avec un rôle qui contourne la RLS", etat: "controle" },
+  { n: 3, texte: "base cli_<id> fermée à PUBLIC et un rôle par client : aucun rôle hors administration n'ouvre deux bases cli_", etat: "controle" },
+  { n: 4, texte: "journal d'audit en ajout seul (UPDATE, DELETE, TRUNCATE refusés) ; chaînage par hachage", etat: "controle_en_partie" },
+  { n: 5, texte: "argent en entiers ; tout vocabulaire en énumération", etat: "controle" },
+  { n: 6, texte: "unicités : une ligne de facture d'abonnement par (abonnement, début de période) hors avoirs, sur chaque ligne de chaque facture groupée ou seule ; bon de commande et facture de départ par (client, automatisation) ; Idempotency-Key de la boîte d'envoi ; event_id des faits reçus", etat: "a_brancher_lot_2" },
+  { n: 7, texte: "le texte des demandes vit dans cli_<id>, la base console n'en garde que les métadonnées", etat: "a_brancher_lot_2" },
+  { n: 8, texte: "migrations additives N / N-1, montante et descendante testées", etat: "a_brancher_lot_2" },
+] as const;
 
 // Colonnes dont le contenu est un vocabulaire fermé : énumération obligatoire (invariant 5).
 export const VOCABULAIRE = ["statut", "etat", "nature", "canal", "famille", "classe", "niveau", "moyen", "motif", "role", "garantie"] as const;
@@ -138,6 +159,17 @@ export async function controlerInvariants(
     if ((nom.endsWith("_centimes") && !ENTIERS.has(type)) || (DECIMAUX.has(type) && MONTANT.test(nom))) noter("argent_non_entier", objet);
     if ((VOCABULAIRE as readonly string[]).includes(nom) && TEXTES.has(type)) noter("vocabulaire_en_texte", objet);
   }
+
+  // Invariant 3, « un rôle par client » : un rôle (hors superutilisateur et administration) qui a CONNECT,
+  // directement ou par appartenance, sur plus d'une base cli_ casse l'isolation entre bases de clients. PUBLIC est vu à part.
+  const partages = await requete(`
+    SELECT r.rolname AS nom, count(DISTINCT d.datname)::int AS bases
+    FROM pg_database d, aclexplode(coalesce(d.datacl, acldefault('d', d.datdba))) a, pg_roles r
+    WHERE d.datname LIKE 'cli\\_%' AND a.privilege_type = 'CONNECT' AND a.grantee <> 0
+      AND pg_has_role(r.oid, a.grantee, 'MEMBER') AND NOT r.rolsuper AND r.rolname NOT LIKE 'pg\\_%'
+    GROUP BY r.rolname HAVING count(DISTINCT d.datname) > 1`);
+  const administration = options.rolesAdministration ?? ROLES_ADMINISTRATION;
+  for (const p of partages) if (!administration.includes(String(p.nom))) noter("base_cli_partagee", String(p.nom));
 
   if (nomBase.startsWith("cli_")) {
     const ouverte = await requete(

@@ -1,0 +1,16 @@
+{
+  "nom": "panne_503",
+  "echanges": [
+    {
+      "methode": "GET",
+      "chemin": "/gmail/v1/users/me/messages/m-1",
+      "statut": 503,
+      "corps": {
+        "error": {
+          "code": 503,
+          "status": "UNAVAILABLE"
+        }
+      }
+    }
+  ]
+}

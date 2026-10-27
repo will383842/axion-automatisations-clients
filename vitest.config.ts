@@ -27,10 +27,13 @@ export default defineConfig({
       { test: { name: "scripts", root: "./scripts", retry, exclude: excludeDefaut } },
       ...[...dossiers("apps"), ...dossiers("packages"), ...(existsSync("modules") ? dossiers("modules") : [])].map((d) => ({ test: { name: d, root: `./${d}`, retry, exclude: [...excludeDefaut, serie] } })),
       { test: { name: "serie", root: ".", retry, exclude: excludeDefaut, include: [`packages/*/src/${serie.slice(3)}`], fileParallelism: false, sequence: { groupOrder: 1 } } },
+      // Tests de l'exploitation (ops/), lancés par la CI comme les autres.
+      { test: { name: "ops", root: "./ops", retry, exclude: excludeDefaut } },
       // Scénarios de bout en bout rouges au départ (ADR 0005, T0-21).
       { test: { name: "tests/e2e", root: "./tests/e2e", retry, exclude: excludeDefaut } },
-      // Tests des scripts d'exploitation (rétention des sauvegardes, T1A-14).
-      { test: { name: "ops", root: "./ops", retry, exclude: excludeDefaut } },
+      // Bouchons du Hub et du CRM (T2-13) ; leurs suites .int.test.ts passent par le projet integration.
+      { test: { name: "tests/bouchons", root: "./tests/bouchons", retry, exclude: excludeDefaut } },
+      { test: { name: "tests/comportement", root: "./tests/comportement", retry, exclude: excludeDefaut, passWithNoTests: true } },
       // Vide sans SOCLE_INTEGRATION=1, pour que « vitest run » ne lance jamais ces tests faute de services.
       { test: { name: "integration", root: ".", retry, exclude, include: integration ? ["**/*.int.test.ts"] : [] } },
     ],

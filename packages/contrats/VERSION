@@ -1,7 +1,12 @@
-c1=0.1.0
-c2=0.1.0
-c3=0.1.0
-# c4 : révision unique du 2026-10-26 (après le prototype de l'exécuteur, ADR 0018). Gel : ensuite, changements additifs seulement.
-c4=0.2.0
-c5=0.1.0
-c6=0.1.0
+# Gel 1.0.0 (T0-30, ADR 0033) : commun, C1, C2, C3 et C6 gelés ; dans la 1.x, additif seulement (README.md, ADR 0032).
+# Non gelés : C4 (révision unique d'abord, ADR 0018) et C5 (tant que le job de CI contrats-pg n'existe pas, ADR 0031).
+# Journal : CHANGELOG.md.
+commun=1.0.0
+c1=1.0.0
+c2=1.0.0
+c3=1.0.0
+# c4 : révision unique du 2026-10-26 (ADR 0018) ; 0.3.0 (T0-30, gel) : forme de la cellule alignée sur le coffre.
+c4=0.3.0
+# c5 : 0.3.0 (T0-30, gel) : rôles d'administration en liste exacte.
+c5=0.3.0
+c6=1.0.0

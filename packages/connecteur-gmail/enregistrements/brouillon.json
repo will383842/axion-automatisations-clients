@@ -1,0 +1,16 @@
+{
+  "nom": "brouillon",
+  "echanges": [
+    {
+      "methode": "POST",
+      "chemin": "/gmail/v1/users/me/drafts",
+      "statut": 200,
+      "corps": {
+        "id": "d-1",
+        "message": {
+          "id": "b-1"
+        }
+      }
+    }
+  ]
+}

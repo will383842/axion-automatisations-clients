@@ -23,5 +23,25 @@
       "corps": "{\"statut\":\"dormant\",\"consoleClientId\":\"console-cli-0001\"}",
       "signature": "v1=52b130eef440d5eb604bf84798b54d4c8da1a4751d8f908034eab31698f2fea4"
     }
+  ],
+  "reponses": [
+    {
+      "statut": 200,
+      "nom": "statut",
+      "valide": true,
+      "corps": {
+        "axiCli": "AXI-CLI-000001",
+        "statut": "client_actif"
+      }
+    },
+    {
+      "statut": 200,
+      "nom": "statut du CRM",
+      "valide": false,
+      "corps": {
+        "axiCli": "AXI-CLI-000001",
+        "statut": "dormant"
+      }
+    }
   ]
 }

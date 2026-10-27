@@ -19,6 +19,12 @@ C-046 → ops/sauvegardes/README.md (chiffrement avant départ, aes-256-cbc) et 
 C-044 → ops/sauvegardes/README.md (archive_timeout = 300 s, perte bornée à 15 minutes ; la remise en service en 4 h se mesure au lot 1-B), 2026-10-26
 A-052 → test « [A-052] un travail d'une instance d'une autre cellule est refusé » (apps/executeur/src/files/files.test.ts), 2026-10-26
 A-268 → tests [A-268] de apps/executeur/src/files/files.test.ts (paliers 2, 4 et 8, concurrence, configuration validée), 2026-10-26
+A-386 → ADR 0030, packages/connecteur-gmail/README.md et tests [A-386] de packages/connecteur-gmail/src/*.test.ts (envoi RFC 2822, portées étroites, vérification après coup sur faux Gmail, accès refusé), 2026-10-26
+A-405 → test « [A-405] le connecteur Gmail passe la suite messagerie sur enregistrements » (packages/connecteur-gmail/src/connecteur.test.ts), 2026-10-26
+A-406 → test « [A-406] aucun corps de message dans les journaux du connecteur (marqueur unique) » (packages/connecteur-gmail/src/connecteur.test.ts), 2026-10-26
+A-005 → tests « [A-005] une valeur rangée est inscrite au masqueur, sans inscription manuelle » et « … relue par le courtier … » (apps/api/src/coffre/coffre.test.ts, passage réel par rangerIdentifiant et lireValeur) ; tests « [A-005] le journal de l'API ne contient jamais la valeur rangée (marqueur unique cherché dans la sortie) » (apps/api/src/plugins/journal.test.ts) et version contre le vrai OpenBao (apps/api/src/coffre/secrets-openbao.int.test.ts) ; tests « [A-005] » de apps/api/src/plugins/journal.test.ts (double échappement JSON, formulaire, base64 décalé) et « [A-005] @isolation le jeton equipe lit l'état … 403 sur la valeur » de apps/api/src/coffre/secrets-openbao.int.test.ts ; refus des valeurs de moins de 8 caractères et structure du journal protégée (tests « [A-005] » de coffre.test.ts, secrets-openbao.test.ts et journal.test.ts, ADR 0023), 2026-10-26
+C-012 → test « [C-012] après detruireCleClient, le déchiffrement échoue pour toujours » de apps/api/src/coffre/secrets-openbao.int.test.ts (vrai OpenBao), 2026-10-26
+C-011 → tests « [C-011] » de apps/api/src/coffre/secrets-openbao.test.ts (imitation HTTP) et de apps/api/src/coffre/secrets-openbao.int.test.ts (vrai OpenBao en mode serveur : lecture courtier seul, coffre scellé par PUT sys/seal), 2026-10-26
 A-328 → ADR 0025 et tests [A-328] de apps/executeur/src/bac-a-sable/bac-a-sable.test.ts (processus distincts, globales, fichiers, environnement, jeton, limites), 2026-10-26
 A-329 → test « [A-329] @isolation l'enfant ne joint aucun hôte… » (apps/executeur/src/bac-a-sable/bac-a-sable.test.ts), étape 1 seulement ; mandataire à l'étape 2, 2026-10-26
 A-062 → fichiers ops/socle/keycloak/royaume-*.json et test « [A-062] les royaumes equipe et clients sont importés et leur découverte OIDC répond » (apps/api/src/auth/keycloak.int.test.ts), 2026-10-26
@@ -33,4 +39,15 @@ C-080 → test « [C-080] un message sans fonction du destinataire est refusé �
 C-087 → test « [C-087] un module de prospection sans source déclarée est refusé » (packages/sdk-module/src/prospection/prospection.test.ts), 2026-10-26
 C-070 → test « [C-070] une source LinkedIn est refusée » (garde de code ; le document est en T4-00), 2026-10-26
 C-086 → tests [C-086] de packages/sdk-module/src/prospection/prospection.test.ts, 2026-10-26
+C-602 → partie T1A-15 (étape 1/2) : tests [C-602] de ops/surveillance/disque.test.ts, lancés par la CI via le projet ops de vitest.config.ts (prévision, réveil à 6 h, alerte avant plafond, message sans hôte ni IP) ; plafond archive-push-queue-max NON livré (fichier dans #59), essais d'intégration en attente de #59 ; sonde extérieure au lot 1-B, 2026-10-26
 C-394 → packages/axion-dev/README.md (commandes essai, test, emballer, publier --recette) et tests [C-380] de packages/axion-dev/src/axion-dev.test.ts, 2026-10-26
+C-589 → partie contrat : union par nature de `facture.emise` (période obligatoire pour un abonnement, aussi dans le JSON Schema) et tests « [C-589] » de packages/contrats/src/c2/faits.test.ts et src/json-schema.test.ts (ADR 0031), 2026-10-26
+C-608 → partie contrat : `POST /factures-ponctuelles` porte le client, l'automatisation, les lignes et l'acompte ; test « [C-608] » de packages/contrats/src/c1/c1.test.ts (ADR 0031), 2026-10-26
+C-536 → partie contrats : règle de la cellule de C4 (test « [C-536] » de packages/contrats/src/c4/c4.test.ts) et règle C5 `base_cli_partagee` (test « [C-536] » de packages/contrats/src/c5/invariants.test.ts, PostgreSQL jetable), ADR 0031, 2026-10-26 ; forme de cellule alignée sur le coffre et rôles d'administration en liste exacte (tests « [C-536] » de packages/contrats/src/c4/c4.test.ts et src/c5/invariants.test.ts), ADR 0033, 2026-10-27
+A-256 → partie contrat : `effacement.demande` sans aucune action de suppression (test « [A-256] » de packages/contrats/src/c3/c3.test.ts, ADR 0031), 2026-10-26
+C-538 → ADR 0033, packages/contrats/VERSION (commun, C1, C2, C3, C6 en 1.0.0), fixtures-gelees/1.0.0/, empreintes/ et contrats.sha256 ; tests « [C-538] » de packages/contrats/src/contrats.test.ts (empreintes, sommaire, gel, archive relue contrat par contrat, archive 1.0.0 scellée par empreinte et constantes de commun non rétrécies), 2026-10-27
+C-377 → CLAUDE.md (sections 1 et 7) et docs/adr/0006-fiches-dans-le-depot-prive.md, 2026-10-27
+C-379 → .claude/skills/ (module-automatisation, connecteur, harnais), 2026-10-27
+C-382 → ops/environnement-cloud.md, 2026-10-27
+C-393 → ops/environnement-cloud.md (réseau limité, variables, commande d'installation), 2026-10-27
+C-435 → plan du dépôt privé, section 5.1 (ordre des lots), 2026-10-27

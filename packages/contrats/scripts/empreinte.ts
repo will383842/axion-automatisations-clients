@@ -1,11 +1,16 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { CONTRATS } from "./versions.ts";
 
-// Empreintes de contrats : un fichier empreintes/<contrat>.sha256 par contrat (un SHA-256 par fichier, au format de sha256sum),
-// pour que deux PR sur deux contrats différents ne se touchent pas (ADR 0019).
-const CONTRATS = ["c1", "c2", "c3", "c4", "c6"];
-const DOSSIERS = ["fixtures", "src"];
+// Empreintes de contrats (ADR 0019, revu par l'ADR 0031) :
+// - empreintes/<contrat>.sha256 : un SHA-256 par fichier de fixtures/<contrat>/, au format de sha256sum. C'est ce que
+//   l'autre dépôt copie et compare (`sha256sum --check`). Le code source n'y entre pas : ce qui passe le fil (JSON Schema,
+//   constantes, invariants) est généré dans fixtures/ et un test vérifie qu'il suit le code.
+// - empreintes/gelees-<version>.sha256 : un SHA-256 par fichier de fixtures-gelees/<version>/, ordre alphabétique. Il scelle l'archive
+//   du gel (« additif seulement ») : le SHA-256 de ce fichier est une constante du test et de l'ADR 0033.
+// - contrats.sha256 : le sommaire, une ligne par fichier d'empreintes (commun et C5 compris) et une pour VERSION.
+const DOSSIERS_SOMMAIRE = ["empreintes"];
 
 function fichiers(racine: string, dossier: string): string[] {
   if (!existsSync(`${racine}/${dossier}`)) return [];
@@ -14,25 +19,28 @@ function fichiers(racine: string, dossier: string): string[] {
     .sort();
 }
 
-// Ensemble des fichiers couverts avant le découpage : fixtures/ en entier, src/c1 et src/c2.
-const couvert = (f: string) => f.startsWith("fixtures/") || f.startsWith("src/c1/") || f.startsWith("src/c2/");
+const ligne = (racine: string, f: string) => `${createHash("sha256").update(readFileSync(`${racine}/${f}`)).digest("hex")}  ${f}\n`;
 
 export function calculerEmpreintes(racine: string): Record<string, string> {
-  return Object.fromEntries(
-    CONTRATS.map((c) => [
-      c,
-      DOSSIERS.flatMap((d) => fichiers(racine, `${d}/${c}`))
-        .filter(couvert)
-        .map((f) => `${createHash("sha256").update(readFileSync(`${racine}/${f}`)).digest("hex")}  ${f}\n`)
-        .join(""),
-    ]),
-  );
+  return Object.fromEntries(CONTRATS.map((c) => [c, fichiers(racine, `fixtures/${c}`).map((f) => ligne(racine, f)).join("")]));
+}
+
+export function calculerEmpreinteArchive(racine: string, version: string): string {
+  return fichiers(racine, `fixtures-gelees/${version}`).map((f) => ligne(racine, f)).join("");
+}
+
+// Sommaire calculé sur les fichiers d'empreintes tels qu'ils sont sur le disque, puis VERSION.
+export function calculerSommaire(racine: string): string {
+  return [...DOSSIERS_SOMMAIRE.flatMap((d) => fichiers(racine, d)), "VERSION"].map((f) => ligne(racine, f)).join("");
 }
 
 // Usage : node scripts/empreinte.ts
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const racine = fileURLToPath(new URL("../", import.meta.url));
-  rmSync(`${racine}/contrats.sha256`, { force: true });
   mkdirSync(`${racine}/empreintes`, { recursive: true });
   for (const [c, texte] of Object.entries(calculerEmpreintes(racine))) writeFileSync(`${racine}/empreintes/${c}.sha256`, texte);
+  for (const v of existsSync(`${racine}/fixtures-gelees`) ? readdirSync(`${racine}/fixtures-gelees`).sort() : []) {
+    writeFileSync(`${racine}/empreintes/gelees-${v}.sha256`, calculerEmpreinteArchive(racine, v));
+  }
+  writeFileSync(`${racine}/contrats.sha256`, calculerSommaire(racine));
 }

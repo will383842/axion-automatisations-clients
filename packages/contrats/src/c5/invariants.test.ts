@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
-import { VOCABULAIRE, controlerInvariants, type Ecart, type Requete } from "./invariants.ts";
+import { INVARIANTS_C5, ROLES_ADMINISTRATION, VOCABULAIRE, controlerInvariants, type Ecart, type Requete } from "./invariants.ts";
 
 // Ces tests ont besoin d'un PostgreSQL : l'URL d'un serveur jetable est dans CONTRATS_PG_URL
 // (job contrats-pg de la CI). Sans elle, ils sont sautés et la PR le dit.
@@ -50,6 +50,16 @@ async function avec(nom: string, sql: string, fn: (ecarts: Ecart[]) => void, nom
   }
 }
 const regles = (e: Ecart[]) => e.map((x) => x.regle);
+
+describe("C5 invariants écrits", () => {
+  it("[LOT0-c5] l'invariant 6 vise chaque ligne de facture d'abonnement par (abonnement, début de période), hors avoirs", () => {
+    expect(INVARIANTS_C5.map((i) => i.n)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    const six = INVARIANTS_C5.find((i) => i.n === 6)?.texte ?? "";
+    expect(six).toContain("(abonnement, début de période) hors avoirs");
+    expect(six).toContain("facture groupée ou seule");
+    expect(six).not.toContain("(contrat, début de période)");
+  });
+});
 
 describe.skipIf(!URL_PG)("C5 invariants du schéma", () => { // fiche: T0-16
   it("[LOT0-c5] un schéma conforme ne produit aucun écart", async () => {
@@ -217,5 +227,43 @@ describe.skipIf(!URL_PG)("C5 invariants du schéma", () => { // fiche: T0-16
     await avec("trunc", `DROP TRIGGER journal_ajout_seul_tronque ON journal_audit;`, (e) => expect(e).toContainEqual({ regle: "journal_modifiable", objet: "journal_audit" }));
     await avec("replica", `ALTER TABLE journal_audit ENABLE REPLICA TRIGGER journal_ajout_seul;`, (e) => expect(e).toContainEqual({ regle: "journal_modifiable", objet: "journal_audit" }));
     await avec("always", `ALTER TABLE journal_audit ENABLE ALWAYS TRIGGER journal_ajout_seul;`, (e) => expect(e).toEqual([]));
+  });
+
+  it("[C-536] un rôle qui ouvre plus d'une base cli_ est signalé ; un rôle par base ne l'est pas", async () => {
+    const [b1, b2] = [`cli_${base("partage1")}`, `cli_${base("partage2")}`];
+    const [partage, seul, admin] = [`app_c5_partage_${process.pid}`, `app_c5_seul_${process.pid}`, `admin_c5_${process.pid}`];
+    psql(undefined, `CREATE DATABASE ${b1}`);
+    psql(undefined, `CREATE DATABASE ${b2}`);
+    psql(undefined, `CREATE ROLE ${partage}; CREATE ROLE ${seul}; CREATE ROLE ${admin}`);
+    try {
+      psql(undefined, `REVOKE CONNECT ON DATABASE ${b1} FROM PUBLIC; REVOKE CONNECT ON DATABASE ${b2} FROM PUBLIC;
+        GRANT CONNECT ON DATABASE ${b1} TO ${partage}, ${seul}, ${admin}; GRANT CONNECT ON DATABASE ${b2} TO ${partage}, ${admin}`);
+      const e = await controlerInvariants(requeteSur(b1), b1, { rolesApplication: /^app(_|$)/, rolesAdministration: [admin] });
+      expect(e).toContainEqual({ regle: "base_cli_partagee", objet: partage });
+      expect(e).not.toContainEqual({ regle: "base_cli_partagee", objet: seul });
+      expect(e).not.toContainEqual({ regle: "base_cli_partagee", objet: admin });
+    } finally {
+      psql(undefined, `DROP DATABASE IF EXISTS ${b1}`);
+      psql(undefined, `DROP DATABASE IF EXISTS ${b2}`);
+      psql(undefined, `DROP ROLE IF EXISTS ${partage}, ${seul}, ${admin}`);
+    }
+  });
+});
+
+describe("C5 : rôles d'administration en liste exacte (tour 2 de T0-30, ADR 0033)", () => {
+  // Faux catalogue : seule la requête des bases cli_ partagées rend des lignes.
+  const partages = (noms: string[]): Requete => async (sql) => (sql.includes("HAVING count(DISTINCT d.datname) > 1") ? noms.map((nom) => ({ nom, bases: 2 })) : []);
+
+  it("[C-536] aucun rôle n'est exempté par son nom : admin_app et console_proprietaire sont signalés sans liste exacte", async () => {
+    expect(ROLES_ADMINISTRATION).toEqual([]);
+    const e = await controlerInvariants(partages(["admin_app", "proprietaire", "console_proprietaire"]), "console");
+    for (const nom of ["admin_app", "proprietaire", "console_proprietaire"]) expect(e, nom).toContainEqual({ regle: "base_cli_partagee", objet: nom });
+  });
+
+  it("[C-536] seuls les rôles nommés exactement dans rolesAdministration sont permis sur plusieurs bases cli_", async () => {
+    const e = await controlerInvariants(partages(["cli_proprietaire", "cli_proprietaire_2", "admin_app"]), "console", { rolesApplication: /^app(_|$)/, rolesAdministration: ["cli_proprietaire"] });
+    expect(e).not.toContainEqual({ regle: "base_cli_partagee", objet: "cli_proprietaire" });
+    expect(e).toContainEqual({ regle: "base_cli_partagee", objet: "cli_proprietaire_2" });
+    expect(e).toContainEqual({ regle: "base_cli_partagee", objet: "admin_app" });
   });
 });

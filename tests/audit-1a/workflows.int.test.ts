@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, writeSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { load } from "js-yaml";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
 
 // Porte du lot 1-A (T1A-19, partie A) : un workflow déclenché par une PR ne peut ni lire un secret ni déployer, et les journaux de la CI
 // passent au contrôle des données réelles. Lecture de l'arbre YAML RÉSOLU job par job (droits hérités, conditions « if », jobs dépendants),
@@ -20,8 +20,22 @@ const textes = (n: unknown): string[] => (typeof n === "string" ? [n] : Array.is
 // Un job est exclu des PR si sa condition (ou celle d'un job dont il dépend) écarte l'évènement pull_request ou exige la branche main.
 const exclutPr = (si: unknown) => typeof si === "string" && (/github\.event_name\s*!=\s*'pull_request'/.test(si) || /github\.ref\s*==\s*'refs\/heads\/main'/.test(si));
 
+// Le job ne montre pas le rapport JSON : chaque échec et le bilan du fichier vont sur la sortie d'erreur (jamais une valeur secrète).
+const FICHIER = import.meta.url.split("/").pop() ?? "";
+const bilan = { verts: 0, rouges: 0, attendus: 0 };
 afterEach((ctx) => {
-  if (ctx.task.result?.state === "fail") writeSync(2, `ECHEC ${ctx.task.name}\n${(ctx.task.result.errors ?? []).map((e) => e.message).join("\n")}\n`);
+  const r = ctx.task.result;
+  const rouge = r?.state === "fail";
+  if (ctx.task.fails) {
+    if (rouge) bilan.attendus++;
+    else writeSync(2, `ECHEC ${ctx.task.name}\nattendu rouge (défaut corrigé ?) mais vert\n`);
+  } else if (rouge) {
+    bilan.rouges++;
+    writeSync(2, `ECHEC ${ctx.task.name}\n${(r.errors ?? []).map((e) => e.message).join("\n")}\n`);
+  } else if (r?.state === "pass") bilan.verts++;
+});
+afterAll(() => {
+  writeSync(2, `BILAN ${FICHIER} : ${bilan.verts} verts, ${bilan.rouges} rouges, ${bilan.attendus} défauts attendus\n`);
 });
 
 describe("audit 1-A · workflows et journaux de la CI", () => {

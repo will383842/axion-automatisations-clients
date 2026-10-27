@@ -30,9 +30,32 @@ const MAITRE = `sk-TEST-NE-PAS-UTILISER-${randomBytes(10).toString("hex")}`;
 const FOURNISSEUR = `TEST-NE-PAS-UTILISER-${randomBytes(10).toString("hex")}`;
 const TECHNIQUE = marqueur("technique");
 
+// Le job ne montre pas le rapport JSON : chaque échec et le bilan du fichier vont sur la sortie d'erreur (jamais une valeur secrète).
+const FICHIER = import.meta.url.split("/").pop() ?? "";
+const bilan = { verts: 0, rouges: 0, attendus: 0 };
 afterEach((ctx) => {
-  if (ctx.task.result?.state === "fail") writeSync(2, `ECHEC ${ctx.task.name}\n${(ctx.task.result.errors ?? []).map((e) => e.message).join("\n")}\n`);
+  const r = ctx.task.result;
+  const rouge = r?.state === "fail";
+  if (ctx.task.fails) {
+    if (rouge) bilan.attendus++;
+    else writeSync(2, `ECHEC ${ctx.task.name}\nattendu rouge (défaut corrigé ?) mais vert\n`);
+  } else if (rouge) {
+    bilan.rouges++;
+    writeSync(2, `ECHEC ${ctx.task.name}\n${(r.errors ?? []).map((e) => e.message).join("\n")}\n`);
+  } else if (r?.state === "pass") bilan.verts++;
 });
+afterAll(() => {
+  writeSync(2, `BILAN ${FICHIER} : ${bilan.verts} verts, ${bilan.rouges} rouges, ${bilan.attendus} défauts attendus\n`);
+});
+// Une préparation qui échoue ne passe par aucun afterEach : on l'écrit aussi.
+const garder = <T>(f: () => T | Promise<T>) => async () => {
+  try {
+    return await f();
+  } catch (e) {
+    writeSync(2, `ECHEC préparation ${FICHIER}\n${e instanceof Error ? e.message : "erreur"}\n`);
+    throw e;
+  }
+};
 
 const lances: string[] = [];
 afterAll(() => {
@@ -65,7 +88,7 @@ async function admin(methode: string, chemin: string, corps?: unknown): Promise<
   }
 }
 
-beforeAll(async () => {
+beforeAll(garder(async () => {
   const id = docker("run", "-d", "--rm", "-v", `${racine("ops/socle/openbao")}:/openbao/config:ro`, IMAGE, "server");
   lances.push(id);
   const ip = docker("inspect", "-f", "{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}", id).split(" ")[0] ?? "";
@@ -110,7 +133,7 @@ beforeAll(async () => {
   const hmac = await creerClesEchanges(opts("echanges")).tourner("c1", "emission");
   secretHmac = hmac.secret.toString("base64");
   kidHmac = hmac.kid;
-}, 180_000);
+}), 180_000);
 
 const valeurs = () => [VALEUR_A, VALEUR_B, MAITRE, FOURNISSEUR, TECHNIQUE, secretHmac];
 const chemin = (ref: string) => ref.slice("bao:clients/".length);

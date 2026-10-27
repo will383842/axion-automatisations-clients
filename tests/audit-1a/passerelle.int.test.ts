@@ -29,9 +29,32 @@ const MARQUEUR = `MARQUEUR-ECHANGE-${randomBytes(8).toString("hex")}`;
 const suffixe = randomBytes(4).toString("hex");
 const RESEAU = `audit-passerelle-${suffixe}`;
 
+// Le job ne montre pas le rapport JSON : chaque échec et le bilan du fichier vont sur la sortie d'erreur (jamais une valeur secrète).
+const FICHIER = import.meta.url.split("/").pop() ?? "";
+const bilan = { verts: 0, rouges: 0, attendus: 0 };
 afterEach((ctx) => {
-  if (ctx.task.result?.state === "fail") writeSync(2, `ECHEC ${ctx.task.name}\n${(ctx.task.result.errors ?? []).map((e) => e.message).join("\n")}\n`);
+  const r = ctx.task.result;
+  const rouge = r?.state === "fail";
+  if (ctx.task.fails) {
+    if (rouge) bilan.attendus++;
+    else writeSync(2, `ECHEC ${ctx.task.name}\nattendu rouge (défaut corrigé ?) mais vert\n`);
+  } else if (rouge) {
+    bilan.rouges++;
+    writeSync(2, `ECHEC ${ctx.task.name}\n${(r.errors ?? []).map((e) => e.message).join("\n")}\n`);
+  } else if (r?.state === "pass") bilan.verts++;
 });
+afterAll(() => {
+  writeSync(2, `BILAN ${FICHIER} : ${bilan.verts} verts, ${bilan.rouges} rouges, ${bilan.attendus} défauts attendus\n`);
+});
+// Une préparation qui échoue ne passe par aucun afterEach : on l'écrit aussi.
+const garder = <T>(f: () => T | Promise<T>) => async () => {
+  try {
+    return await f();
+  } catch (e) {
+    writeSync(2, `ECHEC préparation ${FICHIER}\n${e instanceof Error ? e.message : "erreur"}\n`);
+    throw e;
+  }
+};
 
 // Faux fournisseur au format « chat completions » : usage déterministe, il répond « écho : <dernier message> » et n'écrit rien.
 const FAUX = `
@@ -102,7 +125,7 @@ let cleA = "";
 let cleB = "";
 let jetonB = "";
 
-beforeAll(async () => {
+beforeAll(garder(async () => {
   docker("network", "create", RESEAU);
   pgId = docker("run", "-d", "--rm", "--network", RESEAU, "--network-alias", "pg-passerelle", "-e", `POSTGRES_PASSWORD=${MOT_DE_PASSE_PG}`, "-e", "POSTGRES_DB=passerelle_ia", IMAGE_PG);
   lances.push(pgId);
@@ -151,7 +174,7 @@ beforeAll(async () => {
     if (i > 120) throw new Error("dépense jamais écrite par la passerelle d'essai");
     await pause(1500);
   }
-}, 600_000);
+}), 600_000);
 
 // Ce qui, vu par A, trahirait B (ou un secret de la passerelle).
 const traces = () => [`cli-${B}`, B, jetonB, cleB, MAITRE, FOURNISSEUR].filter((t) => t.length > 0);

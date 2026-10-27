@@ -3,7 +3,7 @@ import { readFileSync, writeSync } from "node:fs";
 import { request } from "node:https";
 import { connect } from "node:net";
 import { fileURLToPath } from "node:url";
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { lireYaml } from "../../scripts/garde-compose.ts";
 
 // Porte du lot 1-A (T1A-19, partie A) : essais en boîte noire contre le socle lancé par ops/socle/lancer.sh (job socle-integration).
@@ -16,9 +16,32 @@ const conteneur = (service: string) => docker("ps", "-q", "--filter", `label=com
 const IMAGE_SONDE = (lireYaml(readFileSync(racine("ops/socle/compose.valkey.yml"), "utf8")) as unknown as { services: { valkey: { image: string } } }).services.valkey.image;
 
 // Le job ne lance Vitest qu'avec le rapport JSON : un échec n'y est pas lisible, on l'écrit sur la sortie d'erreur (jamais de valeur secrète dans ces messages).
+// Le job ne montre pas le rapport JSON : chaque échec et le bilan du fichier vont sur la sortie d'erreur (jamais une valeur secrète).
+const FICHIER = import.meta.url.split("/").pop() ?? "";
+const bilan = { verts: 0, rouges: 0, attendus: 0 };
 afterEach((ctx) => {
-  if (ctx.task.result?.state === "fail") writeSync(2, `ECHEC ${ctx.task.name}\n${(ctx.task.result.errors ?? []).map((e) => e.message).join("\n")}\n`);
+  const r = ctx.task.result;
+  const rouge = r?.state === "fail";
+  if (ctx.task.fails) {
+    if (rouge) bilan.attendus++;
+    else writeSync(2, `ECHEC ${ctx.task.name}\nattendu rouge (défaut corrigé ?) mais vert\n`);
+  } else if (rouge) {
+    bilan.rouges++;
+    writeSync(2, `ECHEC ${ctx.task.name}\n${(r.errors ?? []).map((e) => e.message).join("\n")}\n`);
+  } else if (r?.state === "pass") bilan.verts++;
 });
+afterAll(() => {
+  writeSync(2, `BILAN ${FICHIER} : ${bilan.verts} verts, ${bilan.rouges} rouges, ${bilan.attendus} défauts attendus\n`);
+});
+// Une préparation qui échoue ne passe par aucun afterEach : on l'écrit aussi.
+const garder = <T>(f: () => T | Promise<T>) => async () => {
+  try {
+    return await f();
+  } catch (e) {
+    writeSync(2, `ECHEC préparation ${FICHIER}\n${e instanceof Error ? e.message : "erreur"}\n`);
+    throw e;
+  }
+};
 
 interface Cible { nom: string; port: number }
 // Services internes et leurs ports d'écoute connus (images du socle) ; les adresses sont lues sur le réseau interne au lancement.
@@ -50,10 +73,10 @@ function sonder(reseau: string, cibles: Cible[], dns: string[] = []): Map<string
 const ouverts = (etat: Map<string, string>) => [...etat].filter(([, e]) => e === "OUVERT").map(([c]) => c).sort();
 
 let adresses: Map<string, string>;
-beforeAll(() => {
+beforeAll(garder(() => {
   adresses = new Map(INTERNES.map(({ service }) => [service, docker("inspect", "-f", '{{(index .NetworkSettings.Networks "socle_interne").IPAddress}}', conteneur(service))]));
   for (const [s, ip] of adresses) if (!/^\d+\.\d+\.\d+\.\d+$/.test(ip)) throw new Error(`adresse interne illisible pour ${s}`);
-}, 60_000);
+}), 60_000);
 
 describe("audit 1-A · réseau : rien d'interne hors du réseau interne", () => {
   it("[A-066] à l'exécution, seul le proxy publie un port (sur 127.0.0.1), et aucun conteneur n'est à la fois sur « entree » et « interne »", () => {
@@ -75,7 +98,14 @@ describe("audit 1-A · réseau : rien d'interne hors du réseau interne", () => 
 
   it("[A-066] depuis le réseau « entree », aucun service interne ne répond, ni par son nom ni par son adresse (témoin : le proxy répond)", () => {
     const cibles: Cible[] = [{ nom: "traefik", port: 8443 }];
-    for (const { service, ports } of INTERNES) for (const port of ports) cibles.push({ nom: service, port }, { nom: adresses.get(service) ?? "", port });
+    // Sur la CI, le nom « keycloak » désigne aussi, sur « entree », l'écho d'essai du routage (compose.zz-essai-routage.yml) : le vrai Keycloak est sondé par son adresse.
+    const aliasEntree = new Set(["keycloak"]);
+    for (const { service, ports } of INTERNES) {
+      for (const port of ports) {
+        if (!aliasEntree.has(service)) cibles.push({ nom: service, port });
+        cibles.push({ nom: adresses.get(service) ?? "", port });
+      }
+    }
     const etat = sonder("socle_entree", cibles);
     expect(etat.get("traefik:8443"), "témoin : la sonde joint le proxy").toBe("OUVERT");
     expect(etat.size).toBe(cibles.length);
@@ -92,15 +122,27 @@ describe("audit 1-A · réseau : rien d'interne hors du réseau interne", () => 
     expect(ouverts(etat)).toEqual(["postgres:5432"]);
   }, 120_000);
 
-  it("[C-533] depuis le réseau « interne », l'hôte n'est pas joignable par la passerelle du pont (proxy publié, SSH)", () => {
+  // Adresse de l'hôte sur le pont du réseau interne (passerelle déclarée, sinon première adresse du sous-réseau).
+  const pont = () => {
     const passerelle = docker("network", "inspect", "-f", "{{range .IPAM.Config}}{{.Gateway}}{{end}}", "socle_interne");
-    // Sans passerelle déclarée (réseau internal), on prend la première adresse du sous-réseau, celle que Docker donne au pont.
     const sousReseau = docker("network", "inspect", "-f", "{{range .IPAM.Config}}{{.Subnet}}{{end}}", "socle_interne");
-    const pont = passerelle || sousReseau.replace(/\.0\/\d+$/, ".1");
-    expect(pont).toMatch(/^\d+\.\d+\.\d+\.\d+$/);
-    const etat = sonder("socle_interne", [{ nom: "postgres", port: 5432 }, { nom: pont, port: 8443 }, { nom: pont, port: 22 }]);
+    return passerelle || sousReseau.replace(/\.0\/\d+$/, ".1");
+  };
+
+  it("[C-533] depuis le réseau « interne », le port du proxy publié sur l'hôte n'est pas joignable par le pont (témoin : PostgreSQL répond)", () => {
+    const hote = pont();
+    expect(hote).toMatch(/^\d+\.\d+\.\d+\.\d+$/);
+    const etat = sonder("socle_interne", [{ nom: "postgres", port: 5432 }, { nom: hote, port: 8443 }]);
     expect(etat.get("postgres:5432")).toBe("OUVERT");
     expect(ouverts(etat)).toEqual(["postgres:5432"]);
+  }, 120_000);
+
+  // Défaut constaté (T1A-19, PR 90, 1re exécution) : un conteneur du réseau « internal » joint l'hôte par l'adresse du pont (ici le SSH du
+  // runner). Docker ne filtre pas ce chemin : en production, tout service de l'hôte qui écoute sur 0.0.0.0 (SSH, Coolify) serait joignable
+  // depuis les conteneurs du socle. Correction au lot 1-B : pare-feu de l'hôte (chaîne INPUT) qui refuse les ponts des réseaux internes.
+  it.fails("[C-533] @lot-1b depuis le réseau « interne », un service de l'hôte (SSH) n'est pas joignable par le pont", () => {
+    const etat = sonder("socle_interne", [{ nom: pont(), port: 22 }]);
+    expect(ouverts(etat)).toEqual([]);
   }, 120_000);
 
   it("[A-066] depuis l'hôte, aucun port interne n'écoute sur 127.0.0.1 (témoin : 8443 répond)", async () => {

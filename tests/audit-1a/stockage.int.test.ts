@@ -26,9 +26,32 @@ const A = randomUUID();
 const B = randomUUID();
 const CONTENU_B = `CONTENU-DE-B-${randomBytes(8).toString("hex")}`;
 
+// Le job ne montre pas le rapport JSON : chaque échec et le bilan du fichier vont sur la sortie d'erreur (jamais une valeur secrète).
+const FICHIER = import.meta.url.split("/").pop() ?? "";
+const bilan = { verts: 0, rouges: 0, attendus: 0 };
 afterEach((ctx) => {
-  if (ctx.task.result?.state === "fail") writeSync(2, `ECHEC ${ctx.task.name}\n${(ctx.task.result.errors ?? []).map((e) => e.message).join("\n")}\n`);
+  const r = ctx.task.result;
+  const rouge = r?.state === "fail";
+  if (ctx.task.fails) {
+    if (rouge) bilan.attendus++;
+    else writeSync(2, `ECHEC ${ctx.task.name}\nattendu rouge (défaut corrigé ?) mais vert\n`);
+  } else if (rouge) {
+    bilan.rouges++;
+    writeSync(2, `ECHEC ${ctx.task.name}\n${(r.errors ?? []).map((e) => e.message).join("\n")}\n`);
+  } else if (r?.state === "pass") bilan.verts++;
 });
+afterAll(() => {
+  writeSync(2, `BILAN ${FICHIER} : ${bilan.verts} verts, ${bilan.rouges} rouges, ${bilan.attendus} défauts attendus\n`);
+});
+// Une préparation qui échoue ne passe par aucun afterEach : on l'écrit aussi.
+const garder = <T>(f: () => T | Promise<T>) => async () => {
+  try {
+    return await f();
+  } catch (e) {
+    writeSync(2, `ECHEC préparation ${FICHIER}\n${e instanceof Error ? e.message : "erreur"}\n`);
+    throw e;
+  }
+};
 
 const lances: string[] = [];
 afterAll(() => {
@@ -63,7 +86,7 @@ const issue = (p: Promise<unknown>) => p.then(() => "ok", (e: unknown) => String
 
 let idA: IdentifiantsS3;
 let idB: IdentifiantsS3;
-beforeAll(async () => {
+beforeAll(garder(async () => {
   const cleAdmin = SERVICE.environment.AWS_ACCESS_KEY_ID ?? "";
   const secretAdmin = `TEST-NE-PAS-UTILISER-${randomBytes(16).toString("hex")}`;
   const id = docker("run", "-d", "--rm", "-e", `AWS_ACCESS_KEY_ID=${cleAdmin}`, "-e", `AWS_SECRET_ACCESS_KEY=${secretAdmin}`, SERVICE.image, ...SERVICE.command);
@@ -90,7 +113,7 @@ beforeAll(async () => {
   await s.deposer(A, "mien.txt", octets("à A"));
   idA = identifiantsDe(A);
   idB = identifiantsDe(B);
-}, 240_000);
+}), 240_000);
 
 describe("audit 1-A · stockage d'objets", () => {
   it("[A-061] @isolation A ne recopie pas un objet de B dans son propre compartiment (copie côté serveur)", async () => {
@@ -137,24 +160,32 @@ describe("audit 1-A · stockage d'objets", () => {
   it("[A-061] @isolation A ne liste, ne supprime, ni n'interroge un objet de B ; un objet présent ou absent chez B répond pareil", async () => {
     const s3 = s3De(idA);
     try {
-      expect(await issue(s3.send(new S3.ListObjectsV2Command({ Bucket: `cli-${B}` })))).toBe("403");
-      expect(await issue(s3.send(new S3.DeleteObjectCommand({ Bucket: `cli-${B}`, Key: "secret.txt" })))).not.toBe("ok");
-      expect(await issue(s3.send(new S3.DeleteObjectsCommand({ Bucket: `cli-${B}`, Delete: { Objects: [{ Key: "secret.txt" }] } })))).not.toBe("ok");
-      const present = await issue(s3.send(new S3.HeadObjectCommand({ Bucket: `cli-${B}`, Key: "secret.txt" })));
-      const absent = await issue(s3.send(new S3.HeadObjectCommand({ Bucket: `cli-${B}`, Key: "absent.txt" })));
-      expect(present).toBe("403");
-      expect(absent).toBe(present);
-      const lirePresent = await issue(s3.send(new S3.GetObjectCommand({ Bucket: `cli-${B}`, Key: "secret.txt" })));
-      const lireAbsent = await issue(s3.send(new S3.GetObjectCommand({ Bucket: `cli-${B}`, Key: "absent.txt" })));
-      expect(lirePresent).toBe("403");
-      expect(lireAbsent).toBe(lirePresent);
-      expect(await issue(s3.send(new S3.PutObjectAclCommand({ Bucket: `cli-${B}`, Key: "secret.txt", ACL: "public-read" })))).not.toBe("ok");
-      expect(await issue(s3.send(new S3.PutBucketPolicyCommand({ Bucket: `cli-${B}`, Policy: JSON.stringify({ Version: "2012-10-17", Statement: [{ Effect: "Allow", Principal: "*", Action: "s3:GetObject", Resource: `arn:aws:s3:::cli-${B}/*` }] }) })))).not.toBe("ok");
-      expect(await issue(s3.send(new S3.PutBucketPolicyCommand({ Bucket: `cli-${A}`, Policy: JSON.stringify({ Version: "2012-10-17", Statement: [{ Effect: "Allow", Principal: "*", Action: "s3:GetObject", Resource: `arn:aws:s3:::cli-${A}/*` }] }) })))).not.toBe("ok");
-      // Toujours là, toujours privé.
-      expect(new TextDecoder().decode(await stockage().lire(B, "secret.txt"))).toBe(CONTENU_B);
-      expect([401, 403]).toContain((await fetch(`${endpoint}/cli-${B}/secret.txt`)).status);
-      expect([401, 403]).toContain((await fetch(`${endpoint}/cli-${A}/mien.txt`)).status);
+      const politique = (c: string) => JSON.stringify({ Version: "2012-10-17", Statement: [{ Effect: "Allow", Principal: "*", Action: "s3:GetObject", Resource: `arn:aws:s3:::${c}/*` }] });
+      // DeleteObjects répond 200 avec une erreur PAR objet : on lit ce qui a été supprimé, pas le statut.
+      const supprimesEnLot = await s3.send(new S3.DeleteObjectsCommand({ Bucket: `cli-${B}`, Delete: { Objects: [{ Key: "secret.txt" }] } })).then((r) => (r.Deleted ?? []).length, () => 0);
+      const issues = {
+        lister: await issue(s3.send(new S3.ListObjectsV2Command({ Bucket: `cli-${B}` }))),
+        supprimer: await issue(s3.send(new S3.DeleteObjectCommand({ Bucket: `cli-${B}`, Key: "secret.txt" }))),
+        supprimesEnLot: String(supprimesEnLot),
+        entetePresent: await issue(s3.send(new S3.HeadObjectCommand({ Bucket: `cli-${B}`, Key: "secret.txt" }))),
+        enteteAbsent: await issue(s3.send(new S3.HeadObjectCommand({ Bucket: `cli-${B}`, Key: "absent.txt" }))),
+        lirePresent: await issue(s3.send(new S3.GetObjectCommand({ Bucket: `cli-${B}`, Key: "secret.txt" }))),
+        lireAbsent: await issue(s3.send(new S3.GetObjectCommand({ Bucket: `cli-${B}`, Key: "absent.txt" }))),
+        aclPubliqueB: await issue(s3.send(new S3.PutObjectAclCommand({ Bucket: `cli-${B}`, Key: "secret.txt", ACL: "public-read" }))),
+        politiquePubliqueB: await issue(s3.send(new S3.PutBucketPolicyCommand({ Bucket: `cli-${B}`, Policy: politique(`cli-${B}`) }))),
+        politiquePubliqueA: await issue(s3.send(new S3.PutBucketPolicyCommand({ Bucket: `cli-${A}`, Policy: politique(`cli-${A}`) }))),
+      };
+      // Après coup : l'objet de B est toujours là et rien n'est devenu lisible sans signature.
+      const effets = {
+        objetDeB: new TextDecoder().decode((await stockage().lire(B, "secret.txt")) ?? new Uint8Array()) === CONTENU_B,
+        anonymeBRefuse: [401, 403].includes((await fetch(`${endpoint}/cli-${B}/secret.txt`)).status),
+        anonymeARefuse: [401, 403].includes((await fetch(`${endpoint}/cli-${A}/mien.txt`)).status),
+      };
+      expect(effets).toEqual({ objetDeB: true, anonymeBRefuse: true, anonymeARefuse: true });
+      expect(issues).toEqual({
+        lister: "403", supprimer: "403", supprimesEnLot: "0", entetePresent: "403", enteteAbsent: "403", lirePresent: "403", lireAbsent: "403",
+        aclPubliqueB: expect.not.stringMatching(/^ok$/), politiquePubliqueB: expect.not.stringMatching(/^ok$/), politiquePubliqueA: expect.not.stringMatching(/^ok$/),
+      });
     } finally {
       s3.destroy();
     }
@@ -201,6 +232,7 @@ describe("audit 1-A · stockage d'objets", () => {
       (() => { const x = new URL(u); x.searchParams.set("X-Amz-Expires", "604800"); return x.toString(); })(),
       (() => { const x = new URL(u); x.pathname = `/cli-${B}/secret.txt`; x.searchParams.delete("X-Amz-Signature"); return x.toString(); })(),
     ];
-    for (const r of retouches) expect([401, 403], "lien retouché").toContain(await vers(r));
+    // 400 (paramètres de signature invalides), 401 ou 403 : refus ; jamais le contenu.
+    for (const [i, r] of retouches.entries()) expect([400, 401, 403], `lien retouché n° ${i + 1}`).toContain(await vers(r));
   }, 60_000);
 });

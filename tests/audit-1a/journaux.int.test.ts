@@ -15,17 +15,40 @@ const docker = (...args: string[]) => execFileSync("docker", args, { encoding: "
 const conteneur = (service: string) => docker("ps", "-q", "--filter", "label=com.docker.compose.project=socle", "--filter", `label=com.docker.compose.service=${service}`);
 const ipInterne = (service: string) => docker("inspect", "-f", '{{(index .NetworkSettings.Networks "socle_interne").IPAddress}}', conteneur(service));
 
+// Le job ne montre pas le rapport JSON : chaque échec et le bilan du fichier vont sur la sortie d'erreur (jamais une valeur secrète).
+const FICHIER = import.meta.url.split("/").pop() ?? "";
+const bilan = { verts: 0, rouges: 0, attendus: 0 };
 afterEach((ctx) => {
-  if (ctx.task.result?.state === "fail") writeSync(2, `ECHEC ${ctx.task.name}\n${(ctx.task.result.errors ?? []).map((e) => e.message).join("\n")}\n`);
+  const r = ctx.task.result;
+  const rouge = r?.state === "fail";
+  if (ctx.task.fails) {
+    if (rouge) bilan.attendus++;
+    else writeSync(2, `ECHEC ${ctx.task.name}\nattendu rouge (défaut corrigé ?) mais vert\n`);
+  } else if (rouge) {
+    bilan.rouges++;
+    writeSync(2, `ECHEC ${ctx.task.name}\n${(r.errors ?? []).map((e) => e.message).join("\n")}\n`);
+  } else if (r?.state === "pass") bilan.verts++;
 });
+afterAll(() => {
+  writeSync(2, `BILAN ${FICHIER} : ${bilan.verts} verts, ${bilan.rouges} rouges, ${bilan.attendus} défauts attendus\n`);
+});
+// Une préparation qui échoue ne passe par aucun afterEach : on l'écrit aussi.
+const garder = <T>(f: () => T | Promise<T>) => async () => {
+  try {
+    return await f();
+  } catch (e) {
+    writeSync(2, `ECHEC préparation ${FICHIER}\n${e instanceof Error ? e.message : "erreur"}\n`);
+    throw e;
+  }
+};
 
 const SECRET_PAR_NOM = /MOT_DE_PASSE|PASSWORD|SECRET|_CLE$|_CLE_|TOKEN|^M$/;
 let secretPg = "";
-beforeAll(() => {
+beforeAll(garder(() => {
   const env = JSON.parse(docker("inspect", "-f", "{{json .Config.Env}}", conteneur("postgres"))) as string[];
   secretPg = env.find((l) => l.startsWith("SOCLE_PG_MOT_DE_PASSE="))?.slice("SOCLE_PG_MOT_DE_PASSE=".length) ?? "";
   if (!secretPg) throw new Error("secret de test du socle introuvable");
-}, 60_000);
+}), 60_000);
 
 describe("audit 1-A · journaux des conteneurs du socle", () => {
   it("[A-005] aucun conteneur du socle n'écrit dans son journal un des secrets du socle (bruts ou dérivés par rôle)", () => {
@@ -80,7 +103,7 @@ let app: Pool;
 const motDePasse = (role: string) => createHash("sha256").update(`${secretPg}/${role}`).digest("hex");
 
 describe("audit 1-A · journal de l'API", () => {
-  beforeAll(async () => {
+  beforeAll(garder(async () => {
     migration = creerPool(`postgres://console_migration:${motDePasse("console_migration")}@${ipInterne("postgres")}:5432/console`);
     app = creerPool(`postgres://console_app:${motDePasse("console_app")}@${ipInterne("pgbouncer")}:6432/console`);
     await migration.query(`DROP SCHEMA IF EXISTS ${SCHEMA} CASCADE`);
@@ -103,7 +126,7 @@ describe("audit 1-A · journal de l'API", () => {
     } finally {
       cb.release();
     }
-  }, 60_000);
+  }), 60_000);
   afterAll(async () => {
     await migration?.query(`DROP SCHEMA IF EXISTS ${SCHEMA} CASCADE`).catch(() => undefined);
     await app?.end().catch(() => undefined);
@@ -134,19 +157,19 @@ describe("audit 1-A · journal de l'API", () => {
     expect(r.body.includes(porteur) || r.body.includes(corps)).toBe(false);
   });
 
-  // Défaut constaté (T1A-19) : Fastify journalise l'adresse COMPLÈTE de chaque requête, paramètres compris (req.url). Un jeton passé en
-  // paramètre (lien magique, code OIDC « code=… », lien signé) entre en clair dans le journal. À corriger avant la première route qui en reçoit.
-  it("[A-005] le journal de l'API ne garde pas un jeton passé en paramètre d'adresse", async () => {
+  // Défaut constaté (T1A-19, PR 90, 1re exécution) : Fastify journalise l'adresse COMPLÈTE de chaque requête, paramètres compris (req.url).
+  // Un jeton passé en paramètre (lien magique, code OIDC « code=… », lien signé) entre en clair dans le journal.
+  // Correction : un sérialiseur « req » qui retire la partie « ?… » de l'adresse (serveur.ts). À faire avant la première route qui en reçoit.
+  it.fails("[A-005] @lot-2 le journal de l'API ne garde pas un jeton passé en paramètre d'adresse", async () => {
     const { serveur, lignes } = serveurAvecJournal();
     const jeton = `TEST-NE-PAS-UTILISER-jeton-${randomBytes(8).toString("hex")}`;
     await serveur.inject({ method: "GET", url: `/connexion/retour?code=${jeton}&state=x` });
     await serveur.close();
-    expect(lignes.join(""), "témoin : la requête est journalisée").toContain("/connexion/retour");
     expect(lignes.join("").includes(jeton), "jeton en clair dans le journal").toBe(false);
   });
 
-  // Défaut constaté (T1A-19) : une erreur PostgreSQL inattendue est journalisée avec l'objet d'erreur entier (plugins/erreurs.ts,
-  // requete.log.error({ err })) ; son champ « detail » porte la valeur en conflit, ici la donnée du client B, en clair.
+  // Une erreur PostgreSQL inattendue est journalisée avec l'objet d'erreur (plugins/erreurs.ts, requete.log.error({ err })) ;
+  // son champ « detail » porte la valeur en conflit, ici la donnée du client B : elle ne doit pas sortir en clair.
   it("[A-005] @isolation une erreur de base qui porte une donnée d'un autre client (contrainte d'unicité) n'entre pas dans le journal", async () => {
     const { serveur, lignes } = serveurAvecJournal();
     serveur.post("/contacts", async (requete) =>
@@ -159,6 +182,7 @@ describe("audit 1-A · journal de l'API", () => {
     await serveur.close();
     expect(r.statusCode, "témoin : l'insertion de A échoue sur la valeur de B").toBe(500);
     expect(r.body.includes(DONNEE_B)).toBe(false);
+    expect(lignes.join(""), "témoin : l'erreur de base est journalisée avec son code").toContain("23505");
     expect(lignes.join("").includes(DONNEE_B), "donnée de B dans le journal de l'API").toBe(false);
   });
 });

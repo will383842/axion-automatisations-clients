@@ -16,8 +16,22 @@ const attendre = (ms: number) => new Promise((ok) => setTimeout(ok, ms));
 const A = "2a2b3c4d-0000-4a00-8a00-00000000000a";
 const B = "2a2b3c4d-0000-4b00-8b00-00000000000b";
 
+// Le job ne montre pas le rapport JSON : chaque échec et le bilan du fichier vont sur la sortie d'erreur (jamais une valeur secrète).
+const FICHIER = import.meta.url.split("/").pop() ?? "";
+const bilan = { verts: 0, rouges: 0, attendus: 0 };
 afterEach((ctx) => {
-  if (ctx.task.result?.state === "fail") writeSync(2, `ECHEC ${ctx.task.name}\n${(ctx.task.result.errors ?? []).map((e) => e.message).join("\n")}\n`);
+  const r = ctx.task.result;
+  const rouge = r?.state === "fail";
+  if (ctx.task.fails) {
+    if (rouge) bilan.attendus++;
+    else writeSync(2, `ECHEC ${ctx.task.name}\nattendu rouge (défaut corrigé ?) mais vert\n`);
+  } else if (rouge) {
+    bilan.rouges++;
+    writeSync(2, `ECHEC ${ctx.task.name}\n${(r.errors ?? []).map((e) => e.message).join("\n")}\n`);
+  } else if (r?.state === "pass") bilan.verts++;
+});
+afterAll(() => {
+  writeSync(2, `BILAN ${FICHIER} : ${bilan.verts} verts, ${bilan.rouges} rouges, ${bilan.attendus} défauts attendus\n`);
 });
 
 async function parametres() {
@@ -41,7 +55,7 @@ async function parametres() {
 // Échange brut sur le port de Valkey, sans bibliothèque : on envoie des commandes RESP en ligne et on lit les réponses telles quelles.
 async function brut(commandes: string[]): Promise<string> {
   const { host, port } = await parametres();
-  return new Promise((ok, ko) => {
+  return new Promise<string>((ok, ko) => {
     const s = connect({ host, port });
     let recu = "";
     s.setTimeout(5000, () => (s.destroy(), ok(recu)));
@@ -66,15 +80,12 @@ async function connexion() {
 
 describe("audit 1-A · files Valkey et BullMQ", () => {
   it("[A-051] @isolation sans mot de passe, ou avec un faux, Valkey refuse toute commande : ni lecture des files, ni écriture", async () => {
+    // Une réponse par commande, dans l'ordre ; la dernière est celle de QUIT (« +OK », admise sans mot de passe).
+    const reponses = (texte: string) => texte.split("\r\n").filter((l) => /^[-+*:$]/.test(l)).map((l) => l.split(" ")[0]);
     const sans = await brut(["PING", "KEYS axion:*", "SET audit-intrus 1", "CONFIG GET requirepass"]);
-    expect(sans).toMatch(/^-NOAUTH/m);
-    expect(sans).not.toMatch(/^\+PONG/m);
-    expect(sans).not.toMatch(/^\*\d+/m);
-    expect(sans).not.toMatch(/^\+OK/m);
+    expect(reponses(sans)).toEqual(["-NOAUTH", "-NOAUTH", "-NOAUTH", "-NOAUTH", "+OK"]);
     const faux = await brut([`AUTH ${randomBytes(16).toString("hex")}`, "PING", "KEYS axion:*"]);
-    expect(faux).toMatch(/^-WRONGPASS|^-ERR invalid password/m);
-    expect(faux).not.toMatch(/^\+PONG/m);
-    expect(faux).not.toMatch(/^\*\d+/m);
+    expect(reponses(faux)).toEqual(["-WRONGPASS", "-NOAUTH", "-NOAUTH", "+OK"]);
     const v = await connexion();
     expect(await v.client.exists("audit-intrus")).toBe(0);
   }, 60_000);

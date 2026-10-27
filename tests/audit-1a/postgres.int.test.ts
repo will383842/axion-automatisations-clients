@@ -15,9 +15,32 @@ const docker = (...args: string[]) => execFileSync("docker", args, { encoding: "
 const conteneur = (service: string) => docker("ps", "-q", "--filter", "label=com.docker.compose.project=socle", "--filter", `label=com.docker.compose.service=${service}`);
 const ipInterne = (service: string) => docker("inspect", "-f", '{{(index .NetworkSettings.Networks "socle_interne").IPAddress}}', conteneur(service));
 
+// Le job ne montre pas le rapport JSON : chaque échec et le bilan du fichier vont sur la sortie d'erreur (jamais une valeur secrète).
+const FICHIER = import.meta.url.split("/").pop() ?? "";
+const bilan = { verts: 0, rouges: 0, attendus: 0 };
 afterEach((ctx) => {
-  if (ctx.task.result?.state === "fail") writeSync(2, `ECHEC ${ctx.task.name}\n${(ctx.task.result.errors ?? []).map((e) => e.message).join("\n")}\n`);
+  const r = ctx.task.result;
+  const rouge = r?.state === "fail";
+  if (ctx.task.fails) {
+    if (rouge) bilan.attendus++;
+    else writeSync(2, `ECHEC ${ctx.task.name}\nattendu rouge (défaut corrigé ?) mais vert\n`);
+  } else if (rouge) {
+    bilan.rouges++;
+    writeSync(2, `ECHEC ${ctx.task.name}\n${(r.errors ?? []).map((e) => e.message).join("\n")}\n`);
+  } else if (r?.state === "pass") bilan.verts++;
 });
+afterAll(() => {
+  writeSync(2, `BILAN ${FICHIER} : ${bilan.verts} verts, ${bilan.rouges} rouges, ${bilan.attendus} défauts attendus\n`);
+});
+// Une préparation qui échoue ne passe par aucun afterEach : on l'écrit aussi.
+const garder = <T>(f: () => T | Promise<T>) => async () => {
+  try {
+    return await f();
+  } catch (e) {
+    writeSync(2, `ECHEC préparation ${FICHIER}\n${e instanceof Error ? e.message : "erreur"}\n`);
+    throw e;
+  }
+};
 
 let secret = "";
 let direct = "";
@@ -34,13 +57,13 @@ const pool = (voie: "direct" | "pgbouncer", role: string, base: string, parametr
 const lignes = async (p: Pool | { query: Pool["query"] }, sql: string, valeurs: unknown[] = []) => (await p.query(sql, valeurs)).rows as Record<string, unknown>[];
 const codeDe = async (promesse: Promise<unknown>) => promesse.then(() => "accepte", (e: unknown) => String((e as { code?: string }).code ?? "connexion_refusee"));
 
-beforeAll(() => {
+beforeAll(garder(() => {
   const env = JSON.parse(docker("inspect", "-f", "{{json .Config.Env}}", conteneur("postgres"))) as string[];
   secret = env.find((l) => l.startsWith("SOCLE_PG_MOT_DE_PASSE="))?.slice("SOCLE_PG_MOT_DE_PASSE=".length) ?? "";
   if (!secret) throw new Error("secret de test du socle introuvable");
   direct = `${ipInterne("postgres")}:5432`;
   pgbouncer = `${ipInterne("pgbouncer")}:6432`;
-}, 60_000);
+}), 60_000);
 afterAll(async () => {
   await Promise.all(ouverts.map((p) => p.end().catch(() => undefined)));
 });
@@ -73,7 +96,7 @@ describe.each(["console", "moteur"] as const)("audit 1-A · PostgreSQL à traver
   let app: Pool;
   const ecrire = (tenant: string, libelle: string) => avecClient(app, tenant, (c) => c.query(`INSERT INTO ${SCHEMA}.dossiers (tenant_id, libelle) VALUES ($1, $2)`, [tenant, libelle]));
 
-  beforeAll(async () => {
+  beforeAll(garder(async () => {
     migration = pool("direct", `${base}_migration`, base);
     app = pool("pgbouncer", `${base}_app`, base);
     await migration.query(`DROP SCHEMA IF EXISTS ${SCHEMA} CASCADE`);
@@ -83,7 +106,7 @@ describe.each(["console", "moteur"] as const)("audit 1-A · PostgreSQL à traver
     await ecrire(A, "a2");
     await ecrire(B, `${MARQUEUR_B}-1`);
     await ecrire(B, `${MARQUEUR_B}-2`);
-  }, 60_000);
+  }), 60_000);
   afterAll(async () => {
     await migration.query(`DROP SCHEMA IF EXISTS ${SCHEMA} CASCADE`).catch(() => undefined);
   });
@@ -169,8 +192,10 @@ describe.each(["console", "moteur"] as const)("audit 1-A · PostgreSQL à traver
     }
   });
 
-  // Défaut constaté (T1A-19) : aucune règle C5 ne signale une contrainte d'unicité qui ne commence pas par tenant_id. À corriger au lot 2, avant la première table métier.
-  it(`[${id("A-163")}] @isolation les invariants C5 signalent une contrainte UNIQUE qui ne porte pas tenant_id (oracle d'existence entre clients)`, async () => {
+  // Défaut constaté (T1A-19, PR 90, 1re exécution) : aucune règle C5 ne signale une contrainte d'unicité sans tenant_id (oracle prouvé ci-dessus).
+  // Correction : une règle « unicite_sans_tenant » dans packages/contrats/src/c5/invariants.ts (tout index unique d'une table à tenant_id
+  // porte tenant_id, sauf la clé d'identité générée). À faire au lot 2, avant la première table métier.
+  it.fails(`[${id("A-163")}] @isolation @lot-2 les invariants C5 signalent une contrainte UNIQUE qui ne porte pas tenant_id (oracle d'existence entre clients)`, async () => {
     await migration.query(`CREATE TABLE ${SCHEMA}.comptes2 (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, tenant_id uuid NOT NULL, courriel text NOT NULL UNIQUE)`);
     try {
       await appliquerModele(migration, base, "comptes2");

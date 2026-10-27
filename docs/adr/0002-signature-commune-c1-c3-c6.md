@@ -20,3 +20,5 @@ Les canaux signés entre la console, le Hub, le CRM et l'exécuteur (C1, C2, C3,
 - Une seule implémentation de signature et de vérification dans `packages/contrats`, testée une fois.
 - Tout changement de cette règle exige un nouvel ADR et l'accord de l'architecte.
 - Le texte complet des contrats est dans le dépôt privé (annexe A).
+
+> Note (26/10/2026) : les événements poussés de C3, comme les faits de C2, se dédoublonnent par `event_id`, sans `Idempotency-Key` ; `verifier()` choisit le secret par `X-Axion-Cle` et applique l'anti-rejeu. Voir l'ADR 0031.

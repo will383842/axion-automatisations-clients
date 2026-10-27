@@ -32,6 +32,7 @@ export const Evenement = z.discriminatedUnion("type", [
 ]);
 export type Evenement = z.infer<typeof Evenement>;
 
-// POST /api/executeur/v1/evenements : un paquet, signé par la clé de la cellule (commun/signature.ts).
+// POST /api/executeur/v1/evenements : un paquet, signé par la clé de la cellule (commun/signature.ts) ;
+// toutes ses instances doivent appartenir à cette cellule, sinon 403 action_interdite pour tout le paquet (cellule.ts).
 export const Paquet = z.object({ evenements: z.array(Evenement).min(1).max(500) }).strict();
 export type Paquet = z.infer<typeof Paquet>;

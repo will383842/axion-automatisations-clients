@@ -1,4 +1,5 @@
 import { createHmac, randomUUID } from "node:crypto";
+import type { RouteContrat } from "../commun/routes.ts";
 
 // Lien signé de connexion de l'équipe (C6, annexe A). Le back-office d'axion-ia copie cette fonction
 // (lot 2-bis) et prouve par l'empreinte des fixtures qu'elle est identique.
@@ -6,6 +7,10 @@ import { createHmac, randomUUID } from "node:crypto";
 export const DUREE_SECONDES = 60;
 export const VERSION_JETON = 1;
 export const CLE_OCTETS_MIN = 32;
+// Un jti consommé est gardé 2 min (plus que la durée du jeton et l'avance permise).
+export const CONSERVATION_JTI_SECONDES = 120;
+// Page d'entrée de la console : ouverte par le navigateur, limitée par adresse source (commun/debit.ts).
+export const ROUTE_C6 = { methode: "GET", chemin: "/entree", limite: "c6", antiDoublon: "jti" } as const satisfies RouteContrat;
 
 // CONTRAT : le secret est une chaîne UTF-8, utilisée telle quelle comme clé HMAC (jamais décodée
 // en hexadécimal ni en base64). Il fait au moins 32 octets UTF-8. Le `kid` des clés C6 porte le

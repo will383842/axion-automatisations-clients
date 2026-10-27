@@ -16,7 +16,7 @@
       "enabled": true,
       "protocol": "openid-connect",
       "publicClient": false,
-      "secret": "${env.KC_SECRET_PORTAIL}",
+      "secret": "${KC_SECRET_PORTAIL}",
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": false,
       "implicitFlowEnabled": false,

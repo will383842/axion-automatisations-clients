@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { verifierCompose, lireYaml } from "../../../../scripts/garde-compose.js";
 import { appeler, creerCoffre, ErreurCoffre } from "./coffre.js";
 import { creerEnveloppe } from "./enveloppe.js";
+import { creerMasqueur } from "../plugins/journal.js";
 
 // Imitation d'OpenBao : les droits de chaque rôle sont lus dans les VRAIS fichiers de politiques,
 // pour que le test et le serveur ne puissent pas diverger.
@@ -124,6 +125,8 @@ export function creerFauxBao() {
     if ((m = /^clients\/metadata\/(.+)$/.exec(chemin))) {
       const p = m[1] ?? "";
       if (methode === "GET") { const v = etat.meta.get(p); return v ? rep(200, { data: { custom_metadata: v, current_version: etat.kv.has(p) ? 1 : 0 } }) : rep(404, { errors: [] }); }
+      // Comme le vrai OpenBao (KV v2) : une valeur vide dans custom_metadata est refusée.
+      if (Object.values(json.custom_metadata as Record<string, unknown>).some((x) => x === "")) return rep(400, { errors: ["custom_metadata value must not be empty"] });
       etat.meta.set(p, json.custom_metadata as { nom: string; expire_le: string | null });
       return rep(204, null);
     }
@@ -184,6 +187,11 @@ const refus = async (p: Promise<unknown>, code?: string) => {
 };
 
 describe("coffre : identifiants des clients (KV v2)", () => {
+  it("[A-060] rangerIdentifiant sans date d'expiration n'envoie aucune métadonnée vide", async () => {
+    const ref = await coffreAvec("api").rangerIdentifiant(A, "boite-mail", MARQUEUR());
+    expect((await coffreAvec("equipe").lireEtat(A, ref)).expireLe).toBeNull();
+  });
+
   it("[A-060] rangerIdentifiant renvoie une référence qui ne contient pas la valeur", async () => {
     const v = MARQUEUR();
     const ref = await coffreAvec("api").rangerIdentifiant(A, "boite-mail", v);
@@ -252,7 +260,7 @@ describe("coffre : identifiants des clients (KV v2)", () => {
     await e.creerCleClient(A);
     const env = await e.chiffrer(A, Buffer.from("texte"));
     bao.etat.scelle = true;
-    await refus(coffreAvec("api").rangerIdentifiant(A, "x", "v"), "coffre_scelle");
+    await refus(coffreAvec("api").rangerIdentifiant(A, "x", MARQUEUR()), "coffre_scelle");
     await refus(coffreAvec("equipe").lireEtat(A, ref), "coffre_scelle");
     await refus(coffreAvec("courtier").lireValeur(A, ref), "coffre_scelle");
     await refus(e.creerCleClient(A), "coffre_scelle");
@@ -281,11 +289,43 @@ describe("coffre : identifiants des clients (KV v2)", () => {
   });
 });
 
+describe("coffre : masquage des valeurs dans le journal", () => {
+  it("[A-005] une valeur rangée est inscrite au masqueur, sans inscription manuelle", async () => {
+    const v = MARQUEUR(), masqueur = creerMasqueur();
+    await creerCoffre({ url: URL_BAO, jeton: bao.jeton("api"), fetch: bao.fetch, masqueur }).rangerIdentifiant(A, "boite", v);
+    expect(masqueur.masquer(`erreur imap://u:${v}@boite.test`)).not.toContain(v);
+  });
+  it("[A-005] une valeur relue par le courtier est inscrite au masqueur", async () => {
+    const v = MARQUEUR(), masqueur = creerMasqueur();
+    const ref = await coffreAvec("api").rangerIdentifiant(A, "boite", v);
+    expect(masqueur.masquer(`échec ${v}`)).toContain(v); // pas encore connue
+    const lue = await creerCoffre({ url: URL_BAO, jeton: bao.jeton("courtier"), fetch: bao.fetch, masqueur }).lireValeur(A, ref);
+    expect(lue).toBe(v);
+    expect(masqueur.masquer(`échec imap://u:${v}@boite.test`)).not.toContain(v);
+  });
+});
+
+describe("coffre : une valeur trop courte pour être masquée n'entre jamais", () => {
+  const COURTE = "1234567"; // 7 caractères : sous le seuil du masqueur
+  it("[A-005] rangerIdentifiant refuse une valeur de moins de 8 caractères, avant tout appel réseau", async () => {
+    const masqueur = creerMasqueur();
+    const e = await refus(creerCoffre({ url: URL_BAO, jeton: bao.jeton("api"), fetch: bao.fetch, masqueur }).rangerIdentifiant(A, "code", COURTE), "requete_refusee");
+    expect(bao.etat.appels).toEqual([]);
+    expect(`${e.message}${e.stack}${JSON.stringify(e)}`).not.toContain(COURTE);
+  });
+  it("[A-005] lireValeur ne rend jamais une valeur rangée de moins de 8 caractères, sans la recopier dans l'erreur", async () => {
+    const ref = `bao:clients/${A}/${randomUUID()}`;
+    const c = creerCoffre({ url: URL_BAO, jeton: bao.jeton("courtier"), fetch: async () => new Response(JSON.stringify({ data: { data: { nom: "code", valeur: COURTE } } }), { status: 200 }) });
+    const e = await refus(c.lireValeur(A, ref), "coffre_indisponible");
+    expect(`${e.message}${e.stack}${JSON.stringify(e)}`).not.toContain(COURTE);
+  });
+});
+
 describe("coffre : requêtes au serveur", () => {
   it("[C-011] une redirection n'est jamais suivie : le jeton et la valeur ne partent pas vers une autre adresse", async () => {
     const vus: (RequestInit | undefined)[] = [];
     const c = creerCoffre({ url: URL_BAO, jeton: "jeton-x", fetch: async (_u, init) => { vus.push(init); return new Response(null, { status: 307, headers: { location: "http://autre.test/" } }); } });
-    await refus(c.rangerIdentifiant(A, "x", "v"));
+    await refus(c.rangerIdentifiant(A, "x", MARQUEUR()));
     expect(vus.length).toBeGreaterThan(0);
     for (const init of vus) expect(init?.redirect).toBe("error");
   });

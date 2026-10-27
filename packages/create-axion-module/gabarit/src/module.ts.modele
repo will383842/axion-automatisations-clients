@@ -1,0 +1,34 @@
+import { z } from "zod";
+import { defineAutomation, type Manifeste } from "@axion-auto/sdk-module";
+
+// Un module = code commun versionné + réglages par client. Aucune valeur propre à un client dans ce fichier :
+// tout ce qui change d'un client à l'autre passe par `reglages`.
+const reglages = z.object({ actionsAutomatiquesAutorisees: z.array(z.string()) });
+
+// Jeu d'essai inventé : 18 cas nominaux, 1 panne, 1 e-mail piégé.
+const cas = (i: number, categorie: "nominal" | "panne" | "email_piege") => ({
+  nom: `cas ${i + 1} (${categorie})`,
+  categorie,
+  entree: { expediteur: `personne${i + 1}@exemple.fr`, objet: `Demande ${i + 1}` },
+  attendu: { statut: "terminee" },
+});
+
+export const manifeste = {
+  code: "__CODE__",
+  version: "0.1.0",
+  apiMoteur: "^0.2.0",
+  reglages,
+  declencheurs: [{ type: "sondage", intervalleSecondes: 60, curseur: "dernierMessage" }],
+  etapes: [{ nom: "traiter", executer: async () => undefined }],
+  connecteurs: [],
+  ia: { modelesAdmis: [], unitesParElement: 0, risqueAiAct: "minimal" },
+  jeuEssai: Array.from({ length: 20 }, (_, i) => cas(i, i === 18 ? "panne" : i === 19 ? "email_piege" : "nominal")),
+  // Passage d'une version de réglages à la suivante : on garde les valeurs et on note la version d'origine.
+  migrer: (depuis: string, anciens: unknown) => ({ ...(anciens as object), migreDepuis: depuis }),
+  minutesGagneesParElement: 1,
+  ecrans: [],
+  tables: [],
+} satisfies Manifeste;
+
+export const module = defineAutomation(manifeste);
+export const reglagesEssai = { actionsAutomatiquesAutorisees: [] };

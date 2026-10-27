@@ -109,7 +109,7 @@ describe("navigation", () => {
     const liens = Array.from(container.querySelectorAll("a"));
     for (const a of liens) {
       expect(a.style.flex).toBe("1 1 auto");
-      expect(a.style.minWidth).toMatch(/^0(px)?$/);
+      expect(a.style.minWidth).toBe("48px"); // cible tactile de 48 px au moins (C-597), relevé par la galerie à 390 px
       expect(a.style.padding).toMatch(/^0(px)? 4px$/);
       expect(a.style.position).toBe("relative");
       expect(a.querySelector("span")?.style.whiteSpace).toBe("nowrap");

@@ -1,0 +1,25 @@
+{
+  "ifResourceExists": "OVERWRITE",
+  "clients": [
+    {
+      "clientId": "essai-direct",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+      "defaultClientScopes": ["basic", "profile", "acr"],
+      "optionalClientScopes": [],
+      "protocolMappers": [
+        {
+          "name": "audience-api-equipe",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": { "included.custom.audience": "api-equipe", "access.token.claim": "true", "id.token.claim": "false" }
+        }
+      ]
+    }
+  ]
+}

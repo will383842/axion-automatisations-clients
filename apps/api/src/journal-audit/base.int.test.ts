@@ -20,12 +20,26 @@ const it = (nom: string, fn: () => Promise<void>) =>
     }
   });
 const avecDiag = async (f: () => Promise<void>) => {
+  writeSync(2, `DIAG debut migrer
+`);
+  const minuteur = setInterval(() => {
+    void migration
+      .query("SELECT pid, state, wait_event_type AS wt, wait_event AS we, left(query, 90) AS q FROM pg_stat_activity WHERE datname = 'console' AND pid <> pg_backend_pid()")
+      .then((r) => writeSync(2, `DIAG ${JSON.stringify(r.rows)}
+`))
+      .catch((e: Error) => writeSync(2, `DIAG sonde en echec ${e.message}
+`));
+  }, 10_000);
   try {
     await f();
+    writeSync(2, `DIAG migrer fini
+`);
   } catch (e) {
     writeSync(2, `ECHEC migrer ${String((e as Error).message).slice(0, 800)}
 `);
     throw e;
+  } finally {
+    clearInterval(minuteur);
   }
 };
 const docker = (...args: string[]) => execFileSync("docker", args, { encoding: "utf8" }).trim();

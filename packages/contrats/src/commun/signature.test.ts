@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { ANTI_REJEU_SECONDES, CONSERVATION_IDEMPOTENCE_JOURS, EN_TETES, chaineASigner, signer, verifier, type RequeteSignee } from "./signature.ts";
+import { ANTI_REJEU_SECONDES, CONSERVATION_IDEMPOTENCE_JOURS, EN_TETES, chaineASigner, horodatageSuivant, signer, verifier, type RequeteSignee } from "./signature.ts";
 
 const SECRET = "TEST-NE-PAS-UTILISER-cle-c1-console-a";
 const AUTRE = "TEST-NE-PAS-UTILISER-autre";
@@ -78,6 +78,23 @@ describe("signature HTTP commune", () => {
     // Nouvel essai re-signé (nouvel horodatage) : accepté, l'Idempotency-Key fait le reste.
     const resigne = { ...r, horodatage: String(T + 2), signature: signer(SECRET, String(T + 2), "POST", r.chemin, corps) };
     expect(verifier(cles, resigne, T + 2, dejaVu).ok).toBe(true);
+  });
+
+  it("[LOT0-contrats] une reprise dans la même seconde est re-signée avec un horodatage strictement plus récent : acceptée, l'anti-rejeu reste entier", () => {
+    const vus = new Set<string>();
+    const dejaVu = (cle: string, signature: string) => vus.has(`${cle} ${signature}`) || (vus.add(`${cle} ${signature}`), false);
+    const essai = (h: string) => ({ ...requete(), horodatage: h, signature: signer(SECRET, h, "POST", requete().chemin, corps) });
+    const premier = horodatageSuivant(undefined, T);
+    expect(premier).toBe(String(T));
+    expect(verifier(cles, essai(premier), T, dejaVu).ok).toBe(true);
+    // Coupure après réception : le serveur a gardé la signature. Reprise aussitôt, toujours à T.
+    const second = horodatageSuivant(premier, T);
+    expect(Number(second)).toBeGreaterThan(Number(premier));
+    expect(verifier(cles, essai(second), T, dejaVu).ok).toBe(true);
+    // Le même essai rejoué reste refusé.
+    expect(verifier(cles, essai(second), T, dejaVu)).toEqual({ ok: false, code: "rejeu" });
+    // L'horloge a avancé : on reprend l'horloge.
+    expect(horodatageSuivant(second, T + 30)).toBe(String(T + 30));
   });
 
   it("[LOT0-c1] dejaVu n'est appelé qu'après une signature valide dans la fenêtre ; sa panne est un refus", () => {

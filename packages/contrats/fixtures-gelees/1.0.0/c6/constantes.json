@@ -1,0 +1,16 @@
+{
+  "version": "1.0.0",
+  "route": {
+    "methode": "GET",
+    "chemin": "/entree",
+    "limite": "c6",
+    "antiDoublon": "jti"
+  },
+  "dureeSecondes": 60,
+  "versionJeton": 1,
+  "cleOctetsMin": 32,
+  "prefixeKid": "c6-",
+  "jetonOctetsMax": 1024,
+  "avanceMaxSecondes": 5,
+  "conservationJtiSecondes": 120
+}

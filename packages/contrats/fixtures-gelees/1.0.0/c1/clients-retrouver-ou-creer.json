@@ -1,0 +1,76 @@
+{
+  "route": "clients-retrouver-ou-creer",
+  "cas": [
+    {
+      "nom": "valide",
+      "valide": true,
+      "cle": "cle-test-c1-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c1-console-a",
+      "horodatage": "1792800000",
+      "methode": "POST",
+      "chemin": "/api/console/v1/clients/retrouver-ou-creer",
+      "corps": "{\"consoleClientId\":\"console-cli-0001\",\"siren\":\"812345676\",\"raisonSociale\":\"Lemoine Rénovation\",\"adresse\":{\"ligne1\":\"1 rue d'essai\",\"ligne2\":\"Bâtiment B\",\"codePostal\":\"75001\",\"ville\":\"Ville-Test\",\"pays\":\"FR\"},\"contactFacturation\":{\"nom\":\"Camille Test\",\"email\":\"contact@exemple.fr\"}}",
+      "signature": "v1=3d39d42b9906c8d03562aa66204a90bb003aa3e7c71d8e8aa8e025e1d7dc935d"
+    },
+    {
+      "nom": "pays hors France",
+      "valide": false,
+      "cle": "cle-test-c1-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c1-console-a",
+      "horodatage": "1792800000",
+      "methode": "POST",
+      "chemin": "/api/console/v1/clients/retrouver-ou-creer",
+      "corps": "{\"consoleClientId\":\"console-cli-0001\",\"siren\":\"812345676\",\"raisonSociale\":\"Lemoine Rénovation\",\"adresse\":{\"ligne1\":\"1 rue d'essai\",\"ligne2\":\"Bâtiment B\",\"codePostal\":\"75001\",\"ville\":\"Ville-Test\",\"pays\":\"BE\"},\"contactFacturation\":{\"nom\":\"Camille Test\",\"email\":\"contact@exemple.fr\"}}",
+      "signature": "v1=e6d51c4f3fba390c76fcd8479fab352ad0069754a0220e345eb8c44e3ec71ec3"
+    },
+    {
+      "nom": "SIREN qui échoue au contrôle de Luhn",
+      "valide": false,
+      "cle": "cle-test-c1-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c1-console-a",
+      "horodatage": "1792800000",
+      "methode": "POST",
+      "chemin": "/api/console/v1/clients/retrouver-ou-creer",
+      "corps": "{\"consoleClientId\":\"console-cli-0001\",\"siren\":\"123456789\",\"raisonSociale\":\"Lemoine Rénovation\",\"adresse\":{\"ligne1\":\"1 rue d'essai\",\"ligne2\":\"Bâtiment B\",\"codePostal\":\"75001\",\"ville\":\"Ville-Test\",\"pays\":\"FR\"},\"contactFacturation\":{\"nom\":\"Camille Test\",\"email\":\"contact@exemple.fr\"}}",
+      "signature": "v1=c8d0976524067b4ba6f8e1a0f28a8ebe04ac14e95f122ffd59b8e2c2a52b713e"
+    }
+  ],
+  "reponses": [
+    {
+      "statut": 200,
+      "nom": "créée",
+      "valide": true,
+      "corps": {
+        "resultat": "cree",
+        "axiCli": "AXI-CLI-000001"
+      }
+    },
+    {
+      "statut": 200,
+      "nom": "à trancher en 200",
+      "valide": false,
+      "corps": {
+        "resultat": "a_trancher",
+        "idDemande": "demande-0001"
+      }
+    },
+    {
+      "statut": 202,
+      "nom": "à trancher",
+      "valide": true,
+      "corps": {
+        "resultat": "a_trancher",
+        "idDemande": "demande-0001"
+      }
+    },
+    {
+      "statut": 202,
+      "nom": "retrouvée en 202",
+      "valide": false,
+      "corps": {
+        "resultat": "retrouve",
+        "axiCli": "AXI-CLI-000001"
+      }
+    }
+  ]
+}

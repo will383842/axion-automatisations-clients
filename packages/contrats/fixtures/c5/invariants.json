@@ -1,5 +1,5 @@
 {
-  "version": "0.2.0",
+  "version": "0.3.0",
   "invariants": [
     {
       "n": 1,
@@ -70,5 +70,5 @@
     "garantie"
   ],
   "tableMigrations": "__migrations",
-  "rolesAdministration": "^(admin|proprietaire)(_|$)"
+  "rolesAdministration": []
 }

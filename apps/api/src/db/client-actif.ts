@@ -1,3 +1,4 @@
+import { isIP } from "node:net";
 import type { Pool, PoolClient } from "pg";
 
 // Client actif (C5, lot 2) : comment une requête de l'application ne voit que son client.
@@ -8,6 +9,8 @@ import type { Pool, PoolClient } from "pg";
 // 4. fn reçoit le client de la transaction ; elle ne doit ni valider ni annuler elle-même.
 // 5. Les politiques RLS du modèle (ops/socle/postgres/modele-politique-rls.sql) comparent tenant_id à cette valeur.
 // 6. Les lectures de toutes les données passent par avecEquipe(poolEquipe, fn) : autre rôle, autre pool, lecture seule.
+// 7. avecClient peut aussi fixer l'acteur et l'adresse de l'appelant (app.acteur, app.ip), de la même façon : portée de la transaction.
+//    Le journal d'audit les lit ; ils ne passent jamais d'une transaction à la suivante. L'adresse est validée (net.isIP), l'acteur borné.
 // Limite : un SQL arbitraire exécuté par l'application peut fixer app.tenant_id lui-même ; seul ce fichier doit le faire.
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -35,13 +38,27 @@ async function enTransaction<T>(pool: Pool, ouvrir: (client: PoolClient) => Prom
   }
 }
 
-export async function avecClient<T>(pool: Pool, tenantId: string, fn: (client: PoolClient) => Promise<T>): Promise<T> {
+export type Appelant = { acteur: string; ip?: string };
+const ACTEUR_MAX = 128;
+// Pas de caractère de contrôle (saut de ligne, nul) dans l'acteur : il finit dans le journal d'audit.
+const CONTROLE = /\p{Cc}/u;
+
+export function verifierAppelant(appelant: Appelant): void {
+  const acteur = appelant.acteur;
+  if (typeof acteur !== "string" || acteur.trim() === "" || acteur.length > ACTEUR_MAX || CONTROLE.test(acteur)) throw new Error("acteur invalide (1 à 128 caractères, sans caractère de contrôle)");
+  // Une adresse avec zone (« fe80::1%eth0 ») est une IP pour Node mais pas pour le type inet de PostgreSQL : refusée.
+  if (appelant.ip !== undefined && (isIP(appelant.ip) === 0 || appelant.ip.includes("%"))) throw new Error("adresse IP invalide");
+}
+
+export async function avecClient<T>(pool: Pool, tenantId: string, fn: (client: PoolClient) => Promise<T>, appelant?: Appelant): Promise<T> {
   if (!UUID.test(tenantId)) throw new Error("identifiant de client invalide");
+  if (appelant) verifierAppelant(appelant);
   return enTransaction(
     pool,
     async (client) => {
       await client.query("BEGIN");
       await client.query("SELECT set_config('app.tenant_id', $1, true)", [tenantId]);
+      if (appelant) await client.query("SELECT set_config('app.acteur', $1, true), set_config('app.ip', $2, true)", [appelant.acteur, appelant.ip ?? ""]);
     },
     fn,
   );

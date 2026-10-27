@@ -63,7 +63,7 @@ describe("garde des migrations", () => {
     mkdirSync(join(dossier, "meta"), { recursive: true });
     writeFileSync(join(dossier, "meta/_journal.json"), JSON.stringify({ version: "7", dialect: "postgresql", entries: [{ idx: 0, version: "7", when: 0, tag: "0000_a", breakpoints: true }] }));
     writeFileSync(join(dossier, "0000_a.sql"), "CREATE TABLE a (id int);\n");
-    expect(gardeMigrations(racine)).toEqual([]);
+    expect(gardeMigrations(racine, [])).toEqual([]);
     cpSync(FIXTURES, join(dossier, "fix"), { recursive: true });
     expect(gardeMigrations(racine).some((e) => e.startsWith("apps/api/drizzle/fix/imbrique/profond/ko-majuscule.SQL : fichier SQL absent du journal"))).toBe(true);
     symlinkSync("/nonexistent", join(dossier, "0001_lien.sql"));
@@ -123,7 +123,7 @@ describe("garde des migrations", () => {
     journal("0000_ok");
     expect(gardeMigrations(racine).join("\n")).toContain("0001_ko.sql : fichier SQL absent du journal");
     journal("0000_ok", "0001_ko");
-    expect(gardeMigrations(racine)).toEqual(["apps/api/drizzle/0001_ko.sql:1: instruction interdite : DROP"]);
+    expect(gardeMigrations(racine, [])).toEqual(["apps/api/drizzle/0001_ko.sql:1: instruction interdite : DROP"]);
     writeFileSync(join(dossier, "meta/_journal.json"), "pas du json");
     expect(gardeMigrations(racine).join("\n")).toContain("journal illisible");
   });

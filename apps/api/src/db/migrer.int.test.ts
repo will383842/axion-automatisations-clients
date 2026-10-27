@@ -1,8 +1,9 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { describe, expect, it } from "vitest";
 import { migrer, VERROU_MIGRATION } from "./migrer.js";
@@ -95,21 +96,20 @@ describe("migrer, avec le socle", () => {
   });
 
   it("[A-189] le journal des migrations est public.__migrations", async () => {
-    const when = 1700000000100;
-    const dossier = dossierEssai(when);
+    // Depuis T2-01a, public.__migrations porte les vraies migrations : un essai ne peut plus y écrire une date de 2023 (drizzle la sauterait, migrer() la refuse).
+    // On applique donc le vrai dossier et on lit le journal : une ligne par migration, et rien dans le journal par défaut de drizzle.
+    const dossier = fileURLToPath(new URL("../../drizzle", import.meta.url));
     await migrer({ url: urlDe("console_migration", DIRECT()), dossier });
+    const attendu = (JSON.parse(readFileSync(`${dossier}/meta/_journal.json`, "utf8")) as { entries: unknown[] }).entries.length;
     const lecture = new pg.Client({ connectionString: urlDe("console_migration", DIRECT()) });
     await lecture.connect();
     try {
-      const journal = await lecture.query("SELECT count(*)::int AS n FROM public.__migrations WHERE created_at = $1", [when]);
-      expect(journal.rows[0]?.["n"]).toBe(1);
-      // Rien dans le journal par défaut de drizzle : les invariants C5 n'exemptent que public.__migrations.
-      const ancien = await lecture.query("SELECT count(*)::int AS n FROM drizzle.__drizzle_migrations WHERE created_at = $1", [when]).catch(() => ({ rows: [{ n: 0 }] }));
-      expect(ancien.rows[0]?.["n"]).toBe(0);
+      const journal = await lecture.query("SELECT count(*)::int AS n FROM public.__migrations");
+      expect(journal.rows[0]?.["n"]).toBe(attendu);
+      // Les invariants C5 n'exemptent que public.__migrations : le journal par défaut de drizzle ne doit pas exister.
+      const ancien = await lecture.query("SELECT to_regclass('drizzle.__drizzle_migrations')::text AS t");
+      expect(ancien.rows[0]?.["t"]).toBeNull();
     } finally {
-      // On retire seulement la ligne d'essai : le journal réel reste en place.
-      await lecture.query("DELETE FROM public.__migrations WHERE created_at = $1", [when]).catch(() => undefined);
-      await lecture.query("DROP TABLE IF EXISTS public.essai_migration_a189").catch(() => undefined);
       await lecture.end();
     }
   });

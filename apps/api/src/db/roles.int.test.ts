@@ -181,7 +181,8 @@ describe("rôles", () => {
       for (const r of ["console_app", "console_equipe", "moteur_app"]) {
         const joignables = await lignes(migration, `SELECT p.oid::regprocedure::text AS f FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
           WHERE p.prosecdef AND n.nspname NOT IN ('pg_catalog', 'information_schema') AND has_schema_privilege($1, n.oid, 'USAGE') AND has_function_privilege($1, p.oid, 'EXECUTE')`, [r]);
-        expect(joignables, r).toEqual([]);
+        // Seule exception, relue en 2 tours (ADR 0042) : audit_ajouter, ouverte à console_app seulement.
+        expect(joignables.map((j) => String(j["f"]).replace(/[(].*$/, "").replace(/^public[.]/, "")), r).toEqual(r === "console_app" ? ["audit_ajouter"] : []);
       }
       const app = pool("direct", "console_app", "console", 1);
       expect(await codeRefus(app, "SELECT essai_roles.f()")).toBe("42501");
@@ -262,7 +263,7 @@ describe("secrets et propriétaire (audit B2, B3)", () => {
       expect(await codeRefus(m, "CREATE TABLE public.orpheline (id int)"), "table").toBe("42501");
       expect(await codeRefus(m, "CREATE FUNCTION public.f_orph() RETURNS int LANGUAGE sql SECURITY DEFINER AS 'SELECT 1'"), "fonction").toBe("42501");
       const exec = await lignes(equipe, "SELECT p.oid::regprocedure::text AS f FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND has_function_privilege($1, p.oid, 'EXECUTE')", [`${b}_app`]);
-      expect(exec).toEqual([]);
+      expect(exec.map((e) => String(e["f"]).replace(/[(].*$/, "").replace(/^public[.]/, ""))).toEqual(b === "console" ? ["audit_ajouter"] : []);
     }
   });
 });

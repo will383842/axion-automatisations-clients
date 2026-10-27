@@ -301,8 +301,7 @@ describe("audit 1-A · passerelle d'IA (LiteLLM réel)", () => {
     const journal = execFileSync("docker", ["logs", litellm], { encoding: "utf8", maxBuffer: 256 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] });
     expect(journal.includes(MARQUEUR), "texte d'un échange dans le journal").toBe(false);
     const presentes = { maitre: journal.includes(MAITRE), fournisseur: journal.includes(FOURNISSEUR), cleA: journal.includes(cleA), cleB: journal.includes(cleB), motDePasseBase: journal.includes(MOT_DE_PASSE_PG) };
-    writeSync(2, `CLES dans le journal de la passerelle : ${JSON.stringify(presentes)}
-`);
+    writeSync(2, `CLES dans le journal de la passerelle : ${JSON.stringify(presentes)}\n`);
     expect(presentes, "clé dans le journal").toEqual({ maitre: false, fournisseur: false, cleA: false, cleB: false, motDePasseBase: false });
   }, 120_000);
 

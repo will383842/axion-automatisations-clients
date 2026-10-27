@@ -171,7 +171,7 @@ describe("audit 1-A · journal de l'API", () => {
   // Défaut constaté (T1A-19, PR 90, 1re exécution) : Fastify journalise l'adresse COMPLÈTE de chaque requête, paramètres compris (req.url).
   // Un jeton passé en paramètre (lien magique, code OIDC « code=… », lien signé) entre en clair dans le journal.
   // Correction : un sérialiseur « req » qui retire la partie « ?… » de l'adresse (serveur.ts). À faire avant la première route qui en reçoit.
-  it.fails("[A-005] @lot-2 le journal de l'API ne garde pas un jeton passé en paramètre d'adresse", async () => {
+  it("[A-005] @lot-2 le journal de l'API ne garde pas un jeton passé en paramètre d'adresse", async () => {
     const { serveur, lignes } = serveurAvecJournal();
     const jeton = `TEST-NE-PAS-UTILISER-jeton-${randomBytes(8).toString("hex")}`;
     await serveur.inject({ method: "GET", url: `/connexion/retour?code=${jeton}&state=x` });

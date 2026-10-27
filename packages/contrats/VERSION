@@ -7,6 +7,6 @@ c2=1.0.0
 c3=1.0.0
 # c4 : révision unique du 2026-10-26 (ADR 0018) ; 0.3.0 (T0-30, gel) : forme de la cellule alignée sur le coffre.
 c4=0.3.0
-# c5 : 0.3.0 (T0-30, gel) : rôles d'administration en liste exacte.
-c5=0.3.0
+# c5 : 0.4.0 (ouverture du lot 2) : unicité et clés étrangères par client ; journal_audit seul à tenant_id facultatif.
+c5=0.4.0
 c6=1.0.0

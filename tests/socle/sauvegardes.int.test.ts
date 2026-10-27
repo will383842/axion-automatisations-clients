@@ -1,8 +1,8 @@
 import { spawnSync } from "node:child_process";
-import { writeSync } from "node:fs";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { randomBytes } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 // Tests contre le socle lancé par ops/socle/lancer.sh (job socle-integration), avec ops/socle/compose.sauvegardes.yml.
@@ -11,8 +11,8 @@ const PROJET = "socle";
 const MARQUEUR = `MARQUEUR-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
 // Une commande en échec lève une erreur qui porte sa sortie : sans elle, le journal de la CI ne dit pas pourquoi.
-const sortie = (cmd: string, args: string[]) => {
-  const r = spawnSync(cmd, args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+const sortie = (cmd: string, args: string[], env?: Record<string, string>) => {
+  const r = spawnSync(cmd, args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, ...(env ? { env: { ...process.env, ...env } } : {}) });
   if (r.status !== 0) throw new Error(`${cmd} ${args.join(" ")} : code ${String(r.status)}\n--- sortie\n${r.stdout}\n--- erreur\n${r.stderr}`);
   return r.stdout;
 };
@@ -54,9 +54,13 @@ afterEach((ctx) => {
   if (ctx.task.result?.state === "fail") writeSync(2, `ECHEC ${ctx.task.name}\n${erreurs.map((e) => e.message).join("\n")}\n`);
 });
 
+let coffreEssai = "";
 afterAll(() => {
   if (restaure) spawnSync("docker", ["rm", "-f", "-v", restaure]);
+  if (coffreEssai) spawnSync("docker", ["rm", "-f", "-v", coffreEssai]);
 });
+
+const PHRASE_FAUSSE = "phrase-fausse-pour-l-essai";
 
 describe("sauvegardes (archivage continu, complète de nuit, restauration)", () => {
   it("[C-045] l'archivage continu est actif et un segment de journal arrive sur la cible", async () => {
@@ -76,7 +80,7 @@ describe("sauvegardes (archivage continu, complète de nuit, restauration)", () 
   });
 
   it("[C-045] sauvegarde complète puis restauration dans un conteneur neuf : les sommes de contrôle des tables d'essai sont identiques", () => {
-    restaure = sortie(join(process.cwd(), "ops/sauvegardes/restaurer.sh"), []).trim().split("\n").pop() ?? "";
+    restaure = sortie(join(process.cwd(), "ops/sauvegardes/restaurer.sh"), [], { SAUVEGARDE_ESSAI: "1" }).trim().split("\n").pop() ?? "";
     expect(restaure).not.toBe("");
     expect(restaure).not.toBe(conteneur("postgres"));
     const apres = sortie("docker", ["exec", restaure, "psql", "-U", "postgres", "-d", "console", "-tAXc", SOMME]).trim();
@@ -90,7 +94,26 @@ describe("sauvegardes (archivage continu, complète de nuit, restauration)", () 
     expect(trouve.stdout).toBe("");
   });
 
-  it("[C-593] la phrase de chiffrement ne figure dans aucun fichier du dépôt ni dans le compose assemblé", () => {
+  it("[C-046] [A-196] pgBackRest déclare les dépôts chiffrés en aes-256-cbc, et une phrase fausse ne restaure rien", () => {
+    // pgBackRest compresse aussi : l'absence du marqueur en clair ne prouve pas à elle seule le chiffrement. On lit donc l'état déclaré par pgBackRest.
+    const info = dans("postgres", "sh", "-c", 'P="$(/opt/sauvegardes/lire-phrase-chiffrement.sh)"; PGBACKREST_REPO1_CIPHER_PASS="$P" PGBACKREST_REPO2_CIPHER_PASS="$P" pgbackrest --stanza=commun --output=json info');
+    expect(info).toContain('"cipher":"aes-256-cbc"');
+    expect(info).not.toContain('"cipher":"none"');
+    const fausse = spawnSync(
+      "docker",
+      ["exec", "-e", `PGBACKREST_REPO1_CIPHER_PASS=${PHRASE_FAUSSE}`, "-e", `PGBACKREST_REPO2_CIPHER_PASS=${PHRASE_FAUSSE}`, conteneur("postgres"), "sh", "-c",
+        "mkdir -p /tmp/restauration-fausse && pgbackrest --stanza=commun --pg1-path=/tmp/restauration-fausse --type=immediate restore"],
+      { encoding: "utf8" },
+    );
+    expect(fausse.status).not.toBe(0);
+  });
+
+  it("[C-049] la sauvegarde du mois est aussi dans le second dépôt (douze mensuelles gardées)", () => {
+    const fichiers = dans("sftp-essai", "find", "/home/sauv/depot2", "-type", "f", "-path", "*/backup/*").split("\n").filter(Boolean);
+    expect(fichiers.length).toBeGreaterThan(0);
+  });
+
+  it("[C-593] la phrase de chiffrement ne figure dans aucun fichier du dépôt, ni dans le compose assemblé, ni dans l'inspection du conteneur", () => {
     const phrase = dans("postgres", "/opt/sauvegardes/lire-phrase-chiffrement.sh").trim();
     expect(phrase.length).toBeGreaterThanOrEqual(16);
     const fichiers = sortie("git", ["ls-files"]).split("\n").filter(Boolean);
@@ -98,7 +121,30 @@ describe("sauvegardes (archivage continu, complète de nuit, restauration)", () 
     expect(contenant).toEqual([]);
     const assemble = sortie("ops/socle/lancer.sh", ["--assembler"]);
     expect(assemble.includes(phrase)).toBe(false);
+    expect(sortie("docker", ["inspect", conteneur("postgres")]).includes(phrase)).toBe(false);
   });
+
+  it("[C-593] hors essai, la phrase est lue dans OpenBao (technique/sauvegardes) au moment de l'usage", () => {
+    // Un OpenBao jetable en mode dev, sur le réseau du socle, avec le même chemin que la production ; jeton généré ici, jamais écrit dans un fichier du dépôt.
+    const phrase = dans("postgres", "cat", "/cles/phrase").trim();
+    const jeton = `ESSAI-${randomBytes(12).toString("hex")}`;
+    const reseau = sortie("docker", ["inspect", "-f", "{{range $k, $_ := .NetworkSettings.Networks}}{{$k}} {{end}}", conteneur("postgres")]).trim().split(" ")[0] ?? "";
+    const image = sortie("docker", ["inspect", "-f", "{{.Config.Image}}", conteneur("openbao")]).trim();
+    const nom = `coffre-essai-${randomBytes(4).toString("hex")}`;
+    coffreEssai = sortie("docker", ["run", "-d", "--rm", "--name", nom, "--network", reseau, "-e", `BAO_DEV_ROOT_TOKEN_ID=${jeton}`, "-e", "BAO_DEV_LISTEN_ADDRESS=0.0.0.0:8200", image, "server", "-dev"]).trim();
+    const bao = (...args: string[]) => sortie("docker", ["exec", "-e", "BAO_ADDR=http://127.0.0.1:8200", "-e", `BAO_TOKEN=${jeton}`, coffreEssai, "bao", ...args]);
+    let pret = false;
+    for (let i = 0; i < 60 && !pret; i++) {
+      pret = spawnSync("docker", ["exec", "-e", "BAO_ADDR=http://127.0.0.1:8200", coffreEssai, "bao", "status"], { encoding: "utf8" }).status === 0;
+      if (!pret) spawnSync("sleep", ["1"]);
+    }
+    expect(pret).toBe(true);
+    bao("secrets", "enable", "-path=technique", "-version=2", "kv");
+    bao("kv", "put", "technique/sauvegardes", `phrase=${phrase}`);
+    spawnSync("docker", ["exec", "-i", conteneur("postgres"), "sh", "-c", "cat > /tmp/jeton-essai"], { input: jeton });
+    const lue = sortie("docker", ["exec", "-e", "SAUVEGARDE_ESSAI=0", "-e", `BAO_ADDR=${nom}:8200`, "-e", "BAO_JETON_FICHIER=/tmp/jeton-essai", conteneur("postgres"), "/opt/sauvegardes/lire-phrase-chiffrement.sh"]).trim();
+    expect(lue).toBe(phrase);
+  }, 120_000);
 
   it("[C-052] la grappe sauvegardée ne contient aucune base cli_", () => {
     expect(sql("postgres", "select count(*) from pg_database where datname like 'cli\\_%'")).toBe("0");
@@ -120,10 +166,22 @@ describe("sauvegardes (archivage continu, complète de nuit, restauration)", () 
       mkdirSync(source);
       mkdirSync(cible);
       writeFileSync(join(source, "module-essai.tgz"), "contenu d'essai");
-      sortie(join(process.cwd(), "ops/sauvegardes/copier-artefacts.sh"), [source, cible]);
+      const copier = () => sortie(join(process.cwd(), "ops/sauvegardes/copier-artefacts.sh"), [source, cible]);
+      copier();
       expect(readFileSync(join(cible, "module-essai.tgz"), "utf8")).toBe("contenu d'essai");
+      // Deuxième nuit : le fichier est encore à la source et déjà sur la cible. Le script réussit et ne remplace rien.
+      writeFileSync(join(cible, "module-essai.tgz"), "contenu d'essai");
+      writeFileSync(join(source, "module-essai.tgz"), "contenu modifié à la source");
+      copier();
+      expect(readFileSync(join(cible, "module-essai.tgz"), "utf8")).toBe("contenu d'essai");
+      // Un sous-dossier est copié aussi.
+      mkdirSync(join(source, "sous"));
+      writeFileSync(join(source, "sous", "autre.tgz"), "autre");
+      copier();
+      expect(readFileSync(join(cible, "sous", "autre.tgz"), "utf8")).toBe("autre");
+      // La suppression à la source n'efface rien sur la cible.
       rmSync(join(source, "module-essai.tgz"));
-      sortie(join(process.cwd(), "ops/sauvegardes/copier-artefacts.sh"), [source, cible]);
+      copier();
       expect(readFileSync(join(cible, "module-essai.tgz"), "utf8")).toBe("contenu d'essai");
     } finally {
       rmSync(racine, { recursive: true, force: true });

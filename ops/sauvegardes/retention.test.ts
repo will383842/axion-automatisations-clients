@@ -45,4 +45,15 @@ describe("rétention des sauvegardes complètes", () => {
   it("[C-049] une date de sauvegarde illisible fait échouer le calcul plutôt que d'effacer", () => {
     expect(() => calculerRetention([{ id: "x", date: "pas une date" }], AUJOURDHUI)).toThrow();
   });
+
+  it("[C-049] une sauvegarde datée d'après aujourd'hui (décalage d'horloge) n'est jamais à expirer", () => {
+    const futures: Sauvegarde[] = [
+      { id: "demain-F", date: "2026-10-27T02:00:00Z" },
+      { id: "mois-suivant-F", date: "2026-11-03T02:00:00Z" },
+    ];
+    const r = calculerRetention([...nuits(40), ...futures], AUJOURDHUI);
+    expect(r.expirer.map((s) => s.id)).not.toContain("demain-F");
+    expect(r.expirer.map((s) => s.id)).not.toContain("mois-suivant-F");
+    expect(r.garder.map((s) => s.id)).toEqual(expect.arrayContaining(["demain-F", "mois-suivant-F"]));
+  });
 });

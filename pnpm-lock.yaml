@@ -159,6 +159,12 @@ importers:
         specifier: ^4.6.7
         version: 4.6.7
 
+  packages/connecteur-gmail:
+    dependencies:
+      '@axion-auto/connecteurs-commun':
+        specifier: workspace:*
+        version: link:../connecteurs-commun
+
   packages/connecteur-imap:
     dependencies:
       '@axion-auto/connecteurs-commun':

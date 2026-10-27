@@ -1,5 +1,5 @@
 {
-  "version": "0.2.0",
+  "version": "1.0.0",
   "chaineSignee": "v1\\n<horodatage>\\n<MÉTHODE>\\n<chemin + requête>\\n<sha256 hex du corps brut>",
   "enTetes": {
     "cle": "X-Axion-Cle",

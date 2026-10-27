@@ -9,9 +9,16 @@ export const ROUTES_C4 = {
   evenements: { methode: "POST", chemin: "/api/executeur/v1/evenements", limite: "c4", antiDoublon: "execution" },
 } as const satisfies Record<string, RouteContrat>;
 
-// Clé d'une cellule (X-Axion-Cle) : `c4:<celluleId>:<n>` ; `n` distingue les 2 clés d'une rotation.
-const CLE_C4 = /^c4:([A-Za-z0-9_-]{1,64}):([A-Za-z0-9_-]{1,32})$/;
+// Clé d'une cellule (X-Axion-Cle) : `c4:<celluleId>:<kid>` ; `kid` distingue les 2 clés d'une rotation.
+// Une seule forme, celle du coffre (apps/api/src/coffre/cles-echanges.ts, ADR 0033) : minuscules, chiffres, tirets.
+// Correspondance : X-Axion-Cle `c4:<cellule>:<kid>` ↔ secret rangé sous technique/echanges/c4-<cellule>/<kid>.
+const MOT = "[a-z0-9]+(?:-[a-z0-9]+)*";
+const CLE_C4 = new RegExp(`^c4:(?=[^:]{1,64}:)(${MOT}):(?=[^:]{1,32}$)(${MOT})$`);
 export const celluleDeLaCle = (cle: string): string | null => CLE_C4.exec(cle)?.[1] ?? null;
+export function emplacementCoffre(cle: string): { canal: string; kid: string } | null {
+  const m = CLE_C4.exec(cle);
+  return m ? { canal: `c4-${m[1]}`, kid: m[2] as string } : null;
+}
 
 export type VerdictCellule = { ok: true } | { ok: false; code: "action_interdite"; statut: typeof STATUT_PAR_CODE.action_interdite };
 const interdit: VerdictCellule = { ok: false, code: "action_interdite", statut: STATUT_PAR_CODE.action_interdite };

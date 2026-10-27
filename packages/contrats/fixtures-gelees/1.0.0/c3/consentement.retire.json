@@ -1,0 +1,27 @@
+{
+  "type": "consentement.retire",
+  "cas": [
+    {
+      "nom": "valide",
+      "valide": true,
+      "cle": "cle-test-c3-crm-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c3-crm-a",
+      "horodatage": "1792800000",
+      "methode": "POST",
+      "chemin": "/api/crm/v1/evenements",
+      "corps": "{\"event_id\":\"11111111-1111-4111-8111-111111111111\",\"schema_version\":1,\"occurred_at\":\"2026-10-24T10:00:00Z\",\"emitted_at\":\"2026-10-24T10:00:01Z\",\"sequence\":1,\"producer\":\"axion-crm\",\"subject_ref\":{\"crmCompanyId\":\"crm-0001\"},\"event_type\":\"consentement.retire\",\"payload\":{\"personKey\":\"personne-0001\",\"emailEmpreinte\":\"4f9f74bf0ec9bd620afd49d81f0d5b98db67b449714228a286b7393307695a2b\"}}",
+      "signature": "v1=92e5a30ac9040a67bb92607b334331bd5229a941294d0161b14fc1a995108d9b"
+    },
+    {
+      "nom": "e-mail en clair",
+      "valide": false,
+      "cle": "cle-test-c3-crm-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c3-crm-a",
+      "horodatage": "1792800000",
+      "methode": "POST",
+      "chemin": "/api/crm/v1/evenements",
+      "corps": "{\"event_id\":\"11111111-1111-4111-8111-111111111111\",\"schema_version\":1,\"occurred_at\":\"2026-10-24T10:00:00Z\",\"emitted_at\":\"2026-10-24T10:00:01Z\",\"sequence\":1,\"producer\":\"axion-crm\",\"subject_ref\":{\"crmCompanyId\":\"crm-0001\"},\"event_type\":\"consentement.retire\",\"payload\":{\"personKey\":\"personne-0001\",\"emailEmpreinte\":\"4f9f74bf0ec9bd620afd49d81f0d5b98db67b449714228a286b7393307695a2b\",\"email\":\"contact@exemple.fr\"}}",
+      "signature": "v1=10c28151f5ab5a88e7f69d977ffb835daf29071b6a698b56dc4257dc1d52988f"
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "nom": "inattendue",
+  "echanges": [
+    {
+      "methode": "GET",
+      "chemin": "/gmail/v1/users/me/messages/m-1",
+      "reseau": true
+    }
+  ]
+}

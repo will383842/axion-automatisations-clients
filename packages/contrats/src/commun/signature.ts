@@ -34,6 +34,9 @@ const HORODATAGE = /^[0-9]{10}$/;
 const SIGNATURE = /^v1=([0-9a-f]{64})$/;
 const refus = { ok: false, code: "signature_invalide" } as const;
 
+// La chaîne signée, en texte : publiée dans fixtures/commun/constantes.json pour les autres dépôts.
+export const CHAINE_SIGNEE = "v1\\n<horodatage>\\n<MÉTHODE>\\n<chemin + requête>\\n<sha256 hex du corps brut>";
+
 // Le corps est haché tel qu'envoyé (octets), jamais après une ré-sérialisation JSON.
 export function chaineASigner(horodatage: string, methode: string, chemin: string, corps: Uint8Array | string): string {
   const empreinte = createHash("sha256").update(corps).digest("hex");
@@ -47,6 +50,8 @@ export function signer(secret: string, horodatage: string, methode: string, chem
 // `cles` : les clés actives du sens (2 pendant une rotation) ; le secret est choisi par l'identifiant reçu.
 // `maintenant` : secondes Unix.
 // `dejaVu(cle, signature)` : vrai si le couple a déjà été vu dans les ANTI_REJEU_SECONDES ; sinon il le garde.
+// Le test et l'enregistrement sont UNE seule opération atomique (test-et-pose, par ex. SET NX avec une expiration de
+// ANTI_REJEU_SECONDES) : un « lire, puis écrire » laisserait passer deux copies arrivées en même temps.
 // Il n'est appelé qu'après une signature valide dans la fenêtre : une requête falsifiée ne remplit pas la mémoire.
 // Toute exception (entrée inattendue, panne de dejaVu) est un refus : le contrôle échoue fermé.
 export function verifier(
@@ -78,4 +83,12 @@ function controler(
   if (Math.abs(maintenant - Number(horodatage)) > FENETRE_SECONDES) return { ok: false, code: "horodatage_perime" };
   if (dejaVu(active.id, signature)) return { ok: false, code: "rejeu" };
   return { ok: true, cle: active.id };
+}
+
+// Horodatage d'un essai : l'horloge, mais toujours strictement plus récent que l'essai précédent (`precedent`).
+// Un émetteur qui reprend après une coupure re-signe donc chaque essai avec une signature neuve : le serveur, qui a
+// pu garder la signature du premier essai, ne le prend pas pour un rejeu. L'Idempotency-Key, inchangée, fait le reste.
+// L'avance prise ainsi (une seconde par reprise rapide) reste très loin de FENETRE_SECONDES.
+export function horodatageSuivant(precedent: string | undefined, maintenant: number): string {
+  return String(Math.max(Math.floor(maintenant), precedent === undefined ? 0 : Number(precedent) + 1));
 }

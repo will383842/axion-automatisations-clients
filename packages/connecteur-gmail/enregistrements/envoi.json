@@ -1,0 +1,16 @@
+{
+  "nom": "envoi",
+  "echanges": [
+    {
+      "methode": "POST",
+      "chemin": "/gmail/v1/users/me/messages/send",
+      "statut": 200,
+      "corps": {
+        "id": "e-1",
+        "labelIds": [
+          "SENT"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "type": "automatisation.fin_programmee",
+  "cas": [
+    {
+      "nom": "valide",
+      "valide": true,
+      "cle": "cle-test-c3-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c3-console-a",
+      "horodatage": "1792800000",
+      "methode": "POST",
+      "chemin": "/api/console/v1/evenements",
+      "corps": "{\"event_id\":\"11111111-1111-4111-8111-111111111111\",\"schema_version\":1,\"occurred_at\":\"2026-10-24T10:00:00Z\",\"emitted_at\":\"2026-10-24T10:00:01Z\",\"sequence\":1,\"producer\":\"axion-console\",\"subject_ref\":{\"consoleClientId\":\"console-cli-0001\"},\"event_type\":\"automatisation.fin_programmee\",\"payload\":{\"consoleClientId\":\"console-cli-0001\",\"codeAutomatisation\":\"tri-courriels\",\"dateFin\":\"2027-03-31\"}}",
+      "signature": "v1=4d6de08a4546b40f845cbad1c697b2b90d33d500b683239752c9408442fa0f6f"
+    },
+    {
+      "nom": "date absente",
+      "valide": false,
+      "cle": "cle-test-c3-console-a",
+      "secret": "TEST-NE-PAS-UTILISER-cle-c3-console-a",
+      "horodatage": "1792800000",
+      "methode": "POST",
+      "chemin": "/api/console/v1/evenements",
+      "corps": "{\"event_id\":\"11111111-1111-4111-8111-111111111111\",\"schema_version\":1,\"occurred_at\":\"2026-10-24T10:00:00Z\",\"emitted_at\":\"2026-10-24T10:00:01Z\",\"sequence\":1,\"producer\":\"axion-console\",\"subject_ref\":{\"consoleClientId\":\"console-cli-0001\"},\"event_type\":\"automatisation.fin_programmee\",\"payload\":{\"consoleClientId\":\"console-cli-0001\",\"codeAutomatisation\":\"tri-courriels\"}}",
+      "signature": "v1=bef4245d055c094de624f0b4f525b315cca8fb2ae1f318984da5bf9194c196ca"
+    }
+  ]
+}

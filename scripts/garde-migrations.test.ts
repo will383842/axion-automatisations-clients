@@ -215,7 +215,7 @@ describe("fonctions permises dans les migrations", () => {
   });
 
   it("[A-233] une fonction listée dont le texte a changé d'un caractère est refusée", () => {
-    for (const modifie of [FONCTION.replace("p_valeur $$", "p_valeur  $$"), FONCTION.replace("SELECT", "select"), FONCTION.replace("audit_exemple(", "audit_exemple (")]) {
+    for (const modifie of [FONCTION.replace("SELECT p_valeur", "SELECT  p_valeur"), FONCTION.replace("SELECT", "select"), FONCTION.replace("audit_exemple(", "audit_exemple (")]) {
       expect(analyserFichier(`${modifie};`, [entree()]).join("\n"), modifie).toContain("CREATE FUNCTION");
     }
     expect(analyserFichier(`${FONCTION};`, [entree()])).toEqual([]);
@@ -268,7 +268,7 @@ describe("fonctions permises dans les migrations", () => {
     expect(verifierDossier(dossier)).toEqual([]);
     for (const [premier, second] of [[2000, 1000], [1000, 1000], [1000, "2000"], [1000, null]]) {
       journal(premier, second);
-      expect(verifierDossier(dossier, racine).join("\n"), `${premier} ${second}`).toContain("apps/api/drizzle/meta/_journal.json : dates when non strictement croissantes");
+      expect(verifierDossier(dossier, racine).join("\n").replaceAll("\\", "/"), `${premier} ${second}`).toContain("apps/api/drizzle/meta/_journal.json : dates when non strictement croissantes");
     }
   });
 

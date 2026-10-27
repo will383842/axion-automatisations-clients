@@ -123,8 +123,11 @@ export function enregistrerCanal(serveur: FastifyInstance, nom: keyof typeof CAN
           throw new ErreurApi("porte_fermee", "Service indisponible.");
         }
         // Le chemin est celui « tel qu'envoyé », requête comprise : jamais normalisé.
-        const secrets = acceptees.filter((k) => k.kid === kid).map((k) => k.secret.toString("base64"));
-        const resultat = secrets.length ? verifier(secrets, horodatage, r.method, r.raw.url ?? "", corps, signature, maintenant()) : ({ ok: false, code: "signature_invalide" } as const);
+        const cles = acceptees.filter((k) => k.kid === kid).map((k) => ({ id: k.kid, secret: k.secret.toString("base64") }));
+        // Le contrat porte l'anti-rejeu en mémoire de processus ; ici il est partagé (Valkey, asynchrone) : le rappel du contrat ne retient rien.
+        const resultat = cles.length
+          ? verifier(cles, { cle: kid, horodatage, methode: r.method, chemin: r.raw.url ?? "", corps, signature }, maintenant(), () => false)
+          : ({ ok: false, code: "signature_invalide" } as const);
         if (!resultat.ok) return refuser(resultat.code, resultat.code === "horodatage_perime" ? "Horodatage périmé." : "Signature invalide.");
         const neuf = await premiereFois(deps.memoire, `anti-rejeu:${kid}:${signature}`).catch((e: unknown) => {
           trace(r, "memoire_indisponible");

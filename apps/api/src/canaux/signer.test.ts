@@ -23,9 +23,11 @@ describe("signature des requêtes sortantes", () => {
     expect(h[EN_TETES.cle]).toBe("emi-c1");
     expect(h[EN_TETES.horodatage]).toBe(String(MAINTENANT));
     const cle = f.cles["c1/emission"] as CleEchange;
-    expect(verifier(cle.secret.toString("base64"), h[EN_TETES.horodatage] as string, "POST", "/api/v1/ordres?a=b", corps, h[EN_TETES.signature] as string, MAINTENANT)).toEqual({ ok: true });
+    const jamais = () => false;
+    const requete = { cle: h[EN_TETES.cle] as string, horodatage: h[EN_TETES.horodatage] as string, methode: "POST", chemin: "/api/v1/ordres?a=b", corps, signature: h[EN_TETES.signature] as string };
+    expect(verifier([{ id: "emi-c1", secret: cle.secret.toString("base64") }], requete, MAINTENANT, jamais)).toEqual({ ok: true, cle: "emi-c1" });
     const autre = f.cles["c3/emission"] as CleEchange;
-    expect(verifier(autre.secret.toString("base64"), String(MAINTENANT), "POST", "/api/v1/ordres?a=b", corps, h[EN_TETES.signature] as string, MAINTENANT).ok).toBe(false);
+    expect(verifier([{ id: "emi-c1", secret: autre.secret.toString("base64") }], requete, MAINTENANT, jamais).ok).toBe(false);
   });
 
   it("[C-510] la clé est gardée en mémoire au plus 5 minutes", async () => {

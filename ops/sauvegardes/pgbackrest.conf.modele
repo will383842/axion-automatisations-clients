@@ -10,11 +10,21 @@ repo1-sftp-private-key-file=/cles/id
 repo1-sftp-host-key-check-type=none
 repo1-sftp-host-key-hash-type=sha256
 repo1-cipher-type=aes-256-cbc
-# Rétention (C-049), choix documenté : 30 sauvegardes complètes (les quotidiennes) dans ce dépôt ;
-# les 12 mensuelles vont dans un second dépôt (repo2, 1 sauvegarde par mois, 12 gardées) branché au lot 1-B.
-# retention.ts est le calcul de référence, vérifié par ses tests.
+# Rétention (C-049), choix documenté : deux dépôts pgBackRest. Le premier garde 30 complètes (les quotidiennes) ;
+# le second garde une complète par mois, 12 au plus (sauvegarder-nuit.sh en lance une quand le mois n'en a pas encore).
+# retention.ts est le calcul de référence de cette règle, vérifié par ses tests.
 repo1-retention-full-type=count
 repo1-retention-full=30
+repo2-type=sftp
+repo2-path=/depot2
+repo2-sftp-host=sftp-essai
+repo2-sftp-host-user=sauv
+repo2-sftp-private-key-file=/cles/id
+repo2-sftp-host-key-check-type=none
+repo2-sftp-host-key-hash-type=sha256
+repo2-cipher-type=aes-256-cbc
+repo2-retention-full-type=count
+repo2-retention-full=12
 start-fast=y
 
 [commun]

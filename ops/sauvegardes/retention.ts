@@ -43,7 +43,9 @@ export function calculerRetention(sauvegardes: Sauvegarde[], aujourdhui: string)
   const dernierMois = d.toISOString().slice(0, 7);
   const mensuelles = [...dernierParCle(mois)].filter(([m]) => m >= premierMois && m <= dernierMois).map(([, s]) => s);
 
-  const ids = new Set([...quotidiennes, ...mensuelles].map((s) => s.id));
+  // Une date d'après aujourd'hui (décalage d'horloge, date locale au lieu d'UTC) n'est jamais à expirer : on ne détruit pas ce qu'on ne sait pas dater.
+  const futures = triees.filter((s) => horodatage(s) >= fin + 86_400_000);
+  const ids = new Set([...quotidiennes, ...mensuelles, ...futures].map((s) => s.id));
   return {
     quotidiennes,
     mensuelles,

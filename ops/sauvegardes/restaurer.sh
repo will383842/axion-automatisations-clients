@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Restaure la dernière sauvegarde dans un conteneur NEUF et imprime son nom sur la dernière ligne (à supprimer par l'appelant).
-# Variables : SAUVEGARDE_IMAGE (image avec pgBackRest, par défaut celle du service postgres lancé), SAUVEGARDE_PROJET (défaut socle).
+# Variables : SAUVEGARDE_IMAGE (image avec pgBackRest, par défaut celle du service postgres lancé), SAUVEGARDE_PROJET (défaut socle),
+# SAUVEGARDE_ESSAI (0 par défaut : la phrase est lue dans OpenBao ; 1 seulement pour l'essai), BAO_ADDR et BAO_JETON_FICHIER (jeton monté en lecture seule).
 set -euo pipefail
 
 projet="${SAUVEGARDE_PROJET:-socle}"
@@ -11,13 +12,17 @@ reseau="$(docker inspect -f '{{range $k, $_ := .NetworkSettings.Networks}}{{$k}}
 volume_cles="$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/cles"}}{{.Name}}{{end}}{{end}}' "$source_ctr")"
 dossier="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 nom="restauration-$$"
+jeton_monte=()
+[ -z "${BAO_JETON_FICHIER:-}" ] || jeton_monte=(-v "$BAO_JETON_FICHIER:$BAO_JETON_FICHIER:ro")
 
 docker run -d --name "$nom" --network "$reseau" \
-  -e SAUVEGARDE_ESSAI="${SAUVEGARDE_ESSAI:-1}" \
+  -e SAUVEGARDE_ESSAI="${SAUVEGARDE_ESSAI:-0}" -e BAO_ADDR="${BAO_ADDR:-}" -e BAO_JETON_FICHIER="${BAO_JETON_FICHIER:-}" \
+  "${jeton_monte[@]}" \
   -v "$volume_cles:/cles:ro" -v "$dossier:/opt/sauvegardes:ro" \
   --entrypoint bash "$image" -c '
     set -euo pipefail
-    export PGBACKREST_REPO1_CIPHER_PASS="$(/opt/sauvegardes/lire-phrase-chiffrement.sh)"
+    phrase="$(/opt/sauvegardes/lire-phrase-chiffrement.sh)"
+    export PGBACKREST_REPO1_CIPHER_PASS="$phrase" PGBACKREST_REPO2_CIPHER_PASS="$phrase"
     export PGBACKREST_CONFIG=/tmp/pgbackrest.conf
     cp /opt/sauvegardes/pgbackrest.conf.modele "$PGBACKREST_CONFIG"
     mkdir -p /tmp/donnees && chmod 700 /tmp/donnees
@@ -31,4 +36,5 @@ for _ in $(seq 1 120); do
   sleep 1
 done
 docker logs "$nom" >&2 || true
+docker rm -f -v "$nom" >/dev/null 2>&1 || true
 exit 1

@@ -9,12 +9,11 @@ services:
       PGBACKREST_STANZA: commun
       # P : réglages d'archivage (archive_timeout = 300 s : un journal part au plus toutes les 5 minutes, perte sous 15 minutes)
       P: -c archive_mode=on -c archive_timeout=300 -c wal_level=replica
-      # L : lecture de la phrase (le motif évite d'écrire un nom de fichier que la garde prendrait pour un domaine) · C : phrase lue à l'usage · D : archivage · Q : configuration
-      L: /opt/sauvegardes/lire-phrase-*
-      C: archive_command=PGBACKREST_REPO1_CIPHER_PASS=$$($$L)
-      D: pgbackrest archive-push %p
-      Q: cp /opt/sauvegardes/pgbackrest.conf.* $$PGBACKREST_CONFIG
-    entrypoint: ['sh', '-c', 'eval "$$Q;$$G"; exec docker-entrypoint.$$X postgres $$P -c "$$C $$D"']
+      # C : commande d'archivage, qui lit la phrase à l'usage (sans extension : la garde prendrait un nom de fichier pour un domaine)
+      C: archive_command=/opt/sauvegardes/archiver %p
+      # Q : configuration copiée avant tout ; un échec (fichier absent ou en double) arrête le démarrage au lieu de le laisser sans archivage
+      Q: cp /opt/sauvegardes/pgbackrest.conf.m* /tmp/pgbackrest.conf && eval "$$G"
+    entrypoint: ['sh', '-c', 'eval "$$Q" && exec docker-entrypoint.$$X postgres $$P -c "$$C"']
     volumes:
       - ../sauvegardes:/opt/sauvegardes:ro
       - cles-sauvegarde:/cles:ro
@@ -26,31 +25,38 @@ services:
     image: ghcr.io/will383842/axion-automatisations-clients/postgres-sauvegardes-pitr:16-r41-r75@sha256:05c30a0b3fbdb098f11f0a843fd1e61ce5c2f0726dca84840d68fe92c37f453a
     restart: "no"
     user: "0:0"
+    # K : clé SSH · F : phrase · D : droits (clé et phrase lisibles du seul utilisateur postgres) · E : droits de la cible et clé publique seule vers la cible
     environment:
       K: ssh-keygen -q -t ed25519 -N "" -f /cles/id
       F: openssl rand -hex 24 >/cles/phrase
-      D: chmod 644 /cles/id /cles/phrase; chown 1001:100 /depot
-    entrypoint: ['sh', '-c', 'eval "$$K" && eval "$$F" && eval "$$D" && exec sleep infinity']
+      D: chown 999:999 /cles/id /cles/phrase; chmod 600 /cles/id /cles/phrase
+      E: chown 1001:100 /depot /depot2; cp /cles/id.p* /pub/
+    entrypoint: ['sh', '-c', 'eval "$$K" && eval "$$F" && eval "$$D" && eval "$$E" && exec sleep infinity']
     volumes:
       - cles-sauvegarde:/cles
+      - cles-pub:/pub
       - depot-sauvegardes:/depot
+      - depot2-sauvegardes:/depot2
     networks: [interne]
     healthcheck:
-      test: ["CMD-SHELL", "test -s /cles/phrase"]
+      test: ["CMD-SHELL", "test -s /cles/phrase && test -s /pub/id.p*"]
       interval: 2s
       timeout: 3s
       retries: 30
   sftp-essai:
     image: atmoz/sftp:alpine@sha256:43dd1c023cf1bae487127d4b54660b0aee6e94c188a6599be36fb89ba115f961
     restart: "no"
-    command: sauv::1001:100:depot
+    command: sauv::1001:100:depot,depot2
     depends_on:
       cle-essai:
         condition: service_healthy
     volumes:
-      - cles-sauvegarde:/home/sauv/.ssh/keys:ro
+      - cles-pub:/home/sauv/.ssh/keys:ro
       - depot-sauvegardes:/home/sauv/depot
+      - depot2-sauvegardes:/home/sauv/depot2
     networks: [interne]
 volumes:
   cles-sauvegarde: {}
+  cles-pub: {}
   depot-sauvegardes: {}
+  depot2-sauvegardes: {}

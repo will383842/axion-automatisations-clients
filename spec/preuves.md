@@ -11,9 +11,9 @@ A-377 → ops/procedure-nouvelle-dependance.md et test « [A-377] ops/procedure-
 A-378 → test « [A-378] garde-briques refuse une image redis » (scripts/garde-briques.test.ts), 2026-10-25
 A-379 → test « [A-379] garde-briques accepte OpenBao livree:false sous MPL-2.0 » (scripts/garde-briques.test.ts), 2026-10-25
 C-493 → test « [C-493] garde-briques accepte valkey » (scripts/garde-briques.test.ts), 2026-10-25
-C-049 → ops/sauvegardes/README.md (rétention 30 quotidiennes, 12 mensuelles) et tests [C-049] de ops/sauvegardes/retention.test.ts, 2026-10-26
+C-049 → ops/sauvegardes/README.md (deux dépôts : 30 complètes et 12 mensuelles), tests [C-049] de ops/sauvegardes/retention.test.ts, de ops/sauvegardes/configuration.test.ts et de tests/socle/sauvegardes.int.test.ts (job socle-integration), 2026-10-27
 A-190 → ops/sauvegardes/README.md et ADR 0013, vérifié par le test « [A-190] la sauvegarde contient console, moteur, keycloak et passerelle_ia » (tests/socle/sauvegardes.int.test.ts, job socle-integration), 2026-10-26
-A-192 → ops/sauvegardes/README.md (copie sans suppression) et test « [A-192] … » (tests/socle/sauvegardes.int.test.ts, job socle-integration), 2026-10-26
+A-192 → EN PARTIE : ops/sauvegardes/README.md (copie sans suppression, idempotente) et test « [A-192] … » (tests/socle/sauvegardes.int.test.ts, job socle-integration) sur dossiers ; le branchement sur le compartiment « artefacts » reste à faire, 2026-10-27
 C-045 → ops/sauvegardes/README.md (archivage continu, sauvegarde de nuit, restauration) et tests [C-045] de ops/sauvegardes/configuration.test.ts et de tests/socle/sauvegardes.int.test.ts (job socle-integration), 2026-10-26
 C-046 → ops/sauvegardes/README.md (chiffrement avant départ, aes-256-cbc) et tests [C-046] de ops/sauvegardes/configuration.test.ts et de tests/socle/sauvegardes.int.test.ts (job socle-integration), 2026-10-26
 C-044 → ops/sauvegardes/README.md (archive_timeout = 300 s, perte bornée à 15 minutes ; la remise en service en 4 h se mesure au lot 1-B), 2026-10-26

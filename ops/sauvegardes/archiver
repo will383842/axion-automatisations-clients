@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Commande d'archivage de PostgreSQL (archive_command) : lit la phrase de chiffrement au moment de l'usage (C-593) et la donne aux deux dépôts
+# par l'environnement du seul processus pgBackRest. Jamais écrite dans un fichier, jamais dans le compose.
+set -euo pipefail
+
+phrase="$(/opt/sauvegardes/lire-phrase-chiffrement.sh)"
+PGBACKREST_REPO1_CIPHER_PASS="$phrase"
+PGBACKREST_REPO2_CIPHER_PASS="$phrase"
+export PGBACKREST_REPO1_CIPHER_PASS PGBACKREST_REPO2_CIPHER_PASS
+exec pgbackrest archive-push "$1"

@@ -179,9 +179,9 @@ beforeAll(garder(async () => {
   }
 }), 600_000);
 
-// Ce qui, vu par A, trahirait B (ou un secret de la passerelle).
-const traces = () => [`cli-${B}`, B, jetonB, cleB, MAITRE, FOURNISSEUR].filter((t) => t.length > 0);
-const fuitesDans = (texte: string) => traces().filter((t) => texte.includes(t)).length;
+// Ce qui, vu par A, trahirait B (ou un secret de la passerelle). Une valeur que A a lui-même envoyée dans la demande n'est pas une fuite.
+const traces = (): [string, string][] => [["alias de B", `cli-${B}`], ["identifiant de B", B], ["empreinte de B", jetonB], ["clé de B", cleB], ["clé maîtresse", MAITRE], ["clé du fournisseur", FOURNISSEUR]];
+const fuitesDans = (texte: string, envoye = "") => traces().filter(([, v]) => v.length > 0 && texte.includes(v) && !envoye.includes(v)).map(([nom]) => nom);
 
 describe("audit 1-A · passerelle d'IA (LiteLLM réel)", () => {
   it("[A-059] @isolation la consommation se lit avec la clé du client et ne compte que ses propres lignes", async () => {
@@ -195,6 +195,15 @@ describe("audit 1-A · passerelle d'IA (LiteLLM réel)", () => {
         dernier = e instanceof ErreurConsommation ? e.code : "autre";
         await pause(2000);
       }
+    }
+    // Diagnostic sans valeur : ce que le journal de dépense rend à la clé de A pour sa propre empreinte, et au maître.
+    const jetonA = createHash("sha256").update(cleA).digest("hex");
+    for (const [qui, cle] of [["clé de A", cleA], ["maître", MAITRE]] as const) {
+      const r = await appeler(cle, "GET", `/spend/logs?api_key=${jetonA}&summarize=false`);
+      let lignes: { api_key?: string }[] = [];
+      try { lignes = JSON.parse(r.texte) as { api_key?: string }[]; } catch { /* pas du JSON */ }
+      const toutes = Array.isArray(lignes) ? lignes : [];
+      writeSync(2, `FORME /spend/logs (${qui}) : statut ${r.statut}, ${toutes.length} lignes, toutes de A : ${toutes.every((l) => l.api_key === jetonA)}, champs ${JSON.stringify(Object.keys(toutes[0] ?? {}).sort())}\n`);
     }
     expect(dernier === "" || lue !== undefined, `consommation de A illisible (${dernier})`).toBe(true);
     expect(lue?.jetonsEntree).toBeGreaterThan(0);
@@ -228,13 +237,18 @@ describe("audit 1-A · passerelle d'IA (LiteLLM réel)", () => {
       "/health",
       "/settings",
     ];
+    // Les chemins sont écrits avec des noms à la place des valeurs, pour que le message d'échec n'en porte aucune.
+    const nommer = (chemin: string) => chemin.replace(cleB, "<clé de B>").replace(jetonB, "<empreinte de B>").replace(B, "<B>");
     const fuites: string[] = [];
     for (const chemin of lectures) {
       const r = await appeler(cleA, "GET", chemin);
-      if (fuitesDans(r.texte) > 0) fuites.push(`${chemin} (${r.statut})`);
+      const f = fuitesDans(r.texte, decodeURIComponent(chemin));
+      if (f.length > 0) fuites.push(`${nommer(chemin)} (${r.statut}) : ${f.join(", ")}`);
     }
     const r = await appeler(cleA, "POST", "/v2/key/info", { keys: [cleB, jetonB] });
-    if (fuitesDans(r.texte) > 0) fuites.push(`/v2/key/info (${r.statut})`);
+    const f = fuitesDans(r.texte, `${cleB} ${jetonB}`);
+    if (f.length > 0) fuites.push(`/v2/key/info (${r.statut}) : ${f.join(", ")}`);
+    writeSync(2, `FUITES passerelle : ${fuites.length ? fuites.join(" | ") : "aucune"}\n`);
     expect(fuites).toEqual([]);
   }, 180_000);
 
@@ -272,7 +286,7 @@ describe("audit 1-A · passerelle d'IA (LiteLLM réel)", () => {
     expect(vidage.includes(MARQUEUR), "texte d'un échange dans la base").toBe(false);
     const journal = execFileSync("docker", ["logs", litellm], { encoding: "utf8", maxBuffer: 256 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] });
     expect(journal.includes(MARQUEUR), "texte d'un échange dans le journal").toBe(false);
-    expect(journal.includes(MAITRE) || journal.includes(FOURNISSEUR) || journal.includes(cleA) || journal.includes(cleB), "clé dans le journal").toBe(false);
+    expect({ maitre: journal.includes(MAITRE), fournisseur: journal.includes(FOURNISSEUR), cleA: journal.includes(cleA), cleB: journal.includes(cleB), motDePasseBase: journal.includes(MOT_DE_PASSE_PG) }, "clé dans le journal").toEqual({ maitre: false, fournisseur: false, cleA: false, cleB: false, motDePasseBase: false });
   }, 120_000);
 
   // En dernier : la clé de B est révoquée pour de bon.

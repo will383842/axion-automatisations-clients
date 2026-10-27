@@ -56,4 +56,4 @@ SOCLE_KEYCLOAK_BD_MOT_DE_PASSE="$(printf %s/keycloak_app "$SOCLE_PG_MOT_DE_PASSE
 if [ -n "${GITHUB_ACTIONS:-}" ]; then echo "::add-mask::$SOCLE_KEYCLOAK_BD_MOT_DE_PASSE"; fi
 export SOCLE_KEYCLOAK_BD_MOT_DE_PASSE
 
-docker compose -p socle "${fichiers[@]}" up -d --wait || { rc=$?; for sv in keycloak postgres; do echo "=== DIAG $sv"; docker compose -p socle "${fichiers[@]}" logs --tail 60 $sv 2>&1 | cut -c1-300; done; exit $rc; }
+exec docker compose -p socle "${fichiers[@]}" up -d --wait

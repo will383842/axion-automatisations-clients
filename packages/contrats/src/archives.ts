@@ -6,9 +6,11 @@ import { LectureReponse, LectureRequete } from "./c3/lecture-entreprise.ts";
 import { DUREE_SECONDES, PREFIXE_KID, ROUTE_C6, VERSION_JETON } from "./c6/jeton.ts";
 import { verifierJeton } from "./c6/verifier.ts";
 import { ErreurSchema, STATUT_PAR_CODE } from "./commun/erreurs.ts";
-import { TERMES } from "./commun/identifiants.ts";
+import { CURSEUR_INITIAL, PERIODE_MAX_MOIS, TERMES } from "./commun/identifiants.ts";
+import { TVA_AUTOMATISATION_BPS } from "./commun/argent.ts";
+import { LIMITES_DEBIT, RETRY_AFTER_MAX_SECONDES } from "./commun/debit.ts";
 import { REGLES_FOND } from "./commun/regles-fond.ts";
-import { CHAINE_SIGNEE, EN_TETES } from "./commun/signature.ts";
+import { ANTI_REJEU_SECONDES, CHAINE_SIGNEE, EN_TETES, FENETRE_SECONDES } from "./commun/signature.ts";
 
 // Contrôle de non-régression des fixtures archivées au gel (fixtures-gelees/<version>/<contrat>/, ADR 0032 et 0033).
 // Un contrôle par contrat gelé : il lit un fichier archivé et rend un verdict par exemple ([nom, vrai si toujours bon]).
@@ -72,10 +74,15 @@ const c6: Controle = (f, contenu) => {
   return inconnu(f);
 };
 
-// Commun : rien ne se retire (codes d'erreur et leur statut, en-têtes, règles de fond, termes) et la chaîne signée ne change pas.
+// Commun : rien ne se retire (codes d'erreur et leur statut, en-têtes, règles de fond, termes), la chaîne signée, la fenêtre,
+// l'anti-rejeu, la TVA et le curseur initial ne changent pas, et les bornes (période, Retry-After, débit) ne rétrécissent pas.
 const commun: Controle = (f, contenu) => {
   if (f !== "constantes.json") return inconnu(f);
-  const k = contenu as { chaineSignee: string; enTetes: Record<string, string>; codesErreur: Record<string, number>; reglesFond: string[]; termes: string[] };
+  const k = contenu as { chaineSignee: string; enTetes: Record<string, string>; codesErreur: Record<string, number>; reglesFond: string[]; termes: string[];
+    fenetreSecondes: number; antiRejeuSecondes: number; tvaAutomatisationBps: number; curseurInitial: string; periodeMaxMois: number; retryAfterMaxSecondes: number;
+    limitesDebit: Record<string, { parMinute: number; par: string }>;
+  };
+  const debits: Record<string, { parMinute: number; par: string }> = LIMITES_DEBIT;
   const statuts = STATUT_PAR_CODE as Record<string, number>;
   return [
     ["chaîne signée", k.chaineSignee === CHAINE_SIGNEE],
@@ -83,6 +90,9 @@ const commun: Controle = (f, contenu) => {
     ["codes d'erreur et statuts", Object.entries(k.codesErreur).every(([code, statut]) => statuts[code] === statut)],
     ["règles de fond", sousEnsemble(k.reglesFond, Object.keys(REGLES_FOND))],
     ["termes", sousEnsemble(k.termes, TERMES)],
+    ["fenêtre, anti-rejeu, TVA et curseur initial", k.fenetreSecondes === FENETRE_SECONDES && k.antiRejeuSecondes === ANTI_REJEU_SECONDES && k.tvaAutomatisationBps === TVA_AUTOMATISATION_BPS && k.curseurInitial === CURSEUR_INITIAL],
+    ["période maximale et Retry-After maximal", PERIODE_MAX_MOIS >= k.periodeMaxMois && RETRY_AFTER_MAX_SECONDES >= k.retryAfterMaxSecondes],
+    ["limites de débit", Object.entries(k.limitesDebit).every(([cle, l]) => debits[cle] !== undefined && debits[cle].par === l.par && debits[cle].parMinute >= l.parMinute)],
   ];
 };
 

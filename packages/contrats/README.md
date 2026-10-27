@@ -39,7 +39,7 @@ Tout changement passe par un ADR et l'accord de l'architecte, monte la version m
 ### Le gel en 1.0.0 (fait le 27/10/2026, ADR 0033 : commun, C1, C2, C3, C6)
 Décidé après une nouvelle relecture complète (T0-30). La PR de gel, et elle seule :
 1. passe les contrats gelés à `1.0.0` dans `VERSION` (C4 reste en 0.x jusqu'à sa révision) ;
-2. copie `fixtures/<contrat>/` dans `fixtures-gelees/1.0.0/<contrat>/` : ces exemples valides restent valides pour toujours (test `[LOT0-contrats] les fixtures archivées…`) ;
+2. copie `fixtures/<contrat>/` dans `fixtures-gelees/1.0.0/<contrat>/` : ces exemples valides restent valides pour toujours (test `[C-538]`) ;
 3. régénère les empreintes et `contrats.sha256`, puis publie `contrats.sha256` dans le dépôt privé.
 C5 ne passe en 1.0.0 que si le job de CI `contrats-pg` existe et tourne sur chaque PR.
 

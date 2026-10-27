@@ -17,6 +17,9 @@ Le tour 2 de la relecture T0-30 (exactitude, sécurité, complétude) a rendu «
 
 Le gel archive `fixtures/<contrat>/` des contrats gelés dans `fixtures-gelees/1.0.0/`. Le test d'archive relit chaque contrat archivé avec un contrôle propre (`src/archives.ts`) ; un dossier ou un fichier qu'aucun contrôle ne sait lire fait échouer le test.
 
+### L'archive est scellée
+`empreintes/gelees-1.0.0.sha256` porte un SHA-256 par fichier de `fixtures-gelees/1.0.0/` et entre dans `contrats.sha256`. Le SHA-256 de ce fichier est la constante du test « [C-538] l'archive 1.0.0 ne change jamais » : `a5a406e0e2b5eb6de878ab1e3c8be5ffe3c1d6f48356caeb83d1bdf2409a52d1`. Le changer demande une v2 et un ADR. Le contrôle d'archive de `commun` fige aussi les constantes de comportement (fenêtre, anti-rejeu, TVA, curseur en égalité ; période, Retry-After, débit sans rétrécissement). Proposition au propriétaire, non appliquée ici : `packages/contrats/fixtures-gelees/` dans `.github/CODEOWNERS`.
+
 ### Corrections faites avant le gel
 - **Plan C1 (complétude, point 1).** La ligne de facture de C2 rend obligatoires `codeAutomatisation` et `referenceAbonnementConsole`, qui ne peuvent venir que du plan. Ajoutés en champs facultatifs après le gel, ils laisseraient le Hub sans quoi remplir la ligne, et les rendre obligatoires serait une v2. Décision : ils sont **obligatoires** dans `POST /plans-recurrents` dès 1.0.0 (un plan = un abonnement = une automatisation, règle de Will). `prixMensuelHtCentimes` (T7-29) reste un ajout facultatif possible en 1.x.
 - **Période de C1.** C1 garde {1, 6, 12} mois, sous-ensemble de `PeriodeMois` (1 à 12) de C2 et C3 : le récepteur C2 accepte plus large que ce que l'émetteur C1 peut demander, sans contradiction. L'élargissement viendra avec T7-29, Hub d'abord (additif). Un test vérifie l'inclusion.

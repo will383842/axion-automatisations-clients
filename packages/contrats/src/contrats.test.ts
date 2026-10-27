@@ -13,7 +13,7 @@ import { TVA_AUTOMATISATION_BPS } from "./commun/argent.ts";
 import { ANTI_REJEU_SECONDES, FENETRE_SECONDES, verifier } from "./commun/signature.ts";
 
 // SHA-256 de empreintes/gelees-1.0.0.sha256, recopié dans l'ADR 0033. Ne change qu'avec une v2 (ADR).
-const SHA256_ARCHIVE_1_0_0 = "A_REMPLIR";
+const SHA256_ARCHIVE_1_0_0 = "a5a406e0e2b5eb6de878ab1e3c8be5ffe3c1d6f48356caeb83d1bdf2409a52d1";
 
 const racine = new URL("../", import.meta.url);
 const lire = (p: string) => readFileSync(new URL(p, racine), "utf8");
@@ -154,7 +154,7 @@ describe("fixtures signées", () => {
     expect(fichiers).toEqual([...fichiers].sort());
     expect(fichiers.every((f) => f.startsWith("fixtures-gelees/1.0.0/"))).toBe(true);
     expect(lire("empreintes/gelees-1.0.0.sha256")).toBe(texte);
-    expect(lire("contrats.sha256")).toMatch(/  empreintes\/gelees-1\.0\.0\.sha256\n/);
+    expect(lire("contrats.sha256")).toMatch(/ {2}empreintes\/gelees-1\.0\.0\.sha256\n/);
     expect(createHash("sha256").update(texte).digest("hex")).toBe(SHA256_ARCHIVE_1_0_0);
     expect(lire("../../docs/adr/0033-gel-des-contrats-en-1-0-0.md")).toContain(SHA256_ARCHIVE_1_0_0);
   });

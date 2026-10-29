@@ -31,6 +31,13 @@ describe("expéditeur d'e-mails de service", () => {
     expect(envoyes).toHaveLength(1);
   });
 
+  it("[B-394] orange → un e-mail part vers l'équipe (le transport reçoit une seule fois le message)", async () => {
+    const { expediteur, envoyes } = monter();
+    await expediteur.envoyer("alerteOrange", EQUIPE, VARIABLES);
+    expect(envoyes).toHaveLength(1);
+    expect(envoyes[0]!.a).toBe(EQUIPE.adresse);
+  });
+
   it("[C-026] une variable manquante ou à plusieurs lignes est refusée", async () => {
     const { expediteur, envoyes } = monter();
     await expect(expediteur.envoyer("alerteOrange", EQUIPE, { client: VARIABLES.client, automatisation: VARIABLES.automatisation })).rejects.toThrow(/variable/);

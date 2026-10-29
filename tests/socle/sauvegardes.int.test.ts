@@ -162,9 +162,8 @@ describe("sauvegardes (archivage continu, complète de nuit, restauration)", () 
     const environnement = sortie("docker", ["exec", restaure, "sh", "-c", "tr '\\0' '\\n' < /proc/1/environ"]);
     expect(environnement).not.toMatch(/PGBACKREST_REPO1_CIPHER_PASS/);
     expect(environnement).not.toContain(phrase);
-    // La configuration en mémoire qui portait la configuration est supprimée avant l'exec.
-    const reste = spawnSync("docker", ["exec", restaure, "test", "-e", "/dev/shm/pgbackrest.conf"]);
-    expect(reste.status).not.toBe(0);
+    // La phrase n'est plus que dans la configuration en mémoire, droits 0400.
+    expect(sortie("docker", ["exec", restaure, "stat", "-c", "%a", "/dev/shm/pgbackrest.conf"]).trim()).toBe("400");
   });
 
   it("[C-046] sur la cible, aucun fichier ne contient en clair le marqueur écrit dans une table d'essai", () => {

@@ -238,7 +238,7 @@ describe("scripts de sauvegarde (réserves 2, 3, 5 et 6 de la PR #59)", () => {
   it("[C-593] après le lancement de la restauration, la phrase n'est plus dans l'environnement du processus postgres", () => {
     const sh = readFileSync(join(SCRIPTS, "restaurer.sh"), "utf8");
     const interne = sh.slice(sh.indexOf("--entrypoint bash"));
-    // Configuration sur un tmpfs, en 0400 ; la phrase est retirée de l'environnement (et le fichier supprimé) AVANT l'exec de postgres.
+    // Configuration sur un tmpfs, en 0400 ; la phrase est retirée de l'environnement AVANT l'exec de postgres.
     expect(interne).toMatch(/PGBACKREST_CONFIG=\/dev\/shm\//);
     expect(interne).toMatch(/umask 277/);
     expect(interne).not.toMatch(/PGBACKREST_CONFIG=\/tmp/);
@@ -247,7 +247,8 @@ describe("scripts de sauvegarde (réserves 2, 3, 5 et 6 de la PR #59)", () => {
     expect(unset).toBeGreaterThan(-1);
     expect(exec).toBeGreaterThan(unset);
     expect(interne.slice(unset, exec)).toMatch(/PGBACKREST_REPO1_CIPHER_PASS/);
-    expect(interne.slice(unset, exec)).toMatch(/rm -f "\$PGBACKREST_CONFIG"/);
+    // La phrase est dans le fichier en mémoire (le serveur restauré relit ses journaux avec), plus dans l'environnement.
+    expect(interne.slice(0, unset)).toMatch(/repo1-cipher-pass=%s/);
     // Le comportement réel (/proc/1/environ du conteneur restauré) est prouvé dans tests/socle/sauvegardes.int.test.ts.
   });
 

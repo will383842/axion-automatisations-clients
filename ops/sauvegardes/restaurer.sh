@@ -42,17 +42,17 @@ docker run -d --name "$nom" --network "$reseau" \
   -v "$volume_cles:/cles:ro" -v "$dossier:/opt/sauvegardes:ro" \
   --entrypoint bash "$image" -c '
     set -euo pipefail
-    export PGBACKREST_REPO1_CIPHER_PASS="$(/opt/sauvegardes/lire-phrase-chiffrement.sh)"
-    # Configuration en mémoire (/dev/shm), droits 0400 : jamais sur le disque du conteneur.
+    phrase="$(/opt/sauvegardes/lire-phrase-chiffrement.sh)"
+    # Configuration en mémoire (/dev/shm), droits 0400 : le modèle plus la phrase (comme preparer-configuration.sh).
+    # Le serveur restauré en a besoin pour relire ses journaux (restore_command) ; la phrase n est donc plus que dans ce fichier.
     export PGBACKREST_CONFIG=/dev/shm/pgbackrest.conf
     umask 277
-    cp /opt/sauvegardes/pgbackrest.conf.modele "$PGBACKREST_CONFIG"
+    { printf "[global]\nrepo1-cipher-pass=%s\n" "$phrase"; grep -v "^\[global\]$" /opt/sauvegardes/pgbackrest.conf.modele; } >"$PGBACKREST_CONFIG"
     umask 077
     mkdir -p /tmp/donnees && chmod 700 /tmp/donnees
     pgbackrest --stanza=commun --pg1-path=/tmp/donnees --type=immediate --target-action=promote restore
     # La phrase quitte l environnement AVANT l exec : le processus postgres restauré ne l hérite pas.
-    unset PGBACKREST_REPO1_CIPHER_PASS
-    rm -f "$PGBACKREST_CONFIG"
+    unset phrase PGBACKREST_REPO1_CIPHER_PASS
     exec postgres -D /tmp/donnees -c archive_mode=off -c listen_addresses= -c unix_socket_directories=/var/run/postgresql
   ' >/dev/null
 

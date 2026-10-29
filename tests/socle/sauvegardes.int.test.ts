@@ -368,6 +368,15 @@ const debutAbandon = (): number | undefined => {
 };
 const abandons = () => journalPgBackRest().split(/\r?\n/).filter((l) => /dropped/i.test(l)).length;
 
+// Envoi au récepteur de test, avec la cause réseau dans le message : « fetch failed » seul ne dit pas pourquoi.
+const envoyer = async (url: string, message: string) => {
+  try {
+    await envoyerAlerteDisque(url, message);
+  } catch (e) {
+    throw new Error(`envoi de l'alerte à ${url} : ${String(e)} ; cause : ${String((e as { cause?: unknown }).cause)}`, { cause: e });
+  }
+};
+
 interface Scenario {
   premiere?: { decision: Decision; taux: number; recue: string };
   pireTaux: number;
@@ -428,7 +437,7 @@ const scenario = (): Promise<Scenario> => {
         r.pireTaux = Math.max(r.pireTaux, m.utilises / m.total);
         const d = decider(mesures, PARAMETRES, Date.now());
         if (!r.premiere && d.niveau !== "rien") {
-          await envoyerAlerteDisque(url, d.message);
+          await envoyer(url, d.message);
           r.premiere = { decision: d, taux: m.utilises / m.total, recue: recus[recus.length - 1] ?? "" };
         }
       }
@@ -442,7 +451,7 @@ const scenario = (): Promise<Scenario> => {
       r.attenteFinale = m.journauxEnAttente;
       if (r.abandonne) {
         const d = decider(mesures, PARAMETRES, Date.now(), { journauxAbandonnes: true, dernierArchivage: debutAbandon() });
-        await envoyerAlerteDisque(url, d.message);
+        await envoyer(url, d.message);
         r.alerteInterrompu = { decision: d, recue: recus[recus.length - 1] ?? "" };
       }
       // La base accepte encore des écritures, cible toujours coupée.

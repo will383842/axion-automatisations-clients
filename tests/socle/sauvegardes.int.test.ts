@@ -346,8 +346,8 @@ describe("sauvegardes (archivage continu, complète de nuit, restauration)", () 
 
 // Disque plein (T1A-15, C-602). Ces essais sont ICI, et non dans un fichier à part : ils arrêtent la cible SFTP, et Vitest lance les fichiers
 // d'intégration en parallèle (un fichier séparé couperait la cible sous les sauvegardes ci-dessus). Ils passent donc en dernier, dans ce fichier.
-// Le fragment ops/socle/compose.zz-essai-disque.yml met les journaux sur un volume de 256 Mo et le plafond à 64 Mo (journaux de 16 Mo).
-const WAL = "/wal-essai";
+// Le fragment ops/socle/compose.zz-essai-disque.yml borne le volume pg-wal de production à 256 Mo (en mémoire) et le plafond à 64 Mo (journaux de 16 Mo) ; le dossier des journaux est celui de production.
+const WAL = "/wal/journaux";
 const SEGMENT = 16 * 1024 * 1024;
 const PLAFOND = 64 * 1024 * 1024;
 const PARAMETRES: Parametres = { seuilAlerte: 0.8, plafondJournaux: PLAFOND, horizonReveilMs: 6 * 3_600_000 };

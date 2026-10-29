@@ -49,11 +49,15 @@ describe("dimensionnement du volume pg_wal", () => {
 // L'essai de rafale doit éprouver la définition de production du volume pg_wal, pas une variante : ces tests comparent les deux fichiers
 // sans Docker et échouent si l'essai se met à détourner le volume (autre dossier des journaux, volume en mémoire monté ailleurs).
 describe("l'essai de rafale exerce la définition de production du volume pg_wal", () => {
-  const charger = (f: string) => load(readFileSync(fileURLToPath(new URL(`../socle/${f}`, import.meta.url)), "utf8")) as any;
+  interface Compose {
+    services: Record<string, { environment?: Record<string, string>; volumes?: string[]; tmpfs?: string[] }>;
+    volumes?: Record<string, { driver_opts?: { type?: string; o?: string } }>;
+  }
+  const charger = (f: string) => load(readFileSync(fileURLToPath(new URL(`../socle/${f}`, import.meta.url)), "utf8")) as Compose;
   const prod = charger("compose.sauvegardes.yml");
   const essai = charger("compose.zz-essai-disque.yml");
-  const env = (c: any) => c.services.postgres.environment as Record<string, string>;
-  const montage = (prod.services.postgres.volumes as string[]).find((v) => v.startsWith("pg-wal:"))!.split(":")[1];
+  const env = (c: Compose) => c.services.postgres.environment!;
+  const montage = prod.services.postgres.volumes!.find((v) => v.startsWith("pg-wal:"))!.split(":")[1];
   const tailleEssai = () => {
     const o = String(essai.volumes?.["pg-wal"]?.driver_opts?.o ?? "");
     const m = /(?:^|,)size=(\d+)m(?:,|$)/.exec(o);
@@ -69,7 +73,7 @@ describe("l'essai de rafale exerce la définition de production du volume pg_wal
   });
 
   it("[C-602] l'essai borne le volume pg-wal de production lui-même, et seul le plafond et max_wal_size changent", () => {
-    expect(essai.volumes["pg-wal"].driver_opts.type).toBe("tmpfs");
+    expect(essai.volumes!["pg-wal"].driver_opts!.type).toBe("tmpfs");
     expect(tailleEssai()).toBeGreaterThan(0);
     const sans = (p: string) => p.replace(/ -c (max|min)_wal_size=\S+/g, "");
     expect(sans(env(essai).P)).toBe(env(prod).P);

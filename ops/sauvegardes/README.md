@@ -34,6 +34,8 @@ Cible SFTP injoignable (T1A-15, étape 2) : `pgbackrest.conf.modele` règle `arc
 
 **Ce que la sonde fait et ne fait pas.** Elle alerte ; elle n'empêche pas l'arrêt de PostgreSQL. **Réaction attendue** : rétablir la cible SFTP, ou agrandir le volume `pg_wal`.
 
+**Ce que l'essai de rafale prouve, et ne prouve pas.** Sur la CI, `compose.zz-essai-disque.yml` ne remplace ni le dossier des journaux ni le montage : PostgreSQL écrit dans `/wal/journaux`, sur le volume `pg-wal` de production, monté par le même service avec le même `wal-init`. Seule la nature du volume change : il est en mémoire et borné à 256 Mo, car un volume Docker nommé n'a pas de taille. Des tests sans Docker (`dimensionner-wal.test.ts`) échouent si le fragment d'essai détourne le volume. Prouvé : l'alerte part cible arrêtée, et le volume `pg-wal` distinct des données ne se remplit pas sous ce plafond de 64 Mo. Non prouvé : le plafond de production (4GiB provisoire) et la taille réelle du volume de production, qui n'existent pas encore (lot 1-B) ; le comportement d'un disque réel (système de fichiers, `lost+found`) puisque l'essai est en mémoire ; la tenue sous un débit réel (le débit maximal reste à mesurer).
+
 **Limite connue.** L'essai de rafale (`tests/socle/sauvegardes.int.test.ts`, volume d'essai de 256 Mo) met l'écriture en pause au-dessus de 65 % du volume en attendant l'abandon des journaux : une charge réelle plus rapide que l'archiveur, sans pause, peut remplir le volume avant le premier abandon. Le dimensionnement ci-dessus sert à cela ; il n'est valable qu'avec un débit maximal mesuré.
 
 ## Ce qui reste au lot 1-B

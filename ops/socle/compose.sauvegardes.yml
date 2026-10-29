@@ -14,15 +14,15 @@ services:
       # P : réglages d'archivage (archive_timeout = 300 s : un journal part au plus toutes les 5 minutes, perte sous 15 minutes)
       P: -c archive_mode=on -c archive_timeout=300 -c wal_level=replica
       # L : préparation (le motif évite d'écrire un nom de fichier que la garde prendrait pour un domaine ; un seul fichier doit correspondre)
-      # R : prépare la configuration, ou le conteneur ne démarre pas · C : archivage
+      # R : prépare la configuration, ou le conteneur ne démarre pas · C : archivage · E : démarrage du serveur
       L: /opt/sauvegardes/preparer-conf*
       R: set -- $$L; [ $$# -eq 1 ] && "$$1" && eval "$$G"
       C: archive_command=pgbackrest archive-push %p
       # pg_wal sur un volume distinct des données (T1B-06) : un pg_wal plein n'emporte pas les données, et la sonde mesure le bon disque.
       # Le dossier est choisi à la création de la grappe : un volume monté directement sur pg_wal ferait échouer initdb (lost+found, propriétaire).
       POSTGRES_INITDB_WALDIR: /wal/journaux
-      # E : le sous-dossier des journaux appartient à postgres (un volume neuf appartient à root), puis démarrage du serveur
-      E: mkdir -p /wal/journaux && chown postgres:postgres /wal/journaux && chmod 700 /wal/journaux && exec docker-entrypoint.$$X postgres $$P -c "$$C"
+      # E : démarrage du serveur
+      E: exec docker-entrypoint.$$X postgres $$P -c "$$C"
     # init : l'archivage ASYNCHRONE (archive-async=y) laisse un processus pgBackRest orphelin ; si PostgreSQL est le processus 1 du conteneur, il le prend pour un
     # serveur planté (« server process exited with exit code 103 ») et relance une récupération en boucle. Un init (tini) recueille les orphelins.
     init: true
@@ -35,6 +35,18 @@ services:
     depends_on:
       sftp-essai:
         condition: service_started
+      wal-init:
+        condition: service_completed_successfully
+  # Le conteneur PostgreSQL démarre en utilisateur postgres (pas de root, pas de gosu) : un volume neuf appartient à root. Ce service, seul à tourner en root,
+  # donne le volume pg_wal à postgres puis s'arrête ; initdb crée ensuite /wal/journaux.
+  wal-init:
+    image: ghcr.io/will383842/axion-automatisations-clients/postgres-sauvegardes-pitr:16-r41-r75@sha256:05c30a0b3fbdb098f11f0a843fd1e61ce5c2f0726dca84840d68fe92c37f453a
+    restart: "no"
+    user: "0:0"
+    entrypoint: ['sh', '-c', 'chown postgres:postgres /wal && chmod 700 /wal']
+    volumes:
+      - pg-wal:/wal
+    networks: [interne]
   cle-essai:
     image: ghcr.io/will383842/axion-automatisations-clients/postgres-sauvegardes-pitr:16-r41-r75@sha256:05c30a0b3fbdb098f11f0a843fd1e61ce5c2f0726dca84840d68fe92c37f453a
     restart: "no"

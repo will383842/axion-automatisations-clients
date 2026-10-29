@@ -287,7 +287,7 @@ describe("réserves de l'audit de la PR 95, avec le socle", () => {
 
   it("[A-131] @isolation audit_ajouter refuse U+180E, U+00AD et U+3164 dans l'acteur et dans l'identifiant d'entité", async () => {
     const A = randomUUID();
-    for (const car of ["᠎", "­", "ㅤ"]) {
+    for (const car of ["\u180E", "\u00AD", "\u3164"]) {
       await expect(avecClient(app, A, (c) => c.query(AJOUTER, [A, `agent${car}forge`, "insertion", "essai_car", "ok", null, null])), `acteur U+${car.codePointAt(0)?.toString(16)}`).rejects.toThrow(/acteur invalide/);
       await expect(avecClient(app, A, (c) => c.query(AJOUTER, [A, "agent-essai", "insertion", "essai_car", `id${car}x`, null, null])), `entite_id U+${car.codePointAt(0)?.toString(16)}`).rejects.toThrow(/identifiant d'entité invalide/);
     }

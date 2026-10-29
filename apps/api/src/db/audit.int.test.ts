@@ -305,6 +305,8 @@ describe("journal d'audit chaîné, avec le socle", () => {
     const A = randomUUID();
     const seule = pool(PGBOUNCER, "console_app", 1);
     const c = await seule.connect();
+    // La coupure arrive pendant que la connexion attend : pg l'émet en événement « error », attendu ici.
+    c.on("error", () => undefined);
     let coupee = false;
     let borne: unknown;
     try {
@@ -331,7 +333,7 @@ describe("journal d'audit chaîné, avec le socle", () => {
     expect(await lignesCassees()).toBe(0);
   }, 30_000);
 
-  it("[C-028] le contenu canonique garde le masque de l'adresse IP (inet en texte, pas host())", async () => {
+  it("[C-028] le contenu canonique garde le masque de l'adresse IP (abbrev, pas host() ni ::text)", async () => {
     const contenu = async (ip: string) =>
       (await equipe.query("SELECT public.audit_contenu(1, NULL, 'agent-essai', 'insertion', 'essai_masque', NULL, NULL, NULL, $1::inet, '2026-10-29T00:00:00Z') AS t", [ip])).rows[0]?.["t"] as string;
     expect(JSON.parse(await contenu("192.0.2.0/24"))[8]).toBe("192.0.2.0/24");

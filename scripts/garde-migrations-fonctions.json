@@ -4,6 +4,9 @@
     {"fichier":"0001_journal_audit_fonctions.sql","nom":"audit_inserer","empreinte":"239674398a81d911c9397cf0518fc30666b743b25554e9398fe20e6fd7a4c98b","adr":"0042"},
     {"fichier":"0001_journal_audit_fonctions.sql","nom":"audit_ajouter","empreinte":"a945d25e8c2ae608b522af8d7a79908b2e0dbcc8c30e5a0a438e59bf5cbf90b9","adr":"0042"},
     {"fichier":"0001_journal_audit_fonctions.sql","nom":"audit_ecrire","empreinte":"ddc5f32080f18852767f1759d3643a683d37e3894f30319332d559430d1f5c5d","adr":"0042"},
-    {"fichier":"0001_journal_audit_fonctions.sql","nom":"audit_refuser","empreinte":"16fb88851ab54cc14f93b1a88aa3f46f8d9a9e079758a05b232d1a8fa923b5a2","adr":"0042"}
+    {"fichier":"0001_journal_audit_fonctions.sql","nom":"audit_refuser","empreinte":"16fb88851ab54cc14f93b1a88aa3f46f8d9a9e079758a05b232d1a8fa923b5a2","adr":"0042"},
+    {"fichier":"0002_journal_audit_reserves.sql","nom":"audit_contenu","empreinte":"43b8ea2036c6b743dcdb570a1162490db324e651871e2effd2f0049b966e3525","adr":"0042"},
+    {"fichier":"0002_journal_audit_reserves.sql","nom":"audit_inserer","empreinte":"d67ff002139e79a286291fe7e92362bee1da340a98a9a82ed7dd7a8c1ca27411","adr":"0042"},
+    {"fichier":"0002_journal_audit_reserves.sql","nom":"audit_ajouter","empreinte":"dfd5f0cf1e550abe707a4da9beab4ca218cff508f0e7c9c9b9da8339053eab26","adr":"0042"}
   ]
 }

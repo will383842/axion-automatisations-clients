@@ -21,7 +21,7 @@ function fauxPool(echecSur?: string) {
   return { pool, client, appels };
 }
 const textes = (appels: Appel[]) => appels.map((a) => a[0]);
-// Délais posés dès le BEGIN, pour toute transaction (ADR 0010, réserve R1 de l'ADR 0042) : portée de la transaction, jamais de la session.
+// Délais posés dès le BEGIN, pour toute transaction (ADR 0043, réserve R1 de l'ADR 0042) : portée de la transaction, jamais de la session.
 const DELAIS = "SELECT set_config('idle_in_transaction_session_timeout', '5s', true), set_config('lock_timeout', '5s', true)";
 
 describe("avecClient", () => {

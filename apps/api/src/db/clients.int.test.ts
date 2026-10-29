@@ -73,18 +73,24 @@ afterAll(async () => {
   await Promise.all(ouverts.map((o) => o.end().catch(() => undefined)));
 });
 
-describe("tables de client, avec le socle", () => {
+// Délai large : les autres fichiers du socle écrivent au même journal, dont un essai qui garde son verrou jusqu'à 5 s (audit.int.test.ts).
+describe("tables de client, avec le socle", { timeout: 30_000 }, () => {
   it("[A-119] @isolation toutes les migrations appliquées, les invariants C5 ne trouvent aucun écart", async () => {
-    expect(await controlerInvariants(requete, "console", OPTIONS)).toEqual([]);
+    // Les autres fichiers d'essai créent des schémas jetables « essai_* » sur la même base, en parallèle : ils ne comptent pas ici.
+    const ecarts = (await controlerInvariants(requete, "console", OPTIONS)).filter((e) => !/(^|\.)essai_/.test(e.objet));
+    expect(ecarts).toEqual([]);
     const { rows } = await migration.query("SELECT relname FROM pg_class WHERE relname IN ('organisations', 'contacts', 'instances') AND relkind = 'r' ORDER BY 1");
     expect(rows.map((r) => r.relname)).toEqual(["contacts", "instances", "organisations"]);
   });
 
   it("[A-119] @isolation une table de tableClient() a la clé primaire (tenant_id, id) et UNIQUE (tenant_id, id) ; console_client_id différent de tenant_id est refusé", async () => {
+    // PostgreSQL fusionne UNIQUE (tenant_id, id) avec la clé primaire de mêmes colonnes : un seul index unique, qui sert de cible aux clés étrangères composées (ADR 0043).
     const { rows } = await migration.query(`
-      SELECT c.contype, (SELECT string_agg(a.attname, ',' ORDER BY k.ord) FROM unnest(c.conkey) WITH ORDINALITY k(n, ord) JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.n) AS cols
-      FROM pg_constraint c WHERE c.conrelid = 'public.instances'::regclass AND c.contype IN ('p', 'u')`);
-    expect(rows.map((r) => `${r.contype}:${r.cols}`).sort()).toEqual(["p:tenant_id,id", "u:tenant_id,id"]);
+      SELECT i.indisprimary, (SELECT string_agg(a.attname, ',' ORDER BY k.ord) FROM unnest(i.indkey::int2[]) WITH ORDINALITY k(n, ord) JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = k.n) AS cols
+      FROM pg_index i WHERE i.indrelid = 'public.instances'::regclass AND i.indisunique`);
+    expect(rows.map((r) => `${r.indisprimary}:${r.cols}`)).toEqual(["true:tenant_id,id"]);
+    const fk = await migration.query("SELECT pg_get_constraintdef(oid) AS d FROM pg_constraint WHERE conname = 'instances_organisation_fk'");
+    expect(fk.rows[0]?.d).toContain("REFERENCES organisations(tenant_id, id)");
     const A = randomUUID();
     await expect(creerOrg(A, { console_client_id: randomUUID() })).rejects.toMatchObject({ code: "23514" });
     await creerOrg(A);
@@ -193,7 +199,7 @@ describe("tables de client, avec le socle", () => {
     expect(await lignesCassees()).toBe(0);
   });
 
-  it("[A-178] la création d'une organisation écrit au journal ; un contact (données de personnes) n'est pas encore copié au journal (ADR 0010)", async () => {
+  it("[A-178] la création d'une organisation écrit au journal ; un contact (données de personnes) n'est pas encore copié au journal (ADR 0043)", async () => {
     const A = randomUUID();
     await creerOrg(A);
     await avecClient(app, A, (c) => c.query("INSERT INTO contacts (id, tenant_id, organisation_id, nom, email, role) VALUES ($1, $2, $2, 'Camille Essai', 'camille@exemple.fr', 'principal')", [randomUUID(), A]), APPELANT);
@@ -227,12 +233,12 @@ describe("tables de client, avec le socle", () => {
     await creerOrg(A);
     const seul = pool(PGBOUNCER, "console_app", 1);
     await avecClient(seul, A, (c) => c.query("SELECT 1"), APPELANT);
-    const apres = await avecClient(seul, A, (c) => c.query("SELECT current_setting('app.acteur', true) AS a, current_setting('app.ip', true) AS i, current_setting('lock_timeout') AS l"));
+    const apres = await seul.query("SELECT current_setting('app.acteur', true) AS a, current_setting('app.ip', true) AS i, current_setting('lock_timeout') AS l");
     expect(apres.rows[0]).toMatchObject({ a: "", i: "", l: "0" });
   });
 });
 
-describe("réserves de l'audit de la PR 95, avec le socle", () => {
+describe("réserves de l'audit de la PR 95, avec le socle", { timeout: 40_000 }, () => {
   it("[A-131] @isolation une transaction qui tient une ligne sans rien faire est coupée par PostgreSQL : l'écriture auditée d'un tiers passe en moins de 10 s", async () => {
     const A = randomUUID();
     await creerOrg(A);
@@ -241,6 +247,7 @@ describe("réserves de l'audit de la PR 95, avec le socle", () => {
     await creerOrg(tiers);
     // T0 : verrou de ligne sur X puis inactivité de 9 s. T1 : écriture auditée (prend le journal) puis attente de la ligne X. Tiers : écriture auditée.
     const t0 = avecClient(app, A, async (c) => {
+      c.on("error", () => undefined); // PostgreSQL coupe la session : l'erreur de connexion est attendue
       await c.query("SELECT id FROM instances WHERE id = $1 FOR UPDATE", [X]);
       await dormir(9000);
       await c.query("SELECT 1");

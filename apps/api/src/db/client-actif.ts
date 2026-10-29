@@ -12,7 +12,7 @@ import type { Pool, PoolClient } from "pg";
 // 7. avecClient peut aussi fixer l'acteur et l'adresse de l'appelant (app.acteur, app.ip), de la même façon : portée de la transaction.
 //    Le journal d'audit les lit ; ils ne passent jamais d'une transaction à la suivante. L'adresse est validée (net.isIP), l'acteur borné.
 // 8. Dès le BEGIN, toute transaction (avecClient comme avecEquipe) pose idle_in_transaction_session_timeout et lock_timeout à 5 s : une transaction
-//    qui tient une ligne sans rien faire ne bloque pas, par le journal d'audit, les écritures des autres clients (ADR 0042, réserve R1 ; ADR 0010).
+//    qui tient une ligne sans rien faire ne bloque pas, par le journal d'audit, les écritures des autres clients (ADR 0042, réserve R1 ; ADR 0043).
 // Limite : un SQL arbitraire exécuté par l'application peut fixer app.tenant_id lui-même ; seul ce fichier doit le faire.
 
 // Portée de la transaction (true), jamais de la session ; pas d'ALTER ROLE (garde des migrations, ADR 0041).

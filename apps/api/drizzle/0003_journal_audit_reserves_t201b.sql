@@ -1,4 +1,4 @@
--- Journal d'audit : réserves de l'audit de la PR 95 (ADR 0010 et 0042). Écrit à la main (drizzle-kit generate --custom).
+-- Journal d'audit : réserves de l'audit de la PR 95 (ADR 0043 et 0042). Écrit à la main (drizzle-kit generate --custom).
 -- Contrôle de l'ADR 0042 (R2), AVANT toute autre instruction : la migration est refusée si une ligne du journal porte une IP avec masque.
 -- Pas de bloc DO (la garde des migrations les refuse) : la conversion en entier d'un message d'erreur échoue et affiche ce message.
 SELECT (CASE WHEN EXISTS (SELECT 1 FROM public.journal_audit WHERE ip IS NOT NULL AND masklen(ip) <> CASE family(ip) WHEN 4 THEN 32 ELSE 128 END)

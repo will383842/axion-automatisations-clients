@@ -34,8 +34,8 @@ describe("tableClient()", () => {
 
 describe("migration des tables de client", () => {
   it("[A-119] @isolation chaque table de tableClient() a ENABLE et FORCE ROW LEVEL SECURITY, ses deux politiques et le déclencheur d'audit prévu", () => {
-    expect([...TABLES_CLIENT.map((t) => t.nom)].sort()).toEqual(["contacts", "instances", "organisations"]);
-    for (const { nom, audit } of TABLES_CLIENT) {
+    expect(TABLES_CLIENT.map((t) => t.nom).filter((n) => !n.startsWith("essai_")).sort()).toEqual(["contacts", "instances", "organisations"]);
+    for (const { nom, audit } of TABLES_CLIENT.filter((t) => !t.nom.startsWith("essai_"))) {
       expect(migration, nom).toContain(`ALTER TABLE "public"."${nom}" ENABLE ROW LEVEL SECURITY`);
       expect(migration, nom).toContain(`ALTER TABLE "public"."${nom}" FORCE ROW LEVEL SECURITY`);
       expect(migration, nom).toMatch(new RegExp(`CREATE POLICY isolation_client ON "public"\\."${nom}" FOR ALL TO console_app USING \\(tenant_id = NULLIF\\(current_setting\\('app.tenant_id', true\\), ''\\)::uuid\\) WITH CHECK`));

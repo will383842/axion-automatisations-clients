@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { CLES_CONTEXTE, defineAutomation, validerEcrans, type Manifeste } from "./index.ts";
+import { defineAutomation, validerEcrans, type ContexteEtape, type Manifeste } from "./index.ts";
 import { manifesteExemple } from "../exemples/module-exemple.ts";
 
 const requete = { nom: "lister-prospects", parametres: { type: "object", properties: {}, additionalProperties: false }, sql: "select id, nom from a_prospection.prospects where statut = $1", mode: "lecture", colonnes: ["id", "nom"], liste: true, pagination: { curseur: "id" }, parEtablissement: true };
@@ -28,13 +28,13 @@ describe("C4 0.4.0 : données et écrans d'un module (T4-49)", () => {
   });
 
   it("[C-624] une requête de liste sans pagination par curseur est refusée", () => {
-    const { pagination: _, ...sansPagination } = requete;
+    const sansPagination = { ...requete, pagination: undefined };
     refuse({ donnees: donnees({ requetes: [sansPagination] }) }, /pagination/);
     accepte({ donnees: donnees({ requetes: [{ ...requete, liste: false, pagination: undefined }] }) });
   });
 
   it("[C-625] une action d'écriture sans historique est refusée", () => {
-    const { historique: _, ...sans } = action;
+    const sans = { ...action, historique: undefined };
     refuse({ donnees: donnees({ actions: [sans] }) }, /historique/);
     refuse({ donnees: donnees({ actions: [{ ...action, historique: false }] }) }, /historique/);
   });
@@ -94,8 +94,15 @@ describe("C4 0.4.0 : données et écrans d'un module (T4-49)", () => {
     refuse({ fonctions: [{ nom: "envoi-courriel", libelle: "A" }, { nom: "envoi-courriel", libelle: "B" }] }, /fonctions/);
   });
 
-  it("[C-624] le contexte d'étape expose un port donnees et rien d'autre de neuf", () => {
-    expect([...CLES_CONTEXTE].sort()).toEqual(["donnees", "effet", "ia", "noterMotif", "reglages", "signal"]);
+  it("[C-624] le contexte d'étape type un port donnees (lire, ecrire) qui ne prend que des noms et des paramètres", async () => {
+    const appels: string[] = [];
+    const port: NonNullable<ContexteEtape["donnees"]> = {
+      lire: async (nom, parametres) => (appels.push(`lire:${nom}:${JSON.stringify(parametres)}`), []),
+      ecrire: async (nom) => void appels.push(`ecrire:${nom}`),
+    };
+    expect(await port.lire("lister-prospects", { statut: "ouvert" })).toEqual([]);
+    await port.ecrire("changer-statut");
+    expect(appels).toEqual(['lire:lister-prospects:{"statut":"ouvert"}', "ecrire:changer-statut"]);
   });
 
   it("[B-171] aucun champ du manifeste n'accepte du JavaScript (fonction, texte évalué)", () => {

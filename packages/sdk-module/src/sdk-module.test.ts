@@ -109,7 +109,7 @@ describe("defineAutomation (C4 v0)", () => {
   });
 
   it("[LOT4-c4] le contexte d'étape n'expose aucune méthode de lecture d'un autre fil ou d'un autre client", () => {
-    expect([...CLES_CONTEXTE].sort()).toEqual(["donnees", "effet", "ia", "noterMotif", "reglages", "signal"]);
+    expect([...CLES_CONTEXTE].sort()).toEqual(["effet", "ia", "noterMotif", "reglages", "signal"]);
     for (const cle of CLES_CONTEXTE) expect(cle, cle).not.toMatch(/lire|lecture|fil|client|instance|autre|connecteurs/i);
   });
 

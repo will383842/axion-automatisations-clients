@@ -11,14 +11,16 @@ import { ErreurCoffre } from "../coffre/coffre.js";
 // L'alerte orange n'est pas encore dans la table des envois (contrat C-557) : le test l'ajoute à une copie.
 const ORANGE: Envoi = { evenement: "alerteOrange", destinataire: "will", canal: "email", mode: "automatique", interrupteur: "envoi.alerteOrange", cleTexte: null, version: "V1", exigence: "B-394" };
 const TABLE: readonly Envoi[] = [...TABLE_ENVOIS, ORANGE];
-const EQUIPE = { role: "will", adresse: "equipe@exemple.fr" } as const;
+const EQUIPE = "will" as const;
+const ADRESSE_EQUIPE = "equipe@exemple.fr";
+const CLE_TRACE_TEST = `TEST-NE-PAS-UTILISER-trace-${randomBytes(8).toString("hex")}`;
 const VARIABLES = { client: "Lemoine Rénovation", automatisation: "Relance des devis", codeErreur: "E-CONNEXION-401" };
 
 function monter(ouverts: string[] = ["envoi.alerteOrange"]) {
   const envoyes: Message[] = [];
   const traces: Trace[] = [];
   const transport: Transport = { async envoyer(m) { envoyes.push(m); } };
-  const expediteur = creerExpediteur({ table: TABLE, transport, interrupteurs: { ouvert: (nom) => ouverts.includes(nom) }, trace: { ecrire: (t) => void traces.push(t) } });
+  const expediteur = creerExpediteur({ table: TABLE, transport, interrupteurs: { ouvert: (nom) => ouverts.includes(nom) }, trace: { ecrire: (t) => void traces.push(t) }, adresses: { will: ADRESSE_EQUIPE }, cleTrace: CLE_TRACE_TEST });
   return { expediteur, envoyes, traces };
 }
 
@@ -37,7 +39,7 @@ describe("expéditeur d'e-mails de service", () => {
     const { expediteur, envoyes } = monter();
     await expediteur.envoyer("alerteOrange", EQUIPE, VARIABLES);
     expect(envoyes).toHaveLength(1);
-    expect(envoyes[0]!.a).toBe(EQUIPE.adresse);
+    expect(envoyes[0]!.a).toBe(ADRESSE_EQUIPE);
   });
 
   it("[C-026] une variable manquante ou à plusieurs lignes est refusée", async () => {
@@ -61,14 +63,13 @@ describe("expéditeur d'e-mails de service", () => {
     expect(traces).toHaveLength(1);
     expect(traces[0]).toMatchObject({ cle: "alerteOrange", resultat: "coupe" });
     expect(traces[0]!.destinataireHache).toMatch(/^[0-9a-f]{64}$/);
-    expect(JSON.stringify(traces)).not.toContain(EQUIPE.adresse);
+    expect(JSON.stringify(traces)).not.toContain(ADRESSE_EQUIPE);
   });
 
-  it("[A-116] un destinataire forgé (autre rôle, adresse à en-têtes) est refusé", async () => {
+  it("[A-116] un rôle qui ne correspond pas à la table, ou un objet forgé à la place du rôle, est refusé", async () => {
     const { expediteur, envoyes } = monter();
-    await expect(expediteur.envoyer("alerteOrange", { role: "administrateur_client", adresse: "client@exemple.fr" }, VARIABLES)).rejects.toThrow(/destinataire/);
-    await expect(expediteur.envoyer("alerteOrange", { role: "will", adresse: "a@exemple.fr\r\nBcc: b@exemple.fr" }, VARIABLES)).rejects.toThrow(/destinataire/);
-    await expect(expediteur.envoyer("alerteOrange", { role: "will", adresse: "a@exemple.fr, b@exemple.fr" }, VARIABLES)).rejects.toThrow(/destinataire/);
+    await expect(expediteur.envoyer("alerteOrange", "administrateur_client", VARIABLES)).rejects.toThrow(/destinataire/);
+    await expect(expediteur.envoyer("alerteOrange", { role: "will", adresse: "a@exemple.fr\r\nBcc: b@exemple.fr" } as never, VARIABLES)).rejects.toThrow(/destinataire/);
     expect(envoyes).toHaveLength(0);
   });
 
@@ -81,8 +82,10 @@ describe("expéditeur d'e-mails de service", () => {
   });
 
   it("[A-116] une clé de la table sans gabarit d'équipe est refusée (le lot 6 ajoute les textes des clients)", async () => {
-    const { expediteur, envoyes } = monter(["envoi.rapportMensuel"]);
-    await expect(expediteur.envoyer("rapportMensuel", { role: "administrateur_client", adresse: "x@exemple.fr" }, {})).rejects.toThrow(/gabarit/);
+    const SANS_GABARIT: Envoi = { ...ORANGE, evenement: "sansGabarit", interrupteur: "envoi.sansGabarit" };
+    const envoyes: Message[] = [];
+    const expediteur = creerExpediteur({ table: [SANS_GABARIT], transport: { async envoyer(m) { envoyes.push(m); } }, interrupteurs: { ouvert: () => true }, trace: { ecrire: () => {} }, adresses: { will: ADRESSE_EQUIPE }, cleTrace: CLE_TRACE_TEST });
+    await expect(expediteur.envoyer("sansGabarit", "will", {})).rejects.toThrow(/gabarit/);
     expect(envoyes).toHaveLength(0);
   });
 });
@@ -94,7 +97,7 @@ describe("adresse du destinataire (attaque 3)", () => {
     const envoyes: Message[] = [];
     const traces: Trace[] = [];
     const transport: Transport = { async envoyer(m) { envoyes.push(m); } };
-    const expediteur = creerExpediteur({ table: TABLE, transport, interrupteurs: { ouvert: (nom) => ouverts.includes(nom) }, trace: { ecrire: (t) => void traces.push(t) }, adresses: ADRESSES, cleTrace: CLE_TRACE } as never);
+    const expediteur = creerExpediteur({ table: TABLE, transport, interrupteurs: { ouvert: (nom) => ouverts.includes(nom) }, trace: { ecrire: (t) => void traces.push(t) }, adresses: ADRESSES, cleTrace: CLE_TRACE });
     return { expediteur, envoyes, traces };
   }
 
@@ -103,27 +106,26 @@ describe("adresse du destinataire (attaque 3)", () => {
     const forge = { role: "will", adresse: "pirate@exemple.fr" } as never;
     await expect(expediteur.envoyer("alerteOrange", forge, VARIABLES)).rejects.toThrow(/destinataire/);
     expect(envoyes).toHaveLength(0);
-    await (expediteur.envoyer as (c: string, r: string, v: Record<string, string>) => Promise<void>)("alerteOrange", "will", VARIABLES);
+    await expediteur.envoyer("alerteOrange", "will", VARIABLES);
     expect(envoyes.map((m) => m.a)).toEqual([ADRESSES.will]);
   });
 
   it("[A-116] un rôle client est refusé jusqu'au lot 6, même avec une clé qui le prévoit", async () => {
     const { expediteur, envoyes } = monterConfigure(["envoi.rapportMensuel"]);
-    const envoyer = expediteur.envoyer as (c: string, r: string, v: Record<string, string>) => Promise<void>;
-    await expect(envoyer("rapportMensuel", "administrateur_client", {})).rejects.toThrow(/destinataire/);
+    await expect(expediteur.envoyer("rapportMensuel", "administrateur_client", {})).rejects.toThrow(/destinataire/);
     expect(envoyes).toHaveLength(0);
   });
 
   it("[A-116] l'adresse de l'équipe vient de config.ts (EQUIPE_ADRESSE_WILL), jamais d'ailleurs", () => {
-    const cfg = chargerConfig({ NODE_ENV: "test", EQUIPE_ADRESSE_WILL: "equipe@exemple.fr" }, "/inexistant") as unknown as { adressesEquipe?: { will?: string } };
+    const cfg = chargerConfig({ NODE_ENV: "test", EQUIPE_ADRESSE_WILL: "equipe@exemple.fr" }, "/inexistant");
     expect(cfg.adressesEquipe?.will).toBe("equipe@exemple.fr");
     expect(() => chargerConfig({ NODE_ENV: "test", EQUIPE_ADRESSE_WILL: "a@exemple.fr, b@exemple.fr" }, "/inexistant")).toThrow(/EQUIPE_ADRESSE_WILL/);
-    expect((chargerConfig({ NODE_ENV: "test" }, "/inexistant") as unknown as { adressesEquipe?: unknown }).adressesEquipe).toBeUndefined();
+    expect((chargerConfig({ NODE_ENV: "test" }, "/inexistant")).adressesEquipe).toBeUndefined();
   });
 
   it("[A-116] la trace hache l'adresse en HMAC avec la clé du coffre (pas de SHA-256 sans clé)", async () => {
     const { expediteur, traces } = monterConfigure([]);
-    await (expediteur.envoyer as (c: string, r: string, v: Record<string, string>) => Promise<void>)("alerteOrange", "will", VARIABLES);
+    await expediteur.envoyer("alerteOrange", "will", VARIABLES);
     expect(traces[0]!.destinataireHache).toBe(createHmac("sha256", CLE_TRACE).update(ADRESSES.will).digest("hex"));
   });
 });
@@ -146,7 +148,7 @@ describe("clé d'envoi ZeptoMail", () => {
     };
     const lecteur = new LecteurSecretsMemoire({ "plateforme/zeptomail": marqueur });
     const transport = await creerTransportZeptoMail({ lecteur, fetch: fetchFaux, de: "service@exemple.fr" });
-    const expediteur = creerExpediteur({ table: TABLE, transport, interrupteurs: { ouvert: () => true }, trace: { ecrire: (t) => void lignes.push(JSON.stringify(t)) } });
+    const expediteur = creerExpediteur({ table: TABLE, transport, interrupteurs: { ouvert: () => true }, trace: { ecrire: (t) => void lignes.push(JSON.stringify(t)) }, adresses: { will: ADRESSE_EQUIPE }, cleTrace: CLE_TRACE_TEST });
     const erreur = await expediteur.envoyer("alerteOrange", EQUIPE, VARIABLES).catch((e: unknown) => e as Error);
     expect(erreur, "témoin : le fournisseur a répondu en erreur").toBeInstanceOf(Error);
     expect(appels[0]?.auth, "témoin : la clé part bien dans l'en-tête").toContain(marqueur);

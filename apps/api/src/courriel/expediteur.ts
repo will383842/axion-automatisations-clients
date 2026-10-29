@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHmac } from "node:crypto";
 import type { Destinataire, Envoi } from "../../../../packages/contrats/src/notifications/table.js";
 import { rendre } from "./gabarits.js";
 
@@ -10,33 +10,42 @@ export interface Transport { envoyer(m: Message): Promise<void> }
 export interface Interrupteurs { ouvert(nom: string): boolean }
 export interface Trace { cle: string; destinataireHache: string; date: string; resultat: "envoye" | "coupe" | "refuse" | "echec" }
 export interface JournalTrace { ecrire(t: Trace): void }
-export interface Cible { role: Destinataire; adresse: string }
+// Adresses de l'équipe, lues dans config.ts. L'appelant ne donne jamais d'adresse : il nomme un rôle.
+export type Adresses = Partial<Record<Destinataire, string>>;
+// Rôles de l'équipe seulement ; les rôles clients s'ouvrent avec le lot 6 (T6-24), qui apporte leurs textes et leurs adresses.
+const ROLES_EQUIPE: readonly Destinataire[] = ["will"];
+// Clé de la trace : secret de la plateforme, lu dans le coffre (même famille que la clé ZeptoMail).
+export const SECRET_TRACE_COURRIEL = "plateforme/trace-courriel";
 
 export class EnvoiRefuse extends Error {}
 
 // Une seule adresse, sans espace, guillemet, virgule ni saut de ligne.
 const ADRESSE = /^[^\s@<>",;:()[\]\\]{1,64}@[a-z0-9.-]{1,190}\.[a-z]{2,}$/i;
-const hacher = (adresse: string) => createHash("sha256").update(adresse.trim().toLowerCase()).digest("hex");
 
 export interface OptionsExpediteur {
   table: readonly Envoi[];
   transport: Transport;
   interrupteurs: Interrupteurs;
   trace: JournalTrace;
+  adresses: Adresses;
+  cleTrace: string;
 }
 
 export function creerExpediteur(o: OptionsExpediteur) {
+  if (typeof o.cleTrace !== "string" || o.cleTrace.trim() === "") throw new EnvoiRefuse("clé de trace absente : aucun envoi sans trace");
+  const hacher = (adresse: string) => createHmac("sha256", o.cleTrace).update(adresse.trim().toLowerCase()).digest("hex");
   return {
-    async envoyer(cleEnvoi: string, destinataire: Cible, variables: Record<string, string>): Promise<void> {
+    async envoyer(cleEnvoi: string, role: Destinataire, variables: Record<string, string>): Promise<void> {
+      const adresse = typeof role === "string" && ROLES_EQUIPE.includes(role) && Object.hasOwn(o.adresses, role) ? o.adresses[role] : undefined;
       const trace = (resultat: Trace["resultat"]) =>
-        o.trace.ecrire({ cle: cleEnvoi, destinataireHache: hacher(String(destinataire?.adresse ?? "")), date: new Date().toISOString(), resultat });
+        o.trace.ecrire({ cle: cleEnvoi, destinataireHache: hacher(adresse ?? ""), date: new Date().toISOString(), resultat });
       const refuser = (raison: string): never => {
         trace("refuse");
         throw new EnvoiRefuse(raison);
       };
       const entree = o.table.find((e) => e.evenement === cleEnvoi);
       if (!entree) return refuser("clé d'envoi absente de la table des envois");
-      if (destinataire?.role !== entree.destinataire || typeof destinataire.adresse !== "string" || !ADRESSE.test(destinataire.adresse)) return refuser("destinataire refusé");
+      if (role !== entree.destinataire || adresse === undefined || !ADRESSE.test(adresse)) return refuser("destinataire refusé");
       if (!o.interrupteurs.ouvert(entree.interrupteur)) {
         trace("coupe");
         return;
@@ -49,7 +58,7 @@ export function creerExpediteur(o: OptionsExpediteur) {
       }
       if (!message) return refuser("gabarit absent pour cette clé");
       try {
-        await o.transport.envoyer({ a: destinataire.adresse, ...message });
+        await o.transport.envoyer({ a: adresse, ...message });
       } catch {
         // Le message du transport n'est jamais repris : il pourrait citer une clé ou une adresse.
         trace("echec");

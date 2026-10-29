@@ -11,6 +11,7 @@ export interface OptionsZeptoMail { lecteur: LecteurSecrets; fetch?: typeof fetc
 
 export async function creerTransportZeptoMail(o: OptionsZeptoMail): Promise<Transport> {
   const cle = await o.lecteur.lire(SECRET_ZEPTOMAIL);
+  if (typeof cle !== "string" || cle.trim() === "") throw new Error("clé ZeptoMail vide : refus");
   const appel = o.fetch ?? fetch;
   return {
     async envoyer(m) {

@@ -68,10 +68,10 @@ describe("expéditeur → Mailpit (job harnais)", () => {
   beforeEach(() => (process.env["MAILPIT_API"] ? mailpit.vider() : undefined));
 
   const monter = (ouvert: boolean) =>
-    creerExpediteur({ table: [...TABLE_ENVOIS, ORANGE], transport: creerTransportMailpit({ de: "service@exemple.fr", smtp: mailpit.smtp }), interrupteurs: { ouvert: () => ouvert }, trace: { ecrire: () => {} } });
+    creerExpediteur({ table: [...TABLE_ENVOIS, ORANGE], transport: creerTransportMailpit({ de: "service@exemple.fr", smtp: mailpit.smtp }), interrupteurs: { ouvert: () => ouvert }, trace: { ecrire: () => {} }, adresses: { will: "equipe@exemple.fr" }, cleTrace: "TEST-NE-PAS-UTILISER-trace-mailpit" });
 
   itMailpit("[B-394] orange → Mailpit reçoit un e-mail qui ne porte que client, automatisation et code d'erreur", async () => {
-    await monter(true).envoyer("alerteOrange", { role: "will", adresse: "equipe@exemple.fr" }, { client: "Garage Fontaine", automatisation: "Relance des devis", codeErreur: "E-CONNEXION-401" });
+    await monter(true).envoyer("alerteOrange", "will", { client: "Garage Fontaine", automatisation: "Relance des devis", codeErreur: "E-CONNEXION-401" });
     const [resume] = await mailpit.attendreMessages(1);
     const message = await mailpit.lire(resume!.ID);
     expect(message.To[0]?.Address).toBe("equipe@exemple.fr");
@@ -81,7 +81,7 @@ describe("expéditeur → Mailpit (job harnais)", () => {
   });
 
   itMailpit("[A-116] interrupteur fermé → Mailpit ne reçoit rien", async () => {
-    await monter(false).envoyer("alerteOrange", { role: "will", adresse: "equipe@exemple.fr" }, { client: "Garage Fontaine", automatisation: "Relance des devis", codeErreur: "E-1" });
+    await monter(false).envoyer("alerteOrange", "will", { client: "Garage Fontaine", automatisation: "Relance des devis", codeErreur: "E-1" });
     await new Promise((ok) => setTimeout(ok, 500));
     expect(await mailpit.lister()).toHaveLength(0);
   });

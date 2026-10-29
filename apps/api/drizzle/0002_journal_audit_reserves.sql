@@ -60,13 +60,14 @@ BEGIN
     RAISE EXCEPTION 'audit_ajouter : la ligne ne porte pas le client actif';
   END IF;
   -- Bornes de ce qu'un console_app peut écrire en appelant la fonction lui-même (la chaîne garantit l'intégrité, pas l'authenticité : ADR 0042).
-  IF p_acteur IS NULL OR btrim(p_acteur) = '' OR length(p_acteur) > 128 OR p_acteur ~ '[[:cntrl:]]' THEN
+  -- Refusés : contrôles, caractères invisibles ou d'inversion (U+200B-200F, 202A-202E, 2028, 2029, 2060-206F, FEFF, 061C) et texte fait seulement d'espaces Unicode.
+  IF p_acteur IS NULL OR p_acteur ~ '^[[:space:]   -     　]*$' OR length(p_acteur) > 128 OR p_acteur ~ '[[:cntrl:]​-‏‪-‮  ⁠-⁯﻿؜]' THEN
     RAISE EXCEPTION 'audit_ajouter : acteur invalide';
   END IF;
   IF p_entite IS NULL OR p_entite !~ '^[a-z_][a-z0-9_]{0,62}$' THEN
     RAISE EXCEPTION 'audit_ajouter : entité invalide';
   END IF;
-  IF p_entite_id IS NOT NULL AND (btrim(p_entite_id) = '' OR length(p_entite_id) > 128 OR p_entite_id ~ '[[:cntrl:]]') THEN
+  IF p_entite_id IS NOT NULL AND (p_entite_id ~ '^[[:space:]   -     　]*$' OR length(p_entite_id) > 128 OR p_entite_id ~ '[[:cntrl:]​-‏‪-‮  ⁠-⁯﻿؜]') THEN
     RAISE EXCEPTION 'audit_ajouter : identifiant d''entité invalide';
   END IF;
   IF octet_length(p_ancienne::text) > 262144 OR octet_length(p_nouvelle::text) > 262144 THEN

@@ -470,4 +470,13 @@ describe("disque plein : plafond des journaux en attente et alerte (cible SFTP a
     expect(r.alerteInterrompu?.recue).toMatch(/depuis \d\d:\d\d UTC/);
     expect(r.alerteInterrompu?.recue).not.toMatch(/sftp-essai|postgres|\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/);
   }, 600_000);
+
+  it("[C-602] cible SFTP arrêtée et rafale d'écriture : l'alerte part et pg_wal reste sous la taille du volume d'essai", async () => {
+    const r = await scenario();
+    expect(r.premiere, "aucune alerte reçue").toBeDefined();
+    // pg_wal est un volume distinct du volume des données (T1B-06) : la sonde mesure ce volume, et il ne se remplit pas.
+    expect(dans("postgres", "sh", "-c", `df -P ${WAL} | tail -1`)).not.toBe(dans("postgres", "sh", "-c", "df -P /var/lib/postgresql/data | tail -1"));
+    expect(r.pireTaux).toBeLessThan(1);
+    expect(r.premiere?.decision.niveau).not.toBe("rien");
+  }, 600_000);
 });

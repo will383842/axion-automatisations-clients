@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import { TABLE_ENVOIS, type Envoi } from "../../../../packages/contrats/src/notifications/table.js";
 import { creerExpediteur, type Message, type Trace, type Transport } from "./expediteur.js";
 import { creerTransportZeptoMail } from "./zeptomail.js";
+import { chargerConfig } from "../config.js";
+import { createHmac } from "node:crypto";
 import { LecteurSecretsMemoire } from "../secrets.js";
 import { ErreurCoffre } from "../coffre/coffre.js";
 
@@ -85,7 +87,54 @@ describe("expéditeur d'e-mails de service", () => {
   });
 });
 
+describe("adresse du destinataire (attaque 3)", () => {
+  const CLE_TRACE = `TEST-NE-PAS-UTILISER-trace-${randomBytes(8).toString("hex")}`;
+  const ADRESSES = { will: "equipe@exemple.fr" };
+  function monterConfigure(ouverts: string[] = ["envoi.alerteOrange"]) {
+    const envoyes: Message[] = [];
+    const traces: Trace[] = [];
+    const transport: Transport = { async envoyer(m) { envoyes.push(m); } };
+    const expediteur = creerExpediteur({ table: TABLE, transport, interrupteurs: { ouvert: (nom) => ouverts.includes(nom) }, trace: { ecrire: (t) => void traces.push(t) }, adresses: ADRESSES, cleTrace: CLE_TRACE } as never);
+    return { expediteur, envoyes, traces };
+  }
+
+  it("[A-116] une adresse hors configuration est refusée", async () => {
+    const { expediteur, envoyes } = monterConfigure();
+    const forge = { role: "will", adresse: "pirate@exemple.fr" } as never;
+    await expect(expediteur.envoyer("alerteOrange", forge, VARIABLES)).rejects.toThrow(/destinataire/);
+    expect(envoyes).toHaveLength(0);
+    await (expediteur.envoyer as (c: string, r: string, v: Record<string, string>) => Promise<void>)("alerteOrange", "will", VARIABLES);
+    expect(envoyes.map((m) => m.a)).toEqual([ADRESSES.will]);
+  });
+
+  it("[A-116] un rôle client est refusé jusqu'au lot 6, même avec une clé qui le prévoit", async () => {
+    const { expediteur, envoyes } = monterConfigure(["envoi.rapportMensuel"]);
+    const envoyer = expediteur.envoyer as (c: string, r: string, v: Record<string, string>) => Promise<void>;
+    await expect(envoyer("rapportMensuel", "administrateur_client", {})).rejects.toThrow(/destinataire/);
+    expect(envoyes).toHaveLength(0);
+  });
+
+  it("[A-116] l'adresse de l'équipe vient de config.ts (EQUIPE_ADRESSE_WILL), jamais d'ailleurs", () => {
+    const cfg = chargerConfig({ NODE_ENV: "test", EQUIPE_ADRESSE_WILL: "equipe@exemple.fr" }, "/inexistant") as unknown as { adressesEquipe?: { will?: string } };
+    expect(cfg.adressesEquipe?.will).toBe("equipe@exemple.fr");
+    expect(() => chargerConfig({ NODE_ENV: "test", EQUIPE_ADRESSE_WILL: "a@exemple.fr, b@exemple.fr" }, "/inexistant")).toThrow(/EQUIPE_ADRESSE_WILL/);
+    expect((chargerConfig({ NODE_ENV: "test" }, "/inexistant") as unknown as { adressesEquipe?: unknown }).adressesEquipe).toBeUndefined();
+  });
+
+  it("[A-116] la trace hache l'adresse en HMAC avec la clé du coffre (pas de SHA-256 sans clé)", async () => {
+    const { expediteur, traces } = monterConfigure([]);
+    await (expediteur.envoyer as (c: string, r: string, v: Record<string, string>) => Promise<void>)("alerteOrange", "will", VARIABLES);
+    expect(traces[0]!.destinataireHache).toBe(createHmac("sha256", CLE_TRACE).update(ADRESSES.will).digest("hex"));
+  });
+});
+
 describe("clé d'envoi ZeptoMail", () => {
+  it("[LOT5-secret] une clé ZeptoMail vide ou faite d'espaces est refusée", async () => {
+    for (const vide of ["", "   "]) {
+      await expect(creerTransportZeptoMail({ lecteur: { async lire() { return vide; } }, fetch, de: "service@exemple.fr" })).rejects.toThrow();
+    }
+  });
+
   const marqueur = `TEST-NE-PAS-UTILISER-zepto-${randomBytes(8).toString("hex")}`;
 
   it("[LOT5-secret] la clé ZeptoMail n'apparaît dans aucune trace ni aucune erreur (marqueur unique)", async () => {

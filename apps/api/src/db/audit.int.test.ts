@@ -300,6 +300,76 @@ describe("journal d'audit chaîné, avec le socle", () => {
     expect(await lignesCassees()).toBe(0);
   });
 
+  // Réserves de l'audit de la PR 94 (ADR 0042, migration 0002).
+  it("[C-028] @isolation écrire dans le journal puis rester ouvert : la session est coupée et le verrou du journal rendu", async () => {
+    const A = randomUUID();
+    const seule = pool(PGBOUNCER, "console_app", 1);
+    const c = await seule.connect();
+    let coupee = false;
+    let borne: unknown;
+    try {
+      await c.query("BEGIN");
+      await c.query("SELECT set_config('app.tenant_id', $1, true)", [A]);
+      await c.query(AJOUTER, [A, "agent-essai", "insertion", "essai_inactif", "i1", null, null]);
+      // Le verrou du journal est tenu : la transaction ne doit pas pouvoir rester inactive au-delà de la borne (5 s, ADR 0042).
+      borne = (await c.query("SELECT current_setting('idle_in_transaction_session_timeout') AS v")).rows[0]?.["v"];
+      await new Promise((r) => setTimeout(r, 7000));
+      coupee = await c.query("SELECT 1").then(
+        () => false,
+        () => true,
+      );
+    } finally {
+      c.release(true);
+    }
+    expect(coupee).toBe(true);
+    expect(borne).toBe("5s");
+    const debut = Date.now();
+    await ecrire(randomUUID(), "essai_inactif", "i2");
+    expect(Date.now() - debut).toBeLessThan(4000);
+    const { rows } = await migration.query("SELECT count(*)::int AS n FROM public.journal_audit WHERE tenant_id = $1", [A]);
+    expect(rows[0]?.["n"]).toBe(0);
+    expect(await lignesCassees()).toBe(0);
+  }, 30_000);
+
+  it("[C-028] le contenu canonique garde le masque de l'adresse IP (inet en texte, pas host())", async () => {
+    const contenu = async (ip: string) =>
+      (await equipe.query("SELECT public.audit_contenu(1, NULL, 'agent-essai', 'insertion', 'essai_masque', NULL, NULL, NULL, $1::inet, '2026-10-29T00:00:00Z') AS t", [ip])).rows[0]?.["t"] as string;
+    expect(JSON.parse(await contenu("192.0.2.0/24"))[8]).toBe("192.0.2.0/24");
+    expect(JSON.parse(await contenu("2001:db8::/32"))[8]).toBe("2001:db8::/32");
+    // Une adresse d'hôte (masque complet) s'écrit comme avant : les lignes déjà chaînées restent vérifiables.
+    expect(JSON.parse(await contenu("192.0.2.17"))[8]).toBe("192.0.2.17");
+    expect(JSON.parse(await contenu("2001:db8::17"))[8]).toBe("2001:db8::17");
+  });
+
+  it("[C-028] @isolation audit_ajouter borne ce qu'un console_app peut écrire : longueurs, caractères de contrôle, adresse IP d'hôte", async () => {
+    const A = randomUUID();
+    const essayer = (args: unknown[], ip?: string) =>
+      avecClient(app, A, async (c) => {
+        if (ip !== undefined) await c.query("SELECT set_config('app.ip', $1, true)", [ip]);
+        return c.query(AJOUTER, [A, ...args]);
+      });
+    const gros = JSON.stringify({ v: "x".repeat(262_145) });
+    const refus: [string, unknown[], string?][] = [
+      ["acteur à saut de ligne", ["agent-essai\nfaux", "insertion", "essai_bornes", "b1", null, null]],
+      ["acteur à caractère de contrôle", ["agent\u0007essai", "insertion", "essai_bornes", "b2", null, null]],
+      ["entité vide", ["agent-essai", "insertion", "", "b3", null, null]],
+      ["entité trop longue", ["agent-essai", "insertion", "e".repeat(64), "b4", null, null]],
+      ["entité hors identifiant", ["agent-essai", "insertion", "essai bornes;", "b5", null, null]],
+      ["identifiant d'entité trop long", ["agent-essai", "insertion", "essai_bornes", "i".repeat(129), null, null]],
+      ["identifiant d'entité à caractère de contrôle", ["agent-essai", "insertion", "essai_bornes", "b6\r", null, null]],
+      ["identifiant d'entité vide", ["agent-essai", "insertion", "essai_bornes", " ", null, null]],
+      ["nouvelle valeur trop grosse", ["agent-essai", "insertion", "essai_bornes", "b7", null, gros]],
+      ["ancienne valeur trop grosse", ["agent-essai", "suppression", "essai_bornes", "b8", gros, null]],
+      ["adresse IP de réseau (masque)", ["agent-essai", "insertion", "essai_bornes", "b9", null, null], "192.0.2.0/24"],
+    ];
+    for (const [cas, args, ip] of refus) await expect(essayer(args, ip), cas).rejects.toThrow(/audit_ajouter : /);
+    // Bornes atteintes, pas dépassées : acceptées.
+    await essayer(["a".repeat(128), "insertion", "e".repeat(63), "i".repeat(128), null, JSON.stringify({ v: "x".repeat(262_000) })], "2001:db8::17");
+    const { rows } = await migration.query("SELECT entite_id, host(ip) AS ip FROM public.journal_audit WHERE tenant_id = $1", [A]);
+    expect(rows).toEqual([{ entite_id: "i".repeat(128), ip: "2001:db8::17" }]);
+    expect(await lignesCassees()).toBe(0);
+  });
+
   it("[A-119] @isolation journal_audit appliqué : invariants C5 sans écart sur le schéma public", async () => {
     const tables = (await migration.query("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")).rows.map((r) => String(r.tablename));
     expect(tables).toContain("journal_audit");

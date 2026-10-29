@@ -10,6 +10,7 @@ services:
       PGBACKREST_ARCHIVE_PUSH_QUEUE_MAX: 64MiB
       # P : mêmes réglages que compose.sauvegardes.yml, plus max_wal_size (sans lui, 1 Go de journaux dépasseraient le volume d'essai)
       P: -c archive_mode=on -c archive_timeout=300 -c wal_level=replica -c max_wal_size=48MB -c min_wal_size=32MB
+    networks: [interne]
 volumes:
   pg-wal:
     driver: local

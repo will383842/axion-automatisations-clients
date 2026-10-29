@@ -54,6 +54,5 @@ C-382 → ops/environnement-cloud.md, 2026-10-27
 C-393 → ops/environnement-cloud.md (réseau limité, variables, commande d'installation), 2026-10-27
 C-435 → plan du dépôt privé, section 5.1 (ordre des lots), 2026-10-27
 C-526 → partie documentaire : tableau des modèles d'IA (dépôt privé, plan/mesures-lot-1/prix-modeles-ia.md), 2026-10-27, provisoire ; calcul du coût : à prouver par T4-54 et T3-36 (C-639)
-A-023 → CLAUDE.md section 3 (revérifier `axion-ia` et Axion-CRM-Pro sur main avant de coder) et test « [A-023] CLAUDE.md demande de revérifier les dépôts liés sur main avant de coder » (tests/docs/consigne-reverifier.test.ts), 2026-10-29
 C-383 → REMPLACÉE par plan 2.4 : le plafond de 6 routines lourdes moins les actives remplace « 15 à 25 agents » ; décision de Will « oui, comme tu le recommandes » le 2026-10-27 (S-3), 2026-10-29
 C-395 → REMPLACÉE par plan 2.4 pour la correction automatique des PR (désactivée), décision de Will du 2026-10-27 (S-3) ; PARTIELLE pour les équipes d'agents et la revue de code des PR : constat porté par T1B-11 (partie B) ; partie plugins = C-381, 2026-10-29

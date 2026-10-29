@@ -46,6 +46,17 @@ const AJOUTER = "SELECT public.audit_ajouter($1::uuid, $2, $3::public.action_aud
 const PLATEFORME = "00000000-0000-0000-0000-000000000001";
 const APPELANT = { acteur: "agent-essai", ip: "192.0.2.17" };
 const dormir = (ms: number) => new Promise((r) => setTimeout(r, ms));
+// Les écritures auditées passent toutes par le verrou du journal. Un autre fichier d'essai (audit.int.test.ts, plus bas ici) le garde exprès jusqu'à 5 s :
+// une écriture de mise en place qui attend plus que lock_timeout reçoit 55P03. Elle est rejouée ; les essais qui jugent ce délai (plus bas) utilisent avecClient tel quel.
+async function ecrire<T>(...args: Parameters<typeof avecClient<T>>): Promise<T> {
+  for (let essai = 1; ; essai++) {
+    try {
+      return await avecClient(...args);
+    } catch (e) {
+      if ((e as { code?: string }).code !== "55P03" || essai >= 4) throw e;
+    }
+  }
+}
 
 // Lignes dont le chaînage est faux, sur tout le journal (même contrôle que audit.int.test.ts).
 async function lignesCassees(): Promise<number> {
@@ -58,12 +69,12 @@ async function lignesCassees(): Promise<number> {
 const creerOrg = (id: string, extra: Record<string, unknown> = {}) => {
   const v = { id, tenant_id: id, console_client_id: id, raison_sociale: "Atelier Bertin", ...extra };
   const cles = Object.keys(v);
-  return avecClient(app, id, (c) => c.query(`INSERT INTO organisations (${cles.join(", ")}) VALUES (${cles.map((_, i) => `$${i + 1}`).join(", ")}) RETURNING *`, Object.values(v)), APPELANT);
+  return ecrire(app, id, (c) => c.query(`INSERT INTO organisations (${cles.join(", ")}) VALUES (${cles.map((_, i) => `$${i + 1}`).join(", ")}) RETURNING *`, Object.values(v)), APPELANT);
 };
 const creerInstance = (tenant: string, id = randomUUID(), extra: Record<string, unknown> = {}) => {
   const v = { id, tenant_id: tenant, organisation_id: tenant, code_automatisation: "relance-devis", formule: "abonnement", environnement: "production", ...extra };
   const cles = Object.keys(v);
-  return avecClient(app, tenant, (c) => c.query(`INSERT INTO instances (${cles.join(", ")}) VALUES (${cles.map((_, i) => `$${i + 1}`).join(", ")}) RETURNING id`, Object.values(v)), APPELANT);
+  return ecrire(app, tenant, (c) => c.query(`INSERT INTO instances (${cles.join(", ")}) VALUES (${cles.map((_, i) => `$${i + 1}`).join(", ")}) RETURNING id`, Object.values(v)), APPELANT);
 };
 
 beforeAll(async () => {
@@ -77,7 +88,8 @@ afterAll(async () => {
 describe("tables de client, avec le socle", { timeout: 30_000 }, () => {
   it("[A-119] @isolation toutes les migrations appliquées, les invariants C5 ne trouvent aucun écart", async () => {
     // Les autres fichiers d'essai créent des schémas jetables « essai_* » sur la même base, en parallèle : ils ne comptent pas ici.
-    const ecarts = (await controlerInvariants(requete, "console", OPTIONS)).filter((e) => !/(^|\.)essai_/.test(e.objet));
+    // Le schéma partman (outil de partition, installé par le socle) n'est pas une table métier : seules les tables de public sont jugées.
+    const ecarts = (await controlerInvariants(requete, "console", OPTIONS)).filter((e) => !/(^|\.)essai_/.test(e.objet) && !e.objet.startsWith("partman."));
     expect(ecarts).toEqual([]);
     const { rows } = await migration.query("SELECT relname FROM pg_class WHERE relname IN ('organisations', 'contacts', 'instances') AND relkind = 'r' ORDER BY 1");
     expect(rows.map((r) => r.relname)).toEqual(["contacts", "instances", "organisations"]);
@@ -101,7 +113,7 @@ describe("tables de client, avec le socle", { timeout: 30_000 }, () => {
     expect(vue).toEqual([{ id: PLATEFORME, tenant_id: PLATEFORME }]);
     const A = randomUUID();
     await creerOrg(A);
-    expect((await avecClient(app, A, (c) => c.query("SELECT 1 FROM organisations WHERE id = $1", [PLATEFORME]))).rowCount).toBe(0);
+    expect((await ecrire(app, A, (c) => c.query("SELECT 1 FROM organisations WHERE id = $1", [PLATEFORME]))).rowCount).toBe(0);
   });
 
   it("[A-120] une organisation se crée avec SIREN, métier, code NAF, taille et statut", async () => {
@@ -134,13 +146,13 @@ describe("tables de client, avec le socle", { timeout: 30_000 }, () => {
     const A = randomUUID();
     await creerOrg(A);
     const keycloak = randomUUID();
-    const { rows } = await avecClient(app, A, (c) =>
+    const { rows } = await ecrire(app, A, (c) =>
       c.query("INSERT INTO contacts (id, tenant_id, organisation_id, nom, email, role, acces_portail, keycloak_id) VALUES ($1, $2, $2, 'Camille Essai', 'camille@exemple.fr', 'facturation', true, $3) RETURNING *", [randomUUID(), A, keycloak]), APPELANT);
     expect(rows[0]).toMatchObject({ nom: "Camille Essai", email: "camille@exemple.fr", role: "facturation", acces_portail: true, keycloak_id: keycloak });
     // Clé étrangère composée : un contact ne se rattache pas à l'organisation d'un autre client.
     const B = randomUUID();
     await creerOrg(B);
-    await expect(avecClient(app, A, (c) => c.query("INSERT INTO contacts (id, tenant_id, organisation_id, nom, email, role) VALUES ($1, $2, $3, 'X', 'x@exemple.fr', 'principal')", [randomUUID(), A, B]))).rejects.toThrow();
+    await expect(ecrire(app, A, (c) => c.query("INSERT INTO contacts (id, tenant_id, organisation_id, nom, email, role) VALUES ($1, $2, $3, 'X', 'x@exemple.fr', 'principal')", [randomUUID(), A, B]))).rejects.toThrow();
   });
 
   it("[A-126] une instance refuse un état hors active, pause, erreur, livree", async () => {
@@ -156,8 +168,8 @@ describe("tables de client, avec le socle", { timeout: 30_000 }, () => {
     await creerOrg(A);
     await creerOrg(B);
     const instanceB = (await creerInstance(B)).rows[0]?.id as string;
-    await avecClient(app, B, (c) => c.query("INSERT INTO contacts (id, tenant_id, organisation_id, nom, email, role) VALUES ($1, $2, $2, 'Autre Essai', 'autre@exemple.fr', 'principal')", [randomUUID(), B]), APPELANT);
-    await avecClient(app, A, async (c) => {
+    await ecrire(app, B, (c) => c.query("INSERT INTO contacts (id, tenant_id, organisation_id, nom, email, role) VALUES ($1, $2, $2, 'Autre Essai', 'autre@exemple.fr', 'principal')", [randomUUID(), B]), APPELANT);
+    await ecrire(app, A, async (c) => {
       for (const t of ["organisations", "contacts", "instances"]) {
         expect((await c.query(`SELECT count(*)::int AS n FROM ${t} WHERE tenant_id = $1`, [B])).rows[0]?.n, t).toBe(0);
         expect((await c.query(`UPDATE ${t} SET tenant_id = tenant_id WHERE tenant_id = $1`, [B])).rowCount, t).toBe(0);
@@ -166,7 +178,7 @@ describe("tables de client, avec le socle", { timeout: 30_000 }, () => {
       expect((await c.query("UPDATE instances SET etat = 'pause' WHERE id = $1", [instanceB])).rowCount).toBe(0);
     }, APPELANT);
     // Écrire une ligne au nom de B depuis A : refus par WITH CHECK.
-    await expect(avecClient(app, A, (c) => c.query("INSERT INTO instances (id, tenant_id, organisation_id, code_automatisation, formule, environnement) VALUES ($1, $2, $2, 'x', 'abonnement', 'test')", [randomUUID(), B]))).rejects.toMatchObject({ code: "42501" });
+    await expect(ecrire(app, A, (c) => c.query("INSERT INTO instances (id, tenant_id, organisation_id, code_automatisation, formule, environnement) VALUES ($1, $2, $2, 'x', 'abonnement', 'test')", [randomUUID(), B]))).rejects.toMatchObject({ code: "42501" });
     // Sans client actif : aucune ligne ; chaîne, identifiant ou injection dans app.tenant_id : refusés ou vides.
     for (const t of ["organisations", "contacts", "instances"]) expect((await app.query(`SELECT count(*)::int AS n FROM ${t}`)).rows[0]?.n, t).toBe(0);
     for (const mauvais of ["", "pas-un-uuid", `${A}' OR '1'='1`]) {
@@ -188,8 +200,8 @@ describe("tables de client, avec le socle", { timeout: 30_000 }, () => {
     const A = randomUUID();
     await creerOrg(A);
     const id = (await creerInstance(A)).rows[0]?.id as string;
-    await avecClient(app, A, (c) => c.query("UPDATE instances SET etat = 'pause' WHERE id = $1", [id]), APPELANT);
-    await avecClient(app, A, (c) => c.query("DELETE FROM instances WHERE id = $1", [id]), APPELANT);
+    await ecrire(app, A, (c) => c.query("UPDATE instances SET etat = 'pause' WHERE id = $1", [id]), APPELANT);
+    await ecrire(app, A, (c) => c.query("DELETE FROM instances WHERE id = $1", [id]), APPELANT);
     const { rows } = await migration.query("SELECT action, acteur, host(ip) AS ip, ancienne, nouvelle FROM public.journal_audit WHERE tenant_id = $1 AND entite = 'instances' AND entite_id = $2 ORDER BY id", [A, id]);
     expect(rows.map((r) => r.action)).toEqual(["insertion", "modification", "suppression"]);
     expect(rows.every((r) => r.acteur === "agent-essai" && r.ip === "192.0.2.17")).toBe(true);
@@ -202,7 +214,7 @@ describe("tables de client, avec le socle", { timeout: 30_000 }, () => {
   it("[A-178] la création d'une organisation écrit au journal ; un contact (données de personnes) n'est pas encore copié au journal (ADR 0043)", async () => {
     const A = randomUUID();
     await creerOrg(A);
-    await avecClient(app, A, (c) => c.query("INSERT INTO contacts (id, tenant_id, organisation_id, nom, email, role) VALUES ($1, $2, $2, 'Camille Essai', 'camille@exemple.fr', 'principal')", [randomUUID(), A]), APPELANT);
+    await ecrire(app, A, (c) => c.query("INSERT INTO contacts (id, tenant_id, organisation_id, nom, email, role) VALUES ($1, $2, $2, 'Camille Essai', 'camille@exemple.fr', 'principal')", [randomUUID(), A]), APPELANT);
     const { rows } = await migration.query("SELECT entite FROM public.journal_audit WHERE tenant_id = $1", [A]);
     expect(rows.map((r) => r.entite)).toEqual(["organisations"]);
   });
@@ -212,7 +224,7 @@ describe("tables de client, avec le socle", { timeout: 30_000 }, () => {
     await creerOrg(A);
     for (const p of [app, equipe]) {
       await expect(p.query("TRUNCATE public.journal_audit")).rejects.toThrow(/permission denied|ajout seul/);
-      await expect(avecClient(p, A, (c) => c.query("UPDATE public.journal_audit SET acteur = 'forge'"))).rejects.toThrow(/permission denied/);
+      await expect(ecrire(p, A, (c) => c.query("UPDATE public.journal_audit SET acteur = 'forge'"))).rejects.toThrow(/permission denied/);
     }
     expect(await lignesCassees()).toBe(0);
   });
@@ -232,7 +244,7 @@ describe("tables de client, avec le socle", { timeout: 30_000 }, () => {
     const A = randomUUID();
     await creerOrg(A);
     const seul = pool(PGBOUNCER, "console_app", 1);
-    await avecClient(seul, A, (c) => c.query("SELECT 1"), APPELANT);
+    await ecrire(seul, A, (c) => c.query("SELECT 1"), APPELANT);
     const apres = await seul.query("SELECT current_setting('app.acteur', true) AS a, current_setting('app.ip', true) AS i, current_setting('lock_timeout') AS l");
     // Derrière PgBouncer (DISCARD ALL), un réglage personnalisé jamais posé sur cette connexion serveur vaut NULL, sinon une chaîne vide : les deux disent « rien ».
     expect(apres.rows[0]?.a ?? "").toBe("");
@@ -262,7 +274,7 @@ describe("réserves de l'audit de la PR 95, avec le socle", { timeout: 60_000 },
     }).catch((e: unknown) => e);
     await dormir(1000);
     const debut = Date.now();
-    await creerInstance(tiers);
+    await avecClient(app, tiers, (c) => c.query("INSERT INTO instances (id, tenant_id, organisation_id, code_automatisation, formule, environnement) VALUES ($1, $2, $2, 'x', 'abonnement', 'test')", [randomUUID(), tiers]), APPELANT);
     // La borne de la fiche est 10 s ; derrière PgBouncer (4 connexions serveur par rôle) l'attente d'une connexion s'y ajoute : 30 s, l'échec réel est une erreur 55P03.
     expect(Date.now() - debut).toBeLessThan(30_000);
     await Promise.all([t0, t1]);
@@ -290,19 +302,19 @@ describe("réserves de l'audit de la PR 95, avec le socle", { timeout: 60_000 },
     expect(rows).toHaveLength(1);
     expect(rows[0]?.n).toBeLessThan(262_144);
     expect(rows[0]?.nouvelle).toMatchObject({ metier: { _omis: "taille" }, raison_sociale: "Atelier Bertin" });
-    const apres = await avecClient(app, A, (c) => c.query("SELECT length(metier) AS n FROM organisations WHERE id = $1", [A]));
+    const apres = await ecrire(app, A, (c) => c.query("SELECT length(metier) AS n FROM organisations WHERE id = $1", [A]));
     expect(apres.rows[0]?.n).toBe(300_000);
-    await avecClient(app, A, (c) => c.query("UPDATE organisations SET metier = $2 WHERE id = $1", [A, "y".repeat(300_000)]), APPELANT);
+    await ecrire(app, A, (c) => c.query("UPDATE organisations SET metier = $2 WHERE id = $1", [A, "y".repeat(300_000)]), APPELANT);
     expect(await lignesCassees()).toBe(0);
   });
 
   it("[A-131] @isolation audit_ajouter refuse U+180E, U+00AD et U+3164 dans l'acteur et dans l'identifiant d'entité", async () => {
     const A = randomUUID();
     for (const car of ["\u180E", "\u00AD", "\u3164"]) {
-      await expect(avecClient(app, A, (c) => c.query(AJOUTER, [A, `agent${car}forge`, "insertion", "essai_car", "ok", null, null])), `acteur U+${car.codePointAt(0)?.toString(16)}`).rejects.toThrow(/acteur invalide/);
-      await expect(avecClient(app, A, (c) => c.query(AJOUTER, [A, "agent-essai", "insertion", "essai_car", `id${car}x`, null, null])), `entite_id U+${car.codePointAt(0)?.toString(16)}`).rejects.toThrow(/identifiant d'entité invalide/);
+      await expect(ecrire(app, A, (c) => c.query(AJOUTER, [A, `agent${car}forge`, "insertion", "essai_car", "ok", null, null])), `acteur U+${car.codePointAt(0)?.toString(16)}`).rejects.toThrow(/acteur invalide/);
+      await expect(ecrire(app, A, (c) => c.query(AJOUTER, [A, "agent-essai", "insertion", "essai_car", `id${car}x`, null, null])), `entite_id U+${car.codePointAt(0)?.toString(16)}`).rejects.toThrow(/identifiant d'entité invalide/);
     }
-    await avecClient(app, A, (c) => c.query(AJOUTER, [A, "agent-é-ñ", "insertion", "essai_car", "ok", null, null]));
+    await ecrire(app, A, (c) => c.query(AJOUTER, [A, "agent-é-ñ", "insertion", "essai_car", "ok", null, null]));
   });
 
   it("[A-131] @isolation la migration refuse de s'appliquer si le journal contient une adresse IP avec masque (contrôle de l'ADR 0042)", async () => {

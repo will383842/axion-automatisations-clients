@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { genererCss } from "../scripts/generer-css.ts";
-import { contraste, couleursDe, estBleu, jetons, teinte, valeur } from "./jetons.ts";
+import { aplatir, contraste, couleursDe, estBleu, jetons, teinte, valeur } from "./jetons.ts";
 
 const ici = (f: string) => new URL(f, import.meta.url);
 const racine = new URL("../../../", import.meta.url).pathname;
@@ -20,9 +20,7 @@ describe("charte du lot 3", () => {
     const fichiers = [ici("./jetons.ts").pathname, ici("./jetons.css").pathname, ...sources(join(racine, "apps/console/src"))];
     const bleus = fichiers.flatMap((f) => couleursDe(readFileSync(f, "utf8")).filter(estBleu).map((c) => `${f}: ${c}`));
     expect(bleus).toEqual([]);
-    for (const [chemin, couleur] of Object.entries(jetons.couleur).flatMap(([k, v]) => (typeof v === "string" ? [[k, v]] : []))) {
-      expect(estBleu(couleur), chemin).toBe(false);
-    }
+    for (const [chemin, couleur] of aplatir(jetons.couleur)) expect(couleursDe(couleur).filter(estBleu), chemin).toEqual([]);
   });
 
   it("[B-249] aucune valeur de couleur, de taille ni d'ombre littérale dans apps/console/src", () => {

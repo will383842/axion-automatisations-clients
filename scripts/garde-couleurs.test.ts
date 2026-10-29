@@ -86,3 +86,21 @@ describe("garde-couleurs", () => {
     expect(() => verifierArbre(r)).toThrow();
   });
 });
+
+describe("garde-couleurs : console", () => {
+  it("[A-106] [B-246] verifierArbre refuse un bleu dans apps/console/src, sous toutes ses formes", () => {
+    for (const bleu of ["#1a4dd9", "#00f", "rgb(26, 77, 217)", "hsl(220 80% 50%)"]) {
+      const r = mkdtempSync(join(tmpdir(), "gc-"));
+      mkdirSync(join(r, "apps/console/src/app"), { recursive: true });
+      writeFileSync(join(r, "apps/console/src/app/ecran.tsx"), `const s = { color: "${bleu}" };`);
+      expect(verifierArbre(r), bleu).toHaveLength(1);
+    }
+  });
+
+  it("[B-249] verifierArbre refuse une taille ou une ombre littérale dans apps/console/src", () => {
+    const r = mkdtempSync(join(tmpdir(), "gc-"));
+    mkdirSync(join(r, "apps/console/src"), { recursive: true });
+    writeFileSync(join(r, "apps/console/src/a.tsx"), `const s = { fontSize: 15 };\nconst t = "box-shadow: 0 2px 4px var(--x)";`);
+    expect(verifierArbre(r).length).toBeGreaterThanOrEqual(2);
+  });
+});

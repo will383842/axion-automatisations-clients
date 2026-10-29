@@ -18,6 +18,10 @@ services:
       L: /opt/sauvegardes/preparer-conf*
       R: set -- $$L; [ $$# -eq 1 ] && "$$1" && eval "$$G"
       C: archive_command=pgbackrest archive-push %p
+      # pg_wal sur un volume distinct des données (T1B-06) : un pg_wal plein n'emporte pas les données, et la sonde mesure le bon disque.
+      # Le dossier est choisi à la création de la grappe : un volume monté directement sur pg_wal ferait échouer initdb (lost+found, propriétaire).
+      POSTGRES_INITDB_WALDIR: /wal/journaux
+      # E : démarrage du serveur
       E: exec docker-entrypoint.$$X postgres $$P -c "$$C"
     # init : l'archivage ASYNCHRONE (archive-async=y) laisse un processus pgBackRest orphelin ; si PostgreSQL est le processus 1 du conteneur, il le prend pour un
     # serveur planté (« server process exited with exit code 103 ») et relance une récupération en boucle. Un init (tini) recueille les orphelins.
@@ -26,10 +30,23 @@ services:
     volumes:
       - ../sauvegardes:/opt/sauvegardes:ro
       - cles-sauvegarde:/cles:ro
+      - pg-wal:/wal
     networks: [interne]
     depends_on:
       sftp-essai:
         condition: service_started
+      wal-init:
+        condition: service_completed_successfully
+  # Le conteneur PostgreSQL démarre en utilisateur postgres (pas de root, pas de gosu) : un volume neuf appartient à root. Ce service, seul à tourner en root,
+  # donne le volume pg_wal à postgres puis s'arrête ; initdb crée ensuite /wal/journaux.
+  wal-init:
+    image: ghcr.io/will383842/axion-automatisations-clients/postgres-sauvegardes-pitr:16-r41-r75@sha256:05c30a0b3fbdb098f11f0a843fd1e61ce5c2f0726dca84840d68fe92c37f453a
+    restart: "no"
+    user: "0:0"
+    entrypoint: ['sh', '-c', 'chown postgres:postgres /wal && chmod 700 /wal']
+    volumes:
+      - pg-wal:/wal
+    networks: [interne]
   cle-essai:
     image: ghcr.io/will383842/axion-automatisations-clients/postgres-sauvegardes-pitr:16-r41-r75@sha256:05c30a0b3fbdb098f11f0a843fd1e61ce5c2f0726dca84840d68fe92c37f453a
     restart: "no"
@@ -64,6 +81,7 @@ services:
       - depot-sauvegardes:/home/sauv/depot
     networks: [interne]
 volumes:
+  pg-wal: {}
   cles-sauvegarde: {}
   cle-publique: {}
   depot-sauvegardes: {}

@@ -346,8 +346,8 @@ describe("sauvegardes (archivage continu, complète de nuit, restauration)", () 
 
 // Disque plein (T1A-15, C-602). Ces essais sont ICI, et non dans un fichier à part : ils arrêtent la cible SFTP, et Vitest lance les fichiers
 // d'intégration en parallèle (un fichier séparé couperait la cible sous les sauvegardes ci-dessus). Ils passent donc en dernier, dans ce fichier.
-// Le fragment ops/socle/compose.zz-essai-disque.yml met les journaux sur un volume de 256 Mo et le plafond à 64 Mo (journaux de 16 Mo).
-const WAL = "/wal-essai";
+// Le fragment ops/socle/compose.zz-essai-disque.yml borne le volume pg-wal de production à 256 Mo (en mémoire) et le plafond à 64 Mo (journaux de 16 Mo) ; le dossier des journaux est celui de production.
+const WAL = "/wal/journaux";
 const SEGMENT = 16 * 1024 * 1024;
 const PLAFOND = 64 * 1024 * 1024;
 const PARAMETRES: Parametres = { seuilAlerte: 0.8, plafondJournaux: PLAFOND, horizonReveilMs: 6 * 3_600_000 };
@@ -368,6 +368,25 @@ const debutAbandon = (): number | undefined => {
 };
 const abandons = () => journalPgBackRest().split(/\r?\n/).filter((l) => /dropped/i.test(l)).length;
 
+// Envoi au récepteur de test, avec la cause réseau dans le message : « fetch failed » seul ne dit pas pourquoi.
+// Trois essais au plus : l'envoi est local et le récepteur ne garde que le dernier corps ; une coupure de connexion isolée (vue une fois en CI, cause
+// non établie) ne doit pas faire échouer la preuve de l'alerte. Chaque échec est écrit avec sa cause, pour que la CI la garde si elle revient.
+const envoyer = async (url: string, message: string) => {
+  const causes: string[] = [];
+  for (let essai = 1; essai <= 3; essai++) {
+    try {
+      await envoyerAlerteDisque(url, message);
+      return;
+    } catch (e) {
+      const cause = `essai ${essai} : ${String(e)} ; cause : ${String((e as { cause?: unknown }).cause)}`;
+      causes.push(cause);
+      console.warn(`[C-602] envoi de l'alerte à ${url}, ${cause}`);
+      await new Promise((ok) => setTimeout(ok, 500 * essai));
+    }
+  }
+  throw new Error(`envoi de l'alerte à ${url} : ${causes.join(" | ")}`);
+};
+
 interface Scenario {
   premiere?: { decision: Decision; taux: number; recue: string };
   pireTaux: number;
@@ -386,7 +405,9 @@ const scenario = (): Promise<Scenario> => {
       req.on("data", (c: Buffer) => (corps += c.toString()));
       req.on("end", () => {
         recus.push(corps);
-        rep.writeHead(200).end("ok");
+        // Connexion fermée après chaque réponse : le client n'en réutilise jamais une que le serveur de test a déjà fermée (délai d'inactivité de 5 s de Node,
+        // alors que cet essai bloque la boucle d'événements entre deux envois avec des appels synchrones).
+        rep.writeHead(200, { connection: "close" }).end("ok");
       });
     });
     await new Promise<void>((ok) => recepteur.listen(0, "127.0.0.1", ok));
@@ -428,7 +449,7 @@ const scenario = (): Promise<Scenario> => {
         r.pireTaux = Math.max(r.pireTaux, m.utilises / m.total);
         const d = decider(mesures, PARAMETRES, Date.now());
         if (!r.premiere && d.niveau !== "rien") {
-          await envoyerAlerteDisque(url, d.message);
+          await envoyer(url, d.message);
           r.premiere = { decision: d, taux: m.utilises / m.total, recue: recus[recus.length - 1] ?? "" };
         }
       }
@@ -442,7 +463,7 @@ const scenario = (): Promise<Scenario> => {
       r.attenteFinale = m.journauxEnAttente;
       if (r.abandonne) {
         const d = decider(mesures, PARAMETRES, Date.now(), { journauxAbandonnes: true, dernierArchivage: debutAbandon() });
-        await envoyerAlerteDisque(url, d.message);
+        await envoyer(url, d.message);
         r.alerteInterrompu = { decision: d, recue: recus[recus.length - 1] ?? "" };
       }
       // La base accepte encore des écritures, cible toujours coupée.
@@ -484,5 +505,14 @@ describe("disque plein : plafond des journaux en attente et alerte (cible SFTP a
     expect(r.alerteInterrompu?.recue).toContain(MESSAGE_INTERROMPU);
     expect(r.alerteInterrompu?.recue).toMatch(/depuis \d\d:\d\d UTC/);
     expect(r.alerteInterrompu?.recue).not.toMatch(/sftp-essai|postgres|\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/);
+  }, 600_000);
+
+  it("[C-602] cible SFTP arrêtée et rafale d'écriture : l'alerte part et pg_wal reste sous la taille du volume d'essai", async () => {
+    const r = await scenario();
+    expect(r.premiere, "aucune alerte reçue").toBeDefined();
+    // pg_wal est un volume distinct du volume des données (T1B-06) : la sonde mesure ce volume, et il ne se remplit pas.
+    expect(dans("postgres", "sh", "-c", `df -P ${WAL} | tail -1`)).not.toBe(dans("postgres", "sh", "-c", "df -P /var/lib/postgresql/data | tail -1"));
+    expect(r.pireTaux).toBeLessThan(1);
+    expect(r.premiere?.decision.niveau).not.toBe("rien");
   }, 600_000);
 });

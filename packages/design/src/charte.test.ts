@@ -100,7 +100,7 @@ describe("charte du lot 3", () => {
     expect(jetons.police.code).toContain("Inconsolata");
   });
 
-  it("[B-251] aucun texte courant sous 16 px sur téléphone, précisions à 13 px au plus bas", () => {
+  it("le jeton de texte mobile est à 16 px, précisions à 13 px au plus bas, aucune taille de 15 px ou moins dans responsive.css", () => {
     expect(parseInt(jetons.taille.texteMobile)).toBeGreaterThanOrEqual(16);
     expect(parseInt(jetons.taille.precision)).toBeGreaterThanOrEqual(13);
     const mobile = readFileSync(ici("./responsive.css"), "utf8");

@@ -18,7 +18,7 @@ describe("consigne de revérification des dépôts liés", () => {
     expect(s).toMatch(/axion-ia/);
     expect(s).toMatch(/Axion-CRM-Pro/);
     expect(s).toMatch(/\bmain\b/);
-    expect(s).toMatch(/avant de coder/);
+    expect(s).toMatch(/avant de coder/i);
     expect(s).toMatch(/revérifier/i);
   });
 });

@@ -18,6 +18,8 @@ Rangée dans OpenBao (`technique/sauvegardes`, champ `phrase`) ; une copie hors 
 
 **Rotation** : nouvelle phrase = nouveau dépôt ou nouvelle stanza ; l'ancien dépôt et l'ancienne phrase sont gardés jusqu'à expiration (pgBackRest ne change pas la phrase d'un dépôt existant). Risque : une phrase changée sans nouvelle stanza fait échouer la sauvegarde de nuit ET `archive-push`, donc `pg_wal` grossit.
 
+Lecture de la phrase : `lire-phrase-chiffrement.sh` borne toute la conversation avec OpenBao (`BAO_DELAI`, 10 secondes par défaut) ; un OpenBao muet ou injoignable donne un échec net, code de sortie non nul, au lieu de bloquer le démarrage.
+
 ## File d'archivage et OpenBao
 La phrase est lue UNE fois au démarrage du conteneur PostgreSQL par `preparer-configuration.sh`, qui écrit la configuration pgBackRest (modèle plus phrase) dans `/dev/shm` (mémoire, droits 0400, propriétaire `postgres`). `archive_command` (`pgbackrest archive-push %p`) n'appelle jamais OpenBao : si OpenBao tombe après le démarrage, l'archivage continue et `pg_wal` ne se remplit pas à cause du coffre. Si la phrase est illisible au démarrage (ou si le modèle n'est pas unique, ou si la clé de l'hôte SFTP n'est pas vérifiée hors essai), le conteneur ne démarre pas. Lot 1-B : ordre de démarrage et politique de redémarrage en conséquence.
 

@@ -40,6 +40,7 @@ if [ "$mode" = "dossier" ]; then
   [ -d "$origine" ] || { echo "source introuvable : $origine" >&2; exit 1; }
   while IFS= read -r -d '' f; do
     rel="${f#"$origine"/}"
+    verifier_chemin "$rel"
     if [ -e "$cible/$rel" ]; then continue; fi
     cp -p "$f" "$provisoire"
     ranger "$rel"

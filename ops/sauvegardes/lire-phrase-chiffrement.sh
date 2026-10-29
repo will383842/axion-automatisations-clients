@@ -37,11 +37,15 @@ else
     exit "$code"
   fi
   jeton="$(cat "$BAO_JETON_FICHIER")"
-  # HTTP minimal par /dev/tcp : l'image ne contient ni curl ni wget.
-  exec 3<>"/dev/tcp/${hote}/${port}"
-  printf 'GET /v1/technique/data/sauvegardes HTTP/1.0\r\nHost: %s\r\nX-Vault-Token: %s\r\n\r\n' "$hote" "$jeton" >&3
-  reponse="$(cat <&3)"
-  exec 3<&-
+  delai="${BAO_DELAI:-10}"
+  case "$delai" in "" | *[!0-9]*) echo "BAO_DELAI doit être un nombre entier de secondes" >&2; exit 1 ;; esac
+  # HTTP minimal par /dev/tcp : l'image ne contient ni curl ni wget. Connexion, envoi et lecture sont sous « timeout » ;
+  # le jeton passe par l'environnement du sous-processus, pas par ses arguments (visibles dans ps).
+  reponse="$(JETON_BAO="$jeton" timeout "$delai" bash -c '
+    exec 3<>"/dev/tcp/$1/$2"
+    printf "GET /v1/technique/data/sauvegardes HTTP/1.0\r\nHost: %s\r\nX-Vault-Token: %s\r\n\r\n" "$1" "$JETON_BAO" >&3
+    cat <&3
+  ' _ "$hote" "$port")" || { echo "OpenBao n'a pas répondu en ${delai} s (ou la connexion a échoué) : ${hote}:${port}" >&2; exit 1; }
   saut=$'\n'
   retour=$'\r'
   statut="${reponse%%"$saut"*}"

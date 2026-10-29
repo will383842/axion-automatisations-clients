@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
@@ -40,7 +41,10 @@ function lireAssemble(texte: string): Assemble {
 describe("isolement réseau de l'exécuteur (intégration)", () => {
   it("[A-330] @isolation aucune connexion possible à la base console depuis le réseau de l'exécuteur", () => {
     const { reseaux, services } = lireAssemble(execFileSync("bash", ["ops/socle/lancer.sh", "--assembler"], { cwd: racine, encoding: "utf8" }));
-    expect(reseaux.get("executeur-interne")).toContain("internal: true");
+    // « docker compose config » écarte un réseau qu'aucun service n'utilise : tant que l'exécuteur n'est pas déclaré, le réseau n'apparaît pas dans l'assemblé.
+    // Sa définition se lit donc dans le fragment, et si l'assemblé le garde il doit rester interne.
+    expect(lireAssemble(readFileSync(`${racine}ops/socle/compose.executeur.yml`, "utf8")).reseaux.get("executeur-interne")).toContain("internal: true");
+    if (reseaux.has("executeur-interne")) expect(reseaux.get("executeur-interne")).toContain("internal: true");
     // Aucun service de la base ne partage le réseau de l'exécuteur, et l'exécuteur n'est sur aucun autre réseau que les siens.
     for (const [nom, rs] of services) {
       if (/postgres|pgbouncer/.test(nom)) expect(rs, nom).not.toContain("executeur-interne");

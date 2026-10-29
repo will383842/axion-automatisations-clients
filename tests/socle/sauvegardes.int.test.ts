@@ -1,6 +1,6 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { writeSync } from "node:fs";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
@@ -140,6 +140,38 @@ describe("sauvegardes (archivage continu, complète de nuit, restauration)", () 
     const apres = sortie("docker", ["exec", restaure, "psql", "-U", "postgres", "-d", "console", "-tAXc", SOMME]).trim();
     expect(apres).toBe(sommeSource);
   }, 600_000);
+
+  it("[C-593] après le lancement de la restauration, la phrase n'est plus dans l'environnement du processus postgres", () => {
+    expect(restaure).not.toBe("");
+    const phrase = dans("postgres", "/opt/sauvegardes/lire-phrase-chiffrement.sh").trim();
+    expect(phrase.length).toBeGreaterThanOrEqual(32);
+    const pid = sortie("docker", ["exec", restaure, "sh", "-c", "head -n 1 /tmp/donnees/postmaster.pid"]).trim();
+    const environnement = sortie("docker", ["exec", restaure, "sh", "-c", `tr '\\0' '\\n' < /proc/${pid}/environ`]);
+    expect(environnement.includes(phrase)).toBe(false);
+    expect(environnement).not.toMatch(/PGBACKREST_REPO1_CIPHER_PASS/);
+    // La phrase n'est que dans un fichier en mémoire, droits 0400.
+    expect(sortie("docker", ["exec", restaure, "stat", "-c", "%a", "/dev/shm/pgbackrest.conf"]).trim()).toBe("400");
+  });
+
+  it("[C-045] restaurer.sh sans mode essai exige OpenBao et ne laisse aucun conteneur de restauration", () => {
+    const avant = sortie("docker", ["ps", "-aq", "--filter", "name=restauration-"]).trim().split("\n").filter(Boolean);
+    const env = { ...process.env };
+    delete env.SAUVEGARDE_ESSAI;
+    delete env.BAO_ADDR;
+    delete env.BAO_JETON_FICHIER;
+    const r = spawnSync(script("restaurer.sh"), [], { encoding: "utf8", env });
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toMatch(/adresse d'OpenBao absente/);
+    const apres = sortie("docker", ["ps", "-aq", "--filter", "name=restauration-"]).trim().split("\n").filter(Boolean);
+    expect(apres.filter((c) => !avant.includes(c))).toEqual([]);
+  });
+
+  it("[C-046] sur la cible, aucun fichier ne contient en clair le marqueur écrit dans une table d'essai", () => {
+    expect(fichiersCible().length).toBeGreaterThan(0);
+    const trouve = spawnSync("docker", ["exec", conteneur("sftp-essai"), "grep", "-rl", MARQUEUR, "/home/sauv/depot"], { encoding: "utf8" });
+    expect(trouve.status).toBe(1); // 1 = aucune correspondance
+    expect(trouve.stdout).toBe("");
+  }, 120_000);
 
   it("[C-045] restaurer.sh sans mode essai exige OpenBao et ne laisse aucun conteneur de restauration", () => {
     const avant = sortie("docker", ["ps", "-aq", "--filter", "name=restauration-"]).trim().split("\n").filter(Boolean);
@@ -486,4 +518,100 @@ describe("disque plein : plafond des journaux en attente et alerte (cible SFTP a
     expect(r.alerteInterrompu?.recue).toMatch(/depuis \d\d:\d\d UTC/);
     expect(r.alerteInterrompu?.recue).not.toMatch(/sftp-essai|postgres|\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/);
   }, 600_000);
+});
+
+// Réserves de code de la PR #59 (T1B-03). Ces essais n'ont besoin d'aucun conteneur : les scripts sont lancés sur des copies jetables,
+// avec des bouchons (faux node, faux docker, faux OpenBao muet). Valeurs d'essai générées au lancement.
+describe("sauvegardes : refus en amont, délai OpenBao, chemins des artefacts (T1B-03)", () => {
+  const racines: string[] = [];
+  const dossierJetable = (prefixe: string) => {
+    const d = mkdtempSync(join(tmpdir(), prefixe));
+    racines.push(d);
+    return d;
+  };
+  afterAll(() => {
+    for (const d of racines) rmSync(d, { recursive: true, force: true });
+  });
+  const bouchon = (dossier: string, nom: string, corps: string) => {
+    writeFileSync(join(dossier, nom), `#!/usr/bin/env bash\n${corps}\n`, { mode: 0o755 });
+  };
+
+  it("[C-056] restaurer.sh refuse host-key-check-type=none hors mode essai", () => {
+    // Copie des scripts avec un modèle qui garde « none » : l'essai reste vrai même quand le lot 1-B aura épinglé l'empreinte.
+    const copie = dossierJetable("restaurer-");
+    for (const f of ["restaurer.sh", "preparer-configuration.sh", "lire-phrase-chiffrement.sh"]) writeFileSync(join(copie, f), readFileSync(script(f)), { mode: 0o755 });
+    writeFileSync(join(copie, "pgbackrest.conf.modele"), "[global]\nrepo1-sftp-host-key-check-type=none\n");
+    const jeton = join(copie, "jeton");
+    writeFileSync(jeton, `TEST-NE-PAS-UTILISER-${Math.random().toString(16).slice(2)}`);
+    const faux = dossierJetable("faux-docker-");
+    bouchon(faux, "docker", 'echo "docker ne doit pas être appelé" >&2; exit 99');
+    const env = { ...process.env, PATH: `${faux}:${process.env.PATH ?? ""}`, BAO_ADDR: "http://127.0.0.1:1", BAO_JETON_FICHIER: jeton };
+    delete env.SAUVEGARDE_ESSAI;
+    const r = spawnSync(join(copie, "restaurer.sh"), [], { encoding: "utf8", env });
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toMatch(/host-key-check-type=none/);
+    expect(r.stderr).not.toMatch(/docker ne doit pas/);
+  });
+
+  it("[C-593] lire-phrase-chiffrement.sh échoue en moins de N secondes quand OpenBao ne répond pas", async () => {
+    // Faux OpenBao : accepte la connexion et ne dit jamais rien.
+    const { createServer: serveur } = await import("node:net");
+    const prises: import("node:net").Socket[] = [];
+    const muet = serveur((s) => {
+      prises.push(s);
+    });
+    await new Promise<void>((ok) => muet.listen(0, "127.0.0.1", ok));
+    const port = (muet.address() as AddressInfo).port;
+    const dossier = dossierJetable("bao-muet-");
+    const jeton = join(dossier, "jeton");
+    writeFileSync(jeton, `TEST-NE-PAS-UTILISER-${Math.random().toString(16).slice(2)}`);
+    const env = { ...process.env, BAO_ADDR: `http://127.0.0.1:${port}`, BAO_JETON_FICHIER: jeton, BAO_DELAI: "2" };
+    delete env.SAUVEGARDE_ESSAI;
+    const N = 10;
+    try {
+      const debut = Date.now();
+      const r = await new Promise<{ status: number | null; stderr: string }>((fin) => {
+        const p = spawn(script("lire-phrase-chiffrement.sh"), [], { env });
+        let stderr = "";
+        p.stderr.on("data", (c: Buffer) => (stderr += c.toString()));
+        const garde = setTimeout(() => p.kill("SIGKILL"), (N + 20) * 1000);
+        p.on("close", (status) => {
+          clearTimeout(garde);
+          fin({ status, stderr });
+        });
+      });
+      expect((Date.now() - debut) / 1000).toBeLessThan(N);
+      expect(r.status).not.toBe(0);
+      expect(r.status).not.toBeNull();
+      expect(r.stderr).toMatch(/OpenBao/);
+    } finally {
+      for (const s of prises) s.destroy();
+      muet.close();
+    }
+  }, 40_000);
+
+  it("[A-192] copier-artefacts.sh refuse un chemin contenant .. ou commençant par /", () => {
+    for (const fautif of ["../evasion.txt", "/etc/evasion.txt", "dossier/../../evasion.txt"]) {
+      const racine = dossierJetable("artefacts-chemins-");
+      const cible = join(racine, "sous", "cible");
+      mkdirSync(cible, { recursive: true });
+      const faux = join(racine, "bin");
+      mkdirSync(faux);
+      // Faux « docker exec <conteneur> wget … » : le filer renvoie une entrée dont le chemin sort du compartiment.
+      const brut = fautif.startsWith("/") ? fautif : `/buckets/artefacts/${fautif}`;
+      const entree = JSON.stringify({ Entries: [{ FullPath: brut, Mode: 420 }] });
+      bouchon(faux, "docker", `case "$*" in *limit=*) printf '%s\\n' '${entree}' ;; *) printf 'contenu piégé' ;; esac`);
+      const r = spawnSync(script("copier-artefacts.sh"), ["--compartiment", "stockage-essai", cible], {
+        encoding: "utf8",
+        env: { ...process.env, PATH: `${faux}:${process.env.PATH ?? ""}` },
+      });
+      expect(r.status, fautif).not.toBe(0);
+      expect(r.stderr, fautif).toMatch(/chemin/);
+      // Rien n'a été écrit hors de la cible, ni dans la cible.
+      expect(existsSync(join(racine, "sous", "evasion.txt")), fautif).toBe(false);
+      expect(existsSync(join(racine, "evasion.txt")), fautif).toBe(false);
+      expect(existsSync("/etc/evasion.txt"), fautif).toBe(false);
+      expect(readdirSync(cible), fautif).toEqual([]);
+    }
+  });
 });

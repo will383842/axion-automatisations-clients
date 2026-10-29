@@ -154,6 +154,19 @@ describe("sauvegardes (archivage continu, complète de nuit, restauration)", () 
     expect(apres.filter((c) => !avant.includes(c))).toEqual([]);
   });
 
+  it("[C-593] après le lancement de la restauration, la phrase n'est plus dans l'environnement du processus postgres", () => {
+    expect(restaure).not.toBe("");
+    const phrase = dans("postgres", "/opt/sauvegardes/lire-phrase-chiffrement.sh").trim();
+    expect(phrase.length).toBeGreaterThanOrEqual(32);
+    // Le processus 1 du conteneur restauré est postgres (exec) : son environnement ne contient ni la variable ni la valeur.
+    const environnement = sortie("docker", ["exec", restaure, "sh", "-c", "tr '\\0' '\\n' < /proc/1/environ"]);
+    expect(environnement).not.toMatch(/PGBACKREST_REPO1_CIPHER_PASS/);
+    expect(environnement).not.toContain(phrase);
+    // La configuration en mémoire qui portait la configuration est supprimée avant l'exec.
+    const reste = spawnSync("docker", ["exec", restaure, "test", "-e", "/dev/shm/pgbackrest.conf"]);
+    expect(reste.status).not.toBe(0);
+  });
+
   it("[C-046] sur la cible, aucun fichier ne contient en clair le marqueur écrit dans une table d'essai", () => {
     expect(fichiersCible().length).toBeGreaterThan(0);
     const trouve = spawnSync("docker", ["exec", conteneur("sftp-essai"), "grep", "-rl", MARQUEUR, "/home/sauv/depot"], { encoding: "utf8" });

@@ -16,4 +16,6 @@ Aucun plugin avec connecteur attaché aux routines. La licence est à relever su
 | `frontend-design` | Écrans cohérents | à relever | à installer par le chef d'orchestre | non constaté |
 | Sentry | Surveillance des erreurs en ligne | à relever | écarté pour les routines (connecteur) ; usage humain seulement, après la mise en ligne | sans objet |
 
+Les 7 plugins de C-381 sont : `feature-dev`, `security-guidance`, `claude-security`, `pr-review-toolkit`, `claude-md-management`, `typescript-lsp`, `frontend-design`. `axion-dev` est l'outil en ligne de commande du dépôt, pas un plugin du cahier : il figure au tableau pour suivi mais ne compte pas dans les 7.
+
 La ligne C-381 de `spec/preuves.md` ne s'écrit que lorsque les 7 plugins sont constatés installés (colonne « Installé le » et licence relevée) ; d'ici là, C-381 reste « partielle ».

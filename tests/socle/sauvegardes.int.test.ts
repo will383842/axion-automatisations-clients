@@ -239,8 +239,11 @@ describe("sauvegardes (archivage continu, complète de nuit, restauration)", () 
     expect(simuler(new Date().toISOString().slice(0, 10))).toEqual(labels.slice(0, -1));
     // « Hier » : toutes les sauvegardes d'essai sont datées après aujourd'hui, donc intouchables.
     expect(simuler(hier)).toEqual([]);
-    // Dans cinq ans : tout part, sauf la plus récente, toujours gardée.
-    expect(simuler("2030-01-01")).toEqual(labels.slice(0, -1));
+    // Dans cinq ans (horloge qui avance) : la plus récente a plus de 2 jours, l'expiration est refusée net et rien n'est imprimé.
+    const avance = spawnSync(script("expirer.sh"), ["--simuler"], { encoding: "utf8", env: { ...process.env, EXPIRER_AUJOURDHUI: "2030-01-01" } });
+    expect(avance.status).not.toBe(0);
+    expect(avance.stdout).toBe("");
+    expect(avance.stderr).toMatch(/plus de 2 jours/);
     // Exécution réelle avec la date d'hier : rien à expirer, sortie 0, aucune sauvegarde perdue.
     sortie(script("expirer.sh"), [], { env: { ...process.env, EXPIRER_AUJOURDHUI: hier } });
     expect(completes()).toEqual(labels);

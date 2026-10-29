@@ -369,12 +369,22 @@ const debutAbandon = (): number | undefined => {
 const abandons = () => journalPgBackRest().split(/\r?\n/).filter((l) => /dropped/i.test(l)).length;
 
 // Envoi au récepteur de test, avec la cause réseau dans le message : « fetch failed » seul ne dit pas pourquoi.
+// Trois essais au plus : l'envoi est local et le récepteur ne garde que le dernier corps ; une coupure de connexion isolée (vue une fois en CI, cause
+// non établie) ne doit pas faire échouer la preuve de l'alerte. Chaque échec est écrit avec sa cause, pour que la CI la garde si elle revient.
 const envoyer = async (url: string, message: string) => {
-  try {
-    await envoyerAlerteDisque(url, message);
-  } catch (e) {
-    throw new Error(`envoi de l'alerte à ${url} : ${String(e)} ; cause : ${String((e as { cause?: unknown }).cause)}`, { cause: e });
+  const causes: string[] = [];
+  for (let essai = 1; essai <= 3; essai++) {
+    try {
+      await envoyerAlerteDisque(url, message);
+      return;
+    } catch (e) {
+      const cause = `essai ${essai} : ${String(e)} ; cause : ${String((e as { cause?: unknown }).cause)}`;
+      causes.push(cause);
+      console.warn(`[C-602] envoi de l'alerte à ${url}, ${cause}`);
+      await new Promise((ok) => setTimeout(ok, 500 * essai));
+    }
   }
+  throw new Error(`envoi de l'alerte à ${url} : ${causes.join(" | ")}`);
 };
 
 interface Scenario {
@@ -395,7 +405,9 @@ const scenario = (): Promise<Scenario> => {
       req.on("data", (c: Buffer) => (corps += c.toString()));
       req.on("end", () => {
         recus.push(corps);
-        rep.writeHead(200).end("ok");
+        // Connexion fermée après chaque réponse : le client n'en réutilise jamais une que le serveur de test a déjà fermée (délai d'inactivité de 5 s de Node,
+        // alors que cet essai bloque la boucle d'événements entre deux envois avec des appels synchrones).
+        rep.writeHead(200, { connection: "close" }).end("ok");
       });
     });
     await new Promise<void>((ok) => recepteur.listen(0, "127.0.0.1", ok));

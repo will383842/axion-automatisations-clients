@@ -1,3 +1,10 @@
 export { BadgeEtat, Bandeau, Bouton, BoutonOption, Carte, CaseACocher, Champ, Lien, LienEvitement, PastilleInitiales, TuileAutomatisation } from "./composants/base.tsx";
 export { BarreOnglets, EnTeteTelephone, MenuLateral } from "./composants/navigation.tsx";
 export { EtapeSurTotal, Frise, TableauCartes } from "./composants/etapes.tsx";
+export { Indicateur } from "./composants/Indicateur.tsx";
+export { Tableau } from "./composants/Tableau.tsx";
+export { Graphique } from "./composants/Graphique.tsx";
+export { FilActivite } from "./composants/FilActivite.tsx";
+export { BoutonDanger } from "./composants/Bouton.tsx";
+export { BandeauAction } from "./composants/Bandeau.tsx";
+export { Pastille } from "./composants/Pastille.tsx";

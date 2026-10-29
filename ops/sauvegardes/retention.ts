@@ -7,6 +7,9 @@ import { fileURLToPath } from "node:url";
 export interface Sauvegarde {
   id: string;
   date: string;
+  // Absent = complète. Une différence ou une incrémentale dépend des sauvegardes de « depend » (champ « reference » de pgBackRest).
+  type?: "full" | "diff" | "incr";
+  depend?: string[];
 }
 export interface Retention {
   quotidiennes: Sauvegarde[];
@@ -58,6 +61,16 @@ export function calculerRetention(sauvegardes: Sauvegarde[], aujourdhui: string)
 
   const plusRecente = triees[triees.length - 1];
   const ids = new Set([...quotidiennes, ...mensuelles, ...futures, ...(plusRecente ? [plusRecente] : [])].map((s) => s.id));
+  // Une sauvegarde gardée garde aussi celles dont elle dépend (la complète d'une différence, et ainsi de suite).
+  const parId = new Map(triees.map((s) => [s.id, s]));
+  const pile = [...ids];
+  for (let id = pile.pop(); id !== undefined; id = pile.pop()) {
+    for (const d of parId.get(id)?.depend ?? []) {
+      if (!parId.has(d) || ids.has(d)) continue;
+      ids.add(d);
+      pile.push(d);
+    }
+  }
   return {
     quotidiennes,
     mensuelles,
@@ -67,31 +80,67 @@ export function calculerRetention(sauvegardes: Sauvegarde[], aujourdhui: string)
   };
 }
 
-// Sauvegardes complètes lues dans la sortie de « pgbackrest info --output=json » (un tableau de grappes, chacune avec ses « backup »).
+// Sauvegardes lues dans la sortie de « pgbackrest info --output=json » (un tableau de grappes, chacune avec ses « backup »).
+// Celles en erreur (« error »: true) sont ignorées : elles ne comptent pas dans les quotidiennes ni les mensuelles.
 // Une forme inattendue lève une erreur : mieux vaut ne rien expirer que de se tromper.
-export function completesDepuisInfo(json: string): Sauvegarde[] {
+export function sauvegardesDepuisInfo(json: string): Sauvegarde[] {
   const info: unknown = JSON.parse(json);
   if (!Array.isArray(info)) throw new Error("sortie de pgbackrest info : un tableau est attendu");
-  const completes: Sauvegarde[] = [];
+  const sauvegardes: Sauvegarde[] = [];
   for (const grappe of info as { backup?: unknown }[]) {
     if (!Array.isArray(grappe.backup)) throw new Error("sortie de pgbackrest info : liste « backup » absente");
-    for (const b of grappe.backup as { label?: unknown; type?: unknown; timestamp?: { stop?: unknown } }[]) {
-      if (b.type !== "full") continue;
+    for (const b of grappe.backup as { label?: unknown; type?: unknown; error?: unknown; reference?: unknown; timestamp?: { stop?: unknown } }[]) {
+      if (b.error === true) continue;
+      if (b.type !== "full" && b.type !== "diff" && b.type !== "incr") throw new Error("sortie de pgbackrest info : type de sauvegarde inconnu");
       const arret = b.timestamp?.stop;
       if (typeof b.label !== "string" || typeof arret !== "number") throw new Error("sortie de pgbackrest info : sauvegarde sans label ou sans date d'arrêt");
-      completes.push({ id: b.label, date: new Date(arret * 1000).toISOString() });
+      const depend = Array.isArray(b.reference) ? b.reference.filter((r): r is string => typeof r === "string") : [];
+      sauvegardes.push({ id: b.label, date: new Date(arret * 1000).toISOString(), type: b.type, depend });
     }
   }
-  return completes;
+  return sauvegardes;
 }
 
+export function completesDepuisInfo(json: string): Sauvegarde[] {
+  return sauvegardesDepuisInfo(json).filter((s) => s.type === "full");
+}
+
+// Garde « 2 jours » : si la plus récente sauvegarde saine a plus de 2 jours (en jours UTC), l'horloge avance ou des nuits ont manqué :
+// on refuse d'expirer. Sans aucune sauvegarde (toute première nuit), rien à expirer et aucune erreur.
+function verifierFraicheur(sauvegardes: Sauvegarde[], aujourdhui: string): void {
+  const fin = Date.parse(`${aujourdhui}T00:00:00Z`);
+  if (Number.isNaN(fin)) throw new Error(`date du jour illisible « ${aujourdhui} »`);
+  if (sauvegardes.length === 0) return;
+  const recente = sauvegardes.reduce((a, s) => (horodatage(s) > horodatage(a) ? s : a));
+  const jourRecente = Date.parse(`${new Date(horodatage(recente)).toISOString().slice(0, 10)}T00:00:00Z`);
+  const ecart = Math.round((fin - jourRecente) / JOUR);
+  if (ecart > 2) {
+    throw new Error(`expiration refusée : la sauvegarde la plus récente (${recente.id}) a ${ecart} jours, plus de 2 jours (horloge qui avance ou nuits manquées)`);
+  }
+}
+
+// Seules des complètes sont désignées : pgBackRest retire une complète avec ses différences, jamais une différence seule.
 export function ensemblesAExpirer(infoJson: string, aujourdhui: string): string[] {
-  return calculerRetention(completesDepuisInfo(infoJson), aujourdhui).expirer.map((s) => s.id);
+  const sauvegardes = sauvegardesDepuisInfo(infoJson);
+  verifierFraicheur(sauvegardes, aujourdhui);
+  return calculerRetention(sauvegardes, aujourdhui)
+    .expirer.filter((s) => (s.type ?? "full") === "full")
+    .map((s) => s.id);
+}
+
+// Node 22.18 est la première version qui exécute le TypeScript sans option (« node retention.ts »).
+export function verifierNode(version: string): void {
+  const m = /^(\d+)\.(\d+)\./.exec(version);
+  const [majeur, mineur] = [Number(m?.[1]), Number(m?.[2])];
+  if (!m || majeur < 22 || (majeur === 22 && mineur < 18)) {
+    throw new Error(`Node 22.18 ou plus est requis (version trouvée : ${version})`);
+  }
 }
 
 // Commande : node retention.ts <AAAA-MM-JJ>   (la sortie de pgbackrest info arrive sur l'entrée standard ; un identifiant à expirer par ligne)
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   try {
+    verifierNode(process.versions.node);
     const aujourdhui = process.argv[2] ?? "";
     for (const id of ensemblesAExpirer(readFileSync(0, "utf8"), aujourdhui)) process.stdout.write(`${id}\n`);
   } catch (e) {

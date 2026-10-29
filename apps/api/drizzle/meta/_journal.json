@@ -15,6 +15,13 @@
       "when": 1793101638646,
       "tag": "0001_journal_audit_fonctions",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793261893997,
+      "tag": "0002_journal_audit_reserves",
+      "breakpoints": true
     }
   ]
 }

@@ -40,8 +40,8 @@ async function enTransaction<T>(pool: Pool, ouvrir: (client: PoolClient) => Prom
 
 export type Appelant = { acteur: string; ip?: string };
 const ACTEUR_MAX = 128;
-// Pas de caractère de contrôle (saut de ligne, nul) dans l'acteur : il finit dans le journal d'audit.
-const CONTROLE = /\p{Cc}/u;
+// Pas de caractère de contrôle (saut de ligne, nul), invisible ou d'inversion dans l'acteur : il finit dans le journal d'audit. Même classe que audit_ajouter (migration 0002).
+const CONTROLE = /[\p{Cc}\u200B-\u200F\u202A-\u202E\u2028\u2029\u2060-\u206F\uFEFF\u061C]/u;
 
 export function verifierAppelant(appelant: Appelant): void {
   const acteur = appelant.acteur;

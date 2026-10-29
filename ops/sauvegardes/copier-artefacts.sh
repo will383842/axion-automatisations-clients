@@ -22,6 +22,13 @@ cible="${2:?dossier cible absent}"
 provisoire="$cible/.copie-en-cours.$$"
 trap 'rm -f "$provisoire"' EXIT
 
+# Refus net (A-192) d'un chemin relatif qui sort de la cible : « .. » comme élément, ou chemin absolu. Rien n'est écrit.
+verifier_chemin() {
+  case "$1" in
+    "" | /* | .. | ../* | */.. | */../*) echo "chemin refusé (« .. » ou chemin absolu) : $1" >&2; exit 1 ;;
+  esac
+}
+
 # $1 : chemin relatif sur la cible ; le fichier provisoire est complet, on le range à sa place.
 ranger() {
   mkdir -p "$(dirname "$cible/$1")"
@@ -32,6 +39,7 @@ if [ "$mode" = "dossier" ]; then
   [ -d "$origine" ] || { echo "source introuvable : $origine" >&2; exit 1; }
   while IFS= read -r -d '' f; do
     rel="${f#"$origine"/}"
+    verifier_chemin "$rel"
     if [ -e "$cible/$rel" ]; then continue; fi
     cp -p "$f" "$provisoire"
     ranger "$rel"
@@ -46,6 +54,7 @@ else
       [ -n "$chemin" ] || continue
       rel="${chemin#/buckets/$COMPARTIMENT/}"
       case "$rel" in .uploads | .uploads/*) continue ;; esac
+      verifier_chemin "$rel"
       mode_fichier="$(printf '%s' "$entree" | sed -n 's/.*"Mode":\([0-9]*\).*/\1/p')"
       if [ -n "$mode_fichier" ] && (( mode_fichier & 2147483648 )); then
         parcourir "$rel"

@@ -17,13 +17,19 @@ if [ "$essai" != "1" ]; then
   args_bao=(-e BAO_ADDR -e BAO_JETON_FICHIER -v "$BAO_JETON_FICHIER:$BAO_JETON_FICHIER:ro")
 fi
 
+# Même refus que preparer-configuration.sh : hors essai, jamais de restauration avec une clé d'hôte SFTP non vérifiée.
+dossier="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ "$essai" != "1" ] && grep -Eq '^[[:space:]]*repo1-sftp-host-key-check-type[[:space:]]*=[[:space:]]*none' "$dossier"/pgbackrest.conf.*; then
+  echo "host-key-check-type=none n'est admis qu'en essai (SAUVEGARDE_ESSAI=1) : épingler l'empreinte de l'hôte SFTP" >&2
+  exit 1
+fi
+
 projet="${SAUVEGARDE_PROJET:-socle}"
 source_ctr="$(docker ps -q --filter "label=com.docker.compose.project=$projet" --filter "label=com.docker.compose.service=postgres")"
 [ -n "$source_ctr" ] || { echo "service postgres du projet $projet introuvable" >&2; exit 1; }
 image="${SAUVEGARDE_IMAGE:-$(docker inspect -f '{{.Config.Image}}' "$source_ctr")}"
 reseau="$(docker inspect -f '{{range $k, $_ := .NetworkSettings.Networks}}{{$k}} {{end}}' "$source_ctr" | cut -d' ' -f1)"
 volume_cles="$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/cles"}}{{.Name}}{{end}}{{end}}' "$source_ctr")"
-dossier="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 nom="restauration-$$"
 
 # Le conteneur de restauration n'est gardé que si le serveur restauré répond : sur tout autre chemin de sortie, il est supprimé.
@@ -36,11 +42,14 @@ docker run -d --name "$nom" --network "$reseau" \
   -v "$volume_cles:/cles:ro" -v "$dossier:/opt/sauvegardes:ro" \
   --entrypoint bash "$image" -c '
     set -euo pipefail
-    export PGBACKREST_REPO1_CIPHER_PASS="$(/opt/sauvegardes/lire-phrase-chiffrement.sh)"
-    export PGBACKREST_CONFIG=/tmp/pgbackrest.conf
-    cp /opt/sauvegardes/pgbackrest.conf.modele "$PGBACKREST_CONFIG"
+    # La phrase reste dans la configuration en mémoire (/dev/shm, droits 0400), comme sur le serveur source :
+    # elle sert à la restauration et au restore_command, jamais exportée.
+    export PGBACKREST_CONFIG=/dev/shm/pgbackrest.conf
+    /opt/sauvegardes/preparer-configuration.sh
     mkdir -p /tmp/donnees && chmod 700 /tmp/donnees
     pgbackrest --stanza=commun --pg1-path=/tmp/donnees --type=immediate --target-action=promote restore
+    # unset AVANT exec : le processus postgres restauré ne reçoit pas la phrase.
+    unset PGBACKREST_REPO1_CIPHER_PASS
     exec postgres -D /tmp/donnees -c archive_mode=off -c listen_addresses= -c unix_socket_directories=/var/run/postgresql
   ' >/dev/null
 

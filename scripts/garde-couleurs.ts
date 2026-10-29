@@ -48,6 +48,16 @@ export function analyserFichier(nom: string, texte: string): string[] {
   return erreurs;
 }
 
+// Console (B-249) : ni taille ni ombre littérale, tout vient des jetons.
+const CONSOLE = "apps/console/src/";
+const TAILLE_OU_OMBRE = /\b\d+(?:\.\d+)?(?:px|rem|em)\b|box-shadow\s*:|\bshadow\s*:|fontSize\s*:\s*\d/;
+
+export function analyserConsole(nom: string, texte: string): string[] {
+  return texte
+    .split("\n")
+    .flatMap((ligne, i) => (TAILLE_OU_OMBRE.test(ligne) ? [`${nom}:${i + 1}: taille ou ombre littérale dans la console (B-249) : utiliser un jeton`] : []));
+}
+
 function fichiers(dossier: string, racine: string): string[] {
   return readdirSync(dossier, { withFileTypes: true }).flatMap((e) => {
     const chemin = join(dossier, e.name);
@@ -82,9 +92,11 @@ export function verifierArbre(racine: string): string[] {
   });
   const fichiersTrouves = ["apps", "packages"].flatMap((d) =>
     lire(() =>
-      fichiers(join(racine, d), racine).flatMap((f) =>
-        analyserFichier(relative(racine, f).split("\\").join("/"), readFileSync(f, "utf8")),
-      ),
+      fichiers(join(racine, d), racine).flatMap((f) => {
+        const nom = relative(racine, f).split("\\").join("/");
+        const texte = readFileSync(f, "utf8");
+        return [...analyserFichier(nom, texte), ...(nom.startsWith(CONSOLE) ? analyserConsole(nom, texte) : [])];
+      }),
     ),
   );
   return [...bleus, ...fichiersTrouves];

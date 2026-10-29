@@ -37,3 +37,6 @@ Aucune clé de production dans l'environnement.
 ### Écarts connus
 - LiteLLM : aucune configuration n'est montée, donc seule la vivacité du service est vérifiée ; le modèle factice (sans clé) reste à ajouter par la fiche qui touchera la configuration.
 - `ops/sonde-services.test.sh` n'est lancé par aucun contrôle : le job de CI (un job = un fichier `.github/workflows/<job>.yml`) reste à écrire par la fiche concernée.
+
+## Projet de l'architecte et tâches récurrentes (C-396)
+Non constaté à ce jour : le projet de l'architecte et les tâches récurrentes ne sont pas encore créés. Cette note sera complétée par le chef d'orchestre une fois créés ; la ligne datée de `spec/preuves.md` ne s'écrit qu'ensuite.

@@ -1,0 +1,6 @@
+# Réseaux de l'exécuteur : executeur-interne n'a aucune sortie ; sortie est réservé au mandataire.
+# Aucune base de données n'est référencée ici : l'exécuteur ne rejoint aucun réseau de données.
+networks:
+  executeur-interne:
+    internal: true
+  sortie: {}

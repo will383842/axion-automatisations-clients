@@ -48,3 +48,43 @@ describe("migration des tables de client", () => {
     expect(migration).not.toMatch(/GRANT[^;]*\b(TRUNCATE|REFERENCES|TRIGGER|ALL)\b[^;]*TO console_(app|equipe)/i);
   });
 });
+
+// Contrôles du schéma déclaré (sans base) : la preuve contre PostgreSQL est dans clients.int.test.ts (job socle-integration).
+const colonnes = (t: Parameters<typeof getTableConfig>[0]) => Object.fromEntries(getTableConfig(t).columns.map((c) => [c.name, c]));
+
+describe("schéma des organisations, contacts et instances", () => {
+  it("[A-120] une organisation déclare SIREN, métier, code NAF, taille et statut, tous facultatifs sauf le statut", () => {
+    const c = colonnes(organisations);
+    for (const nom of ["siren", "metier", "code_naf", "taille"]) expect(c[nom]?.notNull, nom).toBe(false);
+    expect(c["statut"]?.notNull).toBe(true);
+    expect(migration).toContain("organisations_siren_format");
+    expect(migration).toContain("organisations_code_naf_format");
+  });
+
+  it("[A-156] le statut est une énumération prospect, en_signature, client, ancien_client", () => {
+    expect(colonnes(organisations)["statut"]?.enumValues).toEqual(["prospect", "en_signature", "client", "ancien_client"]);
+  });
+
+  it("[C-331] une organisation prospect ne demande que sa raison sociale : crm_company_id est facultatif", () => {
+    const c = colonnes(organisations);
+    expect(c["crm_company_id"]?.notNull).toBe(false);
+    const obligatoires = Object.values(c).filter((x) => x.notNull && !x.hasDefault).map((x) => x.name).sort();
+    expect(obligatoires).toEqual(["console_client_id", "id", "raison_sociale", "tenant_id"]);
+  });
+
+  it("[C-361] console_client_id est dérivé de tenant_id par CHECK, sans unicité globale", () => {
+    expect(migration).toContain('CONSTRAINT "organisations_console_client_id_derive" CHECK ("organisations"."console_client_id" = "organisations"."tenant_id")');
+    expect(migration).toContain('UNIQUE("tenant_id","console_client_id")');
+    expect(migration).not.toMatch(/UNIQUE\("console_client_id"\)/);
+  });
+
+  it("[A-121] un contact déclare nom, e-mail, rôle, accès portail et id Keycloak facultatif", () => {
+    const c = colonnes(contacts);
+    for (const nom of ["nom", "email", "role", "acces_portail"]) expect(c[nom]?.notNull, nom).toBe(true);
+    expect(c["keycloak_id"]?.notNull).toBe(false);
+  });
+
+  it("[A-126] l'état d'une instance est une énumération active, pause, erreur, livree", () => {
+    expect(colonnes(instances)["etat"]?.enumValues).toEqual(["active", "pause", "erreur", "livree"]);
+  });
+});

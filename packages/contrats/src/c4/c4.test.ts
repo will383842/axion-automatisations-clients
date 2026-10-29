@@ -152,4 +152,64 @@ describe("contrat C4 : échanges exécuteur ↔ console", () => {
       "/api/executeur/v1/evenements",
     ]);
   });
+
+  // --- Révision 0.4.0 (T4-49), strictement additive ---
+  const V4 = "3b241101-e2bb-4255-8caf-4136c566a962";
+  const etatVoulu = { instanceId: "inst-0001", etat: "actif", arretEnvois: false, version: 4 };
+  const enveloppe = { version: 1, charge: "QUJD".repeat(100), signature: "A".repeat(86) };
+
+  it("[A-300] les formes 0.3.0 passent encore sans changement (états voulus et événements sans champ nouveau)", () => {
+    expect(EtatVoulu.safeParse(etatVoulu).success).toBe(true);
+    expect(Paquet.safeParse({ evenements: [debut, fin, erreur, vie] }).success).toBe(true);
+  });
+
+  it("[C-628] l'état voulu porte modeIa, droitsUsage et paiementConstate ; une valeur hors liste est refusée", () => {
+    const plein = { ...etatVoulu, modeIa: "client_direct", droitsUsage: ["envoi-courriel", "lecture-agenda"], paiementConstate: true };
+    expect(EtatVoulu.parse(plein)).toEqual(plein);
+    expect(EtatVoulu.safeParse({ ...plein, modeIa: "libre" }).success).toBe(false);
+    expect(EtatVoulu.safeParse({ ...plein, droitsUsage: ["Envoi_Courriel"] }).success).toBe(false);
+    expect(EtatVoulu.safeParse({ ...plein, paiementConstate: "oui" }).success).toBe(false);
+  });
+
+  it("[C-631] debut, fin, etape et action_ecran portent une corrélation UUID v4 ; une autre forme est refusée", () => {
+    const etape = { type: "etape", instanceId: "inst-0001", executionId: "exec-0001", etape: "accuser", correlation: V4 };
+    const action = { type: "action_ecran", instanceId: "inst-0001", action: "changer-statut", correlation: V4, a: "2026-10-24T10:00:00Z" };
+    expect(Paquet.safeParse({ evenements: [{ ...debut, correlation: V4 }, { ...fin, correlation: V4 }, etape, action] }).success).toBe(true);
+    for (const mauvaise of ["exec-0001", "3b241101-e2bb-1255-8caf-4136c566a962", "3b241101-e2bb-4255-0caf-4136c566a962", ""]) {
+      for (const e of [{ ...debut, correlation: mauvaise }, { ...fin, correlation: mauvaise }, { ...etape, correlation: mauvaise }, { ...action, correlation: mauvaise }]) {
+        expect(Paquet.safeParse({ evenements: [e] }).success, `${e.type} ${mauvaise}`).toBe(false);
+      }
+    }
+    // Les types nouveaux l'exigent ; debut et fin la gardent facultative (une fixture 0.3.0 reste valide).
+    expect(Paquet.safeParse({ evenements: [{ ...etape, correlation: undefined }] }).success).toBe(false);
+    expect(Paquet.safeParse({ evenements: [{ ...action, correlation: undefined }] }).success).toBe(false);
+  });
+
+  it("[C-637] fin porte ia { mode, appels, jetonsEntree, jetonsSortie } en entiers, facultatif", () => {
+    const ia = { mode: "via_axion", appels: 3, jetonsEntree: 900, jetonsSortie: 120 };
+    expect(Paquet.safeParse({ evenements: [{ ...fin, ia }] }).success).toBe(true);
+    for (const mauvais of [{ ...ia, mode: "autre" }, { ...ia, appels: 1.5 }, { ...ia, jetonsSortie: -1 }, { ...ia, texte: "libre" }]) {
+      expect(Paquet.safeParse({ evenements: [{ ...fin, ia: mauvais }] }).success).toBe(false);
+    }
+  });
+
+  it("[C-683] un état voulu sans enveloppeSignee reste valide", () => {
+    expect(EtatVoulu.safeParse(etatVoulu).success).toBe(true);
+  });
+
+  it("[C-683] un état voulu avec enveloppeSignee passe la validation et est conservé identique ; toute autre forme est refusée", () => {
+    const avec = { ...etatVoulu, enveloppeSignee: enveloppe };
+    expect(EtatVoulu.parse(avec)).toEqual(avec);
+    for (const mauvaise of [
+      { ...enveloppe, extra: 1 },
+      { ...enveloppe, charge: "A".repeat(8193) },
+      { ...enveloppe, charge: "pas du base64url !" },
+      { ...enveloppe, signature: "A".repeat(85) },
+      { version: 1, charge: enveloppe.charge },
+    ]) {
+      expect(EtatVoulu.safeParse({ ...etatVoulu, enveloppeSignee: mauvaise }).success).toBe(false);
+    }
+    // Jamais copiée dans un événement.
+    expect(Paquet.safeParse({ evenements: [{ ...fin, enveloppeSignee: enveloppe }] }).success).toBe(false);
+  });
 });

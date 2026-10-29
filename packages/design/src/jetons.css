@@ -15,6 +15,7 @@
   --couleur-separateur: #e3d9c6;
   --couleur-texte-principal: #14120f;
   --couleur-texte-secondaire: #3a332b;
+  --couleur-texte-discret: #5e5548;
   --couleur-action: #c24a1b;
   --couleur-actionTexte: #9e3a12;
   --couleur-lien: #a83e15;
@@ -92,9 +93,12 @@
   --espacement-48: 48px;
   --ombre-carte: 0 2px 4px rgba(122,44,13,0.06), 0 12px 32px rgba(122,44,13,0.08);
   --ombre-action: 0 6px 16px rgba(194,74,27,0.28);
+  --ombre-menu: 0 1px 3px rgba(40,12,2,0.35);
   --police-titre: "Fraunces", Georgia, serif;
   --police-texte: "Manrope", system-ui, sans-serif;
+  --police-code: "Inconsolata", ui-monospace, monospace;
   --taille-texte: 15px;
+  --taille-texteMobile: 16px;
   --taille-precision: 13px;
   --taille-soustitre: 18px;
   --taille-titreCarte: 24px;
@@ -119,6 +123,7 @@
   --color-separateur: var(--couleur-separateur);
   --color-texte-principal: var(--couleur-texte-principal);
   --color-texte-secondaire: var(--couleur-texte-secondaire);
+  --color-texte-discret: var(--couleur-texte-discret);
   --color-action: var(--couleur-action);
   --color-actionTexte: var(--couleur-actionTexte);
   --color-lien: var(--couleur-lien);
@@ -196,4 +201,5 @@
   --spacing-48: var(--espacement-48);
   --shadow-carte: var(--ombre-carte);
   --shadow-action: var(--ombre-action);
+  --shadow-menu: var(--ombre-menu);
 }

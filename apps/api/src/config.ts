@@ -16,6 +16,8 @@ export interface Config {
   // Interrupteurs des canaux (C-510) : fermés par défaut.
   hubActif?: boolean;
   crmActif?: boolean;
+  // Adresses de l'équipe pour les e-mails de service (A-116) : le seul endroit où une adresse de destinataire est lue.
+  adressesEquipe?: { will?: string };
 }
 
 // Les clés des fournisseurs d'IA et de la passerelle vivent dans OpenBao seulement (C-391, C-598 d).
@@ -49,6 +51,9 @@ const urlBase = z.string().refine((valeur) => {
 // Seules les valeurs 1 et true ouvrent ; absent ou vide = fermé ; toute autre valeur est refusée.
 const interrupteur = z.preprocess((v) => (v === "" ? undefined : v), z.enum(["0", "1", "true", "false"]).default("0")).transform((v) => v === "1" || v === "true");
 
+// Une seule adresse, sans espace, guillemet, virgule ni saut de ligne.
+const adresseUnique = z.string().regex(/^[^\s@<>",;:()[\]\\]{1,64}@[a-z0-9.-]{1,190}\.[a-z]{2,}$/i).optional();
+
 const Schema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
@@ -57,6 +62,7 @@ const Schema = z.object({
   CRM_URL: urlHttp,
   CONSOLE_HUB_ACTIF: interrupteur,
   CONSOLE_CRM_ACTIF: interrupteur,
+  EQUIPE_ADRESSE_WILL: z.preprocess((v) => (v === "" ? undefined : v), adresseUnique),
 });
 
 export function chargerConfig(env: NodeJS.ProcessEnv, dossierApi = fileURLToPath(new URL("..", import.meta.url))): Config {
@@ -72,7 +78,7 @@ export function chargerConfig(env: NodeJS.ProcessEnv, dossierApi = fileURLToPath
     }
     if (!v.APP_DATABASE_URL) throw new ConfigInvalide("configuration invalide : APP_DATABASE_URL");
   }
-  const { APP_DATABASE_URL: base, HUB_URL: hub, CRM_URL: crm } = v;
+  const { APP_DATABASE_URL: base, HUB_URL: hub, CRM_URL: crm, EQUIPE_ADRESSE_WILL: will } = v;
   const actifs = { hubActif: v.CONSOLE_HUB_ACTIF, crmActif: v.CONSOLE_CRM_ACTIF };
-  return { env: v.NODE_ENV, port: v.PORT, ...actifs, ...(base ? { appDatabaseUrl: base } : {}), ...(hub ? { hubUrl: hub } : {}), ...(crm ? { crmUrl: crm } : {}) };
+  return { env: v.NODE_ENV, port: v.PORT, ...actifs, ...(base ? { appDatabaseUrl: base } : {}), ...(hub ? { hubUrl: hub } : {}), ...(crm ? { crmUrl: crm } : {}), ...(will ? { adressesEquipe: { will } } : {}) };
 }

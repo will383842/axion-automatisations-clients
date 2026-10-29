@@ -154,6 +154,18 @@ describe("sauvegardes (archivage continu, complète de nuit, restauration)", () 
     expect(apres.filter((c) => !avant.includes(c))).toEqual([]);
   });
 
+  it("[C-593] après le lancement de la restauration, la phrase n'est plus dans l'environnement du processus postgres", () => {
+    expect(restaure).not.toBe("");
+    const phrase = dans("postgres", "/opt/sauvegardes/lire-phrase-chiffrement.sh").trim();
+    expect(phrase.length).toBeGreaterThanOrEqual(32);
+    // Le processus 1 du conteneur restauré est postgres (exec) : son environnement ne contient ni la variable ni la valeur.
+    const environnement = sortie("docker", ["exec", restaure, "sh", "-c", "tr '\\0' '\\n' < /proc/1/environ"]);
+    expect(environnement).not.toMatch(/PGBACKREST_REPO1_CIPHER_PASS/);
+    expect(environnement).not.toContain(phrase);
+    // La phrase n'est plus que dans la configuration en mémoire, droits 0400.
+    expect(sortie("docker", ["exec", restaure, "stat", "-c", "%a", "/dev/shm/pgbackrest.conf"]).trim()).toBe("400");
+  });
+
   it("[C-046] sur la cible, aucun fichier ne contient en clair le marqueur écrit dans une table d'essai", () => {
     expect(fichiersCible().length).toBeGreaterThan(0);
     const trouve = spawnSync("docker", ["exec", conteneur("sftp-essai"), "grep", "-rl", MARQUEUR, "/home/sauv/depot"], { encoding: "utf8" });
@@ -239,8 +251,11 @@ describe("sauvegardes (archivage continu, complète de nuit, restauration)", () 
     expect(simuler(new Date().toISOString().slice(0, 10))).toEqual(labels.slice(0, -1));
     // « Hier » : toutes les sauvegardes d'essai sont datées après aujourd'hui, donc intouchables.
     expect(simuler(hier)).toEqual([]);
-    // Dans cinq ans : tout part, sauf la plus récente, toujours gardée.
-    expect(simuler("2030-01-01")).toEqual(labels.slice(0, -1));
+    // Dans cinq ans (horloge qui avance) : la plus récente a plus de 2 jours, l'expiration est refusée net et rien n'est imprimé.
+    const avance = spawnSync(script("expirer.sh"), ["--simuler"], { encoding: "utf8", env: { ...process.env, EXPIRER_AUJOURDHUI: "2030-01-01" } });
+    expect(avance.status).not.toBe(0);
+    expect(avance.stdout).toBe("");
+    expect(avance.stderr).toMatch(/plus de 2 jours/);
     // Exécution réelle avec la date d'hier : rien à expirer, sortie 0, aucune sauvegarde perdue.
     sortie(script("expirer.sh"), [], { env: { ...process.env, EXPIRER_AUJOURDHUI: hier } });
     expect(completes()).toEqual(labels);

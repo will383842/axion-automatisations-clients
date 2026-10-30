@@ -60,7 +60,7 @@ ALTER TABLE "instances" ADD CONSTRAINT "instances_organisation_fk" FOREIGN KEY (
 CREATE INDEX "contacts_tenant_id_idx" ON "contacts" USING btree ("tenant_id");--> statement-breakpoint
 CREATE INDEX "instances_tenant_id_idx" ON "instances" USING btree ("tenant_id");--> statement-breakpoint
 CREATE INDEX "organisations_tenant_id_idx" ON "organisations" USING btree ("tenant_id");--> statement-breakpoint
--- Partie écrite à la main (drizzle-kit ne génère ni RLS, ni droits, ni déclencheurs), dans la même migration que les tables (ADR 0043).
+-- Partie écrite à la main (drizzle-kit ne génère ni RLS, ni droits, ni déclencheurs), dans la même migration que les tables (ADR 0044).
 -- L'organisation « plateforme » est insérée AVANT FORCE ROW LEVEL SECURITY : la migration n'a ni client actif ni politique d'écriture sur ces tables.
 INSERT INTO "public"."organisations" ("tenant_id", "id", "console_client_id", "raison_sociale", "statut") VALUES ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', 'Plateforme AXION', 'prospect');--> statement-breakpoint
 ALTER TABLE "public"."organisations" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint

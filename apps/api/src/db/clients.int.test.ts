@@ -96,7 +96,7 @@ describe("tables de client, avec le socle", { timeout: 30_000 }, () => {
   });
 
   it("[A-119] @isolation une table de tableClient() a la clé primaire (tenant_id, id) et UNIQUE (tenant_id, id) ; console_client_id différent de tenant_id est refusé", async () => {
-    // PostgreSQL fusionne UNIQUE (tenant_id, id) avec la clé primaire de mêmes colonnes : un seul index unique, qui sert de cible aux clés étrangères composées (ADR 0043).
+    // PostgreSQL fusionne UNIQUE (tenant_id, id) avec la clé primaire de mêmes colonnes : un seul index unique, qui sert de cible aux clés étrangères composées (ADR 0044).
     const { rows } = await migration.query(`
       SELECT i.indisprimary, (SELECT string_agg(a.attname, ',' ORDER BY k.ord) FROM unnest(i.indkey::int2[]) WITH ORDINALITY k(n, ord) JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = k.n) AS cols
       FROM pg_index i WHERE i.indrelid = 'public.instances'::regclass AND i.indisunique`);
@@ -211,7 +211,7 @@ describe("tables de client, avec le socle", { timeout: 30_000 }, () => {
     expect(await lignesCassees()).toBe(0);
   });
 
-  it("[A-178] la création d'une organisation écrit au journal ; un contact (données de personnes) n'est pas encore copié au journal (ADR 0043)", async () => {
+  it("[A-178] la création d'une organisation écrit au journal ; un contact (données de personnes) n'est pas encore copié au journal (ADR 0044)", async () => {
     const A = randomUUID();
     await creerOrg(A);
     await ecrire(app, A, (c) => c.query("INSERT INTO contacts (id, tenant_id, organisation_id, nom, email, role) VALUES ($1, $2, $2, 'Camille Essai', 'camille@exemple.fr', 'principal')", [randomUUID(), A]), APPELANT);

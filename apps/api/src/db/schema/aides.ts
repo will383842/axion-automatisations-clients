@@ -1,6 +1,6 @@
 import { index, pgTable, primaryKey, unique, uuid, type PgColumn, type PgColumnBuilderBase, type PgTableExtraConfigValue } from "drizzle-orm/pg-core";
 
-// Organisation réservée « plateforme » (ADR 0043) : porte les valeurs globales d'AXION (tables de T2-02), n'est jamais un client.
+// Organisation réservée « plateforme » (ADR 0044) : porte les valeurs globales d'AXION (tables de T2-02), n'est jamais un client.
 // Elle est insérée par la migration des tables de client ; les listes de clients et les envois vers le CRM l'écartent par cet identifiant.
 export const PLATEFORME_ID = "00000000-0000-0000-0000-000000000001";
 
@@ -12,7 +12,7 @@ type Options = {
   // Table partitionnée par `debut` (executions, T2-06) : clé (tenant_id, id, debut), pas de UNIQUE (tenant_id, id) ;
   // les clés étrangères vers une telle table incluent `debut`.
   partitionnee?: boolean;
-  // false : la table porte des données de personnes, pas de copie au journal tant que le mécanisme d'effacement n'est pas choisi (ADR 0043, T2-11).
+  // false : la table porte des données de personnes, pas de copie au journal tant que le mécanisme d'effacement n'est pas choisi (ADR 0044, T2-11).
   audit?: boolean;
   contraintes?: (t: Record<string, PgColumn>) => PgTableExtraConfigValue[];
 };

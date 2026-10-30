@@ -40,7 +40,7 @@ export const organisations = tableClient(
   },
 );
 
-// Données de personnes : audit_ecrire n'est pas attaché tant que le mécanisme d'effacement du journal n'est pas choisi (ADR 0043 et 0042, T2-11).
+// Données de personnes : audit_ecrire n'est pas attaché tant que le mécanisme d'effacement du journal n'est pas choisi (ADR 0044 et 0042, T2-11).
 export const contacts = tableClient(
   "contacts",
   {

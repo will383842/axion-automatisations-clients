@@ -1,4 +1,4 @@
-# 0043 · Schéma de la base console : tables de client, organisation « plateforme », journal branché
+# 0044 · Schéma de la base console : tables de client, organisation « plateforme », journal branché
 
 Date : 29/10/2026 · Statut : proposé (T2-01b, risque haut : audit de sécurité en 2 tours ensuite) · Contrat touché : aucun (C5 reste en 0.4.0)
 
@@ -19,8 +19,8 @@ T2-01a a posé le journal d'audit chaîné (ADR 0042) sans l'attacher à aucune 
 11. **Contrôle d'IP avec masque** (migration 0003) : la migration commence par la requête de contrôle de l'ADR 0042 et est refusée si elle ne vaut pas 0. La garde interdit les blocs `DO` : la requête convertit en entier un message d'erreur, ce qui fait échouer la migration en affichant le message. Une base qui échoue ici n'est pas à réparer par la migration : décision de l'architecte.
 12. **Liste fermée des fonctions** : `audit_ajouter` et `audit_ecrire` (versions de 0003) entrent dans `scripts/garde-migrations-fonctions.json` avec l'empreinte de leur texte et le numéro de cet ADR. Ce fichier ne figure pas dans les fichiers autorisés de la fiche ; il est modifié parce que la liste fermée l'exige pour toute fonction remplacée.
 
-## R4 : adresse IP en clair ou HMAC — NON TRANCHÉ
-La décision attendue du responsable du dépôt (ADR 0042, R4) n'est pas prise. Cette PR n'écrit **aucune vraie adresse IP** : rien dans le code n'appelle `avecClient` avec une IP, et les essais n'utilisent que `192.0.2.17` (plage de documentation). La colonne `journal_audit.ip` reste telle quelle. À trancher AVANT que la console ne journalise de vraies adresses.
+## R4 : adresse IP en clair ou HMAC — tranché
+R4 tranché par Will (29/10/2026) : option B, empreinte HMAC de l'IP seulement (clé par période, hors base), à construire dans une fiche dédiée après T2-01b. D'ici là, aucun appelant ne passe `ip` à `avecClient` et la colonne `ip` reste vide en production.
 
 ## Risques acceptés et dettes
 - Un `TRUNCATE` par le propriétaire d'une table de client n'écrit rien au journal (aucun déclencheur par instruction) ; `console_app` n'a pas ce droit.

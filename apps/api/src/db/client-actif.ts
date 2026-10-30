@@ -11,9 +11,13 @@ import type { Pool, PoolClient } from "pg";
 // 6. Les lectures de toutes les données passent par avecEquipe(poolEquipe, fn) : autre rôle, autre pool, lecture seule.
 // 7. avecClient peut aussi fixer l'acteur et l'adresse de l'appelant (app.acteur, app.ip), de la même façon : portée de la transaction.
 //    Le journal d'audit les lit ; ils ne passent jamais d'une transaction à la suivante. L'adresse est validée (net.isIP), l'acteur borné.
+// 8. Dès le BEGIN, toute transaction (avecClient comme avecEquipe) pose idle_in_transaction_session_timeout et lock_timeout à 5 s : une transaction
+//    qui tient une ligne sans rien faire ne bloque pas, par le journal d'audit, les écritures des autres clients (ADR 0042, réserve R1 ; ADR 0044).
 // Limite : un SQL arbitraire exécuté par l'application peut fixer app.tenant_id lui-même ; seul ce fichier doit le faire.
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// Portée de la transaction (true), jamais de la session ; pas d'ALTER ROLE (garde des migrations, ADR 0041).
+const DELAIS = "SELECT set_config('idle_in_transaction_session_timeout', '5s', true), set_config('lock_timeout', '5s', true)";
+const UUID =/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 async function enTransaction<T>(pool: Pool, ouvrir: (client: PoolClient) => Promise<void>, fn: (client: PoolClient) => Promise<T>): Promise<T> {
   const client = await pool.connect();
@@ -41,7 +45,7 @@ async function enTransaction<T>(pool: Pool, ouvrir: (client: PoolClient) => Prom
 export type Appelant = { acteur: string; ip?: string };
 const ACTEUR_MAX = 128;
 // Pas de caractère de contrôle (saut de ligne, nul), invisible ou d'inversion dans l'acteur : il finit dans le journal d'audit. Même classe que audit_ajouter (migration 0002).
-const CONTROLE = /[\p{Cc}\u200B-\u200F\u202A-\u202E\u2028\u2029\u2060-\u206F\uFEFF\u061C]/u;
+const CONTROLE = /[\p{Cc}\u200B-\u200F\u202A-\u202E\u2028\u2029\u2060-\u206F\uFEFF\u061C\u180E\u00AD\u3164]/u;
 
 export function verifierAppelant(appelant: Appelant): void {
   const acteur = appelant.acteur;
@@ -57,6 +61,7 @@ export async function avecClient<T>(pool: Pool, tenantId: string, fn: (client: P
     pool,
     async (client) => {
       await client.query("BEGIN");
+      await client.query(DELAIS);
       await client.query("SELECT set_config('app.tenant_id', $1, true)", [tenantId]);
       if (appelant) await client.query("SELECT set_config('app.acteur', $1, true), set_config('app.ip', $2, true)", [appelant.acteur, appelant.ip ?? ""]);
     },
@@ -65,5 +70,12 @@ export async function avecClient<T>(pool: Pool, tenantId: string, fn: (client: P
 }
 
 export async function avecEquipe<T>(poolEquipe: Pool, fn: (client: PoolClient) => Promise<T>): Promise<T> {
-  return enTransaction(poolEquipe, async (client) => void (await client.query("BEGIN READ ONLY")), fn);
+  return enTransaction(
+    poolEquipe,
+    async (client) => {
+      await client.query("BEGIN READ ONLY");
+      await client.query(DELAIS);
+    },
+    fn,
+  );
 }

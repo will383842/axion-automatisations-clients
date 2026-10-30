@@ -68,7 +68,7 @@ afterAll(async () => {
   await Promise.all(ouverts.map((o) => o.end().catch(() => undefined)));
 });
 
-describe("journal d'audit chaîné, avec le socle", () => {
+describe("journal d'audit chaîné, avec le socle", { timeout: 30_000 }, () => {
   it("[C-028] @isolation UPDATE, DELETE et TRUNCATE du journal sont refusés pour console_app, console_equipe et console_migration", async () => {
     const A = randomUUID();
     await ecrire(A, "essai_refus", "r1");

@@ -39,7 +39,7 @@ afterAll(async () => {
   await Promise.all([migration.end(), app.end()].map((p) => p.catch(() => undefined)));
 });
 
-describe("journal d'audit en base", () => {
+describe("journal d'audit en base", { timeout: 30_000 }, () => {
   it("[A-131] le port JournalAudit écrit dans la base hors tests unitaires", async () => {
     const journal = creerJournalAuditBase(app);
     const A = randomUUID();

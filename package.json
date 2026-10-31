@@ -22,7 +22,7 @@
     "libpg-query": "17.8.1",
     "typescript": "^5.6.0",
     "tsx": "4.23.15",
-    "typescript-eslint": "^8.0.0",
+    "typescript-eslint": "^8.72.1",
     "vitest": "^4.1.12"
   }
 }

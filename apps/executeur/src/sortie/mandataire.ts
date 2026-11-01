@@ -17,7 +17,9 @@ export interface Mandataire {
 }
 
 const resoudreSysteme: Resolveur = async (h) => (await lookup(h, { all: true })).map((a) => a.address);
-const REPONSES: Record<number, string> = { 200: "Connection Established", 403: "Forbidden", 405: "Method Not Allowed", 502: "Bad Gateway" };
+const REPONSES: Record<number, string> = { 200: "Connection Established", 403: "Forbidden", 405: "Method Not Allowed", 502: "Bad Gateway", 504: "Gateway Timeout" };
+// Délai maximal d'inactivité (ou d'établissement) d'une connexion, côté client comme côté amont.
+const DELAI_MS = 10_000;
 const reponse = (code: number) => `HTTP/1.1 ${code} ${REPONSES[code]}\r\nConnection: close\r\n\r\n`;
 
 // Seul chemin réseau de l'exécution : CONNECT vers les couples hôte:port déclarés par les connecteurs de l'instance.
@@ -29,6 +31,9 @@ export async function demarrerMandataire(opts: OptionsMandataire): Promise<Manda
   const resoudre = opts.resoudre ?? resoudreSysteme;
   const srv: Server = createServer((socket) => {
     socket.on("error", () => socket.destroy());
+    socket.setTimeout(DELAI_MS);
+    // Expiration avant l'ouverture du tunnel : 504 si possible ; sinon on coupe. Rien de la cible n'est consigné.
+    socket.on("timeout", () => (socket.writable && !socket.destroyed ? socket.end(reponse(504)) : socket.destroy()));
     let tampon = Buffer.alloc(0);
     const surDonnees = (d: Buffer) => {
       tampon = Buffer.concat([tampon, d]);
@@ -57,10 +62,20 @@ export async function demarrerMandataire(opts: OptionsMandataire): Promise<Manda
       const v = await evaluer(dest, opts.declarees, { resoudre, ...(opts.exceptions ? { exceptions: opts.exceptions } : {}), env: process.env.NODE_ENV });
       if (!v.autorise) return refus(403, v.raison);
       const sortant = connect({ host: v.adresse, port: dest.port });
-      sortant.on("error", () => socket.end(reponse(502)));
+      sortant.setTimeout(DELAI_MS);
+      let ouvert = false;
+      sortant.on("timeout", () => {
+        sortant.destroy();
+        if (ouvert) socket.destroy();
+        else socket.end(reponse(504));
+      });
+      sortant.on("error", () => (ouvert ? socket.destroy() : socket.end(reponse(502))));
       socket.on("close", () => sortant.destroy());
       sortant.on("close", () => socket.destroy());
       sortant.once("connect", () => {
+        ouvert = true;
+        socket.removeAllListeners("timeout");
+        socket.on("timeout", () => sortant.destroy());
         socket.write(reponse(200));
         if (reste.length > 0) sortant.write(reste);
         socket.pipe(sortant);

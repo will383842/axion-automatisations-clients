@@ -10,8 +10,9 @@ const lire = (p: string) => readFileSync(fileURLToPath(new URL(`../../../${p}`, 
 const dockerfile = lire("ops/images/axion-moteur/Dockerfile");
 const entree = lire("ops/images/axion-moteur/point-entree.sh");
 const compose = lire("ops/socle/compose.executeur.yml");
+const aService = /^ {2}axion-moteur:/m.test(compose);
 describe("image axion-moteur", () => {
-  it("[A-327] l'image démarre en non root et refuse une écriture hors de /tmp", () => {
+  it("le Dockerfile impose un amont épinglé, un utilisateur non root et un point d'entrée qui refuse le root (statique, l'image n'est pas construite ici)", () => {
     const from = dockerfile.split("\n").filter((l) => /^FROM\s/i.test(l));
     expect(from).toHaveLength(1);
     expect(from[0]).toMatch(/@sha256:[0-9a-f]{64}$/);
@@ -20,20 +21,29 @@ describe("image axion-moteur", () => {
     expect(dockerfile).not.toMatch(/\.env|API_KEY|SECRET|PASSWORD|TOKEN/i);
     expect(entree).toMatch(/id -u/);
     expect(entree).toMatch(/exit 1/);
+  });
+  it("le code de l'image appartient à root et n'est pas écrivable : seul /tmp est écrivable", () => {
+    expect(dockerfile).not.toMatch(/--chown/);
+    expect(dockerfile).toMatch(/chmod 0555/);
+    expect(dockerfile).toMatch(/-type d[^\n]*chmod 0555/);
+    expect(dockerfile).toMatch(/-type f[^\n]*chmod 0444/);
+  });
+  it("le conteneur enveloppe est lancé en lecture seule, sans capacité, avec un seul /tmp borné (ce n'est pas l'image moteur)", () => {
     expect(argumentsConteneur(brique)).toEqual(expect.arrayContaining(["--read-only", "--cap-drop=ALL", "--tmpfs=/tmp:rw,noexec,nosuid,size=64m"]));
   });
-  it("[A-327] le compose passe la garde et n'ouvre aucune écriture hors du module enveloppe", () => {
+  it("le compose passe la garde et n'expose pas le socket Docker (garde : vide tant que le service axion-moteur n'existe pas)", () => {
     expect(verifierCompose("compose.executeur.yml", compose)).toEqual([]);
     expect(compose).not.toMatch(/docker\.sock|user:\s*"?(root|0)\b/);
   });
+  it.todo("[A-327] le service axion-moteur du compose est non root et sans écriture hors /tmp (à prouver quand le service existe)");
   it("[C-495] l'image ne contient aucun binaire headscale ni tailscale", () => {
     expect(dockerfile).not.toMatch(/headscale|tailscale/i);
     expect(entree).not.toMatch(/headscale|tailscale/i);
     expect(lire("ops/images/axion-moteur/README.md")).toMatch(/aucun.*(headscale|tailscale)/i);
   });
-  it("[A-347] le compose de la cellule porte l'image par empreinte, jamais par étiquette", () => {
-    // Tant que rien n'est publié, le compose n'a pas de service axion-moteur ; dès qu'il en aura un, son image portera l'empreinte.
-    expect(compose).not.toMatch(/axion-moteur[^\n]*:(latest|\d[\w.-]*)\s*$/m);
+  it("garde : dès que le service axion-moteur existe, son image porte l'empreinte", () => {
     for (const l of compose.split("\n").filter((x) => /^\s*image:/.test(x))) expect(l).toMatch(/@sha256:[0-9a-f]{64}\s*$/);
+    if (aService) expect(compose).toMatch(/image:\s*\S+@sha256:[0-9a-f]{64}/);
   });
+  it.todo("[A-347] le service axion-moteur du compose porte l'image par empreinte (à prouver quand le service existe)");
 });

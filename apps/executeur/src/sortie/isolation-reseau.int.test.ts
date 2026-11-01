@@ -51,4 +51,18 @@ describe("isolement réseau de l'exécuteur (intégration)", () => {
       if (rs.includes("executeur-interne")) expect(rs.filter((x) => x !== "executeur-interne" && x !== "sortie"), nom).toEqual([]);
     }
   });
+  it("[A-331] @isolation le compose assemblé n'a plus de réseau enveloppe : aucun openbao ni courtier dessus, et le moteur ne le rejoint pas", () => {
+    const assemble = execFileSync("bash", ["ops/socle/lancer.sh", "--assembler"], { cwd: racine, encoding: "utf8" });
+    const { reseaux, services } = lireAssemble(assemble);
+    // Ni « enveloppe », ni « socle_enveloppe » (le projet s'appelle socle) : le conteneur enveloppe est lancé avec --network=none.
+    expect([...reseaux.keys()].filter((r) => /enveloppe/i.test(r))).toEqual([]);
+    for (const [nom, rs] of services) expect(rs.filter((r) => /enveloppe/i.test(r)), nom).toEqual([]);
+    expect(assemble).not.toMatch(/enveloppe/i);
+    expect(readFileSync(`${racine}ops/socle/compose.executeur.yml`, "utf8")).not.toMatch(/^\s*enveloppe:|enable_icc/m);
+  });
+  it("[A-330] reste vrai : le réseau de l'exécuteur reste interne et aucun service de base n'y est", () => {
+    const fragment = lireAssemble(readFileSync(`${racine}ops/socle/compose.executeur.yml`, "utf8"));
+    expect(fragment.reseaux.get("executeur-interne")).toContain("internal: true");
+    expect([...fragment.reseaux.keys()].sort()).toEqual(["executeur-interne", "sortie"]);
+  });
 });

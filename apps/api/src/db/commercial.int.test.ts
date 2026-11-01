@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
+import { writeSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
@@ -75,9 +76,9 @@ afterAll(async () => {
   await Promise.all(ouverts.map((o) => o.end().catch(() => undefined)));
 });
 
-// Le rapport de la CI est un JSON hors du journal : un essai en échec est écrit ici pour être lisible dans le journal du job.
+// Le rapport de la CI est un JSON hors du journal : un essai en échec est écrit par writeSync(2, …) (console.log y est avalé), lisible dans le journal du job.
 afterEach((contexte) => {
-  if (contexte.task.result?.state === "fail") console.log(`ECHEC ${contexte.task.name} : ${String(contexte.task.result.errors?.[0]?.message ?? "").slice(0, 400)}`);
+  if (contexte.task.result?.state === "fail") writeSync(2, `ECHEC ${contexte.task.name} : ${String(contexte.task.result.errors?.[0]?.message ?? "").slice(0, 400)}\n`);
 });
 
 describe("plan commercial, avec le socle", { timeout: 60_000 }, () => {

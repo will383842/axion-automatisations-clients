@@ -61,16 +61,19 @@ export async function demarrerMandataire(opts: OptionsMandataire): Promise<Manda
       const entete = lignes.slice(1).find((l) => /^host:/i.test(l))?.slice(5).trim();
       if (entete !== undefined && entete.toLowerCase() !== cible.toLowerCase()) return refus(403, "entete_incoherent");
       const v = await evaluer(dest, opts.declarees, { resoudre, ...(opts.exceptions ? { exceptions: opts.exceptions } : {}), env: process.env.NODE_ENV });
-      // Le client est parti pendant la résolution : on n'ouvre rien vers l'amont.
-      if (socket.destroyed) return;
+      // Le client est parti (ou a été clos par l'expiration des 10 s) pendant la résolution : on n'ouvre rien vers l'amont.
+      if (socket.destroyed || !socket.writable) {
+        if (!v.autorise) refuser(v.raison);
+        return;
+      }
       if (!v.autorise) return refus(403, v.raison);
       const sortant = connect({ host: v.adresse, port: dest.port });
       sortant.setTimeout(DELAI_ETABLISSEMENT_MS);
       let ouvert = false;
       sortant.on("timeout", () => {
-        sortant.destroy();
         if (ouvert) socket.destroy();
         else socket.end(reponse(504));
+        sortant.destroy();
       });
       sortant.on("error", () => (ouvert ? socket.destroy() : socket.end(reponse(502))));
       socket.on("close", () => sortant.destroy());

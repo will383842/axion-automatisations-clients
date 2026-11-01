@@ -124,11 +124,13 @@ describe("mandataire de sortie", () => {
   const attendre = (ms: number) => new Promise((ok) => setTimeout(ok, ms));
   const requeteConnect = (p: number) => `CONNECT api.exemple.test:${p} HTTP/1.1\r\nHost: api.exemple.test:${p}\r\n\r\n`;
 
-  it("[A-329] un client parti pendant une résolution DNS lente n'ouvre aucune connexion amont", async () => {
+  // Le client part pendant la résolution ; on attend la fermeture côté serveur (événement close), puis on libère la résolution.
+  async function clientPartiPendantResolution(adresse: string): Promise<{ amont: Awaited<ReturnType<typeof amontSilencieux>>; m: Mandataire }> {
     const amont = await amontSilencieux();
+    const reglages = espionnerDelais();
     let liberer: (a: string[]) => void = () => undefined;
     let demarree = false;
-    const { port } = await mandataire({
+    const { m, port } = await mandataire({
       declarees: [{ hote: "api.exemple.test", port: amont.port }],
       resoudre: () => new Promise<string[]>((ok) => { demarree = true; liberer = ok; }),
       exceptions: ["127.0.0.1"],
@@ -136,11 +138,25 @@ describe("mandataire de sortie", () => {
     const s: Socket = connect(port, "127.0.0.1", () => s.write(requeteConnect(amont.port)));
     s.on("error", () => undefined);
     while (!demarree) await attendre(5);
+    const cote = reglages.find((x) => x.ms === 10_000 && !x.socket.connecting)?.socket;
+    expect(cote).toBeDefined();
+    const serveurFerme = new Promise<void>((ok) => cote?.once("close", () => ok()));
     s.destroy();
-    await attendre(50);
-    liberer(["127.0.0.1"]);
+    await serveurFerme;
+    liberer([adresse]);
     await attendre(150);
+    return { amont, m };
+  }
+
+  it("[A-329] un client parti pendant une résolution DNS lente n'ouvre aucune connexion amont", async () => {
+    const { amont } = await clientPartiPendantResolution("127.0.0.1");
     expect(amont.connexions()).toBe(0);
+  });
+
+  it("[A-329] client parti pendant la résolution et adresse interdite : le refus est quand même compté", async () => {
+    const { amont, m } = await clientPartiPendantResolution("10.0.0.5");
+    expect(amont.connexions()).toBe(0);
+    expect(m.refus()).toEqual({ adresse_interdite: 1 });
   });
 
   it("[A-329] après l'expiration des 10 s pendant la résolution DNS, la libération de la résolution n'ouvre aucune connexion amont et le client a reçu 504", async () => {
@@ -227,7 +243,7 @@ describe("mandataire de sortie", () => {
     await clientFerme;
     await attendre(100);
     expect(amont.fermetures()).toBe(1); // l'amont a bien vu sa connexion coupée
-    expect(performance.now() - debut).toBeLessThan(5_000); // coupure par l'expiration simulée, pas par une vraie attente
+    expect(performance.now() - debut).toBeLessThan(1_000); // coupure par l'expiration simulée, pas par une vraie attente
     for (const o of [journal, erreurs]) expect(JSON.stringify(o.mock.calls)).not.toContain("api.exemple.test");
   });
 

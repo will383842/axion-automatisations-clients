@@ -4,6 +4,7 @@ import { demarrerMandataire, type Mandataire } from "./mandataire.ts";
 
 const ouverts: { close: () => unknown }[] = [];
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.useRealTimers();
   for (const o of ouverts.splice(0)) o.close();
 });
@@ -97,42 +98,101 @@ describe("mandataire de sortie", () => {
     expect(JSON.stringify(m.refus())).not.toContain("secret-du-client");
   });
 
-  it("[A-329] un serveur amont qui n'écrit jamais est coupé après 10 secondes, sans réponse ni journal de la cible", async () => {
-    const silencieux = createServer(() => undefined);
-    ouverts.push(silencieux);
-    await new Promise<void>((ok) => silencieux.listen(0, "127.0.0.1", ok));
-    const portDistant = (silencieux.address() as { port: number }).port;
-    const { port } = await mandataire({
-      declarees: [{ hote: "api.exemple.test", port: portDistant }],
-      resoudre: async () => ["127.0.0.1"],
-      exceptions: ["127.0.0.1"],
-    });
-    // Les délais de socket de Node n'obéissent pas aux horloges simulées : on relève le délai demandé, puis on le fait « expirer ».
+  // Les délais de socket de Node n'obéissent pas aux horloges simulées : on relève les délais demandés, puis on les fait « expirer ».
+  function espionnerDelais(surReglage?: (s: Socket, ms: number) => void): { socket: Socket; ms: number }[] {
     const reglages: { socket: Socket; ms: number }[] = [];
     const reel = Socket.prototype.setTimeout;
     vi.spyOn(Socket.prototype, "setTimeout").mockImplementation(function (this: Socket, ms: number, cb?: () => void) {
       reglages.push({ socket: this, ms });
+      surReglage?.(this, ms);
       return reel.call(this, ms, cb);
     });
+    return reglages;
+  }
+  async function amontSilencieux(): Promise<{ port: number; fermetures: () => number; connexions: () => number }> {
+    let fermees = 0;
+    let recues = 0;
+    const srv = createServer((s) => {
+      recues++;
+      s.on("close", () => fermees++);
+      s.on("error", () => undefined);
+    });
+    ouverts.push(srv);
+    await new Promise<void>((ok) => srv.listen(0, "127.0.0.1", ok));
+    return { port: (srv.address() as { port: number }).port, fermetures: () => fermees, connexions: () => recues };
+  }
+  const attendre = (ms: number) => new Promise((ok) => setTimeout(ok, ms));
+  const requeteConnect = (p: number) => `CONNECT api.exemple.test:${p} HTTP/1.1\r\nHost: api.exemple.test:${p}\r\n\r\n`;
+
+  it("[A-329] un client parti pendant une résolution DNS lente n'ouvre aucune connexion amont", async () => {
+    const amont = await amontSilencieux();
+    let liberer: (a: string[]) => void = () => undefined;
+    let demarree = false;
+    const { port } = await mandataire({
+      declarees: [{ hote: "api.exemple.test", port: amont.port }],
+      resoudre: () => new Promise<string[]>((ok) => { demarree = true; liberer = ok; }),
+      exceptions: ["127.0.0.1"],
+    });
+    const s: Socket = connect(port, "127.0.0.1", () => s.write(requeteConnect(amont.port)));
+    s.on("error", () => undefined);
+    while (!demarree) await attendre(5);
+    s.destroy();
+    await attendre(50);
+    liberer(["127.0.0.1"]);
+    await attendre(150);
+    expect(amont.connexions()).toBe(0);
+  });
+
+  it("[A-329] avant le tunnel : 10 s côté client et côté amont ; une fois ouvert : 60 s d'inactivité des deux côtés", async () => {
+    const amont = await amontSilencieux();
+    const reglages = espionnerDelais();
+    const { port } = await mandataire({ declarees: [{ hote: "api.exemple.test", port: amont.port }], resoudre: async () => ["127.0.0.1"], exceptions: ["127.0.0.1"] });
+    const r = await new Promise<string>((ok) => {
+      const s: Socket = connect(port, "127.0.0.1", () => s.write(requeteConnect(amont.port)));
+      s.on("data", (d) => { ok(d.toString()); s.destroy(); });
+      s.on("error", () => undefined);
+    });
+    expect(r).toMatch(/^HTTP\/1\.1 200/);
+    const avant = new Set(reglages.filter((x) => x.ms === 10_000).map((x) => x.socket));
+    const apres = new Set(reglages.filter((x) => x.ms === 60_000).map((x) => x.socket));
+    expect(avant.size).toBeGreaterThanOrEqual(2); // client ET amont
+    expect(apres.size).toBeGreaterThanOrEqual(2);
+    for (const sk of apres) expect(avant.has(sk)).toBe(true); // les mêmes deux sockets passent de 10 s à 60 s
+  });
+
+  it.each(["client", "amont"] as const)("[A-329] tunnel ouvert : l'expiration du seul côté %s coupe les DEUX sockets, sans journal de la cible", async (cote) => {
+    const amont = await amontSilencieux();
+    const reglages = espionnerDelais();
     const journal = vi.spyOn(console, "log");
     const erreurs = vi.spyOn(console, "error");
-    const duree = await new Promise<number>((ok, ko) => {
-      const s: Socket = connect(port, "127.0.0.1", () =>
-        s.write(`CONNECT api.exemple.test:${portDistant} HTTP/1.1\r\nHost: api.exemple.test:${portDistant}\r\n\r\n`),
-      );
-      vi.useFakeTimers();
-      const debut = Date.now();
+    const { port } = await mandataire({ declarees: [{ hote: "api.exemple.test", port: amont.port }], resoudre: async () => ["127.0.0.1"], exceptions: ["127.0.0.1"] });
+    const debut = performance.now();
+    const clientFerme = new Promise<void>((ok) => {
+      const s: Socket = connect(port, "127.0.0.1", () => s.write(requeteConnect(amont.port)));
       s.on("data", (d) => {
         if (!d.toString().startsWith("HTTP/1.1 200")) return;
-        // Tunnel ouvert, l'amont ne dira jamais rien : 10 s simulées s'écoulent.
-        vi.advanceTimersByTime(10_000);
-        for (const r of reglages.filter((x) => x.ms === 10_000)) r.socket.emit("timeout");
+        const longs = reglages.filter((x) => x.ms === 60_000).map((x) => x.socket);
+        const cible = cote === "client" ? longs.find((x) => !x.remotePort || x.remotePort !== amont.port) : longs.find((x) => x.remotePort === amont.port);
+        cible?.emit("timeout");
       });
-      s.on("close", () => ok(Date.now() - debut));
-      s.on("error", () => ko(new Error("erreur socket")));
+      s.on("close", () => ok());
+      s.on("error", () => undefined);
     });
-    expect(reglages.filter((r) => r.ms === 10_000).length).toBeGreaterThanOrEqual(2); // client ET amont
-    expect(duree).toBeGreaterThanOrEqual(10_000);
+    await clientFerme;
+    await attendre(100);
+    expect(amont.fermetures()).toBe(1); // l'amont a bien vu sa connexion coupée
+    expect(performance.now() - debut).toBeLessThan(5_000); // coupure par l'expiration simulée, pas par une vraie attente
     for (const o of [journal, erreurs]) expect(JSON.stringify(o.mock.calls)).not.toContain("api.exemple.test");
+  });
+
+  it("[A-329] une connexion amont qui n'aboutit pas dans les 10 s reçoit 504 (et non 502)", async () => {
+    const amont = await amontSilencieux();
+    // Seul le socket sortant est encore « en connexion » au moment du réglage : on le fait expirer aussitôt.
+    espionnerDelais((sk, ms) => {
+      if (ms === 10_000 && sk.connecting) queueMicrotask(() => sk.emit("timeout"));
+    });
+    const { port } = await mandataire({ declarees: [{ hote: "api.exemple.test", port: amont.port }], resoudre: async () => ["127.0.0.1"], exceptions: ["127.0.0.1"] });
+    const r = await brut(port, requeteConnect(amont.port));
+    expect(r.ligne).toMatch(/^HTTP\/1\.1 504/);
   });
 });

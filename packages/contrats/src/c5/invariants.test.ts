@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
-import { INVARIANTS_C5, REGLES_C5, ROLES_ADMINISTRATION, TABLES_COMMUNES, VOCABULAIRE, controlerInvariants, type Ecart, type Requete } from "./invariants.ts";
+import { INVARIANTS_C5, REGLES_C5, ROLES_ADMINISTRATION, TABLES_COMMUNES, VOCABULAIRE, controlerInvariants, type Ecart, type Options, type Requete } from "./invariants.ts";
 
 // Ces tests ont besoin d'un PostgreSQL : l'URL d'un serveur jetable est dans CONTRATS_PG_URL
 // (job contrats-pg de la CI). Sans elle, ils sont sautés et la PR le dit.
@@ -40,11 +40,11 @@ const EXECUTIONS = `CREATE TABLE executions (id bigint, tenant_id uuid NOT NULL,
 const PARTITION = "CREATE TABLE executions_2026_10 PARTITION OF executions FOR VALUES FROM ('2026-10-01') TO ('2026-11-01');";
 
 const base = (nom: string) => `contrats_c5_${nom}_${process.pid}`;
-async function avec(nom: string, sql: string, fn: (ecarts: Ecart[]) => void, nomBase = base(nom)): Promise<void> {
+async function avec(nom: string, sql: string, fn: (ecarts: Ecart[]) => void, nomBase = base(nom), options?: Options): Promise<void> {
   psql(undefined, `CREATE DATABASE ${nomBase}`);
   try {
     psql(nomBase, CONFORME + sql);
-    fn(await controlerInvariants(requeteSur(nomBase), nomBase));
+    fn(await controlerInvariants(requeteSur(nomBase), nomBase, options));
   } finally {
     psql(undefined, `DROP DATABASE IF EXISTS ${nomBase}`);
   }
@@ -180,50 +180,59 @@ describe.skipIf(!URL_PG)("C5 invariants du schéma", () => { // fiche: T0-16
     });
   });
 
-  // Règle C5 de T2-03 (renvoyée par l'ADR 0050 §5) : sur une table commune, aucun rôle de l'application ne peut écrire ; seul le rôle d'équipe (nom en `_equipe`) le peut.
-  it("[A-119] @isolation un rôle de l'application qui peut insérer, modifier, supprimer ou vider une table commune est signalé ecriture_commune_ouverte", async () => {
-    const app = `app_c5_ecrit_${process.pid}`;
-    psql(undefined, `CREATE ROLE ${app}`);
+  // Règle C5 de T2-03 (renvoyée par l'ADR 0050 §5) : sur une table commune, seuls les rôles d'équipe (liste EXACTE) et d'administration écrivent.
+  it("[A-119] @isolation un rôle qui peut insérer, modifier, supprimer, vider, accrocher un déclencheur ou référencer une table commune est signalé ecriture_commune_ouverte", async () => {
+    const role = `app_c5_ecrit_${process.pid}`;
+    psql(undefined, `CREATE ROLE ${role}`);
     try {
-      for (const droit of ["INSERT", "UPDATE", "DELETE", "TRUNCATE"]) {
-        await avec(`ecrit_${droit.toLowerCase()}`, `${COMMUNE} GRANT SELECT, ${droit} ON exclusions_plateforme TO ${app};`, (e) => {
-          expect(e, droit).toContainEqual({ regle: "ecriture_commune_ouverte", objet: `exclusions_plateforme:${app}` });
+      for (const droit of ["INSERT", "UPDATE", "DELETE", "TRUNCATE", "TRIGGER", "REFERENCES"]) {
+        await avec(`ecrit_${droit.toLowerCase()}`, `${COMMUNE} GRANT SELECT, ${droit} ON exclusions_plateforme TO ${role};`, (e) => {
+          expect(e, droit).toContainEqual({ regle: "ecriture_commune_ouverte", objet: `exclusions_plateforme:${role}` });
         });
       }
     } finally {
-      psql(undefined, `DROP ROLE IF EXISTS ${app}`);
+      psql(undefined, `DROP ROLE IF EXISTS ${role}`);
     }
   });
 
-  it("[A-119] @isolation un droit d'écriture par colonne, ou donné à PUBLIC, sur une table commune est lui aussi signalé", async () => {
-    const app = `app_c5_col_${process.pid}`;
-    psql(undefined, `CREATE ROLE ${app}`);
+  it("[A-119] @isolation un droit d'écriture par colonne, ou donné à PUBLIC, sur une table commune est lui aussi signalé, même pour un rôle qui ne répond pas à rolesApplication", async () => {
+    const role = `lecteur_c5_col_${process.pid}`;
+    psql(undefined, `CREATE ROLE ${role}`);
     try {
-      await avec("ecrit_colonne", `${COMMUNE} GRANT SELECT, UPDATE (empreinte_email) ON exclusions_plateforme TO ${app};`, (e) => {
-        expect(e).toContainEqual({ regle: "ecriture_commune_ouverte", objet: `exclusions_plateforme:${app}` });
+      await avec("ecrit_colonne", `${COMMUNE} GRANT SELECT, UPDATE (empreinte_email) ON exclusions_plateforme TO ${role};`, (e) => {
+        expect(e).toContainEqual({ regle: "ecriture_commune_ouverte", objet: `exclusions_plateforme:${role}` });
       });
       await avec("ecrit_public", `${COMMUNE} GRANT INSERT ON exclusions_plateforme TO PUBLIC;`, (e) => {
-        expect(e).toContainEqual({ regle: "ecriture_commune_ouverte", objet: `exclusions_plateforme:${app}` });
+        expect(e).toContainEqual({ regle: "ecriture_commune_ouverte", objet: `exclusions_plateforme:${role}` });
       });
     } finally {
-      psql(undefined, `DROP ROLE IF EXISTS ${app}`);
+      psql(undefined, `DROP ROLE IF EXISTS ${role}`);
     }
   });
 
-  it("[A-119] @isolation un rôle de l'application en lecture seule et un rôle d'équipe qui écrit ne sont pas signalés", async () => {
+  it("[A-119] @isolation seul un rôle nommé exactement dans rolesEquipe écrit sans être signalé : un nom qui contient « equipe » ne suffit pas, l'héritage non plus", async () => {
     const app = `app_c5_lit_${process.pid}`;
-    const equipe = `app_equipe_c5_${process.pid}`;
-    psql(undefined, `CREATE ROLE ${app}; CREATE ROLE ${equipe}`);
+    const equipe = `equipe_c5_${process.pid}`;
+    const faux = `app_equipe_c5_${process.pid}`;
+    psql(undefined, `CREATE ROLE ${app}; CREATE ROLE ${equipe}; CREATE ROLE ${faux}`);
     try {
+      const options = { rolesApplication: /^app(_|$)/, rolesEquipe: [equipe] };
       await avec("ecrit_equipe", `${COMMUNE} GRANT SELECT ON exclusions_plateforme TO ${app}; GRANT SELECT, INSERT ON exclusions_plateforme TO ${equipe};`, (e) => {
         expect(regles(e)).not.toContain("ecriture_commune_ouverte");
-      });
+      }, undefined, options);
+      await avec("ecrit_faux_equipe", `${COMMUNE} GRANT SELECT, INSERT ON exclusions_plateforme TO ${faux};`, (e) => {
+        expect(e).toContainEqual({ regle: "ecriture_commune_ouverte", objet: `exclusions_plateforme:${faux}` });
+      }, undefined, options);
       // Un rôle de l'application membre du rôle d'équipe en hérite : signalé.
       await avec("ecrit_membre", `${COMMUNE} GRANT SELECT, INSERT ON exclusions_plateforme TO ${equipe}; GRANT ${equipe} TO ${app};`, (e) => {
         expect(e).toContainEqual({ regle: "ecriture_commune_ouverte", objet: `exclusions_plateforme:${app}` });
+      }, undefined, options);
+      // Par défaut (liste d'équipe du socle), un rôle d'équipe inconnu est signalé : échec fermé.
+      await avec("ecrit_defaut", `${COMMUNE} GRANT SELECT, INSERT ON exclusions_plateforme TO ${equipe};`, (e) => {
+        expect(e).toContainEqual({ regle: "ecriture_commune_ouverte", objet: `exclusions_plateforme:${equipe}` });
       });
     } finally {
-      psql(undefined, `DROP ROLE IF EXISTS ${app}, ${equipe}`);
+      psql(undefined, `DROP ROLE IF EXISTS ${app}, ${equipe}, ${faux}`);
     }
   });
 

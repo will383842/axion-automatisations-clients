@@ -92,3 +92,18 @@ export const instances = tableClient(
     ],
   },
 );
+
+// Colonnes de `instances` que console_app peut lire (migration 0007) : les colonnes d'origine (C-676) lui sont fermées. `db.select().from(instances)` et
+// `.returning()` sans argument listent toutes les colonnes et échouent en 42501 pour ce rôle : choisir ces colonnes (T2-37).
+export const COLONNES_INSTANCES_APP = Object.freeze({
+  tenantId: instances.tenantId,
+  id: instances.id,
+  organisationId: instances.organisationId,
+  codeAutomatisation: instances.codeAutomatisation,
+  formule: instances.formule,
+  environnement: instances.environnement,
+  etat: instances.etat,
+  creeLe: instances.creeLe,
+  versionCouranteId: instances.versionCouranteId,
+  automatisationId: instances.automatisationId,
+});

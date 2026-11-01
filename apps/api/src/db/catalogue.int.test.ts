@@ -1,8 +1,8 @@
 import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
+import { writeSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
-import { writeSync } from "node:fs";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { controlerInvariants, type Requete } from "../../../../packages/contrats/src/c5/invariants.js";
 import { automatisationFictive, empreinteFictive, GRILLE_FICTIVE, versionFictive } from "../catalogue/fixtures.js";
@@ -43,6 +43,7 @@ const equipe = pool(PGBOUNCER, "console_equipe", 5);
 const OPTIONS = { rolesApplication: /^(console|moteur)_(app|equipe)$/ };
 const requete: Requete = async (sql) => (await migration.query(`SELECT coalesce(json_agg(t), '[]') AS r FROM (${sql}) t`)).rows[0]?.["r"] as Record<string, unknown>[];
 const ACTEUR = "agent-essai";
+const ACTEUR_COPIE = "equipe-copie-essai";
 
 // Écriture de l'équipe : une transaction avec l'acteur du journal ; le verrou du journal peut faire attendre (55P03), la mise en place est rejouée.
 async function ecrireEquipe<T>(fn: (c: pg.PoolClient) => Promise<T>): Promise<T> {
@@ -56,7 +57,7 @@ async function ecrireEquipe<T>(fn: (c: pg.PoolClient) => Promise<T>): Promise<T>
       return r;
     } catch (e) {
       await c.query("ROLLBACK").catch(() => undefined);
-      if ((e as { code?: string }).code !== "55P03" || essai >= 4) throw e;
+      if (!["55P03", "40P01"].includes((e as { code?: string }).code ?? "") || essai >= 4) throw e;
     } finally {
       c.release();
     }
@@ -240,12 +241,18 @@ describe("catalogue commun, avec le socle", { timeout: 60_000 }, () => {
     const org = A;
     await avecClient(app, A, async (c) => {
       await c.query("INSERT INTO organisations (tenant_id, id, console_client_id, raison_sociale) VALUES ($1, $1, $1, 'Lemoine Rénovation')", [A]);
-      await c.query("INSERT INTO instances (tenant_id, id, organisation_id, code_automatisation, formule, environnement, automatisation_id, instance_source_copie, copie_le, copie_par) VALUES ($1, $2, $3, 'X', 'abonnement', 'production', $4, $5, now(), 'agent-essai')", [A, randomUUID(), org, a["id"], randomUUID()]);
+      await c.query("INSERT INTO instances (tenant_id, id, organisation_id, code_automatisation, formule, environnement, automatisation_id, instance_source_copie, copie_le, copie_par) VALUES ($1, $2, $3, 'X', 'abonnement', 'production', $4, $5, now(), $6)", [A, randomUUID(), org, a["id"], randomUUID(), ACTEUR_COPIE]);
     }, { acteur: ACTEUR });
     await expect(avecClient(app, A, (c) => c.query("SELECT instance_source_copie FROM instances"))).rejects.toMatchObject({ code: "42501" });
     await expect(avecClient(app, A, (c) => c.query("SELECT * FROM instances"))).rejects.toMatchObject({ code: "42501" });
     expect((await avecClient(app, A, (c) => c.query("SELECT id, version_courante_id, automatisation_id FROM instances"))).rows).toHaveLength(1);
     expect((await equipe.query("SELECT instance_source_copie FROM instances WHERE tenant_id = $1", [A])).rows[0]?.instance_source_copie).toBeTruthy();
+    // Le journal d'audit de son client ne recopie pas non plus ces colonnes : console_app y lit, il n'y retrouve ni l'instance source ni la personne de l'équipe.
+    const journal = (await avecClient(app, A, (c) => c.query("SELECT ancienne, nouvelle FROM journal_audit WHERE tenant_id = $1 AND entite = 'instances'", [A]))).rows;
+    expect(journal.length).toBeGreaterThan(0);
+    const texte = JSON.stringify(journal);
+    expect(texte).not.toContain(ACTEUR_COPIE);
+    expect(texte).toContain("interne");
     // Copie incomplète (source sans date ni auteur) : refusée.
     await expect(avecClient(app, A, (c) => c.query("UPDATE instances SET instance_source_copie = $1, copie_le = NULL", [randomUUID()]))).rejects.toMatchObject({ code: "23514" });
   });
@@ -253,12 +260,12 @@ describe("catalogue commun, avec le socle", { timeout: 60_000 }, () => {
   it("[A-139] un pack porte ses automatisations et un prix en centimes entiers ; un prix négatif ou un prix modifié est refusé", async () => {
     const a = await creerAutomatisation();
     const metier = (await lire("SELECT id FROM metiers LIMIT 1")).rows[0]?.id;
-    const pack = (await sql("INSERT INTO packs (nom, metier_id, prix_centimes) VALUES ($1, $2, $3) RETURNING *", [`Pack essai ${sufixe()}`, metier, GRILLE_FICTIVE.pack])).rows[0] as Record<string, unknown>;
+    const pack = (await sql("INSERT INTO packs (nom, metier_id, prix_centimes, auteur) VALUES ($1, $2, $3, $4) RETURNING *", [`Pack essai ${sufixe()}`, metier, GRILLE_FICTIVE.pack, "agent-essai"])).rows[0] as Record<string, unknown>;
     await sql("INSERT INTO packs_automatisations (pack_id, automatisation_id) VALUES ($1, $2)", [pack["id"], a["id"]]);
     expect(pack["prix_centimes"]).toBe(String(GRILLE_FICTIVE.pack));
-    await expect(sql("INSERT INTO packs (nom, metier_id, prix_centimes) VALUES ('Négatif', $1, -1)", [metier])).rejects.toMatchObject({ code: "23514" });
+    await expect(sql("INSERT INTO packs (nom, metier_id, prix_centimes, auteur) VALUES ('Négatif', $1, -1, 'x')", [metier])).rejects.toMatchObject({ code: "23514" });
     await expect(sql("UPDATE packs SET prix_centimes = 99 WHERE id = $1", [pack["id"]])).rejects.toMatchObject({ code: "42501" });
-    await expect(sql("INSERT INTO packs (nom, metier_id, prix_centimes) VALUES ($1, $2, $3)", [`Réel ${sufixe()}`, metier, "12.5"])).rejects.toMatchObject({ code: "22P02" });
+    await expect(sql("INSERT INTO packs (nom, metier_id, prix_centimes, auteur) VALUES ($1, $2, $3, 'x')", [`Réel ${sufixe()}`, metier, "12.5"])).rejects.toMatchObject({ code: "22P02" });
   });
 
   it("[A-141] un connecteur garde famille, outil, version, capacités ; une famille inconnue ou un doublon est refusé", async () => {
@@ -330,5 +337,76 @@ describe("catalogue commun, avec le socle", { timeout: 60_000 }, () => {
     const { rows } = await equipe.query("SELECT acteur, action, entite, tenant_id FROM journal_audit WHERE entite = 'conditions_par_defaut' AND entite_id = $1", [id]);
     expect(rows).toEqual([{ acteur: ACTEUR, action: "insertion", entite: "conditions_par_defaut", tenant_id: null }]);
     await expect(avecClient(app, randomUUID(), (c) => c.query("INSERT INTO conditions_par_defaut (tenant_id, id, type, valeur, auteur) VALUES ($1, $2, 'delai', '{}', 'x')", [PLATEFORME, randomUUID()]))).rejects.toMatchObject({ code: "42501" });
+  });
+
+  it("[A-119] @isolation la règle C5 signale un droit d'écriture donné à console_app ou à PUBLIC sur une table commune, et une table sans tenant_id hors de la liste (transaction annulée)", async () => {
+    const c = await migration.connect();
+    const liee: Requete = async (texte) => (await c.query(`SELECT coalesce(json_agg(t), '[]') AS r FROM (${texte}) t`)).rows[0]?.["r"] as Record<string, unknown>[];
+    const ecarts = async () => (await controlerInvariants(liee, "console", OPTIONS)).filter((e) => e.regle === "ecriture_commune_ouverte" || e.regle === "tenant_id_absent");
+    try {
+      for (const [droit, table] of [["INSERT", "metiers"], ["UPDATE (nom)", "metiers"], ["DELETE", "postes"], ["TRIGGER", "automatisations"], ["REFERENCES (id)", "connecteurs"]] as const) {
+        await c.query("BEGIN");
+        await c.query(`GRANT ${droit} ON ${table} TO console_app`);
+        expect(await ecarts(), `${droit} ON ${table}`).toContainEqual({ regle: "ecriture_commune_ouverte", objet: `${table}:console_app` });
+        await c.query("ROLLBACK");
+      }
+      await c.query("BEGIN");
+      await c.query("GRANT INSERT ON metiers TO PUBLIC");
+      expect(await ecarts()).toContainEqual({ regle: "ecriture_commune_ouverte", objet: "metiers:console_app" });
+      await c.query("ROLLBACK");
+      // Une table sans tenant_id hors de TABLES_COMMUNES est un écart.
+      await c.query("BEGIN");
+      await c.query("CREATE TABLE public.hors_liste_essai (id int); ALTER TABLE public.hors_liste_essai ENABLE ROW LEVEL SECURITY; ALTER TABLE public.hors_liste_essai FORCE ROW LEVEL SECURITY");
+      expect(await ecarts()).toContainEqual({ regle: "tenant_id_absent", objet: "hors_liste_essai" });
+      await c.query("ROLLBACK");
+      // Sans rien donner, aucun écart d'écriture.
+      expect((await ecarts()).filter((e) => e.regle === "ecriture_commune_ouverte")).toEqual([]);
+    } finally {
+      await c.query("ROLLBACK").catch(() => undefined);
+      c.release();
+    }
+  });
+
+  it("[A-124] une version ne naît qu'en brouillon : l'insertion directe en publiee, depreciee ou retiree est refusée", async () => {
+    const a = await creerAutomatisation();
+    for (const statut of ["recette", "pilote", "publiee", "depreciee", "retiree"]) {
+      await expect(creerVersion(a["id"], { semver: "2.0.0", empreinte_sha256: empreinteFictive(), statut }), statut).rejects.toThrow(/naît en brouillon/i);
+    }
+  });
+
+  it("[A-146] une écriture de l'équipe qui porte de l'argent sans acteur au journal est refusée ; une autre garde « systeme »", async () => {
+    const a = await creerAutomatisation();
+    const metier = (await lire("SELECT id FROM metiers LIMIT 1")).rows[0]?.id;
+    // Sans app.acteur : refus pour les packs, les grilles de prix et leurs liaisons.
+    await expect(equipe.query("INSERT INTO packs (nom, metier_id, prix_centimes, auteur) VALUES ($1, $2, 99, 'x')", [`Sans acteur ${sufixe()}`, metier])).rejects.toThrow(/acteur obligatoire/i);
+    await expect(equipe.query("INSERT INTO grilles_prix (automatisation_id, formules_actives, montant_installation_centimes, montant_mensuel_centimes, maintenance_incluse_mois, maintenance_ensuite_centimes, auteur) VALUES ($1, '[]', 1, 1, 1, 1, 'x')", [a["id"]])).rejects.toThrow(/acteur obligatoire/i);
+    // Hors argent : accepté, journalisé sous « systeme ».
+    const code = `systeme_${sufixe().toLowerCase()}`;
+    await equipe.query("INSERT INTO connecteurs (famille, outil, version, capacites) VALUES ('autre', $1, '1', '[]')", [code]);
+    const { rows } = await equipe.query("SELECT acteur FROM journal_audit WHERE entite = 'connecteurs' AND nouvelle->>'outil' = $1", [code]);
+    expect(rows).toEqual([{ acteur: "systeme" }]);
+  });
+
+  it("[A-137] les données d'un préréglage refusent les clés qui contiennent tenant, client, mail, téléphone, siren, iban, et les nombres de 9 ou 14 chiffres", async () => {
+    const a = await creerAutomatisation();
+    const metier = (await lire("SELECT id FROM metiers LIMIT 1")).rows[0]?.id;
+    let version = 10;
+    const essayer = (donnees: unknown) =>
+      sql("INSERT INTO prereglages_metier (automatisation_id, metier_id, donnees, version, auteur, justification) VALUES ($1, $2, $3, $4, 'agent-essai', 'essai')", [a["id"], metier, JSON.stringify(donnees), version++]);
+    for (const donnees of [{ tenant: "x" }, { client: "x" }, { email_contact: "x" }, { numero_siren: "x" }, { telephone_portable: "x" }, { phone: "x" }, { iban: "x" }, { nom_client: "x" }, { a: { b: { organisation_id: "x" } } }, { reference: "123456789" }, { reference: 12345678901234 }, { a: "contact@exemple.fr" }]) {
+      await expect(essayer(donnees), JSON.stringify(donnees)).rejects.toMatchObject({ code: "23514" });
+    }
+    await expect(essayer({ delai_relance_jours: 3, canal: "messagerie" })).resolves.toMatchObject({ rowCount: 1 });
+  });
+
+  it("[A-139] la composition d'un pack est figée une heure après sa création", async () => {
+    const a = await creerAutomatisation();
+    const b = await creerAutomatisation();
+    const metier = (await lire("SELECT id FROM metiers LIMIT 1")).rows[0]?.id;
+    const pack = (await sql("INSERT INTO packs (nom, metier_id, prix_centimes, auteur) VALUES ($1, $2, 99, 'agent-essai') RETURNING id", [`Pack figé ${sufixe()}`, metier])).rows[0];
+    await sql("INSERT INTO packs_automatisations (pack_id, automatisation_id) VALUES ($1, $2)", [pack?.id, a["id"]]);
+    // Un pack vieux de deux heures (daté par le propriétaire, qui n'écrit pas : on passe par une transaction de la migration sur une copie datée) : refusé.
+    const vieux = (await sql("INSERT INTO packs (nom, metier_id, prix_centimes, auteur, cree_le) VALUES ($1, $2, 99, 'agent-essai', now() - interval '2 hours') RETURNING id", [`Pack ancien ${sufixe()}`, metier])).rows[0];
+    await expect(sql("INSERT INTO packs_automatisations (pack_id, automatisation_id) VALUES ($1, $2)", [vieux?.id, b["id"]])).rejects.toThrow(/figée/i);
   });
 });

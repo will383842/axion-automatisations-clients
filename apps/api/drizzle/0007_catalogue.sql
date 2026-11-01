@@ -82,10 +82,12 @@ CREATE TABLE "packs" (
 	"metier_id" uuid NOT NULL,
 	"prix_centimes" bigint NOT NULL,
 	"actif" boolean DEFAULT true NOT NULL,
+	"auteur" text NOT NULL,
 	"cree_le" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "packs_nom_unique" UNIQUE("nom"),
 	CONSTRAINT "packs_prix_positif" CHECK ("packs"."prix_centimes" >= 0),
-	CONSTRAINT "packs_nom_non_vide" CHECK (length(btrim("packs"."nom")) > 0)
+	CONSTRAINT "packs_nom_non_vide" CHECK (length(btrim("packs"."nom")) > 0),
+	CONSTRAINT "packs_auteur_non_vide" CHECK (length(btrim("packs"."auteur")) > 0)
 );
 --> statement-breakpoint
 CREATE TABLE "packs_automatisations" (
@@ -124,7 +126,7 @@ CREATE TABLE "prereglages_metier" (
 	CONSTRAINT "prereglages_metier_auteur_non_vide" CHECK (length(btrim("prereglages_metier"."auteur")) > 0),
 	CONSTRAINT "prereglages_metier_justification_non_vide" CHECK (length(btrim("prereglages_metier"."justification")) > 0),
 	CONSTRAINT "prereglages_metier_donnees_objet" CHECK (jsonb_typeof("prereglages_metier"."donnees") = 'object'),
-	CONSTRAINT "prereglages_metier_donnees_sans_client" CHECK ("prereglages_metier"."donnees"::text !~* '"(tenant_?id|client_?id|organisation_?id|instance_?id|e-?mail|courriel|telephone|siren|siret)"[[:space:]]*:' AND "prereglages_metier"."donnees"::text !~* '[^"[:space:]@]+@[^"[:space:]@]+\.[a-z]{2,}')
+	CONSTRAINT "prereglages_metier_donnees_sans_client" CHECK ("prereglages_metier"."donnees"::text !~* '"[^"]*(tenant|client|organisation|instance|mail|courriel|t[eé]l[eé]phone|phone|siren|siret|iban)[^"]*"[[:space:]]*:' AND "prereglages_metier"."donnees"::text !~* '[^"[:space:]@]+@[^"[:space:]@]+\.[a-z]{2,}' AND "prereglages_metier"."donnees"::text !~ '(^|[^0-9])([0-9]{9}|[0-9]{14})([^0-9]|$)')
 );
 --> statement-breakpoint
 CREATE TABLE "synonymes_catalogue" (
@@ -212,7 +214,8 @@ $fonction$;--> statement-breakpoint
 -- Garde du catalogue : UNE fonction pour tous les déclencheurs (ils valent aussi pour le propriétaire des tables, pas seulement pour console_equipe).
 -- Aucune suppression (C-685) ; code d'automatisation figé ; version : aucun contenu ne change dès qu'elle quitte recette, un changement de statut ne change
 -- rien d'autre, et seules les transitions de la machine d'états de A-305 passent (publiee → depreciee → retiree, jamais de retour) ; préréglage : naît en
--- brouillon, se rattache à sa version précédente, et son contenu est figé une fois publié.
+-- brouillon, se rattache à sa version précédente, et son contenu est figé une fois publié ; une version naît en brouillon ; la composition d'un pack est figée une heure
+-- après sa création.
 CREATE FUNCTION public.catalogue_garde()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -227,7 +230,11 @@ BEGIN
       RAISE EXCEPTION 'catalogue : le code d''une automatisation est figé (jamais réutilisé)';
     END IF;
   ELSIF TG_TABLE_NAME = 'versions_automatisation' THEN
-    IF NEW.statut IS DISTINCT FROM OLD.statut THEN
+    IF TG_OP = 'INSERT' THEN
+      IF NEW.statut <> 'brouillon' THEN
+        RAISE EXCEPTION 'catalogue : une version naît en brouillon';
+      END IF;
+    ELSIF NEW.statut IS DISTINCT FROM OLD.statut THEN
       IF NOT ((OLD.statut, NEW.statut) IN (('brouillon', 'recette'), ('recette', 'brouillon'), ('recette', 'pilote'), ('pilote', 'publiee'), ('publiee', 'depreciee'), ('depreciee', 'retiree'))) THEN
         RAISE EXCEPTION 'catalogue : transition de version refusée (% vers %)', OLD.statut, NEW.statut;
       END IF;
@@ -236,6 +243,10 @@ BEGIN
       END IF;
     ELSIF to_jsonb(NEW) <> to_jsonb(OLD) AND OLD.statut NOT IN ('brouillon', 'recette') THEN
       RAISE EXCEPTION 'catalogue : version % immuable', OLD.statut;
+    END IF;
+  ELSIF TG_TABLE_NAME = 'packs_automatisations' THEN
+    IF EXISTS (SELECT 1 FROM public.packs p WHERE p.id = NEW.pack_id AND p.cree_le < now() - interval '1 hour') THEN
+      RAISE EXCEPTION 'catalogue : la composition d''un pack est figée une heure après sa création (le prix couvre ce contenu)';
     END IF;
   ELSIF TG_TABLE_NAME = 'prereglages_metier' THEN
     IF TG_OP = 'INSERT' THEN
@@ -268,10 +279,17 @@ SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
 AS $fonction$
 DECLARE
+  v_acteur text;
   v_ancienne jsonb;
   v_nouvelle jsonb;
   v_ligne jsonb;
+  v_copie jsonb;
 BEGIN
+  v_acteur := NULLIF(current_setting('app.acteur', true), '');
+  -- Une écriture qui porte de l'argent a toujours une personne au journal : pas de repli sur « systeme ».
+  IF v_acteur IS NULL AND TG_TABLE_NAME IN ('conditions_par_defaut', 'grilles_prix', 'packs', 'packs_automatisations') THEN
+    RAISE EXCEPTION 'journal : acteur obligatoire pour une écriture qui porte de l''argent (app.acteur vide)';
+  END IF;
   IF TG_OP = 'INSERT' THEN
     v_nouvelle := to_jsonb(NEW);
   ELSIF TG_OP = 'UPDATE' THEN
@@ -281,14 +299,73 @@ BEGIN
     v_ancienne := to_jsonb(OLD);
   END IF;
   v_ligne := coalesce(v_nouvelle, v_ancienne);
-  IF octet_length(v_ancienne::text) > 262144 THEN v_ancienne := jsonb_build_object('_omis', 'taille'); END IF;
-  IF octet_length(v_nouvelle::text) > 262144 THEN v_nouvelle := jsonb_build_object('_omis', 'taille'); END IF;
+  -- Même borne que audit_ecrire : au-delà de 256 Kio, les valeurs de plus de 64 Kio sont remplacées ; si cela ne suffit pas, toute la copie l'est.
+  FOR i IN 1..2 LOOP
+    v_copie := CASE i WHEN 1 THEN v_ancienne ELSE v_nouvelle END;
+    IF octet_length(v_copie::text) > 262144 THEN
+      SELECT jsonb_object_agg(e.key, CASE WHEN octet_length(e.value::text) > 65536 THEN jsonb_build_object('_omis', 'taille', 'octets', octet_length(e.value::text)) ELSE e.value END)
+        INTO v_copie FROM jsonb_each(v_copie) e;
+      IF octet_length(v_copie::text) > 262144 THEN
+        v_copie := jsonb_build_object('_omis', 'taille');
+      END IF;
+    END IF;
+    IF i = 1 THEN v_ancienne := v_copie; ELSE v_nouvelle := v_copie; END IF;
+  END LOOP;
   PERFORM public.audit_ajouter(
     NULL,
+    coalesce(v_acteur, 'systeme'),
+    (CASE TG_OP WHEN 'INSERT' THEN 'insertion' WHEN 'UPDATE' THEN 'modification' ELSE 'suppression' END)::public.action_audit,
+    TG_TABLE_NAME::text,
+    coalesce(v_ligne ->> 'id', (SELECT string_agg(e.value, '/' ORDER BY e.key) FROM jsonb_each_text(v_ligne) e WHERE e.key LIKE '%\\_id')),
+    v_ancienne,
+    v_nouvelle);
+  RETURN NULL;
+END
+$fonction$;
+-- audit_ecrire, redéfinie : la copie d'une ligne de `instances` ne recopie JAMAIS les colonnes d'origine (C-676) : console_app lit le journal de son client et ne doit pas y
+-- retrouver l'instance d'un autre client ni le nom de la personne de l'équipe. Même corps que la 0003 ; seul le bloc `instances` est ajouté.
+CREATE OR REPLACE FUNCTION public.audit_ecrire()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, pg_temp
+AS $fonction$
+DECLARE
+  v_ancienne jsonb;
+  v_nouvelle jsonb;
+  v_ligne jsonb;
+  v_copie jsonb;
+  v_omis jsonb := '{"instance_source_copie": {"_omis": "interne"}, "copie_le": {"_omis": "interne"}, "copie_par": {"_omis": "interne"}, "prereglage_depart_id": {"_omis": "interne"}, "version_prereglage_depart": {"_omis": "interne"}}'::jsonb;
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    v_nouvelle := to_jsonb(NEW);
+  ELSIF TG_OP = 'UPDATE' THEN
+    v_ancienne := to_jsonb(OLD);
+    v_nouvelle := to_jsonb(NEW);
+  ELSE
+    v_ancienne := to_jsonb(OLD);
+  END IF;
+  IF TG_TABLE_NAME = 'instances' THEN
+    IF v_ancienne IS NOT NULL THEN v_ancienne := (v_ancienne - ARRAY['instance_source_copie', 'copie_le', 'copie_par', 'prereglage_depart_id', 'version_prereglage_depart']) || v_omis; END IF;
+    IF v_nouvelle IS NOT NULL THEN v_nouvelle := (v_nouvelle - ARRAY['instance_source_copie', 'copie_le', 'copie_par', 'prereglage_depart_id', 'version_prereglage_depart']) || v_omis; END IF;
+  END IF;
+  v_ligne := coalesce(v_nouvelle, v_ancienne);
+  FOR i IN 1..2 LOOP
+    v_copie := CASE i WHEN 1 THEN v_ancienne ELSE v_nouvelle END;
+    IF octet_length(v_copie::text) > 262144 THEN
+      SELECT jsonb_object_agg(e.key, CASE WHEN octet_length(e.value::text) > 65536 THEN jsonb_build_object('_omis', 'taille', 'octets', octet_length(e.value::text)) ELSE e.value END)
+        INTO v_copie FROM jsonb_each(v_copie) e;
+      IF octet_length(v_copie::text) > 262144 THEN
+        v_copie := jsonb_build_object('_omis', 'taille');
+      END IF;
+    END IF;
+    IF i = 1 THEN v_ancienne := v_copie; ELSE v_nouvelle := v_copie; END IF;
+  END LOOP;
+  PERFORM public.audit_ajouter(
+    (v_ligne ->> 'tenant_id')::uuid,
     coalesce(NULLIF(current_setting('app.acteur', true), ''), 'systeme'),
     (CASE TG_OP WHEN 'INSERT' THEN 'insertion' WHEN 'UPDATE' THEN 'modification' ELSE 'suppression' END)::public.action_audit,
     TG_TABLE_NAME::text,
-    coalesce(v_ligne ->> 'id', (SELECT string_agg(e.value, '/' ORDER BY e.key) FROM jsonb_each_text(v_ligne) e WHERE e.key LIKE '%\_id')),
+    coalesce(v_ligne ->> 'id', v_ligne ->> 'tenant_id'),
     v_ancienne,
     v_nouvelle);
   RETURN NULL;
@@ -440,6 +517,8 @@ CREATE TRIGGER metiers_sans_suppression BEFORE DELETE ON "public"."metiers" FOR 
 CREATE TRIGGER postes_sans_suppression BEFORE DELETE ON "public"."postes" FOR EACH ROW EXECUTE FUNCTION public.catalogue_garde();--> statement-breakpoint
 CREATE TRIGGER automatisations_sans_suppression BEFORE DELETE ON "public"."automatisations" FOR EACH ROW EXECUTE FUNCTION public.catalogue_garde();--> statement-breakpoint
 CREATE TRIGGER automatisations_code_fige BEFORE UPDATE ON "public"."automatisations" FOR EACH ROW EXECUTE FUNCTION public.catalogue_garde();--> statement-breakpoint
+CREATE TRIGGER versions_automatisation_naissance BEFORE INSERT ON "public"."versions_automatisation" FOR EACH ROW EXECUTE FUNCTION public.catalogue_garde();--> statement-breakpoint
+CREATE TRIGGER packs_automatisations_composition BEFORE INSERT ON "public"."packs_automatisations" FOR EACH ROW EXECUTE FUNCTION public.catalogue_garde();--> statement-breakpoint
 CREATE TRIGGER versions_automatisation_immuable BEFORE UPDATE OR DELETE ON "public"."versions_automatisation" FOR EACH ROW EXECUTE FUNCTION public.catalogue_garde();--> statement-breakpoint
 CREATE TRIGGER prereglages_metier_naissance BEFORE INSERT ON "public"."prereglages_metier" FOR EACH ROW EXECUTE FUNCTION public.catalogue_garde();--> statement-breakpoint
 CREATE TRIGGER prereglages_metier_evolution BEFORE UPDATE ON "public"."prereglages_metier" FOR EACH ROW EXECUTE FUNCTION public.catalogue_garde();--> statement-breakpoint

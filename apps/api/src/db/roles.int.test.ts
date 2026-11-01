@@ -1,14 +1,8 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import pg from "pg";
-import { writeSync } from "node:fs";
-import { afterAll, afterEach, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import { controlerInvariants, type Requete } from "../../../../packages/contrats/src/c5/invariants.js";
-
-// Le rapport de la CI est un JSON hors du journal : un essai en échec est écrit sur la sortie d'erreur pour être lisible dans le journal du job.
-afterEach((contexte) => {
-  if (contexte.task.result?.state === "fail") writeSync(2, `ECHEC ${contexte.task.name} : ${String(contexte.task.result.errors?.[0]?.message ?? "").slice(0, 400)}\n`);
-});
 
 // Tests contre le socle lancé par ops/socle/lancer.sh (job socle-integration).
 // Les services ne publient aucun port : on joint leur adresse sur le réseau interne (docker inspect), jamais écrite dans un fichier.
@@ -268,8 +262,8 @@ describe("secrets et propriétaire (audit B2, B3)", () => {
       await m.query("SET ROLE NONE");
       expect(await codeRefus(m, "CREATE TABLE public.orpheline (id int)"), "table").toBe("42501");
       expect(await codeRefus(m, "CREATE FUNCTION public.f_orph() RETURNS int LANGUAGE sql SECURITY DEFINER AS 'SELECT 1'"), "fonction").toBe("42501");
-      const exec = await lignes(equipe, "SELECT p.oid::regprocedure::text AS f FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND has_function_privilege($1, p.oid, 'EXECUTE') AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e')", [`${b}_app`]);
-      // Fonctions des extensions écartées (unaccent, pg_trgm : PostgreSQL les laisse ouvertes, elles ne lisent rien). Seconde exception, ADR 0051 : sans_accent (index de recherche du catalogue).
+      const exec = await lignes(equipe, "SELECT p.oid::regprocedure::text AS f FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND has_function_privilege($1, p.oid, 'EXECUTE') AND NOT EXISTS (SELECT 1 FROM pg_depend d JOIN pg_extension x ON x.oid = d.refobjid WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e' AND x.extname IN ('pg_trgm', 'unaccent'))", [`${b}_app`]);
+      // Seules les fonctions des extensions unaccent et pg_trgm sont écartées, nommées (PostgreSQL les laisse ouvertes, elles ne lisent rien). Seconde exception, ADR 0051 : sans_accent (index de recherche du catalogue).
       expect(exec.map((e) => String(e["f"]).replace(/[(].*$/, "").replace(/^public[.]/, "")).sort()).toEqual(b === "console" ? ["audit_ajouter", "sans_accent"] : []);
     }
   });

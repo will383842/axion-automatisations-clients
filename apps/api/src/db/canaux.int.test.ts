@@ -2,8 +2,7 @@ import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
-import { writeSync } from "node:fs";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { controlerInvariants, EXCEPTIONS_UNICITE, type Requete } from "../../../../packages/contrats/src/c5/invariants.js";
 import { avecClient, avecEquipe } from "./client-actif.js";
 import { migrer } from "./migrer.js";
@@ -51,24 +50,29 @@ async function ecrire<T>(...args: Parameters<typeof avecClient<T>>): Promise<T> 
     try {
       return await avecClient(...args);
     } catch (e) {
-      if ((e as { code?: string }).code !== "55P03" || essai >= 4) throw e;
+      if (!["55P03", "40P01"].includes((e as { code?: string }).code ?? "") || essai >= 4) throw e;
     }
   }
 }
 // Écritures directes de l'équipe sur les tables auditées (T2-03) : même attente du verrou du journal, même reprise.
 async function equipeRejouee(texte: string, valeurs: unknown[] = []) {
   for (let essai = 1; ; essai++) {
+    const c = await equipe.connect();
     try {
-      return await equipe.query(texte, valeurs);
+      // Les tables de la plateforme sont auditées : une écriture qui porte de l'argent exige un acteur (app.acteur), posé pour la durée de la transaction.
+      await c.query("BEGIN");
+      await c.query("SELECT set_config('app.acteur', 'agent-essai', true)");
+      const r = await c.query(texte, valeurs);
+      await c.query("COMMIT");
+      return r;
     } catch (e) {
-      if ((e as { code?: string }).code !== "55P03" || essai >= 4) throw e;
+      await c.query("ROLLBACK").catch(() => undefined);
+      if (!["55P03", "40P01"].includes((e as { code?: string }).code ?? "") || essai >= 4) throw e;
+    } finally {
+      c.release();
     }
   }
 }
-// Le rapport de la CI est un JSON hors du journal : un essai en échec est écrit ici pour être lisible dans le journal du job.
-afterEach((contexte) => {
-  if (contexte.task.result?.state === "fail") writeSync(2, `ECHEC ${contexte.task.name} : ${String(contexte.task.result.errors?.[0]?.message ?? "").slice(0, 400)}\n`);
-});
 const inserer = (tenant: string, table: string, valeurs: Record<string, unknown>) => {
   const v = { id: randomUUID(), tenant_id: tenant, ...valeurs };
   const cles = Object.keys(v);

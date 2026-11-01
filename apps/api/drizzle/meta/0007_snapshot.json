@@ -1,5 +1,5 @@
 {
-  "id": "d594bfaa-622d-4702-b48c-89611844bb01",
+  "id": "12bb1f74-1a9a-4e2e-97a5-ea8ccd07466c",
   "prevId": "0942ac9e-a4a6-4e63-b81e-779948a78548",
   "version": "7",
   "dialect": "postgresql",
@@ -3673,6 +3673,12 @@
           "notNull": true,
           "default": true
         },
+        "auteur": {
+          "name": "auteur",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
         "cree_le": {
           "name": "cree_le",
           "type": "timestamp with time zone",
@@ -3716,6 +3722,10 @@
         "packs_nom_non_vide": {
           "name": "packs_nom_non_vide",
           "value": "length(btrim(\"packs\".\"nom\")) > 0"
+        },
+        "packs_auteur_non_vide": {
+          "name": "packs_auteur_non_vide",
+          "value": "length(btrim(\"packs\".\"auteur\")) > 0"
         }
       },
       "isRLSEnabled": false
@@ -4062,7 +4072,7 @@
         },
         "prereglages_metier_donnees_sans_client": {
           "name": "prereglages_metier_donnees_sans_client",
-          "value": "\"prereglages_metier\".\"donnees\"::text !~* '\"(tenant_?id|client_?id|organisation_?id|instance_?id|e-?mail|courriel|telephone|siren|siret)\"[[:space:]]*:' AND \"prereglages_metier\".\"donnees\"::text !~* '[^\"[:space:]@]+@[^\"[:space:]@]+\\.[a-z]{2,}'"
+          "value": "\"prereglages_metier\".\"donnees\"::text !~* '\"[^\"]*(tenant|client|organisation|instance|mail|courriel|t[eé]l[eé]phone|phone|siren|siret|iban)[^\"]*\"[[:space:]]*:' AND \"prereglages_metier\".\"donnees\"::text !~* '[^\"[:space:]@]+@[^\"[:space:]@]+\\.[a-z]{2,}' AND \"prereglages_metier\".\"donnees\"::text !~ '(^|[^0-9])([0-9]{9}|[0-9]{14})([^0-9]|$)'"
         }
       },
       "isRLSEnabled": false

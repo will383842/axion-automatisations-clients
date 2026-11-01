@@ -147,9 +147,11 @@ export const prereglagesMetier = tableCommune(
     check("prereglages_metier_auteur_non_vide", sql`length(btrim(${t["auteur"]})) > 0`),
     check("prereglages_metier_justification_non_vide", sql`length(btrim(${t["justification"]})) > 0`),
     check("prereglages_metier_donnees_objet", sql`jsonb_typeof(${t["donnees"]}) = 'object'`),
+    // Filtre volontairement large, quitte à refuser un faux positif : toute clé qui CONTIENT un de ces mots, toute adresse e-mail, tout nombre de 9 ou 14 chiffres (SIREN, SIRET).
+    // Le schéma Zod d'écriture (attaque 5 de la fiche) est livré par T4-60, qui écrit les préréglages.
     check(
       "prereglages_metier_donnees_sans_client",
-      sql`${t["donnees"]}::text !~* '"(tenant_?id|client_?id|organisation_?id|instance_?id|e-?mail|courriel|telephone|siren|siret)"[[:space:]]*:' AND ${t["donnees"]}::text !~* '[^"[:space:]@]+@[^"[:space:]@]+\\.[a-z]{2,}'`,
+      sql`${t["donnees"]}::text !~* '"[^"]*(tenant|client|organisation|instance|mail|courriel|t[eé]l[eé]phone|phone|siren|siret|iban)[^"]*"[[:space:]]*:' AND ${t["donnees"]}::text !~* '[^"[:space:]@]+@[^"[:space:]@]+\\.[a-z]{2,}' AND ${t["donnees"]}::text !~ '(^|[^0-9])([0-9]{9}|[0-9]{14})([^0-9]|$)'`,
     ),
     index("prereglages_metier_metier_idx").on(cle("metierId", t), cle("automatisationId", t)),
     index("prereglages_metier_automatisation_idx").on(cle("automatisationId", t), cle("statut", t)),
@@ -179,9 +181,16 @@ export const packs = tableCommune(
     metierId: uuid("metier_id").notNull().references(() => metiers.id, { onDelete: "restrict" }),
     prixCentimes: bigint("prix_centimes", { mode: "number" }).notNull(),
     actif: boolean("actif").notNull().default(true),
+    // Qui a fixé ce prix (relecture de T2-03) : l'argent a toujours un auteur.
+    auteur: text("auteur").notNull(),
     creeLe: timestamp("cree_le", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [unique("packs_nom_unique").on(cle("nom", t)), check("packs_prix_positif", sql`${t["prixCentimes"]} >= 0`), check("packs_nom_non_vide", sql`length(btrim(${t["nom"]})) > 0`)],
+  (t) => [
+    unique("packs_nom_unique").on(cle("nom", t)),
+    check("packs_prix_positif", sql`${t["prixCentimes"]} >= 0`),
+    check("packs_nom_non_vide", sql`length(btrim(${t["nom"]})) > 0`),
+    check("packs_auteur_non_vide", sql`length(btrim(${t["auteur"]})) > 0`),
+  ],
 );
 export const packsAutomatisations = tableCommune(
   "packs_automatisations",

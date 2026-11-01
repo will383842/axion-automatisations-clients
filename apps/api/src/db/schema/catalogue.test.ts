@@ -5,7 +5,7 @@ import { TABLES_COMMUNES } from "../../../../../packages/contrats/src/c5/invaria
 import { TABLES_COMMUNES_SCHEMA } from "./aides.ts";
 import { automatisationMetiers, automatisationPostes, automatisations, connecteurs, familleConnecteur, grillesPrix, metiers, natureVersion, niveauRisqueIa, origineAutomatisation, packs, packsAutomatisations, postes, prereglagesMetier, statutAutomatisation, statutPrereglage, statutVersion, synonymesCatalogue, versionsAutomatisation, visibiliteAutomatisation } from "./catalogue.ts";
 import { conditionsParDefaut } from "./canaux.ts";
-import { instances } from "./clients.ts";
+import { COLONNES_INSTANCES_APP, instances } from "./clients.ts";
 
 // Contrôles sans base de données du schéma et de la migration 0007 ; les essais contre PostgreSQL sont dans db/catalogue.int.test.ts (job socle-integration).
 const migration = readFileSync(new URL("../../../drizzle/0007_catalogue.sql", import.meta.url), "utf8");
@@ -93,6 +93,8 @@ describe("catalogue : automatisations, versions, préréglages (migration 0007)"
     // Pas de raccourci publiee → retiree dans la table des transitions.
     expect(migration).not.toMatch(/OLD\.statut = 'publiee' AND NEW\.statut = 'retiree'/);
     expect(migration).toMatch(/TG_OP = 'DELETE'/);
+    // Une version naît en brouillon : aucune insertion directe en publiee, depreciee ou retiree.
+    expect(migration).toMatch(/CREATE TRIGGER versions_automatisation_naissance BEFORE INSERT ON "public"\."versions_automatisation"/);
   });
 
   it("[C-670] métiers et postes sont deux TABLES (pas d'énumération), amorcées par la migration, jamais supprimées", () => {
@@ -135,7 +137,8 @@ describe("catalogue : automatisations, versions, préréglages (migration 0007)"
   it("[A-137] un préréglage se lie à une automatisation et à un métier par clés étrangères RESTRICT, et refuse les données d'un client (clé tenant, e-mail, SIREN)", () => {
     expect(migration).toMatch(/"prereglages_metier_metier_id_metiers_id_fk" FOREIGN KEY \("metier_id"\) REFERENCES "public"\."metiers"\("id"\) ON DELETE restrict/);
     expect(contraintes(prereglagesMetier)).toContain("prereglages_metier_donnees_sans_client");
-    expect(migration).toMatch(/tenant_\?id/);
+    expect(migration).toMatch(/\(tenant\|client\|organisation\|instance\|mail\|courriel/);
+    expect(migration).toMatch(/\(\[0-9\]\{9\}\|\[0-9\]\{14\}\)/);
   });
 
   it("[C-676] l'instance garde le préréglage et la version de départ, l'instance source d'une copie, la date et l'auteur ; console_app ne les lit pas", () => {
@@ -146,13 +149,20 @@ describe("catalogue : automatisations, versions, préréglages (migration 0007)"
     expect(migration).toMatch(/REVOKE SELECT ON TABLE "public"\."instances" FROM console_app/);
     const regrant = /GRANT SELECT \(([^)]*)\) ON TABLE "public"\."instances" TO console_app/.exec(migration)?.[1] ?? "";
     expect(regrant).toContain('"version_courante_id"');
+    expect(Object.keys(COLONNES_INSTANCES_APP).length).toBe(regrant.split(",").length);
+    // Le journal d'audit ne recopie pas non plus ces colonnes (redéfinition de audit_ecrire).
+    expect(migration).toMatch(/CREATE OR REPLACE FUNCTION public\.audit_ecrire\(\)[\s\S]*TG_TABLE_NAME = 'instances'[\s\S]*_omis/);
     for (const interdite of ["instance_source_copie", "copie_le", "copie_par"]) expect(regrant).not.toContain(interdite);
   });
 });
 
 describe("catalogue : packs, connecteurs, grilles de prix, synonymes, recherche (migration 0007)", () => {
   it("[A-139] un pack porte son métier, ses automatisations et un prix en centimes entiers, non négatif", () => {
-    expect(colonnes(packs)).toEqual(expect.arrayContaining(["nom", "metier_id", "prix_centimes", "actif"]));
+    expect(colonnes(packs)).toEqual(expect.arrayContaining(["nom", "metier_id", "prix_centimes", "actif", "auteur"]));
+    expect(getTableConfig(packs).columns.find((c) => c.name === "auteur")?.notNull).toBe(true);
+    expect(contraintes(packs)).toContain("packs_auteur_non_vide");
+    // La composition d'un pack est figée une heure après sa création.
+    expect(migration).toMatch(/CREATE TRIGGER packs_automatisations_composition BEFORE INSERT/);
     expect(getTableConfig(packs).columns.find((c) => c.name === "prix_centimes")?.columnType).toMatch(/BigInt/);
     expect(colonnes(packsAutomatisations)).toEqual(["pack_id", "automatisation_id"]);
     expect(contraintes(packs)).toContain("packs_prix_positif");
@@ -212,5 +222,7 @@ describe("tables de la plateforme : auteur et journal d'audit (relecture de T2-0
     expect(migration).toMatch(/CREATE FUNCTION public\.audit_ecrire_equipe\(\)[\s\S]*SECURITY DEFINER[\s\S]*SET search_path = pg_catalog, pg_temp/);
     expect(migration).toContain("REVOKE ALL ON FUNCTION public.audit_ecrire_equipe() FROM PUBLIC");
     for (const t of COMMUNES) expect(migration, t).toMatch(new RegExp(`CREATE TRIGGER ${t}_audit AFTER INSERT OR UPDATE OR DELETE ON "public"\\."${t}"`));
+    // Une écriture qui porte de l'argent exige un acteur au journal (pas de repli sur « systeme »).
+    expect(migration).toMatch(/acteur obligatoire pour une écriture qui porte de l'+argent/);
   });
 });

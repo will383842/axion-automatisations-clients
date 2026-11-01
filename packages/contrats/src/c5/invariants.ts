@@ -34,16 +34,17 @@ export type Options = {
   // Liste EXACTE de noms, fournie par l'appelant (le lot 2b nomme ses rôles selon la convention du socle,
   // `<base>_proprietaire`, `<base>_migration`) : aucun rôle n'est exempté par la forme de son nom.
   rolesAdministration?: readonly string[];
-  // Rôles d'équipe, seuls permis d'écrire dans une table commune (TABLES_COMMUNES) : nom exact ou suffixe `_equipe`. Défaut : /(^|_)equipe(_|$)/.
-  rolesEquipe?: RegExp;
+  // Rôles d'équipe, seuls permis d'écrire dans une table commune (TABLES_COMMUNES) : liste EXACTE de noms, jamais un motif (aucun rôle n'est exempté
+  // par la forme de son nom). Défaut : ROLES_EQUIPE. Avec rolesAdministration et le propriétaire de la table, ce sont les seuls rôles exemptés.
+  rolesEquipe?: readonly string[];
 };
 
 export const TABLE_MIGRATIONS = "__migrations";
 // Défaut : aucun (échec fermé). Seul le superutilisateur est hors contrôle.
 export const ROLES_ADMINISTRATION: readonly string[] = [];
 
-// Rôles d'équipe par défaut : « equipe » seul ou entouré de `_` (console_equipe). Un rôle de l'application n'en fait pas partie.
-export const ROLES_EQUIPE = /(^|_)equipe(_|$)/;
+// Rôles d'équipe par défaut, en liste exacte : les seuls à écrire dans une table commune. Un rôle de l'application n'en fait pas partie.
+export const ROLES_EQUIPE: readonly string[] = Object.freeze(["console_equipe", "moteur_equipe"]);
 
 // Seule table où tenant_id peut être NULL : les lignes d'équipe du journal d'audit n'ont pas de client (T2-01a).
 // La colonne doit exister ; RLS, FORCE et index restent exigés. Liste fermée : aucune option d'appel ne l'étend.
@@ -133,12 +134,14 @@ const ETRANGERES = `
             WHERE a.attname = 'tenant_id' AND b.attname = 'tenant_id') AS lie_tenant
   FROM pg_constraint c WHERE c.contype = 'f'`;
 
-// Droits d'écriture effectifs (directs, hérités, PUBLIC, par colonne) de chaque rôle non superutilisateur sur chaque table.
+// Droits d'écriture effectifs (directs, hérités, PUBLIC, par colonne) de chaque rôle, hors superutilisateur, rôles prédéfinis de PostgreSQL et propriétaire de la table.
+// TRIGGER et REFERENCES comptent : ils permettent de s'accrocher à une table ou de sonder ses valeurs.
 const ECRITURES = `
   SELECT c.oid::int AS oid, r.rolname AS role FROM pg_class c CROSS JOIN pg_roles r
-  WHERE c.relkind IN ('r', 'p') AND NOT r.rolsuper
+  WHERE c.relkind IN ('r', 'p') AND NOT r.rolsuper AND r.rolname NOT LIKE 'pg\\_%' AND r.oid <> c.relowner
     AND (has_table_privilege(r.oid, c.oid, 'INSERT') OR has_table_privilege(r.oid, c.oid, 'UPDATE') OR has_table_privilege(r.oid, c.oid, 'DELETE')
-         OR has_table_privilege(r.oid, c.oid, 'TRUNCATE') OR has_any_column_privilege(r.oid, c.oid, 'INSERT') OR has_any_column_privilege(r.oid, c.oid, 'UPDATE'))`;
+         OR has_table_privilege(r.oid, c.oid, 'TRUNCATE') OR has_table_privilege(r.oid, c.oid, 'TRIGGER') OR has_table_privilege(r.oid, c.oid, 'REFERENCES')
+         OR has_any_column_privilege(r.oid, c.oid, 'INSERT') OR has_any_column_privilege(r.oid, c.oid, 'UPDATE') OR has_any_column_privilege(r.oid, c.oid, 'REFERENCES'))`;
 
 const TGTYPE_DELETE = 8;
 const TGTYPE_UPDATE = 16;
@@ -203,9 +206,10 @@ export async function controlerInvariants(
     const facultatif = TENANT_FACULTATIF.includes(cleTable(t.schema, nom));
     const commune = !tenant && TABLES_COMMUNES.includes(cleTable(t.schema, nom));
     if (commune) {
-      // Table commune : aucun rôle de l'application (hors rôle d'équipe) n'a de droit d'écriture, ni direct, ni hérité, ni par colonne, ni via PUBLIC.
+      // Table commune : seul un rôle d'équipe ou d'administration (listes exactes) a un droit d'écriture, direct, hérité, par colonne ou via PUBLIC.
+      const exemptes = [...equipe, ...(options.rolesAdministration ?? ROLES_ADMINISTRATION)];
       for (const e of ecritures) {
-        if (e.oid === t.oid && options.rolesApplication.test(String(e.role)) && !equipe.test(String(e.role))) noter("ecriture_commune_ouverte", `${objet}:${e.role}`);
+        if (e.oid === t.oid && !exemptes.includes(String(e.role))) noter("ecriture_commune_ouverte", `${objet}:${e.role}`);
       }
     }
     if (!commune && (!tenant || (tenant.nullable !== "NO" && !facultatif))) noter("tenant_id_absent", objet);

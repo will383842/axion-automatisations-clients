@@ -91,7 +91,7 @@ describe("contrats, devis, factures, apporteurs : schéma et migration 0009", ()
 
   it("[C-030] une clé étrangère de T2-05 est composée (tenant_id, x) vers UNIQUE (tenant_id, id)", () => {
     for (const m of migration.matchAll(/ADD CONSTRAINT "[a-z_]+" FOREIGN KEY \(([^)]*)\) REFERENCES/g)) expect(m[1]).toMatch(/^"tenant_id",/);
-    expect(migration).toContain(`ALTER TABLE "echeances" ADD COLUMN "facture" uuid`);
+    expect(migration).toContain(`FOREIGN KEY ("tenant_id","facture_id") REFERENCES "public"."factures"("tenant_id","id")`);
   });
 });
 

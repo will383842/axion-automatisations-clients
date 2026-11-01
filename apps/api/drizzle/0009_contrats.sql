@@ -146,6 +146,5 @@ BEGIN
 END;
 $$;--> statement-breakpoint
 CREATE TRIGGER instances_sous_traitance BEFORE INSERT OR UPDATE OF etat ON "public"."instances" FOR EACH ROW EXECUTE FUNCTION public.instances_exiger_sous_traitance();--> statement-breakpoint
--- Échéance rattachée à sa facture (additif ; la table vient de la migration 0008, T2-04). Clé étrangère composée, facultative.
-ALTER TABLE "echeances" ADD COLUMN "facture" uuid;--> statement-breakpoint
-ALTER TABLE "echeances" ADD CONSTRAINT "echeances_facture_fk" FOREIGN KEY ("tenant_id","facture") REFERENCES "public"."factures"("tenant_id","id") ON DELETE no action ON UPDATE no action;
+-- Clé étrangère de l'échéance vers sa facture : la colonne facture_id existe déjà (migration 0008, T2-04) ; seule la contrainte composée est ajoutée ici, facultative.
+ALTER TABLE "echeances" ADD CONSTRAINT "echeances_facture_fk" FOREIGN KEY ("tenant_id","facture_id") REFERENCES "public"."factures"("tenant_id","id") ON DELETE no action ON UPDATE no action;

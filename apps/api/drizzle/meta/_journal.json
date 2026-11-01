@@ -52,9 +52,23 @@
       "breakpoints": true
     },
     {
+      "idx": 7,
+      "version": "7",
+      "when": 1793567982603,
+      "tag": "0007_catalogue",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1793570000000,
+      "tag": "0008_commercial",
+      "breakpoints": true
+    },
+    {
       "idx": 9,
       "version": "7",
-      "when": 1793559594364,
+      "when": 1793575000000,
       "tag": "0009_contrats",
       "breakpoints": true
     }

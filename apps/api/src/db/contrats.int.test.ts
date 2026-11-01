@@ -55,7 +55,7 @@ async function ecrire<T>(...args: Parameters<typeof avecClient<T>>): Promise<T> 
 const inserer = (tenant: string, table: string, valeurs: Record<string, unknown>) => {
   const v = { id: randomUUID(), tenant_id: tenant, ...valeurs };
   const cles = Object.keys(v);
-  return ecrire(app, tenant, async (c) => (await c.query(`INSERT INTO ${table} (${cles.join(", ")}) VALUES (${cles.map((_, i) => `$${i + 1}`).join(", ")}) RETURNING *`, Object.values(v))).rows[0] as Record<string, unknown>, APPELANT);
+  return ecrire(app, tenant, async (c) => (await c.query(`INSERT INTO ${table} (${cles.join(", ")}) VALUES (${cles.map((_, i) => `$${i + 1}`).join(", ")}) RETURNING ${table === "instances" ? "id" : "*"}`, Object.values(v))).rows[0] as Record<string, unknown>, APPELANT);
 };
 const creerOrg = (id: string) => inserer(id, "organisations", { id, console_client_id: id, raison_sociale: "Boulangerie Rivoire" });
 beforeAll(async () => {

@@ -185,10 +185,13 @@ export const conditionsParDefaut = tableClient(
     source: sourceCondition("source").notNull().default("defaut"),
     valideDu: date("valide_du"),
     valideAu: date("valide_au"),
+    // T2-03 : ces conditions portent de l'argent, on sait toujours qui les a écrites ; leur journal d'audit est posé par la migration 0007.
+    auteur: text("auteur").notNull(),
   },
   {
     audit: false,
     contraintes: (t) => [
+      check("conditions_par_defaut_auteur_non_vide", sql`length(btrim(${t["auteur"]})) > 0`),
       check("conditions_par_defaut_source_defaut", sql`${t["source"]} = 'defaut'`),
       check("conditions_par_defaut_validite", sql`${t["valideDu"]} IS NULL OR ${t["valideAu"]} IS NULL OR ${t["valideAu"]} >= ${t["valideDu"]}`),
     ],

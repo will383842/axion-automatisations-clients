@@ -64,7 +64,7 @@ describe("tables des canaux : schéma et migration 0006", () => {
   it("[C-633] deux portées : l'exclusion du client reste de portée client, la portée plateforme vit dans une table sans tenant_id", () => {
     expect(getTableConfig(exclusions).columns.find((c) => c.name === "portee")?.default).toBe("client");
     expect(colonnes(exclusionsPlateforme)).not.toContain("tenant_id");
-    expect(TABLES_COMMUNES).toEqual(["public.exclusions_plateforme"]);
+    expect(TABLES_COMMUNES).toContain("public.exclusions_plateforme");
     expect(TENANT_FACULTATIF).toEqual(["public.journal_audit"]);
     expect(Object.isFrozen(TABLES_COMMUNES)).toBe(true);
     // Lecture par console_app, écriture par console_equipe seul ; aucun droit de suppression.

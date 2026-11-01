@@ -36,6 +36,15 @@ describe("route /connexion", () => {
     expect(cookie).toContain("HttpOnly");
   });
 
+  it("[LOT3-session] au-delà du plafond de transactions, la route répond 503 sans créer d'entrée", async () => {
+    const { magasin } = await import("../../lib/session.ts");
+    const espion = vi.spyOn(magasin, "ouvrirTransaction").mockReturnValue(undefined);
+    const r = await appeler("/connexion");
+    expect(r.status).toBe(503);
+    expect(r.headers.get("location")).toBeNull();
+    espion.mockRestore();
+  });
+
   it("[C-404] un login_hint de forme invalide est refusé et rien n'est envoyé à Keycloak", async () => {
     for (const mauvais of ["x", "a%40exemple.fr%26prompt%3Dnone", `${"a".repeat(300)}%40exemple.fr`, "a%40exemple.fr%0d%0aX%3A1"]) {
       const r = await appeler(`/connexion?login_hint=${mauvais}`);

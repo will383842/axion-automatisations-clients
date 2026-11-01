@@ -5,7 +5,7 @@ import { adresseAutorisation, creerDefi, loginHintValide, retourSur, verifierJet
 const CFG = { emetteur: "https://sso.exemple.test/realms/equipe", clientId: "console", origine: "https://console.exemple.test" };
 const b64 = (x: object | Buffer) => Buffer.from(x instanceof Buffer ? x : JSON.stringify(x)).toString("base64url");
 const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
-const cles = async () => [{ ...publicKey.export({ format: "jwk" }), kid: "k1", alg: "RS256", use: "sig" }];
+const cles = async () => [{ ...publicKey.export({ format: "jwk" }), kid: "k0", use: "enc" }, { ...publicKey.export({ format: "jwk" }), kid: "k1", alg: "RS256", use: "sig" }];
 const MAINTENANT = 1_800_000_000;
 const base = { iss: CFG.emetteur, aud: "console", azp: "console", sub: "u1", email: "a@exemple.fr", nonce: "n1", acr: "mfa", amr: ["pwd", "otp"], auth_time: MAINTENANT - 5, iat: MAINTENANT - 5, exp: MAINTENANT + 300 };
 function jeton(charge: object = {}, options: { alg?: string; cle?: KeyObject; signature?: boolean } = {}) {
@@ -34,13 +34,14 @@ describe("connexion de l'équipe : adresse d'autorisation", () => {
 
   it("[C-404] login_hint : une adresse e-mail courte, sans injection, sinon refus", () => {
     expect(loginHintValide("Prénom.Nom+test@Exemple.fr")).toBe(true);
-    const mauvais = ["", "pas-un-mail", "a@b", "a b@exemple.fr", "a@exemple.fr&prompt=none", "a@exemple.fr\r\nX: 1", "a@@exemple.fr", "<x>@exemple.fr", `${"a".repeat(250)}@exemple.fr`, `${"a".repeat(65)}@exemple.fr`, "a@exemple.fr#x", "a@exemple.fr?x=1", "a%40exemple.fr", "a@exemple.fr,b@exemple.fr"];
+    for (const ok of ["a@b", "o'brien@exemple.fr", "a@exemple.fr#x"]) expect(loginHintValide(ok), ok).toBe(true); // ce que le contrat C6 accepte
+    const mauvais = ["", "pas-un-mail", "a b@exemple.fr", "a@exemple.fr&prompt=none", "a@exemple.fr\r\nX: 1", "a@@exemple.fr", "<x>@exemple.fr", `${"a".repeat(250)}@exemple.fr`, `${"a".repeat(65)}@exemple.fr`, "a%40exemple.fr"];
     for (const m of mauvais) expect(loginHintValide(m), m).toBe(false);
   });
 
   it("[LOT3-session] un retour vers une autre origine est refusé (seul un chemin local passe)", () => {
     expect(retourSur("/clients?vue=a")).toBe("/clients?vue=a");
-    for (const m of ["//autre.test", "/\\autre.test", "https://autre.test", "https:", "javascript:alert(1)", "/\t/autre.test", "/%0d%0aX", "\\\\autre.test", "autre", "/connexion", "/api/auth/rappel", null, ""]) expect(retourSur(m), String(m)).toBe("/");
+    for (const m of ["//autre.test", "/\\autre.test", "https://autre.test", "https:", "javascript:alert(1)", "/\t/autre.test", "/%0d%0aX", "\\\\autre.test", "autre", "/connexion", "/entree", "/api/auth/rappel", null, ""]) expect(retourSur(m), String(m)).toBe("/");
   });
 });
 
@@ -50,7 +51,11 @@ describe("connexion de l'équipe : jeton d'identité", () => {
   });
 
   it("[C-541] un jeton sans acr de double facteur est refusé côté serveur", async () => {
-    for (const charge of [{ acr: "1" }, { acr: undefined }, { amr: ["pwd"] }, { amr: undefined }, { amr: "otp" }]) await expect(verifier(jeton(charge)), JSON.stringify(charge)).rejects.toThrow();
+    for (const charge of [{ acr: "1" }, { acr: undefined }, { amr: ["pwd"] }, { amr: "otp" }]) await expect(verifier(jeton(charge)), JSON.stringify(charge)).rejects.toThrow();
+  });
+
+  it("[C-541] le royaume livré n'émet ni amr ni email : acr=mfa suffit, l'identité est sub", async () => {
+    expect(await verifier(jeton({ amr: undefined, email: undefined }))).toEqual({ sub: "u1", email: "" });
   });
 
   it("[C-541] une session Keycloak déjà ouverte ne dispense pas du double facteur (authentification ancienne refusée)", async () => {
@@ -73,6 +78,7 @@ describe("connexion de l'équipe : jeton d'identité", () => {
     await expect(verifier(jeton({ aud: ["console", "portail"], azp: "portail" }))).rejects.toThrow(/azp/);
     await expect(verifier(jeton({ exp: MAINTENANT - 1 }))).rejects.toThrow(/exp/);
     await expect(verifier(jeton({ nonce: "autre" }))).rejects.toThrow(/nonce/);
-    await expect(verifier(jeton({ email: undefined }))).rejects.toThrow();
+    await expect(verifier(jeton({ azp: "portail" }))).rejects.toThrow(/azp/);
+    await expect(verifier(jeton({ sub: undefined }))).rejects.toThrow();
   });
 });

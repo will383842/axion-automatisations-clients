@@ -20,6 +20,7 @@ function jeton(charge: object = {}) {
   return `${e}.${c}.${sign("sha256", Buffer.from(`${e}.${c}`), privateKey).toString("base64url")}`;
 }
 let echanges: string[];
+const magasinNonce = "inconnu"; // le test ci-dessus échoue de toute façon sur acr ; le nonce n'est pas l'objet
 function brancherKeycloak(idToken: () => string) {
   echanges = [];
   vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
@@ -41,8 +42,12 @@ afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 describe("route /api/auth/rappel", () => {
   it("[C-541] un retour valide échange le code avec le vérificateur PKCE puis ouvre la session et renvoie au chemin demandé", async () => {
     const r = await rappel(ouvrir());
-    expect(r.status).toBe(302);
-    expect(r.headers.get("location")).toBe("/clients");
+    // 200 + rebond : la navigation vers la page demandée part de la console, donc le cookie Strict est envoyé.
+    expect(r.status).toBe(200);
+    expect(r.headers.get("location")).toBeNull();
+    expect(r.headers.get("content-type")).toContain("text/html");
+    expect(r.headers.get("cache-control")).toBe("no-store");
+    expect(await r.text()).toContain('<meta http-equiv="refresh" content="0;url=/clients">');
     expect(echanges[0]).toContain(`code_verifier=${"V".repeat(43)}`);
     expect(echanges[0]).toContain("grant_type=authorization_code");
     const cookies = r.headers.getSetCookie().join("\n");
@@ -58,13 +63,23 @@ describe("route /api/auth/rappel", () => {
     }
     expect(echanges).toHaveLength(0);
     const bon = ouvrir();
-    expect((await rappel(bon)).status).toBe(302);
+    expect((await rappel(bon)).status).toBe(200);
     expect((await rappel(bon)).status).toBe(403);
   });
 
   it("[C-541] un jeton sans double facteur (acr) est refusé et aucune session n'est ouverte", async () => {
     brancherKeycloak(() => jeton({ acr: "1", amr: ["pwd"] }));
     const r = await rappel(ouvrir());
+    expect(r.status).toBe(403);
+    expect(r.headers.getSetCookie().join("")).not.toContain("__Host-session=");
+  });
+
+  it("[C-541] lien signé valide (login_hint) sans double facteur Keycloak → refus et aucune session", async () => {
+    const { GET: connexion } = await import("../../../connexion/route.ts");
+    const depart = await connexion(new Request("https://console.exemple.test/connexion?login_hint=equipe%40exemple.fr"));
+    const etat = new URL(depart.headers.get("location") ?? "").searchParams.get("state") ?? "";
+    brancherKeycloak(() => jeton({ acr: "1", amr: ["pwd"], nonce: magasinNonce }));
+    const r = await rappel(etat);
     expect(r.status).toBe(403);
     expect(r.headers.getSetCookie().join("")).not.toContain("__Host-session=");
   });
@@ -99,7 +114,25 @@ describe("route /api/auth/deconnexion", () => {
     const u = new URL(r.headers.get("location") ?? "");
     expect(u.origin + u.pathname).toBe("https://sso.exemple.test/realms/equipe/protocol/openid-connect/logout");
     expect(u.searchParams.get("id_token_hint")).toBeTruthy();
+    expect(u.searchParams.get("client_id")).toBe("console");
     expect(r.headers.getSetCookie().join("")).toContain("__Host-session=; ");
+  });
+
+  it("[LOT3-session] la session dure bien plus que les 5 minutes du jeton d'identité (8 h au plus)", async () => {
+    const r = await rappel(ouvrir());
+    const age = Number(/__Host-session=[\w-]+;[^\n]*Max-Age=(\d+)/.exec(r.headers.getSetCookie().join("\n"))?.[1]);
+    expect(age).toBeGreaterThan(300 * 10);
+    expect(age).toBeLessThanOrEqual(8 * 3600);
+  });
+
+  it("[LOT3-session] la déconnexion sans session ajoute client_id (Keycloak 18+)", async () => {
+    const r = await POST(new Request("https://console.exemple.test/api/auth/deconnexion", { method: "POST", headers: { origin: "https://console.exemple.test" } }));
+    expect(new URL(r.headers.get("location") ?? "").searchParams.get("client_id")).toBe("console");
+  });
+
+  it("[C-541] la récupération des clés refuse une réponse en erreur", async () => {
+    vi.stubGlobal("fetch", async (url: string) => (url.endsWith("/certs") ? new Response("{}", { status: 500 }) : Response.json({ id_token: jeton() })));
+    expect((await rappel(ouvrir())).status).toBe(403);
   });
 
   it("[LOT3-session] une déconnexion demandée depuis une autre origine est refusée et la session reste intacte", async () => {

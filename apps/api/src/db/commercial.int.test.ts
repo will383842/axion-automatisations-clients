@@ -81,7 +81,7 @@ describe("plan commercial, avec le socle", { timeout: 60_000 }, () => {
     await creerOrg(A);
     const instance = await creerInstance(A);
     const p = await plan(A, instance["id"]);
-    expect(p).toMatchObject({ prix_recurrent_mensuel_centimes: 200, periode_facturation_mois: 1 });
+    expect(p).toMatchObject({ prix_recurrent_mensuel_centimes: "200", periode_facturation_mois: 1 });
     await expect(plan(A, instance["id"])).rejects.toMatchObject({ code: "23505" });
     await ecrire(app, A, (c) => c.query("UPDATE instances SET plan_commercial = $2 WHERE id = $1", [instance["id"], p["id"]]), APPELANT);
     expect((await ecrire(app, A, (c) => c.query("SELECT plan_commercial FROM instances WHERE id = $1", [instance["id"]]))).rows[0]?.plan_commercial).toBe(p["id"]);

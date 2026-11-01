@@ -152,6 +152,8 @@ CREATE POLICY lecture_equipe ON "public"."abonnements" FOR SELECT TO console_equ
 REVOKE ALL ON TABLE "public"."abonnements" FROM PUBLIC;--> statement-breakpoint
 GRANT SELECT, INSERT ON TABLE "public"."abonnements" TO console_app;--> statement-breakpoint
 GRANT UPDATE ("fin", "auteur") ON TABLE "public"."abonnements" TO console_app;--> statement-breakpoint
+CREATE POLICY auteur_insertion ON "public"."abonnements" AS RESTRICTIVE FOR INSERT TO console_app WITH CHECK (auteur = NULLIF(current_setting('app.acteur', true), ''));--> statement-breakpoint
+CREATE POLICY auteur_modification ON "public"."abonnements" AS RESTRICTIVE FOR UPDATE TO console_app USING (true) WITH CHECK (auteur = NULLIF(current_setting('app.acteur', true), ''));--> statement-breakpoint
 GRANT SELECT ON TABLE "public"."abonnements" TO console_equipe;--> statement-breakpoint
 CREATE TRIGGER abonnements_audit AFTER INSERT OR UPDATE OR DELETE ON "public"."abonnements" FOR EACH ROW EXECUTE FUNCTION public.audit_ecrire();--> statement-breakpoint
 ALTER TABLE "public"."plans_commerciaux" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
@@ -160,6 +162,8 @@ CREATE POLICY isolation_client ON "public"."plans_commerciaux" FOR ALL TO consol
 CREATE POLICY lecture_equipe ON "public"."plans_commerciaux" FOR SELECT TO console_equipe USING (tenant_id IS NOT NULL);--> statement-breakpoint
 REVOKE ALL ON TABLE "public"."plans_commerciaux" FROM PUBLIC;--> statement-breakpoint
 GRANT SELECT, INSERT ON TABLE "public"."plans_commerciaux" TO console_app;--> statement-breakpoint
+CREATE POLICY auteur_insertion ON "public"."plans_commerciaux" AS RESTRICTIVE FOR INSERT TO console_app WITH CHECK (auteur = NULLIF(current_setting('app.acteur', true), ''));--> statement-breakpoint
+CREATE POLICY auteur_modification ON "public"."plans_commerciaux" AS RESTRICTIVE FOR UPDATE TO console_app USING (true) WITH CHECK (auteur = NULLIF(current_setting('app.acteur', true), ''));--> statement-breakpoint
 GRANT SELECT ON TABLE "public"."plans_commerciaux" TO console_equipe;--> statement-breakpoint
 CREATE TRIGGER plans_commerciaux_audit AFTER INSERT OR UPDATE OR DELETE ON "public"."plans_commerciaux" FOR EACH ROW EXECUTE FUNCTION public.audit_ecrire();--> statement-breakpoint
 ALTER TABLE "public"."phases_plan" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
@@ -169,6 +173,8 @@ CREATE POLICY lecture_equipe ON "public"."phases_plan" FOR SELECT TO console_equ
 REVOKE ALL ON TABLE "public"."phases_plan" FROM PUBLIC;--> statement-breakpoint
 GRANT SELECT, INSERT ON TABLE "public"."phases_plan" TO console_app;--> statement-breakpoint
 GRANT UPDATE ("fin", "id_plan_hub", "auteur") ON TABLE "public"."phases_plan" TO console_app;--> statement-breakpoint
+CREATE POLICY auteur_insertion ON "public"."phases_plan" AS RESTRICTIVE FOR INSERT TO console_app WITH CHECK (auteur = NULLIF(current_setting('app.acteur', true), ''));--> statement-breakpoint
+CREATE POLICY auteur_modification ON "public"."phases_plan" AS RESTRICTIVE FOR UPDATE TO console_app USING (true) WITH CHECK (auteur = NULLIF(current_setting('app.acteur', true), ''));--> statement-breakpoint
 GRANT SELECT ON TABLE "public"."phases_plan" TO console_equipe;--> statement-breakpoint
 CREATE TRIGGER phases_plan_audit AFTER INSERT OR UPDATE OR DELETE ON "public"."phases_plan" FOR EACH ROW EXECUTE FUNCTION public.audit_ecrire();--> statement-breakpoint
 ALTER TABLE "public"."echeances" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
@@ -181,5 +187,9 @@ GRANT UPDATE ("statut", "date_emission", "date_paiement", "facture_id", "auteur"
 -- Transitions d'une échéance sans fonction ni déclencheur (la garde des migrations les refuse, ADR 0041) : une politique RESTRICTIVE. L'ancienne ligne doit être prevue ou emise
 -- (payee et annulee ne se modifient plus : le paiement ne disparaît pas) et la nouvelle emise, payee ou annulee (jamais de retour à prevue). Emise ou payee exige une date d'émission (CHECK).
 CREATE POLICY transitions_echeance ON "public"."echeances" AS RESTRICTIVE FOR UPDATE TO console_app USING (tenant_id IS NOT NULL AND statut IN ('prevue', 'emise')) WITH CHECK (tenant_id IS NOT NULL AND statut IN ('emise', 'payee', 'annulee'));--> statement-breakpoint
+CREATE POLICY auteur_insertion ON "public"."echeances" AS RESTRICTIVE FOR INSERT TO console_app WITH CHECK (auteur = NULLIF(current_setting('app.acteur', true), ''));--> statement-breakpoint
+CREATE POLICY auteur_modification ON "public"."echeances" AS RESTRICTIVE FOR UPDATE TO console_app USING (true) WITH CHECK (auteur = NULLIF(current_setting('app.acteur', true), ''));--> statement-breakpoint
+-- Une échéance se crée toujours prevue et sans date de paiement : la chaîne des transitions ne se contourne pas à l'insertion (ADR 0052).
+CREATE POLICY creation_echeance ON "public"."echeances" AS RESTRICTIVE FOR INSERT TO console_app WITH CHECK (statut = 'prevue' AND date_paiement IS NULL);--> statement-breakpoint
 GRANT SELECT ON TABLE "public"."echeances" TO console_equipe;--> statement-breakpoint
 CREATE TRIGGER echeances_audit AFTER INSERT OR UPDATE OR DELETE ON "public"."echeances" FOR EACH ROW EXECUTE FUNCTION public.audit_ecrire();

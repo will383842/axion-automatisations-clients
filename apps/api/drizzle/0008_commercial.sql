@@ -136,6 +136,7 @@ CREATE INDEX "plans_commerciaux_tenant_id_idx" ON "plans_commerciaux" USING btre
 -- UPDATE limité par colonnes. Un plan et une phase ne se modifient pas du tout (aucun UPDATE) : aucun changement de prix possible avant la règle de correction de T2-08, assumé (ADR 0052). Une échéance annulée ne se remplace pas pour la même période (unicité), assumé de même.
 ALTER TABLE "public"."instances" ADD COLUMN "plan_commercial" uuid;--> statement-breakpoint
 ALTER TABLE "public"."instances" ADD CONSTRAINT "instances_plan_commercial_fk" FOREIGN KEY ("tenant_id","id","plan_commercial") REFERENCES "public"."plans_commerciaux"("tenant_id","instance_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+GRANT SELECT ("plan_commercial") ON TABLE "public"."instances" TO console_app;--> statement-breakpoint
 ALTER TABLE "public"."conditions_commerciales" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
 ALTER TABLE "public"."conditions_commerciales" FORCE ROW LEVEL SECURITY;--> statement-breakpoint
 CREATE POLICY isolation_client ON "public"."conditions_commerciales" FOR ALL TO console_app USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid) WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid);--> statement-breakpoint

@@ -61,7 +61,9 @@ const inserer = (tenant: string, table: string, valeurs: Record<string, unknown>
   return ecrire(app, tenant, async (c) => (await c.query(`INSERT INTO ${table} (${cles.join(", ")}) VALUES (${cles.map((_, i) => `$${i + 1}`).join(", ")}) RETURNING *`, Object.values(v))).rows[0] as Record<string, unknown>, appelant ?? undefined);
 };
 const creerOrg = (id: string) => inserer(id, "organisations", { id, console_client_id: id, raison_sociale: "Lemoine Rénovation" });
-const creerInstance = (A: string) => inserer(A, "instances", { organisation_id: A, code_automatisation: "relance-devis", formule: "abonnement", environnement: "test" });
+// Pas de RETURNING * : console_app ne lit qu'une liste de colonnes de instances (migration 0007) ; seul l'identifiant revient.
+const creerInstance = (A: string) =>
+  ecrire(app, A, async (c) => (await c.query("INSERT INTO instances (id, tenant_id, organisation_id, code_automatisation, formule, environnement) VALUES ($1, $2, $2, 'relance-devis', 'abonnement', 'test') RETURNING id", [randomUUID(), A])).rows[0] as Record<string, unknown>, APPELANT);
 const SOURCES = Object.fromEntries(["formule", "frais_mise_en_place", "prix_recurrent_mensuel", "periode_facturation", "mode_avance", "maintenance_incluse", "suite_maintenance", "engagement"].map((v) => [`source_${v}`, "grille"]));
 // Valeurs fictives (jamais un prix réel) : 100, 200 et 300 centimes.
 const plan = (A: string, instance: unknown, extra: Record<string, unknown> = {}) =>

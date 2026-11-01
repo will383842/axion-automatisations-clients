@@ -111,6 +111,12 @@ describe("plan commercial : schéma et migration 0008", () => {
     expect(migration).toMatch(/ADD CONSTRAINT "instances_plan_commercial_fk" FOREIGN KEY \("tenant_id","id","plan_commercial"\) REFERENCES "public"\."plans_commerciaux"\("tenant_id","instance_id","id"\)/);
   });
 
+  it("[A-126] @argent console_app lit le lien instance → plan : SELECT (plan_commercial) accordé, la liste de colonnes de 0007 ne l'incluant pas", () => {
+    expect(migration).toContain('GRANT SELECT ("plan_commercial") ON TABLE "public"."instances" TO console_app');
+    // Jamais de droit sur toute la table : on ajoute la seule colonne (les colonnes de copie restent cachées au client).
+    expect(migration).not.toMatch(/GRANT (SELECT|ALL)[^(]*ON TABLE "public"\."instances"/);
+  });
+
   it("[A-145] @argent chaque table d'argent porte un auteur non vide, non vide, et la base impose que ce soit l'appelant (politiques restrictives à l'insertion et à la modification)", () => {
     for (const [t, table] of [["abonnements", abonnements], ["plans_commerciaux", plansCommerciaux], ["phases_plan", phasesPlan], ["echeances", echeances]] as const) {
       expect(colonnes(table), t).toContain("auteur");

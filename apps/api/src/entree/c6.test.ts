@@ -54,13 +54,24 @@ const poster = (serveur: ReturnType<typeof monter>["serveur"], corps: unknown, e
   serveur.inject({ method: "POST", url: extra.url ?? CHEMIN, remoteAddress: extra.ip ?? "192.0.2.10", headers: { "content-type": extra.type ?? "application/json" }, payload: typeof corps === "string" ? corps : JSON.stringify(corps) });
 
 describe("réception du lien signé C6", () => {
-  it("[C-404] un lien signé valide est reçu et renvoie vers la connexion Keycloak avec login_hint et double facteur exigé", async () => {
+  it("[C-404] un lien signé valide est reçu et renvoie vers la page de connexion locale avec login_hint seul", async () => {
     const { serveur } = monter();
     const r = await poster(serveur, { jeton: jetonDe() });
     expect(r.statusCode).toBe(200);
-    const url = new URL((r.json() as { url: string }).url);
-    expect(url.origin + url.pathname).toBe("https://sso.exemple.test/realms/equipe/protocol/openid-connect/auth");
-    expect(Object.fromEntries(url.searchParams)).toEqual({ client_id: "console", redirect_uri: "https://console.exemple.test/api/auth/retour", response_type: "code", scope: "openid", login_hint: EMAIL, prompt: "login", acr_values: "mfa" });
+    const brute = (r.json() as { url: string }).url;
+    // Chemin local seulement : aucune origine, aucun schéma. La route de connexion (lot 3) construit l'adresse Keycloak (PKCE S256 + state).
+    expect(brute.startsWith("/connexion?")).toBe(true);
+    const url = new URL(brute, "https://console.exemple.test");
+    expect(url.pathname).toBe("/connexion");
+    expect(Object.fromEntries(url.searchParams)).toEqual({ login_hint: EMAIL });
+    await serveur.close();
+  });
+
+  it("[C-404] la réponse ne contient aucune adresse vers l'origine Keycloak ni paramètre OIDC", async () => {
+    const { serveur } = monter();
+    const r = await poster(serveur, { jeton: jetonDe() });
+    expect(r.body).not.toMatch(/sso\.exemple\.test|openid-connect|https?:\/\//);
+    for (const nom of ["client_id", "redirect_uri", "response_type", "scope", "prompt", "acr_values", "code_challenge", "state"]) expect(r.body, nom).not.toContain(nom);
     await serveur.close();
   });
 
@@ -235,19 +246,17 @@ describe("réception du lien signé C6", () => {
       expect((await poster(serveur, { jeton: j })).json(), piege).toEqual({ url: "/connexion" });
     }
     const r = await poster(serveur, { jeton: jetonDe(CLE, "Prénom.Nom+test@Exemple.fr") });
-    const url = new URL((r.json() as { url: string }).url);
+    const url = new URL((r.json() as { url: string }).url, "https://console.exemple.test");
     expect(url.searchParams.get("login_hint")).toBe("Prénom.Nom+test@Exemple.fr");
-    expect(url.searchParams.getAll("prompt")).toEqual(["login"]);
+    expect([...url.searchParams.keys()]).toEqual(["login_hint"]);
     await serveur.close();
   });
 
   it("[C-404] aucun paramètre de retour n'est lu : pas de redirection ouverte", async () => {
     const { serveur } = monter();
     const r = await poster(serveur, { jeton: jetonDe(), retour: "https://autre.test/vol", redirect_uri: "https://autre.test", prompt: "none", acr_values: "0", login_hint: "x@autre.test" });
-    const url = new URL((r.json() as { url: string }).url);
-    expect(url.searchParams.get("redirect_uri")).toBe("https://console.exemple.test/api/auth/retour");
-    expect(url.searchParams.get("prompt")).toBe("login");
-    expect(url.searchParams.get("acr_values")).toBe("mfa");
+    const url = new URL((r.json() as { url: string }).url, "https://console.exemple.test");
+    expect([...url.searchParams.keys()]).toEqual(["login_hint"]);
     expect(url.searchParams.get("login_hint")).toBe(EMAIL);
     expect(r.body).not.toContain("autre.test");
     await serveur.close();

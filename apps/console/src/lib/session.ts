@@ -7,6 +7,7 @@ export const COOKIE_SESSION = "__Host-session";
 export const COOKIE_TRANSACTION = "__Host-transaction";
 
 export interface Session { id: string; sub: string; email: string; jeton: string; expireA: number }
+const MAX_TRANSACTIONS = 10_000; // une requête anonyme crée une transaction : plafond contre la saturation de la mémoire
 interface Transaction { verifier: string; nonce: string; retour: string }
 const aleatoire = () => randomBytes(32).toString("base64url");
 
@@ -18,8 +19,9 @@ export function creerMagasin(maintenant: () => number = Date.now) {
     for (const [k, t] of transactions) if (t.expireA <= maintenant()) transactions.delete(k);
   };
   return {
-    ouvrirTransaction(t: Transaction): string {
+    ouvrirTransaction(t: Transaction): string | undefined {
       purger();
+      if (transactions.size >= MAX_TRANSACTIONS) return undefined;
       const etat = aleatoire();
       transactions.set(etat, { ...t, expireA: maintenant() + DUREE_TRANSACTION });
       return etat;
@@ -30,9 +32,10 @@ export function creerMagasin(maintenant: () => number = Date.now) {
       if (!t || t.expireA <= maintenant()) return undefined;
       return { verifier: t.verifier, nonce: t.nonce, retour: t.retour };
     },
-    ouvrirSession(s: Omit<Session, "id">): Session {
+    // La durée est celle de la session Keycloak de l'équipe (8 h), jamais l'expiration du jeton d'identité (5 min).
+    ouvrirSession(s: Omit<Session, "id" | "expireA">): Session {
       purger();
-      const session = { ...s, id: aleatoire(), expireA: Math.min(s.expireA, maintenant() + DUREE_SESSION) };
+      const session = { ...s, id: aleatoire(), expireA: maintenant() + DUREE_SESSION };
       sessions.set(session.id, session);
       return session;
     },
@@ -46,7 +49,9 @@ export function creerMagasin(maintenant: () => number = Date.now) {
     },
   };
 }
-export const magasin = creerMagasin();
+// Ancré sur globalThis : les routes sont des entrées séparées du paquet Next.js et doivent voir le même magasin.
+const CLE = Symbol.for("axion.console.magasin");
+export const magasin: ReturnType<typeof creerMagasin> = ((globalThis as Record<symbol, unknown>)[CLE] ??= creerMagasin()) as ReturnType<typeof creerMagasin>;
 
 const BASE = "Path=/; Secure; HttpOnly";
 export const cookieSession = (id: string, secondes: number) => `${COOKIE_SESSION}=${id}; ${BASE}; SameSite=Strict; Max-Age=${secondes}`;

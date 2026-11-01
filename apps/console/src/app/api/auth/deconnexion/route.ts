@@ -12,6 +12,7 @@ export function POST(requete: Request): Response {
   if (session) magasin.fermerSession(session.id);
   const fin = new URL(pointKeycloak(config, "logout"));
   if (session) fin.searchParams.set("id_token_hint", session.jeton);
+  fin.searchParams.set("client_id", config.clientId); // Keycloak 18+ : exigé avec post_logout_redirect_uri, même sans id_token_hint
   fin.searchParams.set("post_logout_redirect_uri", `${config.origine}/`);
   const entetes = new Headers(ENTETES);
   entetes.set("Location", fin.href);

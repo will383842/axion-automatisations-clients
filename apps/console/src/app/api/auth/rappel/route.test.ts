@@ -30,8 +30,7 @@ function brancherKeycloak(idToken: () => string) {
   });
 }
 function ouvrir(retour = "/clients") {
-  const etat = magasin.ouvrirTransaction({ verifier: "V".repeat(43), nonce: "N", retour });
-  return etat;
+  return magasin.ouvrirTransaction({ verifier: "V".repeat(43), nonce: "N", retour }) as string;
 }
 const rappel = (etat: string, cookie: string | null = etat, code = "code-1") =>
   GET(new Request(`https://console.exemple.test/api/auth/rappel?code=${code}&state=${etat}`, { headers: cookie === null ? {} : { cookie: `__Host-transaction=${cookie}` } }));

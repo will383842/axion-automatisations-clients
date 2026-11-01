@@ -25,14 +25,20 @@ export async function GET(requete: Request): Promise<Response> {
     });
     const jeton = reponse.ok ? ((await reponse.json()) as { id_token?: unknown }).id_token : undefined;
     if (typeof jeton !== "string") return refus();
-    const cles = async () => ((await (await fetch(pointKeycloak(config, "certs"), { signal: AbortSignal.timeout(DELAI) })).json()) as { keys: never[] }).keys;
+    const cles = async () => {
+      const r = await fetch(pointKeycloak(config, "certs"), { redirect: "error", signal: AbortSignal.timeout(DELAI) });
+      if (!r.ok) throw new Error("clés indisponibles");
+      return ((await r.json()) as { keys: never[] }).keys;
+    };
     const identite = await verifierJeton(jeton, { ...config, nonce: transaction.nonce, maintenant: Date.now(), cles });
-    const session = magasin.ouvrirSession({ sub: identite.sub, email: identite.email, jeton, expireA: identite.exp * 1000 });
-    const entetes = new Headers(ENTETES);
-    entetes.set("Location", transaction.retour);
+    const session = magasin.ouvrirSession({ sub: identite.sub, email: identite.email, jeton });
+    // 200 + page de rebond, pas 302 : la navigation vers `retour` doit partir de la console, sinon le navigateur
+    // n'envoie pas le cookie SameSite=Strict après un retour venu de Keycloak (boucle de connexions).
+    const lien = transaction.retour.replace(/[&"<>']/g, (c) => `&#${c.charCodeAt(0)};`);
+    const entetes = new Headers({ ...ENTETES, "Content-Type": "text/html; charset=utf-8" });
     entetes.append("Set-Cookie", cookieSession(session.id, Math.floor((session.expireA - Date.now()) / 1000)));
     entetes.append("Set-Cookie", cookieEffacer(COOKIE_TRANSACTION));
-    return new Response(null, { status: 302, headers: entetes });
+    return new Response(`<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=${lien}"><title>Connexion</title></head><body><p>Connexion réussie. <a href="${lien}">Continuer</a></p></body></html>`, { status: 200, headers: entetes });
   } catch {
     return refus();
   }

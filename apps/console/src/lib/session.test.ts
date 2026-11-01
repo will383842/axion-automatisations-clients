@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { creerMagasin, cookieEffacer, cookieSession, cookieTransaction, lireCookie } from "./session.ts";
 
 const HUIT_HEURES = 8 * 3600 * 1000;
@@ -38,8 +38,9 @@ describe("session de la console", () => {
   });
 
   it("[LOT3-session] le magasin est partagé entre les routes même si le module est chargé deux fois", async () => {
-    const a = (await import("./session.ts?une")).magasin;
-    const b = (await import("./session.ts?deux")).magasin;
+    const a = (await import("./session.ts")).magasin;
+    vi.resetModules();
+    const b = (await import("./session.ts")).magasin;
     expect(a).toBe(b);
   });
 

@@ -13,6 +13,7 @@ export function GET(requete: Request): Response {
   const config = lireConfiguration();
   const defi = creerDefi();
   const etat = magasin.ouvrirTransaction({ verifier: defi.verifier, nonce: defi.nonce, retour: retourSur(q.get("retour")) });
+  if (!etat) return new Response("Service saturé, réessayez dans un instant", { status: 503, headers: { ...ENTETES, "Retry-After": "60" } });
   const adresse = adresseAutorisation({ emetteur: config.emetteur, clientId: config.clientId, origine: config.origine }, { ...defi, state: etat }, indices[0]);
   const entetes = new Headers(ENTETES);
   entetes.set("Location", adresse);

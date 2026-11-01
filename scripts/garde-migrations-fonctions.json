@@ -9,6 +9,8 @@
     {"fichier":"0002_journal_audit_reserves.sql","nom":"audit_inserer","empreinte":"d67ff002139e79a286291fe7e92362bee1da340a98a9a82ed7dd7a8c1ca27411","adr":"0042"},
     {"fichier":"0002_journal_audit_reserves.sql","nom":"audit_ajouter","empreinte":"be3bbb2ae2d6ac1c97eac2a2298c91a0844cecb0ae254f8fa777f091be67b913","adr":"0042"},
     {"fichier":"0003_journal_audit_reserves_t201b.sql","nom":"audit_ajouter","empreinte":"896efccd6a849b6522bdb196ee60da18166249b462af722d41a067f82abb9b9a","adr":"0044"},
-    {"fichier":"0003_journal_audit_reserves_t201b.sql","nom":"audit_ecrire","empreinte":"dc72ce3d6289d7f828441383b873695d805856dea266f929e7731a36eea4fdb6","adr":"0044"}
+    {"fichier":"0003_journal_audit_reserves_t201b.sql","nom":"audit_ecrire","empreinte":"dc72ce3d6289d7f828441383b873695d805856dea266f929e7731a36eea4fdb6","adr":"0044"},
+    {"fichier":"0005_bases_client.sql","nom":"propositions_transition","empreinte":"b6e549d946da483b0325c7029d9dd6b0d96750b26f77f947f92cee8c7385aea2","adr":"0047"},
+    {"fichier":"0005_bases_client.sql","nom":"decisions_controle_gel","empreinte":"086495064c56d632aaf3784e939c8daed97e6cb6c8ea57c6fe285b0acf3413a2","adr":"0047"}
   ]
 }

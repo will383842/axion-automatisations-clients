@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Crée les compartiments communs du stockage (exports, factures, suivi, artefacts), puis vérifie leur présence.
 #   initialiser.sh [conteneur]   sans argument : le conteneur du service « stockage » du socle (projet « socle »)
+# Le compartiment journal-audit (copie quotidienne du journal d'audit, T2-10) est créé avec le verrouillage d'objets ACTIVÉ À LA CRÉATION :
+# on ne l'ajoute pas après coup. Il n'a pas d'utilisateur par client : seule la plateforme y dépose, en mode COMPLIANCE.
 # Idempotent : un compartiment présent n'est pas recréé. Aucun accès anonyme n'est ouvert : sans identité anonyme, la brique refuse toute requête non signée.
 set -euo pipefail
 
@@ -20,8 +22,12 @@ for c in exports factures suivi artefacts; do
   fi
 done
 
+if ! printf '%s\n' "$existants" | grep -qw -- journal-audit; then
+  printf 's3.bucket.create -name journal-audit -withLock\n' | coquille > /dev/null
+fi
+
 existants="$(liste)"
-for c in exports factures suivi artefacts; do
+for c in exports factures suivi artefacts journal-audit; do
   printf '%s\n' "$existants" | grep -qw -- "$c" || { echo "compartiment $c absent" >&2; exit 1; }
 done
-echo "compartiments communs présents : exports factures suivi artefacts"
+echo "compartiments communs présents : exports factures suivi artefacts journal-audit"

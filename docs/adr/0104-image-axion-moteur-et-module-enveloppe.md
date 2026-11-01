@@ -12,4 +12,4 @@ L'exécuteur doit sortir en une seule image, construite comme les images dériv�
 4. Le compose cite l'image par empreinte, jamais par étiquette.
 
 ## Conséquences
-Le workflow de publication (`image-moteur.yml`) n'est pas dans cette PR : reporté à une PR qui a le droit de toucher aux workflows. Tant qu'aucune image n'est publiée, le service du compose n'a pas de ligne `image:`.
+Le workflow de publication (`image-moteur.yml`) n'est pas dans cette PR : reporté à une PR qui a le droit de toucher aux workflows. Tant qu'aucune image n'est publiée, le compose n'a pas de service axion-moteur (un service sans image rend le compose invalide).

@@ -6,4 +6,4 @@ Une seule image pour l'exécuteur des automatisations. Le mode (`EXECUTEUR_MODE`
 - Non root (identifiant 10001), disque en lecture seule, seul `/tmp` est écrit (tmpfs borné, voir `ops/socle/compose.executeur.yml`).
 - Le point d'entrée refuse de démarrer en root.
 - Aucun binaire headscale ni tailscale (C-495) ; aucune clé ni `.env`.
-- Le compose et la chaîne de déploiement la citent par empreinte, jamais par étiquette. L'empreinte de la première publication est reportée après fusion par le chef d'orchestre ; d'ici là le compose ne porte pas encore de ligne `image:` (la garde des briques exige une brique inscrite et l'attestation).
+- Le compose et la chaîne de déploiement la citent par empreinte, jamais par étiquette. L'empreinte de la première publication est reportée après fusion par le chef d'orchestre ; d'ici là le compose n'a pas encore de service axion-moteur.

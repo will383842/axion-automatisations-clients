@@ -9,16 +9,4 @@ networks:
   enveloppe:
     internal: true
 
-services:
-  # Pas de ligne image: tant que la première publication n'existe pas (la garde des briques exige une brique inscrite et l'attestation du workflow de publication).
-  # Après la première publication, le chef d'orchestre ajoute ici image: ...@sha256:<empreinte> et inscrit ops/briques/axion-moteur.json.
-  axion-moteur:
-    user: "10001:10001"
-    read_only: true
-    cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
-    tmpfs:
-      - /tmp:rw,noexec,nosuid,size=64m
-    environment:
-      EXECUTEUR_MODE: mutualise
-    networks: [executeur-interne]
+# Le service axion-moteur sera ajouté ici avec sa ligne image: ...@sha256:<empreinte> après la première publication (un service sans image rend le compose invalide).

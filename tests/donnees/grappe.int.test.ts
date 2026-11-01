@@ -65,6 +65,7 @@ const attendre = async (condition: () => boolean, secondes: number) => {
   }
   return condition();
 };
+const toutesLesConnexions = () => Number(superu("postgres", "select count(*) from pg_stat_activity where usename like 'cli\\_%'").sortie);
 const serveurs = (base: string) => Number(superu("postgres", `select count(*) from pg_stat_activity where datname='cli_${base}' and usename like 'cli\\_%'`).sortie);
 
 // Le job ne montre pas le rapport JSON : chaque échec va sur la sortie d'erreur.
@@ -75,8 +76,9 @@ afterEach((ctx) => {
 beforeAll(() => {
   creer(A);
   creer(B);
-  creer(P4);
-  creer(P8);
+  // Paliers 4 et 8 : la limite de connexions du rôle ne doit pas être plus basse que le palier de PgBouncer.
+  creer(P4, ["-v", "limite_app=10"]);
+  creer(P8, ["-v", "limite_app=10"]);
   // Une table de A, créée par son propriétaire (le superutilisateur d'essai prend le rôle), avec une ligne repérable.
   for (const [id, m] of [[A, "MARQUEUR-A"], [B, "MARQUEUR-B"]] as const)
     superu(`cli_${id}`, `set role ${role(id, "proprietaire")}; create table essai(note text); insert into essai values ('${m}-${randomBytes(6).toString("hex")}')`);
@@ -235,8 +237,9 @@ describe("PgBouncer de la grappe données (A-234, A-235, A-236, A-210)", () => {
       await existante.query("begin; select 1");
       const clients = ids.flatMap((id) => [0, 1].map(() => clientPg(h, 6432, role(id, "app"), `cli_${id}`, motDePasse(role(id, "app")))));
       const issues = await Promise.all(
-        clients.map((c) => c.connect().then(() => c.query("begin; select 1")).then(() => "ouverte", (e: Error) => (/too many|timeout|pool|limit/i.test(e.message) ? "refus propre" : `autre : ${e.message}`))),
+        clients.map((c) => c.connect().then(() => c.query("begin; select 1")).then(() => "ouverte", (e: Error) => (/too many|timeout|pool|limit|failing|reserved|no more/i.test(e.message) || "severity" in e ? "refus propre" : `autre : ${e.message}`))),
       );
+      writeSync(2, `A-236 issues : ${JSON.stringify([...new Set(issues.map((x) => x.slice(0, 120)))])}\n`);
       const ouvertes = issues.filter((x) => x === "ouverte").length;
       expect(issues.filter((x) => x.startsWith("autre"))).toEqual([]);
       expect(ouvertes).toBeGreaterThan(0);
@@ -245,6 +248,8 @@ describe("PgBouncer de la grappe données (A-234, A-235, A-236, A-210)", () => {
       // La base qui tenait déjà sa connexion la garde.
       expect((await existante.query("select 1 as v")).rows[0]?.v).toBe(1);
       await Promise.allSettled([existante.end(), ...clients.map((c) => c.end())]);
+      // PgBouncer garde ses connexions serveur 30 s : on attend qu'elles retombent avant les essais suivants.
+      expect(await attendre(() => toutesLesConnexions() === 0, 80)).toBe(true);
     }, 300_000);
 
     it("[A-210] l'essai de 50 bases à 2 connexions est mesuré et écrit", async () => {

@@ -242,17 +242,17 @@ describe("plan commercial, avec le socle", { timeout: 60_000 }, () => {
     await expect(echeance(A, p["id"])).resolves.toMatchObject({ statut: "prevue" });
   });
 
-  it("[A-145] @argent un plan, une phase, une échéance ou un abonnement sans auteur (ou avec un auteur vide) est refusé", async () => {
+  it("[A-145] @argent un plan, une phase, une échéance ou un abonnement sans auteur, ou avec un auteur vide, est refusé (42501 : la politique « auteur = appelant » passe avant NOT NULL et CHECK)", async () => {
     const A = randomUUID();
     await creerOrg(A);
     const instance = await creerInstance(A);
-    await expect(plan(A, instance["id"], { auteur: null })).rejects.toMatchObject({ code: "23502" });
-    await expect(plan(A, instance["id"], { auteur: "  " })).rejects.toMatchObject({ code: "23514" });
+    await expect(plan(A, instance["id"], { auteur: null })).rejects.toMatchObject({ code: "42501" });
+    await expect(plan(A, instance["id"], { auteur: "  " })).rejects.toMatchObject({ code: "42501" });
     const p = await plan(A, instance["id"]);
-    await expect(echeance(A, p["id"], { auteur: null })).rejects.toMatchObject({ code: "23502" });
-    await expect(echeance(A, p["id"], { auteur: "" })).rejects.toMatchObject({ code: "23514" });
-    await expect(inserer(A, "phases_plan", { plan_id: p["id"], ordre: 1, debut: "2026-01-01", nature: "recurrente", montant_centimes: 1, periode_facturation_mois: 1, auteur: " " })).rejects.toMatchObject({ code: "23514" });
-    await expect(inserer(A, "abonnements", { organisation_id: A, debut: "2026-01-01", periode_facturation_mois: 1, mode_avance: "aucune", auteur: " " })).rejects.toMatchObject({ code: "23514" });
+    await expect(echeance(A, p["id"], { auteur: null })).rejects.toMatchObject({ code: "42501" });
+    await expect(echeance(A, p["id"], { auteur: "" })).rejects.toMatchObject({ code: "42501" });
+    await expect(inserer(A, "phases_plan", { plan_id: p["id"], ordre: 1, debut: "2026-01-01", nature: "recurrente", montant_centimes: 1, periode_facturation_mois: 1, auteur: " " })).rejects.toMatchObject({ code: "42501" });
+    await expect(inserer(A, "abonnements", { organisation_id: A, debut: "2026-01-01", periode_facturation_mois: 1, mode_avance: "aucune", auteur: " " })).rejects.toMatchObject({ code: "42501" });
   });
 
   it("[A-146] une condition du client porte la source client, son auteur et ses dates", async () => {

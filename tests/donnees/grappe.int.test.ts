@@ -434,10 +434,10 @@ describe("limites par base (A-417)", () => {
     expect(limite).toBeGreaterThan(0);
     // Les connexions que PgBouncer garde encore ouvertes pour ce rôle comptent dans sa limite.
     const deja = Number(superu("postgres", `select count(*) from pg_stat_activity where usename='${role(A, "app")}'`).sortie);
-    // Connexions directes (socket du serveur) qui restent ouvertes 8 s.
+    // Connexions directes (socket du serveur) qui restent ouvertes 4 s (moins que le délai de 5 s du rôle, qui couperait la requête).
     const ouvrir = () =>
       new Promise<{ ok: boolean; erreur: string }>((fin) => {
-        execFile("docker", ["exec", "-e", `PGPASSWORD=${mdpDe(role(A, "app"))}`, conteneur("donnees"), "psql", "-w", "-U", role(A, "app"), "-d", `cli_${A}`, "-tAXc", "select pg_sleep(8)"], (e, _o, err) => fin({ ok: !e, erreur: err }));
+        execFile("docker", ["exec", "-e", `PGPASSWORD=${mdpDe(role(A, "app"))}`, conteneur("donnees"), "psql", "-w", "-U", role(A, "app"), "-d", `cli_${A}`, "-tAXc", "select pg_sleep(4)"], (e, _o, err) => fin({ ok: !e, erreur: err }));
       });
     const issues = await Promise.all(Array.from({ length: limite + 1 }, ouvrir));
     expect(issues.filter((x) => x.ok)).toHaveLength(limite - deja);

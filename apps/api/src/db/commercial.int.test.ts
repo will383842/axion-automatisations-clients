@@ -55,10 +55,11 @@ async function ecrire<T>(...args: Parameters<typeof avecClient<T>>): Promise<T> 
     }
   }
 }
+// Depuis la 0007, console_app ne lit qu'une partie des colonnes d'instances : RETURNING * y serait refusé (42501).
 const inserer = (tenant: string, table: string, valeurs: Record<string, unknown>, appelant: typeof APPELANT | null = APPELANT) => {
   const v = { id: randomUUID(), tenant_id: tenant, ...valeurs };
   const cles = Object.keys(v);
-  return ecrire(app, tenant, async (c) => (await c.query(`INSERT INTO ${table} (${cles.join(", ")}) VALUES (${cles.map((_, i) => `$${i + 1}`).join(", ")}) RETURNING *`, Object.values(v))).rows[0] as Record<string, unknown>, appelant ?? undefined);
+  return ecrire(app, tenant, async (c) => (await c.query(`INSERT INTO ${table} (${cles.join(", ")}) VALUES (${cles.map((_, i) => `$${i + 1}`).join(", ")}) RETURNING ${table === "instances" ? "tenant_id, id" : "*"}`, Object.values(v))).rows[0] as Record<string, unknown>, appelant ?? undefined);
 };
 const creerOrg = (id: string) => inserer(id, "organisations", { id, console_client_id: id, raison_sociale: "Lemoine Rénovation" });
 // Pas de RETURNING * : console_app ne lit qu'une liste de colonnes de instances (migration 0007) ; seul l'identifiant revient.

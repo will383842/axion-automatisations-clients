@@ -5,8 +5,7 @@ networks:
     internal: true
   sortie: {}
 
-# Réseau du module enveloppe : interne, il ne joint que l'exécuteur (ADR 0104).
-  enveloppe:
-    internal: true
+# Pas de réseau pour le module enveloppe : son conteneur est lancé avec --network=none (ADR 0104), l'échange passe par l'entrée standard.
+# Un réseau partagé entre exécutions de clients différents est interdit (le projet s'appelle socle : il se nommerait socle_enveloppe).
 
 # Le service axion-moteur sera ajouté ici avec sa ligne image: ...@sha256:<empreinte> après la première publication (un service sans image rend le compose invalide).

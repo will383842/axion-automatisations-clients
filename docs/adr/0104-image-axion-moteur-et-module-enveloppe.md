@@ -1,15 +1,18 @@
 # 0104 · Image axion-moteur en mode mutualisé et module enveloppe
 
-Date : 01/11/2026 · Statut : accepté (fiche T4-20) · Contrat touché : aucun
+Date : 01/11/2026 · Statut : accepté avec points NON RÉSOLUS (fiche T4-20) · Contrat touché : aucun contrat C1 à C6 du paquet `packages/contrats`. Le fichier `apps/executeur/src/enveloppe/contrat.ts` définit des types propres à l'exécuteur (événement, sortie, fiche avec la liste des types d'événements déclarés) : ils ne sont pas tirés du SDK ni d'un contrat, car aucun type équivalent n'y existe. L'architecte doit confirmer qu'ils restent internes ou les rapprocher du C4 avant la mise en service.
 
 ## Contexte
 L'exécuteur doit sortir en une seule image, construite comme les images dérivées (ADR 0014). Un composant open source repris doit tourner à part, sans coffre.
 
 ## Décision
-1. Une seule image `axion-moteur` : `FROM` unique épinglé par empreinte, utilisateur numérique non root, point d'entrée qui refuse le root, disque en lecture seule et seul `/tmp` en tmpfs borné (compose). Aucun paquet headscale ni tailscale.
-2. Le mode est un réglage `EXECUTEUR_MODE` : seul `mutualise` est accepté en V1 ; `relie` et `autonome` sont refusés au démarrage (V2).
-3. Module enveloppe : conteneur séparé, image par empreinte inscrite dans `ops/briques/`, sans variable, sans volume, sans capacité, sur le réseau interne `enveloppe` qui ne joint que l'exécuteur. Même contrat d'entrée et de sortie qu'un module en code.
-4. Le compose cite l'image par empreinte, jamais par étiquette.
+1. Une seule image `axion-moteur` : `FROM` unique épinglé par empreinte, utilisateur numérique non root, point d'entrée qui refuse le root, code propriétaire root (fichiers 0444, dossiers 0555), disque en lecture seule et seul `/tmp` en tmpfs borné. Aucun paquet headscale ni tailscale. Prévu, appliqué quand le service sera ajouté au compose : tant qu'il n'existe pas, ces règles ne sont vérifiées que sur le texte du Dockerfile et du point d'entrée.
+2. Le mode est un réglage `EXECUTEUR_MODE` : seul `mutualise` est accepté en V1 ; `relie` et `autonome` sont refusés. `lireMode` n'est appelé nulle part : le point d'entrée de l'exécuteur est vide et aucun démarrage n'est inventé ici (A-012 et A-284 en partie, voir `spec/preuves.md`).
+3. Module enveloppe : conteneur séparé, image par empreinte inscrite dans `ops/briques/`, sans variable, sans volume, sans capacité, avec `--network=none` par défaut (décision de l'architecte) : l'échange passe par l'entrée standard. La liste des réseaux permis est fermée (`none` seul). Si un réseau devenait nécessaire, ce serait un réseau par exécution, jamais partagé entre exécutions ni entre clients. Le compose n'a donc plus de réseau `enveloppe` (le projet s'appelle `socle` : il se serait nommé `socle_enveloppe`), ce que prouve le test sur le compose assemblé. Le moteur ne rejoint aucun réseau enveloppe : A-330 reste vrai. Limites : mémoire, swap, processus, processeur, et délai maximal tenu par le lanceur. Même contrat d'entrée et de sortie qu'un module en code ; la sortie du conteneur est validée (tableau, type déclaré dans la fiche, données = objet JSON simple, clés `__proto__`, `client` et `tenant_id` refusées).
+4. Le compose cite l'image par empreinte, jamais par étiquette (à prouver quand le service existe : test en attente).
 
 ## Conséquences
-Le workflow de publication (`image-moteur.yml`) n'est pas dans cette PR : reporté à une PR qui a le droit de toucher aux workflows. Tant qu'aucune image n'est publiée, le compose n'a pas de service axion-moteur (un service sans image rend le compose invalide).
+- Le workflow de publication (`image-moteur.yml`) n'est pas dans cette PR : reporté à une PR qui a le droit de toucher aux workflows. Tant qu'aucune image n'est publiée, le compose n'a pas de service axion-moteur.
+- **NON RÉSOLU, dette BLOQUANTE avant mise en service : comment l'exécuteur lance `docker run` sans socket Docker.** Le compose et `image.test.ts` interdisent le socket. Le mécanisme est à décider par l'architecte, avec sa surface d'attaque : lanceur séparé à droits restreints, Docker sans root, ou proxy du socket limité au `run` d'images inscrites. Le lanceur injecté (`LanceurConteneur`) reste l'interface ; aucun mécanisme n'est inventé ici.
+- **Dette BLOQUANTE : l'image n'est pas exécutable en l'état.** Elle n'installe pas les dépendances de l'exécuteur ; elle exige Node 22.18 ou plus pour lancer du `.ts` directement ; aucun job de CI ne la construit (les workflows ne sont pas touchés ici).
+- Dette : les tests A-327 (service du compose) et A-347 sont des `it.todo` tant que le service axion-moteur n'existe pas ; ils ne comptent pas comme preuve.

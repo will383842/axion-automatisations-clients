@@ -3,9 +3,12 @@
 FROM node:22-alpine@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914
 ENV NODE_ENV=production
 WORKDIR /app
-COPY --chown=10001:10001 apps/executeur/ ./apps/executeur/
-COPY --chown=10001:10001 ops/images/axion-moteur/point-entree.sh /usr/local/bin/point-entree.sh
-RUN chmod 0555 /usr/local/bin/point-entree.sh
+COPY apps/executeur/ ./apps/executeur/
+COPY ops/images/axion-moteur/point-entree.sh /usr/local/bin/point-entree.sh
+# Code propriétaire root, jamais écrivable par l'utilisateur du moteur ; seul /tmp (tmpfs au lancement) est écrivable.
+RUN chmod 0555 /usr/local/bin/point-entree.sh \
+ && find /app -type d -exec chmod 0555 {} + \
+ && find /app -type f -exec chmod 0444 {} +
 USER 10001:10001
 ENTRYPOINT ["/usr/local/bin/point-entree.sh"]
 CMD ["node", "apps/executeur/src/index.ts"]

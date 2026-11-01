@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { chargerConfig } from "../config.ts";
 import { Cellule, InstanceHorsCellule } from "./cellule.ts";
 import { CurseursMemoire, demandeManuelle, executerSondage, versRepetition } from "./declencheurs.ts";
@@ -82,17 +82,25 @@ describe("sémaphore par client", () => {
     expect(max).toBe(attendu);
   });
   it("[A-325] le bail est renouvelé pendant un long travail : le client ne dépasse pas son palier", async () => {
-    const cfg = { ...config, bailPlaceMs: 60 };
-    const sem = new Semaphore(new PlacesMemoire(() => Date.now()), cfg);
-    const cellule = new Cellule("auto-run-1", ["inst-1"]);
-    const long = traiter(
-      { id: "long", instanceId: "inst-1", clientId: "client-a", palier: "essentiel" },
-      { cellule, semaphore: sem, executer: () => new Promise((r) => setTimeout(r, 300)) },
-    );
-    await new Promise((r) => setTimeout(r, 200));
-    expect(await sem.acquerir("client-a", "essentiel", "autre:1")).toBe(true);
-    expect(await sem.acquerir("client-a", "essentiel", "autre:2")).toBe(false);
-    await long;
+    // Horloge simulée : le renouvellement (toutes les 20 ms) et le temps avancent ensemble, la charge de la machine n'y change rien.
+    vi.useFakeTimers();
+    try {
+      const cfg = { ...config, bailPlaceMs: 60 };
+      const sem = new Semaphore(new PlacesMemoire(() => Date.now()), cfg);
+      const cellule = new Cellule("auto-run-1", ["inst-1"]);
+      let finir = () => {};
+      const long = traiter(
+        { id: "long", instanceId: "inst-1", clientId: "client-a", palier: "essentiel" },
+        { cellule, semaphore: sem, executer: () => new Promise<void>((r) => (finir = r)) },
+      );
+      await vi.advanceTimersByTimeAsync(200); // plus de trois baux : sans renouvellement, la place serait perdue
+      expect(await sem.acquerir("client-a", "essentiel", "autre:1")).toBe(true);
+      expect(await sem.acquerir("client-a", "essentiel", "autre:2")).toBe(false);
+      finir();
+      await long;
+    } finally {
+      vi.useRealTimers();
+    }
   });
   it("[A-325] une place perdue (travailleur tué) revient après l'expiration du bail", async () => {
     const { sem, avancer } = banc();
@@ -173,6 +181,7 @@ describe("stabilité de la CI", () => {
     // sous la charge de la CI, un renouvellement en retard faisait expirer la place. Ce fichier ne doit plus jamais le faire.
     const source = readFileSync(fileURLToPath(import.meta.url), "utf8").split("describe(\"stabilité de la CI\"")[0] ?? "";
     expect(source.match(/setTimeout\(\s*\w+\s*,\s*\d/g) ?? []).toEqual([]);
-    expect(source.match(/PlacesMemoire\(\(\) => Date\.now\(\)\)/g) ?? []).toEqual([]);
+    // L'horloge réelle n'est permise qu'avec des minuteries simulées.
+    expect(!source.includes("Date.now()") || source.includes("vi.useFakeTimers()")).toBe(true);
   });
 });

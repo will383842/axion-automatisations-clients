@@ -56,7 +56,10 @@ describe("registre des bases des clients : schéma et migration 0005", () => {
     expect(migration).not.toMatch(/portail_app|equipe-export/);
     expect(migration).not.toMatch(/TO PUBLIC/i);
     for (const t of ["reglages_fin_de_contrat", "decisions_effacement", "confirmations_mise_a_l_ecart"]) expect(droits(t).join(), t).toBe("SELECT, INSERT");
-    for (const t of ["propositions_suppression", "demandes_effacement"]) expect(droits(t).join(), t).toBe("SELECT, INSERT, UPDATE");
+    // La mise à jour se limite à des colonnes : jamais d'UPDATE sur toute la table.
+    for (const t of ["propositions_suppression", "demandes_effacement"]) expect(droits(t).join(), t).toBe("SELECT, INSERT");
+    expect(migration).toContain('GRANT UPDATE ("etat") ON TABLE "public"."demandes_effacement" TO console_app');
+    expect(migration).not.toMatch(/GRANT UPDATE ON TABLE "public"."(demandes_effacement|propositions_suppression)"/);
     expect(migration).not.toMatch(/GRANT[^;]*\b(TRUNCATE|REFERENCES|TRIGGER|ALL|DELETE)\b[^;]*TO console_(app|equipe)/i);
   });
 

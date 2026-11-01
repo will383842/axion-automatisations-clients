@@ -245,7 +245,8 @@ ALTER TABLE "public"."demandes_effacement" FORCE ROW LEVEL SECURITY;--> statemen
 CREATE POLICY isolation_client ON "public"."demandes_effacement" FOR ALL TO console_app USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid) WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid);--> statement-breakpoint
 CREATE POLICY lecture_equipe ON "public"."demandes_effacement" FOR SELECT TO console_equipe USING (tenant_id IS NOT NULL);--> statement-breakpoint
 REVOKE ALL ON TABLE "public"."demandes_effacement" FROM PUBLIC;--> statement-breakpoint
-GRANT SELECT, INSERT, UPDATE ON TABLE "public"."demandes_effacement" TO console_app;--> statement-breakpoint
+GRANT SELECT, INSERT ON TABLE "public"."demandes_effacement" TO console_app;--> statement-breakpoint
+GRANT UPDATE ("etat") ON TABLE "public"."demandes_effacement" TO console_app;--> statement-breakpoint
 GRANT SELECT ON TABLE "public"."demandes_effacement" TO console_equipe;--> statement-breakpoint
 CREATE TRIGGER demandes_effacement_audit AFTER INSERT OR UPDATE OR DELETE ON "public"."demandes_effacement" FOR EACH ROW EXECUTE FUNCTION public.audit_ecrire();--> statement-breakpoint
 ALTER TABLE "public"."decisions_effacement" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
@@ -261,7 +262,8 @@ ALTER TABLE "public"."propositions_suppression" FORCE ROW LEVEL SECURITY;--> sta
 CREATE POLICY isolation_client ON "public"."propositions_suppression" FOR ALL TO console_app USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid) WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid);--> statement-breakpoint
 CREATE POLICY lecture_equipe ON "public"."propositions_suppression" FOR SELECT TO console_equipe USING (tenant_id IS NOT NULL);--> statement-breakpoint
 REVOKE ALL ON TABLE "public"."propositions_suppression" FROM PUBLIC;--> statement-breakpoint
-GRANT SELECT, INSERT, UPDATE ON TABLE "public"."propositions_suppression" TO console_app;--> statement-breakpoint
+GRANT SELECT, INSERT ON TABLE "public"."propositions_suppression" TO console_app;--> statement-breakpoint
+GRANT UPDATE ("etat", "gel_id", "avis_client_le", "avis_client_preuve", "rappels_envoyes") ON TABLE "public"."propositions_suppression" TO console_app;--> statement-breakpoint
 GRANT SELECT ON TABLE "public"."propositions_suppression" TO console_equipe;--> statement-breakpoint
 CREATE TRIGGER propositions_suppression_audit AFTER INSERT OR UPDATE OR DELETE ON "public"."propositions_suppression" FOR EACH ROW EXECUTE FUNCTION public.audit_ecrire();--> statement-breakpoint
 ALTER TABLE "public"."reglages_fin_de_contrat" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
@@ -313,6 +315,7 @@ CREATE TRIGGER propositions_transition BEFORE UPDATE ON "public"."propositions_s
 -- Décision d'effacement pour litige : le gel désigné doit exister chez ce client et être actif à la date de la décision (C-715).
 CREATE OR REPLACE FUNCTION public.decisions_controle_gel() RETURNS trigger LANGUAGE plpgsql AS $f$
 BEGIN
+  NEW.decidee_le := now(); -- la date d'une décision est celle de l'écriture : elle ne s'antidate pas
   IF NEW.cause = 'litige_en_cours' AND NOT EXISTS (
     SELECT 1 FROM public.gels_litige g WHERE g.tenant_id = NEW.tenant_id AND g.id = NEW.gel_id AND g.posee_le <= NEW.decidee_le AND (g.levee_le IS NULL OR g.levee_le > NEW.decidee_le)
   ) THEN
@@ -321,4 +324,30 @@ BEGIN
   RETURN NEW;
 END
 $f$;--> statement-breakpoint
-CREATE TRIGGER decisions_controle_gel BEFORE INSERT ON "public"."decisions_effacement" FOR EACH ROW EXECUTE FUNCTION public.decisions_controle_gel();
+CREATE TRIGGER decisions_controle_gel BEFORE INSERT ON "public"."decisions_effacement" FOR EACH ROW EXECUTE FUNCTION public.decisions_controle_gel();--> statement-breakpoint
+-- Correctifs de relecture (ADR 0047) : un refus ne vise qu'une demande ; une seule personne ne confirme pas sous les deux rôles (C-567).
+ALTER TABLE "public"."decisions_effacement" ADD CONSTRAINT "decisions_ecarter_sur_proposition" CHECK ("decision" <> 'ecarter' OR "proposition_id" IS NOT NULL);--> statement-breakpoint
+ALTER TABLE "public"."confirmations_mise_a_l_ecart" ADD CONSTRAINT "confirmations_tenant_id_fin_confirmateur_unique" UNIQUE ("tenant_id", "fin_de_contrat_id", "confirmateur");--> statement-breakpoint
+-- Levée d'un gel : une seule fois, de NULL vers une valeur, à la date du jour (C-609).
+CREATE OR REPLACE FUNCTION public.gels_levee_unique() RETURNS trigger LANGUAGE plpgsql AS $f$
+BEGIN
+  IF OLD.levee_le IS NOT NULL OR OLD.leve_par IS NOT NULL THEN
+    RAISE EXCEPTION 'gel : la levée est déjà faite et ne se réécrit pas' USING ERRCODE = '23514';
+  END IF;
+  IF NEW.levee_le IS NULL OR NEW.leve_par IS NULL OR abs(extract(epoch FROM (now() - NEW.levee_le))) > 300 THEN
+    RAISE EXCEPTION 'gel : la levée porte la date du jour et son auteur' USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END
+$f$;--> statement-breakpoint
+CREATE TRIGGER gels_levee_unique BEFORE UPDATE ON "public"."gels_litige" FOR EACH ROW EXECUTE FUNCTION public.gels_levee_unique();--> statement-breakpoint
+-- Transitions d'état d'une demande d'effacement : en_attente→acceptee, en_attente→refusee, refusee→en_attente (réexamen à la levée du gel). acceptee est finale.
+CREATE OR REPLACE FUNCTION public.demandes_transition() RETURNS trigger LANGUAGE plpgsql AS $f$
+BEGIN
+  IF NEW.etat IS DISTINCT FROM OLD.etat AND (OLD.etat::text, NEW.etat::text) NOT IN (('en_attente', 'acceptee'), ('en_attente', 'refusee'), ('refusee', 'en_attente')) THEN
+    RAISE EXCEPTION 'demande : transition % vers % refusée', OLD.etat, NEW.etat USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END
+$f$;--> statement-breakpoint
+CREATE TRIGGER demandes_transition BEFORE UPDATE ON "public"."demandes_effacement" FOR EACH ROW EXECUTE FUNCTION public.demandes_transition();

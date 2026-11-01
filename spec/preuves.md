@@ -28,7 +28,7 @@ A-005 → EN PARTIE (lots 2b, 3 et 6 pour le reste) : tests « [A-005] une valeu
 C-012 → test « [C-012] après detruireCleClient, le déchiffrement échoue pour toujours » de apps/api/src/coffre/secrets-openbao.int.test.ts (vrai OpenBao), 2026-10-26
 C-011 → tests « [C-011] » de apps/api/src/coffre/secrets-openbao.test.ts (imitation HTTP) et de apps/api/src/coffre/secrets-openbao.int.test.ts (vrai OpenBao en mode serveur : lecture courtier seul, coffre scellé par PUT sys/seal), 2026-10-26
 A-328 → ADR 0025 et tests [A-328] de apps/executeur/src/bac-a-sable/bac-a-sable.test.ts (processus distincts, globales, fichiers, environnement, jeton, limites), 2026-10-26
-A-329 → test « [A-329] @isolation l'enfant ne joint aucun hôte… » (apps/executeur/src/bac-a-sable/bac-a-sable.test.ts), étape 1 seulement ; mandataire à l'étape 2, 2026-10-26
+A-329 → test « [A-329] @isolation l'enfant ne joint aucun hôte… » (apps/executeur/src/bac-a-sable/bac-a-sable.test.ts), étape 1 seulement ; mandataire à l'étape 2, 2026-10-26 ; délai de 10 s : test « [A-329] un serveur amont qui n'écrit jamais est coupé après 10 secondes… » (apps/executeur/src/sortie/mandataire.test.ts), 504 avant le tunnel, coupure ensuite
 A-062 → fichiers ops/socle/keycloak/royaume-*.json et test « [A-062] les royaumes equipe et clients sont importés et leur découverte OIDC répond » (apps/api/src/auth/keycloak.int.test.ts), 2026-10-26
 C-001 → EN PARTIE (lot 3, C-541 pour le reste) : tests [C-001] de apps/api/src/auth/keycloak.int.test.ts (session de 8 h relue, rafraîchissement refusé après déconnexion forcée), 2026-10-26
 C-002 → tests [C-002] de apps/api/src/auth/keycloak.int.test.ts (mot de passe seul sans jeton ni code, TOTP exigé) et de scripts/garde-royaumes.test.ts, 2026-10-26

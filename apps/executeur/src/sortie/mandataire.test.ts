@@ -1,9 +1,10 @@
-import { connect, createServer, type Server, type Socket } from "node:net";
-import { afterEach, describe, expect, it } from "vitest";
+import { connect, createServer, Socket, type Server } from "node:net";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { demarrerMandataire, type Mandataire } from "./mandataire.ts";
 
 const ouverts: { close: () => unknown }[] = [];
 afterEach(() => {
+  vi.useRealTimers();
   for (const o of ouverts.splice(0)) o.close();
 });
 
@@ -94,5 +95,44 @@ describe("mandataire de sortie", () => {
     const { m, port } = await mandataire({ declarees: [], resoudre: async () => [] });
     await brut(port, "CONNECT secret-du-client.exemple.test:443 HTTP/1.1\r\nHost: secret-du-client.exemple.test:443\r\n\r\n");
     expect(JSON.stringify(m.refus())).not.toContain("secret-du-client");
+  });
+
+  it("[A-329] un serveur amont qui n'écrit jamais est coupé après 10 secondes, sans réponse ni journal de la cible", async () => {
+    const silencieux = createServer(() => undefined);
+    ouverts.push(silencieux);
+    await new Promise<void>((ok) => silencieux.listen(0, "127.0.0.1", ok));
+    const portDistant = (silencieux.address() as { port: number }).port;
+    const { port } = await mandataire({
+      declarees: [{ hote: "api.exemple.test", port: portDistant }],
+      resoudre: async () => ["127.0.0.1"],
+      exceptions: ["127.0.0.1"],
+    });
+    // Les délais de socket de Node n'obéissent pas aux horloges simulées : on relève le délai demandé, puis on le fait « expirer ».
+    const reglages: { socket: Socket; ms: number }[] = [];
+    const reel = Socket.prototype.setTimeout;
+    vi.spyOn(Socket.prototype, "setTimeout").mockImplementation(function (this: Socket, ms: number, cb?: () => void) {
+      reglages.push({ socket: this, ms });
+      return reel.call(this, ms, cb);
+    });
+    const journal = vi.spyOn(console, "log");
+    const erreurs = vi.spyOn(console, "error");
+    const duree = await new Promise<number>((ok, ko) => {
+      const s: Socket = connect(port, "127.0.0.1", () =>
+        s.write(`CONNECT api.exemple.test:${portDistant} HTTP/1.1\r\nHost: api.exemple.test:${portDistant}\r\n\r\n`),
+      );
+      vi.useFakeTimers();
+      const debut = Date.now();
+      s.on("data", (d) => {
+        if (!d.toString().startsWith("HTTP/1.1 200")) return;
+        // Tunnel ouvert, l'amont ne dira jamais rien : 10 s simulées s'écoulent.
+        vi.advanceTimersByTime(10_000);
+        for (const r of reglages.filter((x) => x.ms === 10_000)) r.socket.emit("timeout");
+      });
+      s.on("close", () => ok(Date.now() - debut));
+      s.on("error", () => ko(new Error("erreur socket")));
+    });
+    expect(reglages.filter((r) => r.ms === 10_000).length).toBeGreaterThanOrEqual(2); // client ET amont
+    expect(duree).toBeGreaterThanOrEqual(10_000);
+    for (const o of [journal, erreurs]) expect(JSON.stringify(o.mock.calls)).not.toContain("api.exemple.test");
   });
 });

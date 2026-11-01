@@ -183,7 +183,10 @@ describe("catalogue : packs, connecteurs, grilles de prix, synonymes, recherche 
       expect(getTableConfig(grillesPrix).columns.find((x) => x.name === c)?.columnType, c).toMatch(/BigInt/);
     }
     expect(contraintes(grillesPrix)).toEqual(expect.arrayContaining(["grilles_prix_montants_positifs", "grilles_prix_maintenance_mois_positifs", "grilles_prix_auteur_non_vide"]));
-    expect(droitsDe("grilles_prix", "console_equipe")).toEqual(["SELECT, INSERT"]);
+    expect(droitsDe("grilles_prix", "console_equipe")).toEqual(["SELECT", expect.stringMatching(/^INSERT \(/)]);
+    // Pas de droit sur cree_le : la ligne en vigueur est la plus récente, on ne l'antidate pas.
+    expect(droitsDe("grilles_prix", "console_equipe").join()).not.toContain("cree_le");
+    expect(droitsDe("packs", "console_equipe").join()).not.toContain("cree_le");
     expect(migration).not.toMatch(/numeric|double precision|\breal\b/i);
   });
 
@@ -222,6 +225,9 @@ describe("tables de la plateforme : auteur et journal d'audit (relecture de T2-0
     expect(migration).toMatch(/CREATE FUNCTION public\.audit_ecrire_equipe\(\)[\s\S]*SECURITY DEFINER[\s\S]*SET search_path = pg_catalog, pg_temp/);
     expect(migration).toContain("REVOKE ALL ON FUNCTION public.audit_ecrire_equipe() FROM PUBLIC");
     for (const t of COMMUNES) expect(migration, t).toMatch(new RegExp(`CREATE TRIGGER ${t}_audit AFTER INSERT OR UPDATE OR DELETE ON "public"\\."${t}"`));
+    // Le motif LIKE de l'identifiant d'entité garde UN SEUL antislash (standard_conforming_strings = on : deux antislashs ne trouveraient aucune clé).
+    expect(migration).toContain("e.key LIKE '%\\_id'");
+    expect(migration).not.toContain("LIKE '%\\\\_id'");
     // Une écriture qui porte de l'argent exige un acteur au journal (pas de repli sur « systeme »).
     expect(migration).toMatch(/acteur obligatoire pour une écriture qui porte de l'+argent/);
   });

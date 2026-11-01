@@ -378,7 +378,7 @@ describe("PgBouncer de la grappe données (A-234, A-235, A-236, A-210)", () => {
       await existante.query("begin; select 1");
       const clients = ids.flatMap((id) => [0, 1].map(() => clientPg(h, 6432, role(id, "app"), `cli_${id}`, motDePasse(role(id, "app")))));
       // Refus propre = saturation seulement (SQLSTATE 53300, attente dépassée, plafond de PgBouncer). Un échec d'authentification, une base absente ou une coupure ne comptent pas.
-      const saturation = /too many clients|remaining connection slots|query_wait_timeout|no more connections allowed|max_client_conn|cannot connect to server|server login has been failing/i;
+      const saturation = /too many clients|remaining connection slots|query_wait_timeout|query_timeout|no more connections allowed|max_client_conn|cannot connect to server|server login has been failing/i;
       const issues = await Promise.all(
         clients.map((c) => c.connect().then(() => c.query("begin; select 1")).then(() => "ouverte", (e: Error & { code?: string }) => (e.code === "53300" || saturation.test(e.message) ? "refus propre" : `autre : ${e.message}`))),
       );

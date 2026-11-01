@@ -1,9 +1,10 @@
 import { execFileSync } from "node:child_process";
+import { writeSync } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { controlerInvariants, type Requete } from "../../../../packages/contrats/src/c5/invariants.js";
 import { avecClient, avecEquipe } from "./client-actif.js";
 import { migrer } from "./migrer.js";
@@ -91,6 +92,11 @@ beforeAll(async () => {
 }, 120_000);
 afterAll(async () => {
   await Promise.all(ouverts.map((o) => o.end().catch(() => undefined)));
+});
+
+// Le rapport de la CI est un JSON hors du journal : un essai en échec est écrit ici pour être lisible dans le journal du job.
+afterEach((contexte) => {
+  if (contexte.task.result?.state === "fail") writeSync(2, `ECHEC ${contexte.task.name} : ${String(contexte.task.result.errors?.[0]?.message ?? "").slice(0, 400)}\n`);
 });
 
 // Délai large : les autres fichiers du socle écrivent au même journal, dont un essai qui garde son verrou jusqu'à 5 s (audit.int.test.ts).

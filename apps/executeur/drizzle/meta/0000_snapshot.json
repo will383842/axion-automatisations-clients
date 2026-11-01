@@ -1,0 +1,521 @@
+{
+  "id": "a9b068a8-a2b1-48c6-b3e6-f0d6065b0989",
+  "prevId": "00000000-0000-0000-0000-000000000000",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.curseurs": {
+      "name": "curseurs",
+      "schema": "",
+      "columns": {
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "instance_id": {
+          "name": "instance_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "declencheur": {
+          "name": "declencheur",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "valeur": {
+          "name": "valeur",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "change_le": {
+          "name": "change_le",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "curseurs_tenant_id_idx": {
+          "name": "curseurs_tenant_id_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "curseurs_tenant_id_id_pk": {
+          "name": "curseurs_tenant_id_id_pk",
+          "columns": [
+            "tenant_id",
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "curseurs_tenant_id_instance_id_declencheur_unique": {
+          "name": "curseurs_tenant_id_instance_id_declencheur_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "tenant_id",
+            "instance_id",
+            "declencheur"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "curseurs_forme": {
+          "name": "curseurs_forme",
+          "value": "\"curseurs\".\"declencheur\" ~ '^[a-z0-9][a-z0-9_.-]{0,63}$' AND length(\"curseurs\".\"valeur\") <= 512"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.executions": {
+      "name": "executions",
+      "schema": "",
+      "columns": {
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "instance_id": {
+          "name": "instance_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "automatisation": {
+          "name": "automatisation",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "debut": {
+          "name": "debut",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "fin": {
+          "name": "fin",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "issue": {
+          "name": "issue",
+          "type": "issue_execution",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "executions_tenant_id_idx": {
+          "name": "executions_tenant_id_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "executions_tenant_id_instance_id_idx": {
+          "name": "executions_tenant_id_instance_id_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "instance_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "executions_tenant_id_id_debut_pk": {
+          "name": "executions_tenant_id_id_debut_pk",
+          "columns": [
+            "tenant_id",
+            "id",
+            "debut"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "executions_fin_complete": {
+          "name": "executions_fin_complete",
+          "value": "(\"executions\".\"fin\" IS NULL) = (\"executions\".\"issue\" IS NULL) AND (\"executions\".\"fin\" IS NULL OR \"executions\".\"fin\" >= \"executions\".\"debut\")"
+        },
+        "executions_automatisation_code": {
+          "name": "executions_automatisation_code",
+          "value": "\"executions\".\"automatisation\" ~ '^[a-z0-9][a-z0-9_.-]{0,63}$'"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.intentions": {
+      "name": "intentions",
+      "schema": "",
+      "columns": {
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "execution_id": {
+          "name": "execution_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "debut_execution": {
+          "name": "debut_execution",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "cle_intention": {
+          "name": "cle_intention",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "garantie": {
+          "name": "garantie",
+          "type": "garantie_intention",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "etat": {
+          "name": "etat",
+          "type": "etat_intention",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'ecrite'"
+        },
+        "cree_le": {
+          "name": "cree_le",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "intentions_tenant_id_idx": {
+          "name": "intentions_tenant_id_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "intentions_execution_fk": {
+          "name": "intentions_execution_fk",
+          "tableFrom": "intentions",
+          "tableTo": "executions",
+          "columnsFrom": [
+            "tenant_id",
+            "execution_id",
+            "debut_execution"
+          ],
+          "columnsTo": [
+            "tenant_id",
+            "id",
+            "debut"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "intentions_tenant_id_id_pk": {
+          "name": "intentions_tenant_id_id_pk",
+          "columns": [
+            "tenant_id",
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "intentions_tenant_id_cle_intention_unique": {
+          "name": "intentions_tenant_id_cle_intention_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "tenant_id",
+            "cle_intention"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "intentions_cle_forme": {
+          "name": "intentions_cle_forme",
+          "value": "\"intentions\".\"cle_intention\" ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.journal_etape": {
+      "name": "journal_etape",
+      "schema": "",
+      "columns": {
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "execution_id": {
+          "name": "execution_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "debut_execution": {
+          "name": "debut_execution",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "etape": {
+          "name": "etape",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "cle": {
+          "name": "cle",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "statut": {
+          "name": "statut",
+          "type": "statut_etape",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'en_cours'"
+        },
+        "sortie_chiffree": {
+          "name": "sortie_chiffree",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "sortie_cle": {
+          "name": "sortie_cle",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "sortie_version": {
+          "name": "sortie_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cree_le": {
+          "name": "cree_le",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "journal_etape_tenant_id_idx": {
+          "name": "journal_etape_tenant_id_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "journal_etape_execution_fk": {
+          "name": "journal_etape_execution_fk",
+          "tableFrom": "journal_etape",
+          "tableTo": "executions",
+          "columnsFrom": [
+            "tenant_id",
+            "execution_id",
+            "debut_execution"
+          ],
+          "columnsTo": [
+            "tenant_id",
+            "id",
+            "debut"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "journal_etape_tenant_id_id_pk": {
+          "name": "journal_etape_tenant_id_id_pk",
+          "columns": [
+            "tenant_id",
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "journal_etape_tenant_id_execution_id_etape_cle_unique": {
+          "name": "journal_etape_tenant_id_execution_id_etape_cle_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "tenant_id",
+            "execution_id",
+            "etape",
+            "cle"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "journal_etape_code": {
+          "name": "journal_etape_code",
+          "value": "\"journal_etape\".\"etape\" ~ '^[a-z0-9][a-z0-9_.-]{0,63}$' AND \"journal_etape\".\"cle\" ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'"
+        },
+        "journal_etape_sortie_complete": {
+          "name": "journal_etape_sortie_complete",
+          "value": "(\"journal_etape\".\"sortie_chiffree\" IS NULL) = (\"journal_etape\".\"sortie_cle\" IS NULL) AND (\"journal_etape\".\"sortie_chiffree\" IS NULL) = (\"journal_etape\".\"sortie_version\" IS NULL)"
+        }
+      },
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {
+    "public.etat_intention": {
+      "name": "etat_intention",
+      "schema": "public",
+      "values": [
+        "ecrite",
+        "faite",
+        "a_trancher"
+      ]
+    },
+    "public.garantie_intention": {
+      "name": "garantie_intention",
+      "schema": "public",
+      "values": [
+        "idempotent_par_cle",
+        "verifiable_apres_coup",
+        "au_plus_une_fois"
+      ]
+    },
+    "public.issue_execution": {
+      "name": "issue_execution",
+      "schema": "public",
+      "values": [
+        "reussite",
+        "erreur"
+      ]
+    },
+    "public.statut_etape": {
+      "name": "statut_etape",
+      "schema": "public",
+      "values": [
+        "en_cours",
+        "reussie",
+        "en_erreur"
+      ]
+    }
+  },
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

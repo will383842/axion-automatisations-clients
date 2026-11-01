@@ -39,7 +39,6 @@ function monter(memoire: Connexion["client"], ip = "192.0.2.20") {
     cles: { clesAcceptees: async () => [CLE] },
     memoire,
     alertes: alertesEnMemoire(),
-    keycloak: { autorisation: "https://sso.exemple.test/realms/equipe/protocol/openid-connect/auth", clientId: "console", redirectUri: "https://console.exemple.test/api/auth/retour" },
     connexionNormale: "/connexion",
     maintenant: () => MAINTENANT,
     plancherMs: 0,

@@ -5,7 +5,8 @@ import type { Alertes } from "../alertes/port.js";
 import type { CleEchange, Sens } from "../coffre/cles-echanges.js";
 
 // Réception du lien signé C6 (C-404). Le jeton n'est JAMAIS un facteur d'authentification : il ne donne aucune session,
-// il ne sert qu'à nommer l'e-mail (login_hint) de la connexion Keycloak, qui redemande le double facteur (prompt=login, acr_values=mfa).
+// il ne sert qu'à nommer l'e-mail (login_hint) sur la page de connexion locale de la console. L'API ne rend AUCUNE adresse Keycloak :
+// la route de connexion de la console (lot 3, T3-01) la construit (PKCE S256, state, prompt=login, acr_values=mfa). Voir l'ADR 0049.
 // La vérification est celle de packages/contrats (jamais recopiée). Toute erreur renvoie la même réponse : la page de connexion normale.
 
 export interface Memoire {
@@ -16,8 +17,7 @@ export interface DepsEntree {
   cles: { clesAcceptees(canal: string, sens: Sens): Promise<CleEchange[]> };
   memoire: Memoire;
   alertes: Alertes;
-  // Adresse d'autorisation du royaume de l'équipe (T1A-08) et client OIDC « console » : valeurs fournies par l'appelant.
-  keycloak: { autorisation: string; clientId: string; redirectUri: string };
+  // Chemin local de la page de connexion de la console (ex. « /connexion »). Un refus le rend tel quel ; un succès y ajoute login_hint.
   connexionNormale: string;
   maintenant?: () => number;
   // Plancher de durée de chaque réponse : le temps ne dit pas pourquoi un lien est refusé.
@@ -64,12 +64,9 @@ export function creerEntree(deps: DepsEntree) {
 
   // E-mail : transmis tel quel (forme validée par le contrat), sans passage en minuscules ici. Aucune comparaison n'est faite dans cette route ;
   // c'est Keycloak qui rapproche le login_hint du compte, sans tenir compte de la casse.
-  function adresseKeycloak(email: string): string {
-    const u = new URL(deps.keycloak.autorisation);
-    u.search = "";
-    // URLSearchParams encode chaque valeur : l'e-mail (forme déjà validée par le contrat) ne peut ajouter aucun paramètre.
-    for (const [nom, valeur] of [["client_id", deps.keycloak.clientId], ["redirect_uri", deps.keycloak.redirectUri], ["response_type", "code"], ["scope", "openid"], ["login_hint", email], ["prompt", "login"], ["acr_values", "mfa"]] as const) u.searchParams.set(nom, valeur);
-    return u.toString();
+  // URLSearchParams encode la valeur : l'e-mail ne peut ajouter aucun paramètre. Seul login_hint est rendu, jamais d'origine.
+  function adresseConnexion(email: string): string {
+    return `${deps.connexionNormale}?${new URLSearchParams({ login_hint: email }).toString()}`;
   }
 
   async function traiter(corps: unknown, adresse: string, avecRequete: boolean, noter: Noter): Promise<Resultat> {
@@ -117,7 +114,7 @@ export function creerEntree(deps: DepsEntree) {
     } catch {
       return echec("memoire_indisponible");
     }
-    return { statut: 200, url: adresseKeycloak(lu.email) };
+    return { statut: 200, url: adresseConnexion(lu.email) };
   }
 
   return async (corps: unknown, adresse: string, avecRequete: boolean, noter: Noter): Promise<Resultat> => {

@@ -3,20 +3,14 @@
 import { useEffect } from "react";
 
 // Réception du lien signé (C-404) : le jeton est dans le fragment (#j=), jamais dans la requête.
-// Il est effacé de l'adresse AVANT tout envoi, puis posté dans le corps ; la réponse n'est qu'une adresse de connexion.
+// Il est effacé de l'adresse AVANT tout envoi, puis posté dans le corps ; la réponse n'est qu'un chemin local de connexion.
 const CONNEXION = "/connexion";
 const ENTREE = "/api/console/v1/entree";
 
-// Origine de Keycloak attendue, fixée à la construction. Adresse acceptée : un chemin local, ou une adresse de CETTE origine ; sinon connexion normale.
-const ORIGINE_KEYCLOAK = process.env.NEXT_PUBLIC_ORIGINE_KEYCLOAK ?? "";
+// Adresse acceptée : un chemin local seulement (l'API ne rend que la page de connexion de la console avec login_hint) ; sinon connexion normale.
+// La page ne connaît pas l'adresse du fournisseur d'identité : la route de connexion (lot 3) la construit.
 function adresseSure(valeur: unknown): string {
-  if (typeof valeur !== "string" || valeur.startsWith("//") || /[\s\\]/.test(valeur)) return CONNEXION;
-  if (valeur.startsWith("/")) return valeur;
-  try {
-    return ORIGINE_KEYCLOAK !== "" && new URL(valeur).origin === ORIGINE_KEYCLOAK ? valeur : CONNEXION;
-  } catch {
-    return CONNEXION;
-  }
+  return typeof valeur === "string" && /^\/(?![/\\])\S*$/.test(valeur) ? valeur : CONNEXION;
 }
 
 async function recevoir(): Promise<string> {

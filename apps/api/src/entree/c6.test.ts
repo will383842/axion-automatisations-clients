@@ -42,7 +42,6 @@ function monter(options: { memoire?: ReturnType<typeof memoireFausse>; cles?: Cl
     cles: { clesAcceptees: async (canal) => { if (options.cles === "panne") throw new Error("coffre indisponible"); return canal === "c6" ? (options.cles ?? [CLE]) : []; } },
     memoire,
     alertes,
-    keycloak: { autorisation: "https://sso.exemple.test/realms/equipe/protocol/openid-connect/auth", clientId: "console", redirectUri: "https://console.exemple.test/api/auth/retour" },
     connexionNormale: "/connexion",
     maintenant: () => MAINTENANT,
     attendre: async (ms) => { options.attentes?.push(ms); },

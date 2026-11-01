@@ -76,7 +76,16 @@ const existe = async (tenant: string, id: string) => (await avecClient(app, tena
 
 describe("base moteur, avec le socle", { timeout: 30_000 }, () => {
   it("[A-053] @isolation les invariants C5 ne signalent aucun écart sur la base moteur (partitions comprises)", async () => {
-    expect(await controlerInvariants(requete, "moteur", { rolesApplication: /^(console|moteur)_(app|equipe)$/ })).toEqual([]);
+    const ecarts = await controlerInvariants(requete, "moteur", { rolesApplication: /^(console|moteur)_(app|equipe)$/ });
+    // Le schéma partman (outil de partition de l'extension, sans donnée de client ni tenant_id) n'est pas une table d'état : même règle que la base console (ADR 0101, point 4).
+    // Tout le reste est jugé, partitions de public comprises : un seul écart hors de partman fait échouer l'essai.
+    const horsPartman = ecarts.filter((e) => !e.objet.startsWith("partman."));
+    if (horsPartman.length > 0) writeSync(2, `ECARTS C5 moteur : ${JSON.stringify(ecarts)}\n`);
+    expect(horsPartman).toEqual([]);
+    // Les partitions de executions sont bien dans le champ du contrôle : elles existent, elles ont la RLS forcée et une politique.
+    const partitions = await requete(`SELECT c.relname FROM pg_inherits i JOIN pg_class c ON c.oid = i.inhrelid WHERE i.inhparent = 'public.executions'::regclass AND c.relrowsecurity AND c.relforcerowsecurity
+      AND EXISTS (SELECT 1 FROM pg_policy p WHERE p.polrelid = c.oid)`);
+    expect(partitions.length).toBeGreaterThanOrEqual(8);
   });
 
   it("[A-312] @isolation le client A ne lit pas le journal d'étapes du client B ; sans set_config, zéro ligne", async () => {

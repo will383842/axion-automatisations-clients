@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Les effets de React sont exécutés tout de suite : la page est appelée comme une fonction.
 vi.mock("react", async (original) => ({ ...(await original<typeof import("react")>()), useEffect: (f: () => void) => { f(); } }));
+vi.stubEnv("NEXT_PUBLIC_ORIGINE_KEYCLOAK", "https://sso.exemple.test");
 const { default: Page } = await import("./page.tsx");
 
 const JETON = "TEST-NE-PAS-UTILISER-charge.signature";
@@ -58,6 +59,16 @@ describe("page /entree", () => {
       Page();
       await attendre();
       expect(evenements.at(-1), String(mauvaise)).toBe("assign:/connexion");
+    }
+  });
+
+  it("[C-404] une adresse http(s) d'une autre origine que celle de Keycloak est ignorée", async () => {
+    for (const autre of ["https://autre.test/auth", "http://sso.exemple.test/auth", "https://sso.exemple.test.autre.test/auth", "https://sso.exemple.test@autre.test/auth"]) {
+      evenements.length = 0;
+      monterNavigateur(async () => ({ url: autre }));
+      Page();
+      await attendre();
+      expect(evenements.at(-1), autre).toBe("assign:/connexion");
     }
   });
 

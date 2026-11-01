@@ -1,6 +1,9 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { emettreJeton } from "../../../../packages/contrats/src/c6/jeton.js";
+import { LIMITES_DEBIT } from "../../../../packages/contrats/src/commun/debit.js";
 import type { CleEchange } from "../coffre/cles-echanges.js";
 import { alertesEnMemoire } from "../alertes/port.js";
 import { construireServeur } from "../serveur.js";
@@ -18,14 +21,15 @@ const jetonDe = (cle = CLE, email = EMAIL, iat = MAINTENANT) => emettreJeton(sec
 // Mémoire en processus : SET NX, INCR et EXPIRE comme Valkey. `panne` simule Valkey arrêté.
 function memoireFausse() {
   const valeurs = new Map<string, string>();
+  const ttl = new Map<string, number>();
   const etat = { panne: false };
   const garde = () => { if (etat.panne) throw new Error("Valkey arrêté"); };
   return {
     etat,
     valeurs,
-    async set(cle: string, valeur: string) { garde(); if (valeurs.has(cle)) return null; valeurs.set(cle, valeur); return "OK" as const; },
+    ttl,
+    async set(cle: string, valeur: string, _ex?: string, secondes?: number) { garde(); if (valeurs.has(cle)) return null; valeurs.set(cle, valeur); ttl.set(cle, secondes ?? 0); return "OK" as const; },
     async incr(cle: string) { garde(); const n = Number(valeurs.get(cle) ?? "0") + 1; valeurs.set(cle, String(n)); return n; },
-    async expire() { garde(); return 1; },
   };
 }
 
@@ -103,21 +107,25 @@ describe("réception du lien signé C6", () => {
   it("[C-404] iat dans le futur de plus de 5 s, exp absent et version 2 sont refusés", async () => {
     const { serveur } = monter();
     expect((await poster(serveur, { jeton: jetonDe(CLE, EMAIL, MAINTENANT + 6) })).json()).toEqual({ url: "/connexion" });
+    // Chaque charge est signée avec la bonne clé : seul le contenu (exp absent, version 2) peut faire refuser le jeton.
     const signe = (charge: object) => {
       const b = Buffer.from(JSON.stringify(charge)).toString("base64url");
-      return `${b}.${emettreJeton(secretDe(CLE), CLE.kid, EMAIL, MAINTENANT).split(".")[1]}`;
+      return `${b}.${createHmac("sha256", secretDe(CLE)).update(b).digest("base64url")}`;
     };
     const base = { v: 1, kid: CLE.kid, jti: randomUUID(), email: EMAIL, iat: MAINTENANT };
-    for (const j of [signe(base), signe({ ...base, exp: MAINTENANT + 60, v: 2 })]) expect((await poster(serveur, { jeton: j })).json()).toEqual({ url: "/connexion" });
+    // Témoin : la même charge, avec exp et version 1, signée de la même façon, est acceptée.
+    expect((await poster(serveur, { jeton: signe({ ...base, exp: MAINTENANT + 60 }) })).json()).toHaveProperty("url", expect.stringContaining("login_hint"));
+    for (const j of [signe({ ...base, jti: randomUUID() }), signe({ ...base, jti: randomUUID(), exp: MAINTENANT + 60, v: 2 })]) expect((await poster(serveur, { jeton: j })).json()).toEqual({ url: "/connexion" });
     await serveur.close();
   });
 
-  it("[C-404] un jeton signé avec une autre clé est refusé (autre canal, clé retirée, kid inconnu, signature tronquée)", async () => {
+  // Une clé retirée du coffre n'est pas renvoyée par clesAcceptees (c'est ce filtre qui la retire) : ici, seul un kid inconnu de la réception est essayé.
+  it("[C-404] un jeton signé avec une autre clé est refusé (autre canal, kid inconnu, signature tronquée)", async () => {
     const { serveur } = monter();
     const bon = jetonDe();
     const cas = [
       jetonDe(AUTRE_CANAL),
-      emettreJeton(secretDe(CLE), "c6-retiree", EMAIL, MAINTENANT),
+      emettreJeton(secretDe(CLE), "c6-inconnue", EMAIL, MAINTENANT),
       emettreJeton(secretDe({ kid: CLE.kid, secret: randomBytes(32) }), CLE.kid, EMAIL, MAINTENANT),
       bon.slice(0, -5),
       // kid d'un autre canal, bien signé avec la clé de ce canal.
@@ -138,7 +146,11 @@ describe("réception du lien signé C6", () => {
       signature: async () => poster(monter({ attentes }).serveur, { jeton: jetonDe(AUTRE_CANAL) }),
       duree: async () => poster(monter({ attentes }).serveur, { jeton: jetonDe(CLE, EMAIL, MAINTENANT - 61) }),
       rejeu: async () => { const m = monter({ memoire: vus, attentes }); await poster(m.serveur, { jeton }); return poster(m.serveur, { jeton }); },
-      version: async () => poster(monter({ attentes }).serveur, { jeton: "" }),
+      version: async () => {
+        const b = Buffer.from(JSON.stringify({ v: 2, kid: CLE.kid, jti: randomUUID(), email: EMAIL, iat: MAINTENANT, exp: MAINTENANT + 60 })).toString("base64url");
+        return poster(monter({ attentes }).serveur, { jeton: `${b}.${createHmac("sha256", secretDe(CLE)).update(b).digest("base64url")}` });
+      },
+      forme_vide: async () => poster(monter({ attentes }).serveur, { jeton: "" }),
       forme: async () => poster(monter({ attentes }).serveur, "pas du json", {}),
       type: async () => poster(monter({ attentes }).serveur, { jeton: 42 }),
       corps_absent: async () => poster(monter({ attentes }).serveur, "", { type: "text/plain" }),
@@ -255,6 +267,9 @@ describe("réception du lien signé C6", () => {
     const trop = await poster(serveur, { jeton: jetonDe() });
     expect(trop.statusCode).toBe(429);
     expect((trop.json() as { erreur: { code: string } }).erreur.code).toBe("debit_depasse");
+    // Retry-After obligatoire (contrat commun/debit.ts) : entier de 1 à 60.
+    const attente = Number(trop.headers["retry-after"]);
+    expect(Number.isInteger(attente) && attente >= 1 && attente <= 60, String(trop.headers["retry-after"])).toBe(true);
     // Une autre adresse n'est pas touchée.
     expect((await poster(serveur, { jeton: jetonDe() }, { ip: "192.0.2.11" })).statusCode).toBe(200);
     expect(alertes.envoyees).toHaveLength(1);
@@ -269,5 +284,33 @@ describe("réception du lien signé C6", () => {
     for (let i = 0; i < 9; i++) await poster(serveur, { jeton: jetonDe() });
     expect(alertes.envoyees).toHaveLength(0);
     await serveur.close();
+  });
+
+  it("[C-404] chaque compteur de limite et de refus a une durée de vie dès sa création (écriture atomique)", async () => {
+    const { serveur, memoire } = monter();
+    await poster(serveur, { jeton: jetonDe(AUTRE_CANAL) });
+    const compteurs = [...memoire.valeurs.keys()].filter((k) => k.startsWith("entree-limite:") || k.startsWith("entree-refus:"));
+    expect(compteurs).toHaveLength(2);
+    for (const k of compteurs) expect(memoire.ttl.get(k), k).toBeGreaterThan(0);
+    await serveur.close();
+  });
+
+  it("[C-404] seul application/json est lu : une requête « simple » (text/plain, formulaire) est refusée sans consommer le jeton", async () => {
+    const { serveur, memoire } = monter();
+    const jeton = jetonDe();
+    for (const type of ["text/plain", "application/x-www-form-urlencoded", "text/plain;charset=UTF-8"]) {
+      const r = await poster(serveur, { jeton }, { type });
+      expect(r.json(), type).toEqual({ url: "/connexion" });
+    }
+    expect([...memoire.valeurs.keys()].filter((k) => k.startsWith("entree-jti:"))).toEqual([]);
+    expect((await poster(serveur, { jeton })).json()).toHaveProperty("url", expect.stringContaining("login_hint"));
+    await serveur.close();
+  });
+
+  it("[C-404] la limite et le seuil d'alerte sont lus dans le contrat C6, pas recopiés", () => {
+    const source = readFileSync(fileURLToPath(new URL("./c6.ts", import.meta.url)), "utf8");
+    expect(source).toContain("LIMITES_DEBIT.c6");
+    expect(source).not.toMatch(/(ESSAIS_PAR_MINUTE|REFUS_AVANT_ALERTE)\s*=\s*\d/);
+    expect(LIMITES_DEBIT.c6.parMinute).toBe(10);
   });
 });

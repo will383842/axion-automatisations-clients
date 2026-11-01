@@ -105,11 +105,40 @@ describe("plan commercial : schéma et migration 0008", () => {
     expect(migration).not.toMatch(/GRANT[^;]*\b(TRUNCATE|REFERENCES|TRIGGER|ALL|DELETE)\b[^;]*TO console_(app|equipe)/i);
   });
 
+  it("[A-126] @argent le plan d'une instance appartient à CETTE instance : clé étrangère (tenant_id, id, plan_commercial) vers (tenant_id, instance_id, id)", () => {
+    expect(uniques(plansCommerciaux)).toContainEqual(["tenant_id", "instance_id", "id"]);
+    expect(migration).toContain('CONSTRAINT "plans_commerciaux_tenant_id_instance_id_id_unique" UNIQUE("tenant_id","instance_id","id")');
+    expect(migration).toMatch(/ADD CONSTRAINT "instances_plan_commercial_fk" FOREIGN KEY \("tenant_id","id","plan_commercial"\) REFERENCES "public"\."plans_commerciaux"\("tenant_id","instance_id","id"\)/);
+  });
+
+  it("[A-145] @argent chaque table d'argent porte un auteur non vide, écrit à chaque modification autorisée", () => {
+    for (const [t, table] of [["abonnements", abonnements], ["plans_commerciaux", plansCommerciaux], ["phases_plan", phasesPlan], ["echeances", echeances]] as const) {
+      expect(colonnes(table), t).toContain("auteur");
+      expect(migration, t).toContain(`CONSTRAINT "${t}_auteur_non_vide" CHECK (length(btrim("${t}"."auteur")) > 0)`);
+    }
+    for (const t of ["abonnements", "phases_plan", "echeances"]) expect(droits(t).join(), t).toMatch(/UPDATE \([^)]*"auteur"/);
+    expect(droits("plans_commerciaux").join()).not.toContain("UPDATE");
+  });
+
+  it("[A-145] @argent une échéance ne sort jamais de payee ni d'annulee, ne revient pas à prevue, et emise ou payee exige une date d'émission", () => {
+    expect(migration).toContain('CREATE POLICY transitions_echeance ON "public"."echeances" AS RESTRICTIVE FOR UPDATE TO console_app');
+    expect(migration).toContain(`USING (tenant_id IS NOT NULL AND statut IN ('prevue', 'emise')) WITH CHECK (tenant_id IS NOT NULL AND statut IN ('emise', 'payee', 'annulee'))`);
+    expect(contraintes(echeances)).toContain("echeances_emission_datee");
+    expect(migration).toContain(`CONSTRAINT "echeances_emission_datee" CHECK ("echeances"."statut" NOT IN ('emise', 'payee') OR "echeances"."date_emission" IS NOT NULL)`);
+  });
+
+  it("[A-125] @argent un acompte exige son taux, et un taux exige l'acompte", () => {
+    expect(migration).toContain(`CONSTRAINT "abonnements_acompte_coherent" CHECK (("abonnements"."mode_avance" = 'acompte') = ("abonnements"."acompte_points_de_base" IS NOT NULL))`);
+  });
+
+  it("[A-146] la valeur d'une condition du client est un objet JSON", () => {
+    expect(migration).toContain(`CONSTRAINT "conditions_commerciales_valeur_objet" CHECK (jsonb_typeof("conditions_commerciales"."valeur") = 'object')`);
+  });
+
   it("[A-163] les clés étrangères entre ces tables sont composées (tenant_id, x) vers UNIQUE (tenant_id, id)", () => {
     for (const nom of ["plans_commerciaux_instance_fk", "phases_plan_plan_fk", "echeances_plan_fk", "abonnements_organisation_fk", "abonnements_conditions_fk", "conditions_commerciales_organisation_fk"]) {
       expect(migration, nom).toMatch(new RegExp(`CONSTRAINT "${nom}" FOREIGN KEY \\("tenant_id","[a-z_]+"\\) REFERENCES "public"\\."[a-z_]+"\\("tenant_id","id"\\)`));
     }
-    expect(migration).toMatch(/ADD CONSTRAINT "instances_plan_commercial_fk" FOREIGN KEY \("tenant_id","plan_commercial"\) REFERENCES "public"\."plans_commerciaux"\("tenant_id","id"\)/);
   });
 
   it("[A-163] la liste EXCEPTIONS_UNICITE reste vide après la migration de T2-04, aucune unicité sans tenant_id", () => {

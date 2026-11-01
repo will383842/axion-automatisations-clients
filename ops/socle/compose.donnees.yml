@@ -2,7 +2,7 @@
 # Même image que le socle, volume à elle, réseau interne seulement, aucun port publié. Ni console, ni moteur, ni keycloak, ni passerelle_ia ici.
 # Le dossier ./donnees est monté tel quel : à l'initialisation PostgreSQL y exécute les scripts SQL (creer-base ne fait rien sans « id »), PgBouncer y lit sa configuration.
 # Un seul secret de test (SOCLE_PG_MOT_DE_PASSE), lu par le seul service « donnees » : chaque rôle a son mot de passe, SHA-256 de « secret/rôle ».
-# PgBouncer ne reçoit JAMAIS ce secret : « donnees » écrit dans le volume donnees-auth la seule ligne de pgbouncer_auth, et PgBouncer la lit. Les clients passent par auth_query.
+# PgBouncer ne reçoit JAMAIS ce secret : « donnees » écrit dans le volume donnees-socket la seule ligne de pgbouncer_auth, et PgBouncer la lit. Les clients passent par auth_query.
 # PgBouncer joint PostgreSQL par une socket Unix (volume donnees-socket) : les rôles des clients n'entrent que par là, jamais en TCP (règles pg_hba dans init.sql).
 services:
   donnees:
@@ -12,10 +12,11 @@ services:
       SOCLE_PG_MOT_DE_PASSE: ${SOCLE_PG_MOT_DE_PASSE:?mot de passe de test absent}
       K: printf %s/donnees-postgres $$SOCLE_PG_MOT_DE_PASSE|sha256sum|cut -c1-64
       G: export POSTGRES_PASSWORD=$$(eval "$$K")
-      # L : format d'une ligne de la liste · A : mot de passe de pgbouncer_auth · H : écriture de la liste (une seule ligne) dans le volume lu par PgBouncer
+      # L : format d'une ligne de la liste · A : mot de passe de pgbouncer_auth · H : écriture de la liste (une seule ligne) dans le volume lu par PgBouncer (le seul dossier où postgres peut écrire)
       L: '\042%s\042 \042%s\042\n'
       A: printf %s/pgbouncer_auth $$SOCLE_PG_MOT_DE_PASSE|sha256sum|cut -c1-64
-      H: printf "$$L" pgbouncer_auth $$(eval "$$A") >/auth/u.txt
+      D: /var/run/postgresql
+      H: printf "$$L" pgbouncer_auth $$(eval "$$A") >$$D/u.txt; chmod 644 $$D/u.txt
       X: sh
       # P : 250 connexions serveur pour les clients = 263 - 3 (superutilisateur) - 10 (réservées au provisionneur)
       P: -c max_connections=263 -c superuser_reserved_connections=3 -c reserved_connections=10
@@ -24,7 +25,6 @@ services:
     volumes:
       - donnees-pgdata:/var/lib/postgresql/data
       - donnees-socket:/var/run/postgresql
-      - donnees-auth:/auth
       - ./donnees:/docker-entrypoint-initdb.d:ro
     networks: [interne]
     healthcheck:
@@ -45,7 +45,6 @@ services:
     volumes:
       - ./donnees:/etc/pgbouncer/conf:ro
       - donnees-socket:/var/run/postgresql:ro
-      - donnees-auth:/auth:ro
     networks: [interne]
     healthcheck:
       test: ["CMD-SHELL", "nc -z 127.0.0.1 6432"]
@@ -55,4 +54,3 @@ services:
 volumes:
   donnees-pgdata: {}
   donnees-socket: {}
-  donnees-auth: {}

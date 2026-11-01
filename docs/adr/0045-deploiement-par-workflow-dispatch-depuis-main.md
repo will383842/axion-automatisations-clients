@@ -1,4 +1,4 @@
-# 0043 · Déploiement seulement par `workflow_dispatch` depuis `main`, environnement à réviseur, image déjà construite
+# 0045 · Déploiement seulement par `workflow_dispatch` depuis `main`, environnement à réviseur, image déjà construite
 
 Date : 29/10/2026 · Statut : proposé (T1B-02, consigne ce qui est livré au lot 1-A ; relecture de l'architecte du lot demandée) · Contrat touché : aucun
 

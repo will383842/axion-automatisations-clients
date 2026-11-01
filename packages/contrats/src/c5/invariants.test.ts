@@ -150,6 +150,29 @@ describe.skipIf(!URL_PG)("C5 invariants du schéma", () => { // fiche: T0-16
       (e) => expect(e).toEqual([]));
   });
 
+  // TABLES_COMMUNES (ADR 0050) : liste fermée de tables sans tenant_id ; l'exemption ne vaut que pour une table listée ET sans tenant_id.
+  const COMMUNE = "CREATE TABLE exclusions_plateforme (empreinte_email text PRIMARY KEY); ALTER TABLE exclusions_plateforme ENABLE ROW LEVEL SECURITY; ALTER TABLE exclusions_plateforme FORCE ROW LEVEL SECURITY; CREATE POLICY lecture ON exclusions_plateforme FOR SELECT USING (true);";
+
+  it("[C-536] une table sans tenant_id hors de TABLES_COMMUNES est signalée tenant_id_absent, politique ouverte comprise", async () => {
+    await avec("commune_hors", COMMUNE.replaceAll("exclusions_plateforme", "listes_libres"), (e) => {
+      expect(e).toContainEqual({ regle: "tenant_id_absent", objet: "listes_libres" });
+      expect(e).toContainEqual({ regle: "index_tenant_absent", objet: "listes_libres" });
+      expect(e).toContainEqual({ regle: "politique_ouverte", objet: "listes_libres" });
+    });
+  });
+
+  it("[C-536] une table listée dans TABLES_COMMUNES sans tenant_id n'est pas signalée pour tenant_id, son index ni sa lecture ouverte, mais garde RLS et FORCE", async () => {
+    await avec("commune_ok", COMMUNE, (e) => expect(e).toEqual([]));
+    await avec("commune_force", COMMUNE.replace(" ALTER TABLE exclusions_plateforme FORCE ROW LEVEL SECURITY;", ""), (e) => expect(e).toEqual([{ regle: "force_rls_absent", objet: "exclusions_plateforme" }]));
+  });
+
+  it("[C-536] une table listée dans TABLES_COMMUNES qui porte un tenant_id suit les règles ordinaires", async () => {
+    await avec("commune_tenant", "CREATE TABLE exclusions_plateforme (id bigint PRIMARY KEY, tenant_id uuid NOT NULL); ALTER TABLE exclusions_plateforme ENABLE ROW LEVEL SECURITY; ALTER TABLE exclusions_plateforme FORCE ROW LEVEL SECURITY; CREATE POLICY lecture ON exclusions_plateforme USING (true);", (e) => {
+      expect(e).toContainEqual({ regle: "index_tenant_absent", objet: "exclusions_plateforme" });
+      expect(e).toContainEqual({ regle: "politique_ouverte", objet: "exclusions_plateforme" });
+    });
+  });
+
   it("[C-536] une partition sans RLS, sans FORCE ou sans politique est signalée, même si le parent est conforme", async () => {
     await avec("part", `${EXECUTIONS} ${PARTITION}`, (e) => {
       expect(e).toContainEqual({ regle: "rls_absente", objet: "executions_2026_10" });

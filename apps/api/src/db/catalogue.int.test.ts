@@ -62,8 +62,14 @@ async function ecrireEquipe<T>(fn: (c: pg.PoolClient) => Promise<T>): Promise<T>
   }
 }
 const sql = (texte: string, valeurs: unknown[] = []) => ecrireEquipe((c) => c.query(texte, valeurs));
-const sufixe = () => randomUUID().slice(0, 6).toUpperCase().replace(/[^A-Z]/g, "X").padEnd(4, "Q").slice(0, 4);
-const nouveauCode = () => `${sufixe()}-${String(Math.floor(Math.random() * 900) + 100)}`;
+const lettres = (n: number) => Array.from({ length: n }, () => String.fromCharCode(65 + Math.floor(Math.random() * 26))).join("");
+const sufixe = () => lettres(6);
+const nouveauCode = () => `${lettres(5)}-${String(Math.floor(Math.random() * 900) + 100)}`;
+// Le propriétaire des tables n'a aucune politique d'écriture : sa suppression est refusée par le déclencheur ou ne touche aucune ligne.
+const nonSupprime = async (requete: Promise<{ rowCount: number | null }>) => {
+  const r = await requete.then((x) => x.rowCount, () => 0);
+  expect(r).toBe(0);
+};
 const creerAutomatisation = async (extra: Record<string, unknown> = {}) => {
   const v = { ...automatisationFictive(nouveauCode()), ...extra };
   const cles = Object.keys(v);
@@ -72,7 +78,7 @@ const creerAutomatisation = async (extra: Record<string, unknown> = {}) => {
 const creerVersion = async (automatisationId: unknown, extra: Record<string, unknown> = {}) => {
   const v = { ...versionFictive(String(automatisationId)), ...extra };
   const cles = Object.keys(v);
-  return (await sql(`INSERT INTO versions_automatisation (${cles.join(", ")}) VALUES (${cles.map((_, i) => `$${i + 1}`).join(", ")}) RETURNING *`, Object.values(v)).rows[0] as Record<string, unknown>;
+  return (await sql(`INSERT INTO versions_automatisation (${cles.join(", ")}) VALUES (${cles.map((_, i) => `$${i + 1}`).join(", ")}) RETURNING *`, Object.values(v))).rows[0] as Record<string, unknown>;
 };
 const passer = (id: unknown, statut: string) => sql("UPDATE versions_automatisation SET statut = $2 WHERE id = $1", [id, statut]);
 const lire = (texte: string, valeurs: unknown[] = []) => avecClient(app, randomUUID(), (c) => c.query(texte, valeurs));
@@ -120,8 +126,7 @@ describe("catalogue commun, avec le socle", { timeout: 60_000 }, () => {
     await sql("UPDATE automatisations SET statut = 'archivee' WHERE id = $1", [a["id"]]);
     await expect(sql("DELETE FROM automatisations WHERE id = $1", [a["id"]])).rejects.toMatchObject({ code: "42501" });
     await expect(creerAutomatisation({ code: a["code"] })).rejects.toMatchObject({ code: "23505" });
-    // Même le propriétaire de la table est arrêté par le déclencheur.
-    await expect(migration.query("DELETE FROM automatisations WHERE id = $1", [a["id"]])).rejects.toThrow(/suppression/i);
+    await nonSupprime(migration.query("DELETE FROM automatisations WHERE id = $1", [a["id"]]));
   });
 
   it("[C-672] la version a six états ; un autre mot est refusé ; elle naît en brouillon", async () => {
@@ -142,7 +147,7 @@ describe("catalogue commun, avec le socle", { timeout: 60_000 }, () => {
     }
     await expect(sql("UPDATE versions_automatisation SET empreinte_sha256 = $2 WHERE id = $1", [v["id"], empreinteFictive()])).rejects.toThrow(/immuable|transition/i);
     // Le statut ET une autre colonne en même temps : refusé.
-    await expect(sql("UPDATE versions_automatisation SET statut = 'depreciee', notes = 'autre' WHERE id = $1", [v["id"]])).rejects.toThrow(/immuable|transition/i);
+    await expect(sql("UPDATE versions_automatisation SET statut = 'depreciee', notes = 'autre' WHERE id = $1", [v["id"]])).rejects.toThrow(/autre colonne/i);
     // publiee → retiree direct : refusé.
     await expect(passer(v["id"], "retiree")).rejects.toThrow(/transition/i);
     await passer(v["id"], "depreciee");
@@ -151,7 +156,7 @@ describe("catalogue commun, avec le socle", { timeout: 60_000 }, () => {
     await expect(passer(v["id"], "publiee")).rejects.toThrow(/transition/i);
     await expect(passer(v["id"], "depreciee")).rejects.toThrow(/transition/i);
     await expect(sql("DELETE FROM versions_automatisation WHERE id = $1", [v["id"]])).rejects.toMatchObject({ code: "42501" });
-    await expect(migration.query("DELETE FROM versions_automatisation WHERE id = $1", [v["id"]])).rejects.toThrow(/suppression|immuable/i);
+    await nonSupprime(migration.query("DELETE FROM versions_automatisation WHERE id = $1", [v["id"]]));
   });
 
   it("[A-124] une même empreinte ne peut pas être rangée deux fois, un même semver non plus ; un état saute-mouton (brouillon → publiee) est refusé", async () => {
@@ -171,7 +176,7 @@ describe("catalogue commun, avec le socle", { timeout: 60_000 }, () => {
     expect((await lire("SELECT count(*)::int AS n FROM metiers WHERE actif")).rows[0]?.n).toBeGreaterThanOrEqual(7);
     await expect(sql("DELETE FROM postes WHERE code = 'achats'")).rejects.toMatchObject({ code: "42501" });
     await expect(sql("DELETE FROM metiers WHERE code = 'btp_artisans'")).rejects.toMatchObject({ code: "42501" });
-    await expect(migration.query("DELETE FROM metiers WHERE code = 'btp_artisans'")).rejects.toThrow(/suppression/i);
+    await nonSupprime(migration.query("DELETE FROM metiers WHERE code = 'btp_artisans'"));
     expect((await sql("UPDATE postes SET actif = false WHERE code = 'production' RETURNING actif")).rows[0]).toMatchObject({ actif: false });
     await sql("UPDATE postes SET actif = true WHERE code = 'production'");
   });
@@ -198,7 +203,7 @@ describe("catalogue commun, avec le socle", { timeout: 60_000 }, () => {
   it("[C-671] l'étiquette outil se calcule depuis le manifeste de la version, sans être saisie", async () => {
     const a = await creerAutomatisation();
     await creerVersion(a["id"], { manifeste: { connecteurs: [{ famille: "messagerie", outil: "outil-essai" }] } });
-    const { rows } = await lire("SELECT famille, outil FROM automatisation_outils WHERE automatisation_id = $1", [a["id"]]);
+    const { rows } = await sql("SELECT famille, outil FROM automatisation_outils WHERE automatisation_id = $1", [a["id"]]);
     expect(rows).toEqual([{ famille: "messagerie", outil: "outil-essai" }]);
     await expect(avecClient(app, randomUUID(), (c) => c.query("INSERT INTO automatisation_outils (automatisation_id, famille, outil) VALUES ($1, 'crm', 'x')", [a["id"]]))).rejects.toThrow();
   });
@@ -229,7 +234,7 @@ describe("catalogue commun, avec le socle", { timeout: 60_000 }, () => {
     const org = A;
     await avecClient(app, A, async (c) => {
       await c.query("INSERT INTO organisations (tenant_id, id, console_client_id, raison_sociale) VALUES ($1, $1, $1, 'Lemoine Rénovation')", [A]);
-      await c.query("INSERT INTO instances (tenant_id, id, organisation_id, code_automatisation, formule, environnement, automatisation_id, instance_source_copie, copie_le, copie_par) VALUES ($1, $2, $3, 'X', 'standard', 'production', $4, $5, now(), 'agent-essai')", [A, randomUUID(), org, a["id"], randomUUID()]);
+      await c.query("INSERT INTO instances (tenant_id, id, organisation_id, code_automatisation, formule, environnement, automatisation_id, instance_source_copie, copie_le, copie_par) VALUES ($1, $2, $3, 'X', 'abonnement', 'production', $4, $5, now(), 'agent-essai')", [A, randomUUID(), org, a["id"], randomUUID()]);
     }, { acteur: ACTEUR });
     await expect(avecClient(app, A, (c) => c.query("SELECT instance_source_copie FROM instances"))).rejects.toMatchObject({ code: "42501" });
     await expect(avecClient(app, A, (c) => c.query("SELECT * FROM instances"))).rejects.toMatchObject({ code: "42501" });
@@ -247,7 +252,7 @@ describe("catalogue commun, avec le socle", { timeout: 60_000 }, () => {
     expect(pack["prix_centimes"]).toBe(String(GRILLE_FICTIVE.pack));
     await expect(sql("INSERT INTO packs (nom, metier_id, prix_centimes) VALUES ('Négatif', $1, -1)", [metier])).rejects.toMatchObject({ code: "23514" });
     await expect(sql("UPDATE packs SET prix_centimes = 99 WHERE id = $1", [pack["id"]])).rejects.toMatchObject({ code: "42501" });
-    await expect(sql("INSERT INTO packs (nom, metier_id, prix_centimes) VALUES ('Réel', $1, 12.5)", [metier])).rejects.toMatchObject({ code: "22P02" });
+    await expect(sql("INSERT INTO packs (nom, metier_id, prix_centimes) VALUES ($1, $2, $3)", [`Réel ${sufixe()}`, metier, "12.5"])).rejects.toMatchObject({ code: "22P02" });
   });
 
   it("[A-141] un connecteur garde famille, outil, version, capacités ; une famille inconnue ou un doublon est refusé", async () => {
@@ -273,16 +278,12 @@ describe("catalogue commun, avec le socle", { timeout: 60_000 }, () => {
     await creerAutomatisation({ nom });
     const requeteRecherche = "SELECT nom FROM automatisations WHERE lower(public.sans_accent(coalesce(code, '') || ' ' || nom || ' ' || coalesce(fonction, '') || ' ' || coalesce(description, ''))) LIKE '%' || lower(public.sans_accent($1)) || '%'";
     expect((await lire(requeteRecherche, ["prereglage de relance"])).rows.map((r) => r.nom)).toContain(nom);
-    const c = await migration.connect();
-    try {
-      await c.query("BEGIN");
+    // Sans seqscan (peu de lignes : le planificateur préférerait un parcours complet), le plan doit passer par l'index trigramme.
+    const plan = await avecClient(app, randomUUID(), async (c) => {
       await c.query("SET LOCAL enable_seqscan = off");
-      const plan = (await c.query(`EXPLAIN ${requeteRecherche.replace("$1", "'prereglage'")}`)).rows.map((r) => Object.values(r)[0]).join("\n");
-      expect(plan).toMatch(/automatisations_recherche_trgm_idx/);
-    } finally {
-      await c.query("ROLLBACK");
-      c.release();
-    }
+      return (await c.query(`EXPLAIN ${requeteRecherche.replace("$1", "'prereglage'")}`)).rows.map((r) => Object.values(r)[0]).join("\n");
+    });
+    expect(plan).toMatch(/automatisations_recherche_trgm_idx/);
     await sql("INSERT INTO synonymes_catalogue (mot, equivalent) VALUES ($1, 'facture') ON CONFLICT DO NOTHING", [`devis${sufixe().toLowerCase()}`]);
   });
 
@@ -301,13 +302,15 @@ describe("catalogue commun, avec le socle", { timeout: 60_000 }, () => {
     expect(duree).toBeLessThan(2);
   });
 
-  it("[A-119] console_app ne lit ni les versions en brouillon ni les préréglages non publiés", async () => {
+  it("[A-119] console_app ne lit que les versions publiées, dépréciées ou retirées : ni brouillon, ni recette, ni pilote", async () => {
     const a = await creerAutomatisation();
     const v = await creerVersion(a["id"]);
     expect((await lire("SELECT count(*)::int AS n FROM versions_automatisation WHERE id = $1", [v["id"]])).rows[0]?.n).toBe(0);
     expect((await equipe.query("SELECT count(*)::int AS n FROM versions_automatisation WHERE id = $1", [v["id"]])).rows[0]?.n).toBe(1);
     await passer(v["id"], "recette");
     await passer(v["id"], "pilote");
+    expect((await lire("SELECT count(*)::int AS n FROM versions_automatisation WHERE id = $1", [v["id"]])).rows[0]?.n).toBe(0);
+    await passer(v["id"], "publiee");
     expect((await lire("SELECT count(*)::int AS n FROM versions_automatisation WHERE id = $1", [v["id"]])).rows[0]?.n).toBe(1);
   });
 

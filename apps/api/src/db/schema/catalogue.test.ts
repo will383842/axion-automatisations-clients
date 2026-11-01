@@ -153,7 +153,7 @@ describe("catalogue : automatisations, versions, préréglages (migration 0007)"
 describe("catalogue : packs, connecteurs, grilles de prix, synonymes, recherche (migration 0007)", () => {
   it("[A-139] un pack porte son métier, ses automatisations et un prix en centimes entiers, non négatif", () => {
     expect(colonnes(packs)).toEqual(expect.arrayContaining(["nom", "metier_id", "prix_centimes", "actif"]));
-    expect(getTableConfig(packs).columns.find((c) => c.name === "prix_centimes")?.dataType).toBe("bigint");
+    expect(getTableConfig(packs).columns.find((c) => c.name === "prix_centimes")?.columnType).toMatch(/BigInt/);
     expect(colonnes(packsAutomatisations)).toEqual(["pack_id", "automatisation_id"]);
     expect(contraintes(packs)).toContain("packs_prix_positif");
     // Un prix se corrige par un nouveau pack : console_equipe ne modifie que « actif ».
@@ -170,7 +170,7 @@ describe("catalogue : packs, connecteurs, grilles de prix, synonymes, recherche 
   it("[A-142] une grille de prix garde formules actives, montants en centimes entiers, maintenance incluse en mois et prix de la maintenance ensuite ; ajout seul", () => {
     expect(colonnes(grillesPrix)).toEqual(expect.arrayContaining(["automatisation_id", "formules_actives", "montant_installation_centimes", "montant_mensuel_centimes", "maintenance_incluse_mois", "maintenance_ensuite_centimes", "auteur", "cree_le"]));
     for (const c of ["montant_installation_centimes", "montant_mensuel_centimes", "maintenance_ensuite_centimes"]) {
-      expect(getTableConfig(grillesPrix).columns.find((x) => x.name === c)?.dataType, c).toBe("bigint");
+      expect(getTableConfig(grillesPrix).columns.find((x) => x.name === c)?.columnType, c).toMatch(/BigInt/);
     }
     expect(contraintes(grillesPrix)).toEqual(expect.arrayContaining(["grilles_prix_montants_positifs", "grilles_prix_maintenance_mois_positifs", "grilles_prix_auteur_non_vide"]));
     expect(droitsDe("grilles_prix", "console_equipe")).toEqual(["SELECT, INSERT"]);

@@ -18,6 +18,7 @@ export const REGLES_C5 = [
   "vocabulaire_en_texte",
   "unicite_sans_tenant",
   "etrangere_sans_tenant",
+  "ecriture_commune_ouverte",
 ] as const;
 export type Regle = (typeof REGLES_C5)[number];
 
@@ -33,19 +34,39 @@ export type Options = {
   // Liste EXACTE de noms, fournie par l'appelant (le lot 2b nomme ses rôles selon la convention du socle,
   // `<base>_proprietaire`, `<base>_migration`) : aucun rôle n'est exempté par la forme de son nom.
   rolesAdministration?: readonly string[];
+  // Rôles d'équipe, seuls permis d'écrire dans une table commune (TABLES_COMMUNES) : nom exact ou suffixe `_equipe`. Défaut : /(^|_)equipe(_|$)/.
+  rolesEquipe?: RegExp;
 };
 
 export const TABLE_MIGRATIONS = "__migrations";
 // Défaut : aucun (échec fermé). Seul le superutilisateur est hors contrôle.
 export const ROLES_ADMINISTRATION: readonly string[] = [];
 
+// Rôles d'équipe par défaut : « equipe » seul ou entouré de `_` (console_equipe). Un rôle de l'application n'en fait pas partie.
+export const ROLES_EQUIPE = /(^|_)equipe(_|$)/;
+
 // Seule table où tenant_id peut être NULL : les lignes d'équipe du journal d'audit n'ont pas de client (T2-01a).
 // La colonne doit exister ; RLS, FORCE et index restent exigés. Liste fermée : aucune option d'appel ne l'étend.
 export const TENANT_FACULTATIF: readonly string[] = Object.freeze(["public.journal_audit"]);
-// Tables communes à tous les clients, SANS colonne tenant_id (ADR 0050) : listes de valeurs d'AXION IA (empreintes d'adresses exclues pour rebond ou plainte).
+// Tables communes à tous les clients, SANS colonne tenant_id (ADR 0050 et 0051) : liste des adresses exclues pour rebond ou plainte, catalogue d'AXION IA.
 // Elles gardent RLS, FORCE et propriétaire contrôlés ; seuls tenant_id, son index et la lecture ouverte à tous les clients leur sont permis.
+// Aucun rôle de l'application n'y écrit (règle `ecriture_commune_ouverte`, ADR 0051) : seul le rôle d'équipe écrit.
 // Liste fermée : aucune option d'appel ne l'étend ; une table qui porte un tenant_id suit les règles ordinaires même si elle est listée ici.
-export const TABLES_COMMUNES: readonly string[] = Object.freeze(["public.exclusions_plateforme"]);
+export const TABLES_COMMUNES: readonly string[] = Object.freeze([
+  "public.exclusions_plateforme",
+  "public.metiers",
+  "public.postes",
+  "public.automatisations",
+  "public.automatisation_metiers",
+  "public.automatisation_postes",
+  "public.versions_automatisation",
+  "public.prereglages_metier",
+  "public.synonymes_catalogue",
+  "public.packs",
+  "public.packs_automatisations",
+  "public.connecteurs",
+  "public.grilles_prix",
+]);
 // Unicités permises sans tenant_id : liste fermée et vide. Une entrée ne s'ajoute qu'avec sa raison, relue en 2 tours (ADR 0040).
 // Aucune option d'appel ne l'étend.
 export const EXCEPTIONS_UNICITE: readonly { table: string; index: string; raison: string }[] = Object.freeze([]);
@@ -112,6 +133,13 @@ const ETRANGERES = `
             WHERE a.attname = 'tenant_id' AND b.attname = 'tenant_id') AS lie_tenant
   FROM pg_constraint c WHERE c.contype = 'f'`;
 
+// Droits d'écriture effectifs (directs, hérités, PUBLIC, par colonne) de chaque rôle non superutilisateur sur chaque table.
+const ECRITURES = `
+  SELECT c.oid::int AS oid, r.rolname AS role FROM pg_class c CROSS JOIN pg_roles r
+  WHERE c.relkind IN ('r', 'p') AND NOT r.rolsuper
+    AND (has_table_privilege(r.oid, c.oid, 'INSERT') OR has_table_privilege(r.oid, c.oid, 'UPDATE') OR has_table_privilege(r.oid, c.oid, 'DELETE')
+         OR has_table_privilege(r.oid, c.oid, 'TRUNCATE') OR has_any_column_privilege(r.oid, c.oid, 'INSERT') OR has_any_column_privilege(r.oid, c.oid, 'UPDATE'))`;
+
 const TGTYPE_DELETE = 8;
 const TGTYPE_UPDATE = 16;
 const TGTYPE_TRUNCATE = 32;
@@ -153,10 +181,11 @@ export async function controlerInvariants(
   if (!NOM_BASE.test(nomBase)) throw new Error("nom de base invalide");
   const migrations = options.tableMigrations ?? TABLE_MIGRATIONS;
   if (!NOM_BASE.test(migrations)) throw new Error("nom de table de migrations invalide");
-  const [tables, colonnes, politiques, index, declencheurs, roles, uniques, etrangeres] = await Promise.all([
+  const [tables, colonnes, politiques, index, declencheurs, roles, uniques, etrangeres, ecritures] = await Promise.all([
     requete(tablesSql(migrations)), requete(COLONNES), requete(POLITIQUES), requete(INDEX), requete(DECLENCHEURS), requete(ROLES),
-    requete(UNIQUES), requete(ETRANGERES),
+    requete(UNIQUES), requete(ETRANGERES), requete(ECRITURES),
   ]);
+  const equipe = options.rolesEquipe ?? ROLES_EQUIPE;
   const ecarts: Ecart[] = [];
   const noter = (regle: Regle, objet: string) => ecarts.push({ regle, objet });
   const cleTable = (schema: unknown, nom: unknown) => `${schema}.${nom}`;
@@ -173,6 +202,12 @@ export async function controlerInvariants(
     const tenant = colonnes.find((c) => c.schema === t.schema && c.table === nom && c.colonne === "tenant_id");
     const facultatif = TENANT_FACULTATIF.includes(cleTable(t.schema, nom));
     const commune = !tenant && TABLES_COMMUNES.includes(cleTable(t.schema, nom));
+    if (commune) {
+      // Table commune : aucun rôle de l'application (hors rôle d'équipe) n'a de droit d'écriture, ni direct, ni hérité, ni par colonne, ni via PUBLIC.
+      for (const e of ecritures) {
+        if (e.oid === t.oid && options.rolesApplication.test(String(e.role)) && !equipe.test(String(e.role))) noter("ecriture_commune_ouverte", `${objet}:${e.role}`);
+      }
+    }
     if (!commune && (!tenant || (tenant.nullable !== "NO" && !facultatif))) noter("tenant_id_absent", objet);
     if (!t.rls || siennes.length === 0) noter("rls_absente", objet);
     if (!commune && siennes.some(politiqueOuverte)) noter("politique_ouverte", objet);

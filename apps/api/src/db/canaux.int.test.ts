@@ -245,12 +245,12 @@ describe("lignes de la plateforme, avec le socle", { timeout: 30_000 }, () => {
 
   it("[A-146] @isolation console_app ne modifie pas conditions_par_defaut ; elle lit celle de la plateforme", async () => {
     const A = randomUUID();
-    const ligne = (await parEquipe("conditions_par_defaut", { tenant_id: PLATEFORME, type: "remise", valeur: JSON.stringify({ taux: 5 }) })).rows[0];
+    const ligne = (await parEquipe("conditions_par_defaut", { tenant_id: PLATEFORME, type: "remise", valeur: JSON.stringify({ taux: 5 }), auteur: "agent-essai" })).rows[0];
     expect(ligne).toMatchObject({ source: "defaut", type: "remise" });
     expect(await lire(A, "conditions_par_defaut")).toContain(PLATEFORME);
     await expect(ecrire(app, A, (c) => c.query("UPDATE conditions_par_defaut SET valeur = '{}'::jsonb"))).rejects.toMatchObject({ code: "42501" });
     await expect(ecrire(app, A, (c) => c.query("INSERT INTO conditions_par_defaut (id, tenant_id, type, valeur) VALUES ($1, $2, 'frais', '{}'::jsonb)", [randomUUID(), A]))).rejects.toMatchObject({ code: "42501" });
-    await expect(parEquipe("conditions_par_defaut", { tenant_id: PLATEFORME, type: "frais", valeur: "{}", source: "client" })).rejects.toMatchObject({ code: "23514" });
+    await expect(parEquipe("conditions_par_defaut", { tenant_id: PLATEFORME, type: "frais", valeur: "{}", source: "client", auteur: "agent-essai" })).rejects.toMatchObject({ code: "23514" });
   });
 
   it("[A-130] alertes_plateforme refuse un état hors ouverte, acquittee, close", async () => {

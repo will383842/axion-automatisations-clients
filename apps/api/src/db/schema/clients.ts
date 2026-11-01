@@ -1,6 +1,7 @@
-import { boolean, check, foreignKey, pgEnum, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
+import { boolean, check, foreignKey, integer, pgEnum, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { tableClient } from "./aides.ts";
+import { automatisations, prereglagesMetier, versionsAutomatisation } from "./catalogue.ts";
 
 // Organisations, contacts et instances (C5, lot 2). Vocabulaires provisoires : une valeur s'ajoute plus tard (additif), jamais ne se renomme.
 export const statutOrganisation = pgEnum("statut_organisation", ["prospect", "en_signature", "client", "ancien_client"]);
@@ -72,9 +73,21 @@ export const instances = tableClient(
     environnement: environnementInstance("environnement").notNull(),
     etat: etatInstance("etat").notNull().default("active"),
     creeLe: timestamp("cree_le", { withTimezone: true }).notNull().defaultNow(),
+    // T2-03 (A-126) : version courante et automatisation du catalogue commun ; `code_automatisation` reste jusqu'à la version suivante (additif, N / N-1).
+    // Clés étrangères simples : le catalogue n'a pas de tenant_id (ADR 0051), la RLS ne s'applique pas aux contrôles d'intégrité.
+    versionCouranteId: uuid("version_courante_id").references(() => versionsAutomatisation.id, { onDelete: "restrict" }),
+    automatisationId: uuid("automatisation_id").references(() => automatisations.id, { onDelete: "restrict" }),
+    // Origine de l'instance (C-676) : journal INTERNE de l'équipe, jamais montré au client, jamais exporté. console_app ne les lit pas (migration 0007).
+    prereglageDepartId: uuid("prereglage_depart_id").references(() => prereglagesMetier.id, { onDelete: "restrict" }),
+    versionPrereglageDepart: integer("version_prereglage_depart"),
+    // Instance d'un AUTRE client en cas de copie : pas de clé étrangère (elle romprait l'isolation, règle etrangere_sans_tenant).
+    instanceSourceCopie: uuid("instance_source_copie"),
+    copieLe: timestamp("copie_le", { withTimezone: true }),
+    copiePar: text("copie_par"),
   },
   {
     contraintes: (t) => [
+      check("instances_copie_complete", sql`(${t["instanceSourceCopie"]} IS NULL) = (${t["copieLe"]} IS NULL) AND (${t["instanceSourceCopie"]} IS NULL) = (${t["copiePar"]} IS NULL)`),
       foreignKey({ name: "instances_organisation_fk", columns: [t["tenantId"] as never, t["organisationId"] as never], foreignColumns: [organisations.tenantId, organisations.id] }),
     ],
   },

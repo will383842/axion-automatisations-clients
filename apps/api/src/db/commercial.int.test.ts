@@ -258,7 +258,8 @@ describe("plan commercial, avec le socle", { timeout: 60_000 }, () => {
     const A = randomUUID();
     await creerOrg(A);
     const p = await nouveauPlan(A);
-    const FACTURE = randomUUID();
+    // T2-05 : echeances.facture_id est une clé étrangère composée vers factures ; la facture existe vraiment (copie du Hub, fait de test).
+    const FACTURE = (await inserer(A, "factures", { organisation_id: A, numero: `AXI-FACT-${randomUUID()}`, hub_id: randomUUID(), nature: "abonnement", plan: "essentiel", periode_debut: "2026-01-01", periode_fin: "2026-01-31", montant_ht_centimes: 10000, pdf_ref: "factures/a.pdf", empreinte_sha256: "a".repeat(64) }))["id"] as string;
     const mois = (n: number) => ({ debut_periode: `2026-0${n}-01`, fin_periode: `2026-0${n + 1}-01` });
     const emise = async (n: number) => {
       const e = await echeance(A, p["id"], mois(n));

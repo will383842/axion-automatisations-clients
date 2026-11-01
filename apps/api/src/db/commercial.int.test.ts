@@ -55,10 +55,10 @@ async function ecrire<T>(...args: Parameters<typeof avecClient<T>>): Promise<T> 
     }
   }
 }
-const inserer = (tenant: string, table: string, valeurs: Record<string, unknown>) => {
+const inserer = (tenant: string, table: string, valeurs: Record<string, unknown>, appelant: typeof APPELANT | null = APPELANT) => {
   const v = { id: randomUUID(), tenant_id: tenant, ...valeurs };
   const cles = Object.keys(v);
-  return ecrire(app, tenant, async (c) => (await c.query(`INSERT INTO ${table} (${cles.join(", ")}) VALUES (${cles.map((_, i) => `$${i + 1}`).join(", ")}) RETURNING *`, Object.values(v))).rows[0] as Record<string, unknown>, APPELANT);
+  return ecrire(app, tenant, async (c) => (await c.query(`INSERT INTO ${table} (${cles.join(", ")}) VALUES (${cles.map((_, i) => `$${i + 1}`).join(", ")}) RETURNING *`, Object.values(v))).rows[0] as Record<string, unknown>, appelant ?? undefined);
 };
 const creerOrg = (id: string) => inserer(id, "organisations", { id, console_client_id: id, raison_sociale: "Lemoine Rénovation" });
 const creerInstance = (A: string) => inserer(A, "instances", { organisation_id: A, code_automatisation: "relance-devis", formule: "abonnement", environnement: "test" });
@@ -191,7 +191,8 @@ describe("plan commercial, avec le socle", { timeout: 60_000 }, () => {
     await maj(e["id"], "statut = 'payee', date_paiement = '2026-01-10'");
     // Sorties de payee refusées : la ligne n'est plus modifiable (0 ligne), le paiement reste.
     for (const set of ["statut = 'prevue', date_paiement = NULL", "statut = 'annulee', date_paiement = NULL", "date_paiement = NULL", "statut = 'emise'"]) {
-      expect((await maj(e["id"], set).catch(() => ({ rowCount: 0 }))).rowCount, set).toBe(0);
+      // Aucun .catch : une erreur (autre qu'un refus silencieux de la politique) fait échouer l'essai au lieu de passer pour « 0 ligne ».
+      expect((await maj(e["id"], set)).rowCount, set).toBe(0);
     }
     expect(await statut(e["id"])).toMatchObject({ statut: "payee" });
     expect((await statut(e["id"])).date_paiement).not.toBeNull();
@@ -201,6 +202,42 @@ describe("plan commercial, avec le socle", { timeout: 60_000 }, () => {
     expect((await statut(f["id"])).statut).toBe("annulee");
     // Une échéance annulée ne se remplace pas pour la même période (unicité) : assumé jusqu'à T2-08 (ADR 0052).
     await expect(echeance(A, p["id"], { debut_periode: "2026-02-01", fin_periode: "2026-03-01" })).rejects.toMatchObject({ code: "23505" });
+  });
+
+  it("[A-145] @argent l'auteur écrit est l'appelant : une insertion ou une modification d'argent sans appelant, ou au nom d'un autre, est refusée (42501)", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    const instance = await creerInstance(A);
+    const AUTRE = { acteur: "autre-agent", ip: "192.0.2.18" };
+    await expect(plan(A, instance["id"], { auteur: "autre-agent" })).rejects.toMatchObject({ code: "42501" });
+    const p = await plan(A, instance["id"]);
+    await expect(echeance(A, p["id"], { auteur: "autre-agent" })).rejects.toMatchObject({ code: "42501" });
+    const phase = { plan_id: p["id"], ordre: 1, debut: "2026-01-01", nature: "recurrente", montant_centimes: 1, periode_facturation_mois: 1 };
+    await expect(inserer(A, "phases_plan", { ...phase, auteur: "autre-agent" })).rejects.toMatchObject({ code: "42501" });
+    await expect(inserer(A, "phases_plan", { ...phase, auteur: "agent-essai" }, null)).rejects.toMatchObject({ code: "42501" });
+    const abo = { organisation_id: A, debut: "2026-01-01", periode_facturation_mois: 1, mode_avance: "aucune" };
+    await expect(inserer(A, "abonnements", { ...abo, auteur: "autre-agent" })).rejects.toMatchObject({ code: "42501" });
+    const a = await inserer(A, "abonnements", { ...abo, auteur: "agent-essai" });
+    const f = await inserer(A, "phases_plan", { ...phase, auteur: "agent-essai" });
+    // Modification au nom d'un autre appelant, ou sans appelant : refusée, même si elle ne touche pas la colonne auteur.
+    await expect(ecrire(app, A, (c) => c.query("UPDATE abonnements SET fin = '2027-01-01' WHERE id = $1", [a["id"]]), AUTRE)).rejects.toMatchObject({ code: "42501" });
+    await expect(ecrire(app, A, (c) => c.query("UPDATE phases_plan SET fin = '2027-01-01' WHERE id = $1", [f["id"]]))).rejects.toMatchObject({ code: "42501" });
+    const e = await echeance(A, p["id"]);
+    const emettre = "statut = 'emise', date_emission = '2026-01-02'";
+    await expect(ecrire(app, A, (c) => c.query(`UPDATE echeances SET ${emettre} WHERE id = $1`, [e["id"]]))).rejects.toMatchObject({ code: "42501" });
+    await expect(ecrire(app, A, (c) => c.query(`UPDATE echeances SET ${emettre}, auteur = 'autre-agent' WHERE id = $1`, [e["id"]]), APPELANT)).rejects.toMatchObject({ code: "42501" });
+    await expect(ecrire(app, A, (c) => c.query(`UPDATE echeances SET ${emettre} WHERE id = $1`, [e["id"]]), AUTRE)).rejects.toMatchObject({ code: "42501" });
+    expect((await ecrire(app, A, (c) => c.query(`UPDATE echeances SET ${emettre} WHERE id = $1`, [e["id"]]), APPELANT)).rowCount).toBe(1);
+  });
+
+  it("[A-145] @argent une échéance se crée toujours prevue et sans date de paiement : l'insertion payee ou annulee est refusée (42501)", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    const p = await nouveauPlan(A);
+    await expect(echeance(A, p["id"], { statut: "payee", date_emission: "2026-01-02", date_paiement: "2026-01-10" })).rejects.toMatchObject({ code: "42501" });
+    await expect(echeance(A, p["id"], { statut: "annulee" })).rejects.toMatchObject({ code: "42501" });
+    await expect(echeance(A, p["id"], { date_paiement: "2026-01-10" })).rejects.toMatchObject({ code: "42501" });
+    await expect(echeance(A, p["id"])).resolves.toMatchObject({ statut: "prevue" });
   });
 
   it("[A-145] @argent un plan, une phase, une échéance ou un abonnement sans auteur (ou avec un auteur vide) est refusé", async () => {

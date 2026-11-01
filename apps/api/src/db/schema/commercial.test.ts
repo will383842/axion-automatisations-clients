@@ -111,13 +111,22 @@ describe("plan commercial : schéma et migration 0008", () => {
     expect(migration).toMatch(/ADD CONSTRAINT "instances_plan_commercial_fk" FOREIGN KEY \("tenant_id","id","plan_commercial"\) REFERENCES "public"\."plans_commerciaux"\("tenant_id","instance_id","id"\)/);
   });
 
-  it("[A-145] @argent chaque table d'argent porte un auteur non vide, écrit à chaque modification autorisée", () => {
+  it("[A-145] @argent chaque table d'argent porte un auteur non vide, non vide, et la base impose que ce soit l'appelant (politiques restrictives à l'insertion et à la modification)", () => {
     for (const [t, table] of [["abonnements", abonnements], ["plans_commerciaux", plansCommerciaux], ["phases_plan", phasesPlan], ["echeances", echeances]] as const) {
       expect(colonnes(table), t).toContain("auteur");
       expect(migration, t).toContain(`CONSTRAINT "${t}_auteur_non_vide" CHECK (length(btrim("${t}"."auteur")) > 0)`);
     }
     for (const t of ["abonnements", "phases_plan", "echeances"]) expect(droits(t).join(), t).toMatch(/UPDATE \([^)]*"auteur"/);
     expect(droits("plans_commerciaux").join()).not.toContain("UPDATE");
+    const acteur = `WITH CHECK (auteur = NULLIF(current_setting('app.acteur', true), ''))`;
+    for (const t of ["plans_commerciaux", "phases_plan", "echeances", "abonnements"]) {
+      expect(migration, t).toContain(`CREATE POLICY auteur_insertion ON "public"."${t}" AS RESTRICTIVE FOR INSERT TO console_app ${acteur}`);
+      expect(migration, t).toContain(`CREATE POLICY auteur_modification ON "public"."${t}" AS RESTRICTIVE FOR UPDATE TO console_app USING (true) ${acteur}`);
+    }
+  });
+
+  it("[A-145] @argent une échéance se crée prevue et sans date de paiement (politique restrictive à l'insertion)", () => {
+    expect(migration).toContain(`CREATE POLICY creation_echeance ON "public"."echeances" AS RESTRICTIVE FOR INSERT TO console_app WITH CHECK (statut = 'prevue' AND date_paiement IS NULL)`);
   });
 
   it("[A-145] @argent une échéance ne sort jamais de payee ni d'annulee, ne revient pas à prevue, et emise ou payee exige une date d'émission", () => {

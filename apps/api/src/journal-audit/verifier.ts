@@ -16,6 +16,7 @@ export type Verification =
   | { intacte: true; lignes: number; tete: Tete | null }
   | { intacte: false; rupture: { id: string; attendu: string | null; trouve: string | null } };
 
+// ORDER BY désigne d'abord la colonne de SORTIE : `id::text AS id` trierait en alphabétique (1, 10, 100, 2…). On trie donc sur `journal_audit.id` (bigint de la table).
 // La table lue est un paramètre pour qu'un essai vérifie une copie ; le nom est un identifiant SQL contrôlé, jamais une entrée d'utilisateur.
 const SOURCE = /^[a-z_][a-z0-9_]{0,62}(\.[a-z_][a-z0-9_]{0,62})?$/;
 export const COLONNES = `id::text AS id, tenant_id::text AS tenant_id, acteur, action::text AS action, entite, entite_id, ancienne::text AS ancienne, nouvelle::text AS nouvelle,
@@ -25,10 +26,10 @@ export function lecteurSql(requete: Requete, source = "public.journal_audit"): L
   if (!SOURCE.test(source)) throw new Error("source du journal invalide");
   return {
     async lireLot(apres, limite) {
-      return (await requete(`SELECT ${COLONNES} FROM ${source} WHERE ($1::bigint IS NULL OR id > $1::bigint) ORDER BY id LIMIT $2`, [apres, limite])) as unknown as LigneJournal[];
+      return (await requete(`SELECT ${COLONNES} FROM ${source} AS journal_audit WHERE ($1::bigint IS NULL OR journal_audit.id > $1::bigint) ORDER BY journal_audit.id LIMIT $2`, [apres, limite])) as unknown as LigneJournal[];
     },
     async lireIntervalle(debut, fin) {
-      return (await requete(`SELECT ${COLONNES} FROM ${source} WHERE cree_le >= $1::timestamptz AND cree_le < $2::timestamptz ORDER BY id`, [debut, fin])) as unknown as LigneJournal[];
+      return (await requete(`SELECT ${COLONNES} FROM ${source} AS journal_audit WHERE cree_le >= $1::timestamptz AND cree_le < $2::timestamptz ORDER BY journal_audit.id`, [debut, fin])) as unknown as LigneJournal[];
     },
   };
 }

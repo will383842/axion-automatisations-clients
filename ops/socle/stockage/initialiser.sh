@@ -14,20 +14,22 @@ fi
 
 coquille() { docker exec -i "$conteneur" weed shell -master=localhost:9333; }
 liste() { printf 's3.bucket.list\n' | coquille 2>&1; }
+# Nom exact : « journal-audit-ancien » ne vaut pas « journal-audit ».
+present() { printf '%s\n' "$2" | tr -s ' \t' '\n\n' | grep -qx -- "$1"; }
 
 existants="$(liste)"
 for c in exports factures suivi artefacts; do
-  if ! printf '%s\n' "$existants" | grep -qw -- "$c"; then
+  if ! present "$c" "$existants"; then
     printf 's3.bucket.create -name %s\n' "$c" | coquille > /dev/null
   fi
 done
 
-if ! printf '%s\n' "$existants" | grep -qw -- journal-audit; then
+if ! present journal-audit "$existants"; then
   printf 's3.bucket.create -name journal-audit -withLock\n' | coquille > /dev/null
 fi
 
 existants="$(liste)"
 for c in exports factures suivi artefacts journal-audit; do
-  printf '%s\n' "$existants" | grep -qw -- "$c" || { echo "compartiment $c absent" >&2; exit 1; }
+  present "$c" "$existants" || { echo "compartiment $c absent" >&2; exit 1; }
 done
 echo "compartiments communs présents : exports factures suivi artefacts journal-audit"

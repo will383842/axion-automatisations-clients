@@ -29,15 +29,15 @@ const Parametres = z.strictObject({
 // Période [du, au[ sur la date de création. Les valeurs vont en paramètres : jamais dans le texte SQL.
 export async function lireJournalSql(requete: Requete, f: FiltreJournal): Promise<LigneJournal[]> {
   const sql = `SELECT ${COLONNES}
-    FROM public.journal_audit WHERE entite = $1 AND ($2::text IS NULL OR entite_id = $2) AND ($3::timestamptz IS NULL OR cree_le >= $3) AND ($4::timestamptz IS NULL OR cree_le < $4)
-    AND ($5::bigint IS NULL OR id > $5::bigint) ORDER BY id LIMIT $6`;
+    FROM public.journal_audit AS journal_audit WHERE entite = $1 AND ($2::text IS NULL OR entite_id = $2) AND ($3::timestamptz IS NULL OR cree_le >= $3) AND ($4::timestamptz IS NULL OR cree_le < $4)
+    AND ($5::bigint IS NULL OR journal_audit.id > $5::bigint) ORDER BY journal_audit.id LIMIT $6`;
   return (await requete(sql, [f.entite, f.entiteId ?? null, f.du ?? null, f.au ?? null, f.apres ?? null, f.limite])) as unknown as LigneJournal[];
 }
 
 export function routeJournal(serveur: FastifyInstance, o: { exigerEquipe: preHandlerAsyncHookHandler; lire: (f: FiltreJournal) => Promise<LigneJournal[]> }): void {
   serveur.get("/equipe/journal", { preHandler: o.exigerEquipe }, async (requete) => {
     const p = Parametres.safeParse(requete.query);
-    if (!p.success || (p.data.du && p.data.au && p.data.du >= p.data.au)) throw new ErreurApi("schema_invalide", "Requête invalide.");
+    if (!p.success || (p.data.du && p.data.au && Date.parse(p.data.du) >= Date.parse(p.data.au))) throw new ErreurApi("schema_invalide", "Requête invalide.");
     const { entite, entiteId, du, au, apres, limite } = p.data;
     const lignes = await o.lire({ entite, ...(entiteId ? { entiteId } : {}), ...(du ? { du } : {}), ...(au ? { au } : {}), ...(apres ? { apres } : {}), limite });
     return { lignes, suivant: lignes.length === limite ? (lignes[lignes.length - 1]?.id ?? null) : null };

@@ -161,6 +161,12 @@ describe("plan commercial : schéma et migration 0008", () => {
     expect(migration).toContain(`CONSTRAINT "echeances_emission_datee" CHECK ("echeances"."statut" NOT IN ('emise', 'payee') OR "echeances"."date_emission" IS NOT NULL)`);
   });
 
+  it("[A-145] @argent une échéance émise ne se réécrit pas (politique emise_figee) et une annulée avec facture exige sa date d'émission (CHECK)", () => {
+    expect(migration).toContain(`CREATE POLICY emise_figee ON "public"."echeances" AS RESTRICTIVE FOR UPDATE TO console_app USING (true) WITH CHECK (NOT EXISTS (SELECT 1 FROM public.echeances a WHERE a.tenant_id = echeances.tenant_id AND a.id = echeances.id AND a.statut = 'emise' AND (echeances.statut = 'emise' OR a.date_emission IS DISTINCT FROM echeances.date_emission OR a.facture_id IS DISTINCT FROM echeances.facture_id)))`);
+    expect(contraintes(echeances)).toContain("echeances_annulee_facture_datee");
+    expect(migration).toContain(`CONSTRAINT "echeances_annulee_facture_datee" CHECK ("echeances"."statut" <> 'annulee' OR "echeances"."facture_id" IS NULL OR "echeances"."date_emission" IS NOT NULL)`);
+  });
+
   it("[A-125] @argent un acompte exige son taux, et un taux exige l'acompte", () => {
     expect(migration).toContain(`CONSTRAINT "abonnements_acompte_coherent" CHECK (("abonnements"."mode_avance" = 'acompte') = ("abonnements"."acompte_points_de_base" IS NOT NULL))`);
   });

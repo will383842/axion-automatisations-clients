@@ -4766,6 +4766,10 @@
         "echeances_paiement_apres_emission": {
           "name": "echeances_paiement_apres_emission",
           "value": "\"echeances\".\"date_paiement\" IS NULL OR \"echeances\".\"date_emission\" IS NULL OR \"echeances\".\"date_paiement\" >= \"echeances\".\"date_emission\""
+        },
+        "echeances_annulee_facture_datee": {
+          "name": "echeances_annulee_facture_datee",
+          "value": "\"echeances\".\"statut\" <> 'annulee' OR \"echeances\".\"facture_id\" IS NULL OR \"echeances\".\"date_emission\" IS NOT NULL"
         }
       },
       "isRLSEnabled": false

@@ -164,6 +164,7 @@ export const echeances = tableClient(
       check("echeances_montant_entier", sql`${t["montantHtCentimes"]} BETWEEN 0 AND ${sql.raw(MAX_ENTIER)}`),
       check("echeances_paiement_coherent", sql`(${t["statut"]} = 'payee') = (${t["datePaiement"]} IS NOT NULL)`),
       check("echeances_paiement_apres_emission", sql`${t["datePaiement"]} IS NULL OR ${t["dateEmission"]} IS NULL OR ${t["datePaiement"]} >= ${t["dateEmission"]}`),
+      check("echeances_annulee_facture_datee", sql`${t["statut"]} <> 'annulee' OR ${t["factureId"]} IS NULL OR ${t["dateEmission"]} IS NOT NULL`),
     ],
   },
 );

@@ -254,6 +254,47 @@ describe("plan commercial, avec le socle", { timeout: 60_000 }, () => {
     expect((await maj("statut = 'payee', date_emission = '2026-01-10', date_paiement = '2026-01-10'")).rowCount).toBe(1);
   });
 
+  it("[A-145] @argent une échéance émise ne se réécrit pas : emise vers emise, date_emission ou facture_id modifiés, paiement antidaté sont refusés (42501) ; payee et annulee sans toucher ces colonnes passent", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    const p = await nouveauPlan(A);
+    const FACTURE = randomUUID();
+    const mois = (n: number) => ({ debut_periode: `2026-0${n}-01`, fin_periode: `2026-0${n + 1}-01` });
+    const emise = async (n: number) => {
+      const e = await echeance(A, p["id"], mois(n));
+      await ecrire(app, A, (c) => c.query("UPDATE echeances SET statut = 'emise', date_emission = '2026-01-02', facture_id = $2 WHERE id = $1", [e["id"], FACTURE]), APPELANT);
+      return e["id"];
+    };
+    const maj = (id: unknown, set: string) => ecrire(app, A, (c) => c.query(`UPDATE echeances SET ${set} WHERE id = $1`, [id]), APPELANT);
+    const e = await emise(1);
+    await expect(maj(e, "statut = 'emise'")).rejects.toMatchObject({ code: "42501" });
+    await expect(maj(e, "statut = 'emise', date_emission = '2026-01-03'")).rejects.toMatchObject({ code: "42501" });
+    await expect(maj(e, "date_emission = '2026-01-03'")).rejects.toMatchObject({ code: "42501" });
+    await expect(maj(e, `facture_id = '${randomUUID()}'`)).rejects.toMatchObject({ code: "42501" });
+    await expect(maj(e, "statut = 'payee', date_emission = '2025-12-01', date_paiement = '2026-01-10'")).rejects.toMatchObject({ code: "42501" });
+    await expect(maj(e, `statut = 'payee', facture_id = '${randomUUID()}', date_paiement = '2026-01-10'`)).rejects.toMatchObject({ code: "42501" });
+    await expect(maj(e, "statut = 'annulee', date_emission = '2026-01-03'")).rejects.toMatchObject({ code: "42501" });
+    const lue = async (id: unknown) => (await ecrire(app, A, (c) => c.query("SELECT statut, date_emission::text AS date_emission, facture_id FROM echeances WHERE id = $1", [id]))).rows[0] as { statut: string; date_emission: string; facture_id: string };
+    expect(await lue(e)).toEqual({ statut: "emise", date_emission: "2026-01-02", facture_id: FACTURE });
+    // Sans toucher date_emission ni facture_id : permis.
+    expect((await maj(e, "statut = 'payee', date_paiement = '2026-01-10'")).rowCount).toBe(1);
+    expect(await lue(e)).toEqual({ statut: "payee", date_emission: "2026-01-02", facture_id: FACTURE });
+    const f = await emise(2);
+    expect((await maj(f, "statut = 'annulee'")).rowCount).toBe(1);
+    expect(await lue(f)).toMatchObject({ statut: "annulee", date_emission: "2026-01-02" });
+    // Une échéance prevue passe toujours à emise avec sa date et sa facture.
+    const g = await echeance(A, p["id"], mois(3));
+    expect((await maj(g["id"], `statut = 'emise', date_emission = '2026-03-02', facture_id = '${FACTURE}'`)).rowCount).toBe(1);
+  });
+
+  it("[A-145] @argent une échéance annulée avec une facture exige sa date d'émission (23514)", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    const p = await nouveauPlan(A);
+    const e = await echeance(A, p["id"]);
+    await expect(ecrire(app, A, (c) => c.query("UPDATE echeances SET statut = 'annulee', facture_id = $2 WHERE id = $1", [e["id"], randomUUID()]), APPELANT)).rejects.toMatchObject({ code: "23514" });
+  });
+
   it("[A-146] @argent plans, abonnements, conditions : une colonne non accordée ne se modifie pas (42501), l'équipe n'écrit sur aucune table d'argent", async () => {
     const A = randomUUID();
     await creerOrg(A);

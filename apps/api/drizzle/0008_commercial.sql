@@ -63,7 +63,8 @@ CREATE TABLE "echeances" (
 	CONSTRAINT "echeances_periode_ordonnee" CHECK ("echeances"."fin_periode" > "echeances"."debut_periode"),
 	CONSTRAINT "echeances_montant_entier" CHECK ("echeances"."montant_ht_centimes" BETWEEN 0 AND 9007199254740991),
 	CONSTRAINT "echeances_paiement_coherent" CHECK (("echeances"."statut" = 'payee') = ("echeances"."date_paiement" IS NOT NULL)),
-	CONSTRAINT "echeances_paiement_apres_emission" CHECK ("echeances"."date_paiement" IS NULL OR "echeances"."date_emission" IS NULL OR "echeances"."date_paiement" >= "echeances"."date_emission")
+	CONSTRAINT "echeances_paiement_apres_emission" CHECK ("echeances"."date_paiement" IS NULL OR "echeances"."date_emission" IS NULL OR "echeances"."date_paiement" >= "echeances"."date_emission"),
+	CONSTRAINT "echeances_annulee_facture_datee" CHECK ("echeances"."statut" <> 'annulee' OR "echeances"."facture_id" IS NULL OR "echeances"."date_emission" IS NOT NULL)
 );
 --> statement-breakpoint
 CREATE TABLE "phases_plan" (
@@ -132,7 +133,7 @@ CREATE INDEX "phases_plan_tenant_id_idx" ON "phases_plan" USING btree ("tenant_i
 CREATE INDEX "plans_commerciaux_tenant_id_idx" ON "plans_commerciaux" USING btree ("tenant_id");--> statement-breakpoint
 -- Partie écrite à la main (drizzle-kit ne génère ni RLS, ni droits, ni déclencheurs, ni la colonne ajoutée à une table d'une autre fiche), dans la même migration que les tables (ADR 0044, 0052).
 -- Argent : solution la plus restrictive (ADR 0052). Aucun DELETE ni TRUNCATE, aucun droit pour PUBLIC ni pour le portail. Le montant, la période et le plan d'une échéance ne se modifient jamais :
--- UPDATE limité par colonnes. Un plan et une phase ne se modifient pas du tout (aucun UPDATE) : aucun changement de prix possible avant la règle de correction de T2-08, assumé (ADR 0052). Une échéance annulée ne se remplace pas pour la même période (unicité), assumé de même.
+-- UPDATE limité par colonnes. Un plan est immuable (aucun UPDATE) ; une phase n'accepte que l'UPDATE de fin, id_plan_hub et auteur (jamais le montant, la période ni la nature) : aucun changement de prix possible avant la règle de correction de T2-08, assumé (ADR 0052). Une échéance annulée ne se remplace pas pour la même période (unicité), assumé de même.
 ALTER TABLE "public"."instances" ADD COLUMN "plan_commercial" uuid;--> statement-breakpoint
 ALTER TABLE "public"."instances" ADD CONSTRAINT "instances_plan_commercial_fk" FOREIGN KEY ("tenant_id","id","plan_commercial") REFERENCES "public"."plans_commerciaux"("tenant_id","instance_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 -- La migration 0007 limite la lecture de console_app sur instances à une liste de colonnes : le lien vers le plan doit s'y ajouter (colonne seule, jamais toute la table).
@@ -190,6 +191,8 @@ GRANT UPDATE ("statut", "date_emission", "date_paiement", "facture_id", "auteur"
 -- Transitions d'une échéance sans fonction ni déclencheur (la garde des migrations les refuse, ADR 0041) : une politique RESTRICTIVE. L'ancienne ligne doit être prevue ou emise
 -- (payee et annulee ne se modifient plus : le paiement ne disparaît pas) et la nouvelle emise, payee ou annulee (jamais de retour à prevue). Emise ou payee exige une date d'émission (CHECK).
 CREATE POLICY transitions_echeance ON "public"."echeances" AS RESTRICTIVE FOR UPDATE TO console_app USING (tenant_id IS NOT NULL AND statut IN ('prevue', 'emise')) WITH CHECK (tenant_id IS NOT NULL AND statut IN ('emise', 'payee', 'annulee'));--> statement-breakpoint
+-- Une échéance émise ne se réécrit pas : l'ancienne ligne est lue par la sous-requête (instantané de début d'instruction), la nouvelle ligne est celle qui est vérifiée. Interdits : emise -> emise, et toute réécriture de date_emission ou de facture_id d'une échéance émise (y compris vers payee ou annulee). Permis : emise -> payee ou annulee sans toucher ces deux colonnes. Les politiques SELECT appliquées à la sous-requête n'ont pas de sous-requête : pas de récursion (ADR 0052, 6 septies).
+CREATE POLICY emise_figee ON "public"."echeances" AS RESTRICTIVE FOR UPDATE TO console_app USING (true) WITH CHECK (NOT EXISTS (SELECT 1 FROM public.echeances a WHERE a.tenant_id = echeances.tenant_id AND a.id = echeances.id AND a.statut = 'emise' AND (echeances.statut = 'emise' OR a.date_emission IS DISTINCT FROM echeances.date_emission OR a.facture_id IS DISTINCT FROM echeances.facture_id)));--> statement-breakpoint
 CREATE POLICY auteur_insertion ON "public"."echeances" AS RESTRICTIVE FOR INSERT TO console_app WITH CHECK (auteur = NULLIF(current_setting('app.acteur', true), ''));--> statement-breakpoint
 CREATE POLICY auteur_modification ON "public"."echeances" AS RESTRICTIVE FOR UPDATE TO console_app USING (true) WITH CHECK (auteur = NULLIF(current_setting('app.acteur', true), ''));--> statement-breakpoint
 -- Une échéance se crée toujours prevue, sans date d'émission, sans facture et sans date de paiement : la chaîne des transitions ne se contourne pas à l'insertion (ADR 0052).

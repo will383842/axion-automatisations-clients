@@ -44,13 +44,14 @@ const requete: Requete = async (sql) => (await migration.query(`SELECT coalesce(
 const APPELANT = { acteur: "agent-essai", ip: "192.0.2.17" };
 const equipe = pool(PGBOUNCER, "console_equipe", 3);
 
-// Les écritures auditées passent par le verrou du journal : une attente trop longue (55P03) est rejouée.
+// Les écritures auditées passent par le verrou du journal : une attente trop longue (55P03) ou un interblocage (40P01) est rejoué.
 async function ecrire<T>(...args: Parameters<typeof avecClient<T>>): Promise<T> {
   for (let essai = 1; ; essai++) {
     try {
       return await avecClient(...args);
     } catch (e) {
-      if ((e as { code?: string }).code !== "55P03" || essai >= 4) throw e;
+      // 55P03 : attente du verrou du journal ; 40P01 : interblocage entre ce verrou et un verrou de ligne. PostgreSQL en tue un, l'appelant rejoue.
+      if (!["55P03", "40P01"].includes((e as { code?: string }).code ?? "") || essai >= 6) throw e;
     }
   }
 }
@@ -155,7 +156,7 @@ describe("plan commercial, avec le socle", { timeout: 60_000 }, () => {
     expect(resultats.filter((r) => r.status === "fulfilled")).toHaveLength(1);
     // Table auditée : une attente du verrou du journal (55P03) reste possible pour un perdant ; la preuve est « une seule ligne ».
     const codes = resultats.flatMap((r) => (r.status === "rejected" ? [(r.reason as { code?: string }).code] : []));
-    for (const c of codes) expect(["23505", "55P03"]).toContain(c);
+    for (const c of codes) expect(["23505", "55P03", "40P01"]).toContain(c);
     // L'unicité doit avoir été exercée : au moins un perdant a reçu le refus d'unicité, pas seulement une attente de verrou.
     expect(codes).toContain("23505");
     expect((await ecrire(app, A, (c) => c.query("SELECT count(*)::int AS n FROM echeances WHERE plan_id = $1", [p["id"]]))).rows[0]?.n).toBe(1);

@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { CreateBucketCommand, DeleteObjectCommand, GetObjectCommand, GetObjectRetentionCommand, ListObjectVersionsCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, onTestFailed } from "vitest";
@@ -34,7 +34,12 @@ function lecteur(): LecteurJournal {
 const signataire = { async signer(o: Buffer) { return `vault:v1:${createHash("sha256").update(o).digest("base64")}`; } };
 const alertes = { async envoyer() { /* aucune alerte attendue */ } };
 
+// Le journal de la CI n'affiche que ce qui passe par writeSync(2, …) : console.log y est avalé.
+const ecrireEchec = (nom: string, e: unknown): void => { writeSync(2, `ECHEC ${nom} : ${(e instanceof Error ? `${e.name} ${e.message}` : String(e)).slice(0, 600)}\n`); };
 beforeAll(async () => {
+  try { await preparer(); } catch (e) { ecrireEchec("beforeAll copie", e); throw e; }
+}, 180_000);
+async function preparer() {
   const cle = SERVICE.environment.AWS_ACCESS_KEY_ID!;
   const secret = `TEST-NE-PAS-UTILISER-${randomBytes(16).toString("hex")}`;
   const conteneur = docker("run", "-d", "--rm", "-e", `AWS_ACCESS_KEY_ID=${cle}`, "-e", `AWS_SECRET_ACCESS_KEY=${secret}`, SERVICE.image, ...SERVICE.command);
@@ -51,7 +56,7 @@ beforeAll(async () => {
     try { await s3.send(new CreateBucketCommand({ Bucket: COMPARTIMENT, ObjectLockEnabledForBucket: true })); break; } catch (e) { if (i > 30) throw e; await pause(1000); }
   }
   port = creerPortCopieAws({ endpoint, cleAcces: cle, secret });
-}, 180_000);
+}
 
 async function deposer(): Promise<string> {
   const r = await copierVeille({ lecteur: lecteur(), port, signataire, alertes, maintenant: () => MAINTENANT });
@@ -59,9 +64,9 @@ async function deposer(): Promise<string> {
   return `${veille}.jsonl`;
 }
 
-// Le rapport JSON de la CI n'est pas publié : le nom du test et la cause sont donc écrits dans le journal.
+// Le rapport JSON de la CI n'est pas publié : le nom du test et la cause sont écrits dans le journal (writeSync(2, …), console.log y est avalé).
 describe("copie quotidienne du journal, avec la brique de stockage", { timeout: 60_000 }, () => {
-  beforeEach((ctx) => { onTestFailed((c) => console.log(`ECHEC ${ctx.task.name} : ${String(c.task.result?.errors?.[0]?.message ?? "").slice(0, 400)}`)); });
+  beforeEach((ctx) => { onTestFailed((c) => ecrireEchec(ctx.task.name, c.task.result?.errors?.[0])); });
 
   it("[C-029] la copie de la veille est déposée avec ObjectLock COMPLIANCE et une rétention de 5 ans", async () => {
     const cle = await deposer();

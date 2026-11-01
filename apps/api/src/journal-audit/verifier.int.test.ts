@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { writeSync } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
@@ -42,8 +43,12 @@ const AJOUTER = "SELECT public.audit_ajouter($1::uuid, $2, $3::public.action_aud
 const ecrire = (tenant: string, entite: string, entiteId: string, nouvelle: object, ip?: string) =>
   avecClient(app, tenant, (c) => c.query(AJOUTER, [tenant, "agent-essai", "insertion", entite, entiteId, null, JSON.stringify(nouvelle)]), { acteur: "agent-essai", ...(ip ? { ip } : {}) });
 
+// Le journal de la CI n'affiche que ce qui passe par writeSync(2, …) : console.log y est avalé.
+const ecrireEchec = (nom: string, e: unknown): void => { writeSync(2, `ECHEC ${nom} : ${(e instanceof Error ? `${e.name} ${e.message}` : String(e)).slice(0, 600)}\n`); };
 beforeAll(async () => {
-  await migrer({ url: `postgres://console_migration:${motDePasseDe("console_migration")}@${DIRECT.host}:${DIRECT.port}/console`, dossier: fileURLToPath(new URL("../../drizzle", import.meta.url)) });
+  try {
+    await migrer({ url: `postgres://console_migration:${motDePasseDe("console_migration")}@${DIRECT.host}:${DIRECT.port}/console`, dossier: fileURLToPath(new URL("../../drizzle", import.meta.url)) });
+  } catch (e) { ecrireEchec("beforeAll verifier", e); throw e; }
 }, 120_000);
 afterAll(async () => {
   await migration.query(`DROP SCHEMA IF EXISTS ${SCHEMA} CASCADE`).catch(() => undefined);
@@ -51,7 +56,7 @@ afterAll(async () => {
 });
 
 describe("vérification de la chaîne du journal, avec le socle", { timeout: 60_000 }, () => {
-  beforeEach((ctx) => { onTestFailed((c) => console.log(`ECHEC ${ctx.task.name} : ${String(c.task.result?.errors?.[0]?.message ?? "").slice(0, 400)}`)); });
+  beforeEach((ctx) => { onTestFailed((c) => ecrireEchec(ctx.task.name, c.task.result?.errors?.[0])); });
 
   it("[C-028] la vérification d'un journal intact ne trouve aucune rupture", async () => {
     const A = randomUUID();

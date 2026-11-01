@@ -143,6 +143,52 @@ describe("mandataire de sortie", () => {
     expect(amont.connexions()).toBe(0);
   });
 
+  it("[A-329] après l'expiration des 10 s pendant la résolution DNS, la libération de la résolution n'ouvre aucune connexion amont et le client a reçu 504", async () => {
+    const amont = await amontSilencieux();
+    const reglages = espionnerDelais();
+    let liberer: (a: string[]) => void = () => undefined;
+    let demarree = false;
+    const { port } = await mandataire({
+      declarees: [{ hote: "api.exemple.test", port: amont.port }],
+      resoudre: () => new Promise<string[]>((ok) => { demarree = true; liberer = ok; }),
+      exceptions: ["127.0.0.1"],
+    });
+    let recu = "";
+    // Le client reste ouvert (demi-fermeture permise) : seul le mandataire a clos son écriture.
+    const s: Socket = connect({ port, host: "127.0.0.1", allowHalfOpen: true }, () => s.write(requeteConnect(amont.port)));
+    s.on("data", (d) => { recu += d.toString(); });
+    s.on("error", () => undefined);
+    ouverts.push({ close: () => s.destroy() });
+    while (!demarree) await attendre(5);
+    const cote = reglages.find((x) => x.ms === 10_000 && !x.socket.connecting);
+    expect(cote).toBeDefined();
+    cote?.socket.emit("timeout");
+    while (!recu.includes("\r\n\r\n")) await attendre(5);
+    liberer(["127.0.0.1"]);
+    await attendre(150);
+    expect(recu).toMatch(/^HTTP\/1\.1 504/);
+    expect(amont.connexions()).toBe(0);
+  });
+
+  it("[A-329] en-tête CONNECT incomplet : l'expiration des 10 s donne 504 au client", async () => {
+    const amont = await amontSilencieux();
+    const reglages = espionnerDelais();
+    const { port } = await mandataire({ declarees: [{ hote: "api.exemple.test", port: amont.port }], resoudre: async () => ["127.0.0.1"], exceptions: ["127.0.0.1"] });
+    let recu = "";
+    const fini = new Promise<void>((ok) => {
+      const s: Socket = connect(port, "127.0.0.1", () => s.write(`CONNECT api.exemple.test:${amont.port} HTTP/1.1\r\nHost: api`));
+      s.on("data", (d) => { recu += d.toString(); });
+      s.on("close", () => ok());
+      s.on("error", () => undefined);
+    });
+    while (!reglages.some((x) => x.ms === 10_000 && !x.socket.connecting)) await attendre(5);
+    await attendre(30);
+    reglages.find((x) => x.ms === 10_000 && !x.socket.connecting)?.socket.emit("timeout");
+    await fini;
+    expect(recu).toMatch(/^HTTP\/1\.1 504/);
+    expect(amont.connexions()).toBe(0);
+  });
+
   it("[A-329] avant le tunnel : 10 s côté client et côté amont ; une fois ouvert : 60 s d'inactivité des deux côtés", async () => {
     const amont = await amontSilencieux();
     const reglages = espionnerDelais();

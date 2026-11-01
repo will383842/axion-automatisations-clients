@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
-import { INVARIANTS_C5, ROLES_ADMINISTRATION, VOCABULAIRE, controlerInvariants, type Ecart, type Requete } from "./invariants.ts";
+import { INVARIANTS_C5, REGLES_C5, ROLES_ADMINISTRATION, TABLES_COMMUNES, VOCABULAIRE, controlerInvariants, type Ecart, type Requete } from "./invariants.ts";
 
 // Ces tests ont besoin d'un PostgreSQL : l'URL d'un serveur jetable est dans CONTRATS_PG_URL
 // (job contrats-pg de la CI). Sans elle, ils sont sautés et la PR le dit.
@@ -58,6 +58,13 @@ describe("C5 invariants écrits", () => {
     expect(six).toContain("(abonnement, début de période) hors avoirs");
     expect(six).toContain("facture groupée ou seule");
     expect(six).not.toContain("(contrat, début de période)");
+  });
+});
+
+describe("C5 : règle d'écriture sur les tables communes (T2-03)", () => {
+  it("[A-119] la règle ecriture_commune_ouverte fait partie des règles C5 et la liste TABLES_COMMUNES reste gelée", () => {
+    expect(REGLES_C5).toContain("ecriture_commune_ouverte");
+    expect(Object.isFrozen(TABLES_COMMUNES)).toBe(true);
   });
 });
 
@@ -171,6 +178,53 @@ describe.skipIf(!URL_PG)("C5 invariants du schéma", () => { // fiche: T0-16
       expect(e).toContainEqual({ regle: "index_tenant_absent", objet: "exclusions_plateforme" });
       expect(e).toContainEqual({ regle: "politique_ouverte", objet: "exclusions_plateforme" });
     });
+  });
+
+  // Règle C5 de T2-03 (renvoyée par l'ADR 0050 §5) : sur une table commune, aucun rôle de l'application ne peut écrire ; seul le rôle d'équipe (nom en `_equipe`) le peut.
+  it("[A-119] @isolation un rôle de l'application qui peut insérer, modifier, supprimer ou vider une table commune est signalé ecriture_commune_ouverte", async () => {
+    const app = `app_c5_ecrit_${process.pid}`;
+    psql(undefined, `CREATE ROLE ${app}`);
+    try {
+      for (const droit of ["INSERT", "UPDATE", "DELETE", "TRUNCATE"]) {
+        await avec(`ecrit_${droit.toLowerCase()}`, `${COMMUNE} GRANT SELECT, ${droit} ON exclusions_plateforme TO ${app};`, (e) => {
+          expect(e, droit).toContainEqual({ regle: "ecriture_commune_ouverte", objet: `exclusions_plateforme:${app}` });
+        });
+      }
+    } finally {
+      psql(undefined, `DROP ROLE IF EXISTS ${app}`);
+    }
+  });
+
+  it("[A-119] @isolation un droit d'écriture par colonne, ou donné à PUBLIC, sur une table commune est lui aussi signalé", async () => {
+    const app = `app_c5_col_${process.pid}`;
+    psql(undefined, `CREATE ROLE ${app}`);
+    try {
+      await avec("ecrit_colonne", `${COMMUNE} GRANT SELECT, UPDATE (empreinte_email) ON exclusions_plateforme TO ${app};`, (e) => {
+        expect(e).toContainEqual({ regle: "ecriture_commune_ouverte", objet: `exclusions_plateforme:${app}` });
+      });
+      await avec("ecrit_public", `${COMMUNE} GRANT INSERT ON exclusions_plateforme TO PUBLIC;`, (e) => {
+        expect(e).toContainEqual({ regle: "ecriture_commune_ouverte", objet: `exclusions_plateforme:${app}` });
+      });
+    } finally {
+      psql(undefined, `DROP ROLE IF EXISTS ${app}`);
+    }
+  });
+
+  it("[A-119] @isolation un rôle de l'application en lecture seule et un rôle d'équipe qui écrit ne sont pas signalés", async () => {
+    const app = `app_c5_lit_${process.pid}`;
+    const equipe = `app_equipe_c5_${process.pid}`;
+    psql(undefined, `CREATE ROLE ${app}; CREATE ROLE ${equipe}`);
+    try {
+      await avec("ecrit_equipe", `${COMMUNE} GRANT SELECT ON exclusions_plateforme TO ${app}; GRANT SELECT, INSERT ON exclusions_plateforme TO ${equipe};`, (e) => {
+        expect(regles(e)).not.toContain("ecriture_commune_ouverte");
+      });
+      // Un rôle de l'application membre du rôle d'équipe en hérite : signalé.
+      await avec("ecrit_membre", `${COMMUNE} GRANT SELECT, INSERT ON exclusions_plateforme TO ${equipe}; GRANT ${equipe} TO ${app};`, (e) => {
+        expect(e).toContainEqual({ regle: "ecriture_commune_ouverte", objet: `exclusions_plateforme:${app}` });
+      });
+    } finally {
+      psql(undefined, `DROP ROLE IF EXISTS ${app}, ${equipe}`);
+    }
   });
 
   it("[C-536] une partition sans RLS, sans FORCE ou sans politique est signalée, même si le parent est conforme", async () => {

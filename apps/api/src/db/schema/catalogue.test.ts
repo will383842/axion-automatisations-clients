@@ -161,7 +161,7 @@ describe("catalogue : packs, connecteurs, grilles de prix, synonymes, recherche 
     expect(colonnes(packs)).toEqual(expect.arrayContaining(["nom", "metier_id", "prix_centimes", "actif", "auteur"]));
     expect(getTableConfig(packs).columns.find((c) => c.name === "auteur")?.notNull).toBe(true);
     expect(contraintes(packs)).toContain("packs_auteur_non_vide");
-    // La composition d'un pack est figée une heure après sa création.
+    // La composition d'un pack est fixée dans la transaction qui le crée.
     expect(migration).toMatch(/CREATE TRIGGER packs_automatisations_composition BEFORE INSERT/);
     expect(getTableConfig(packs).columns.find((c) => c.name === "prix_centimes")?.columnType).toMatch(/BigInt/);
     expect(colonnes(packsAutomatisations)).toEqual(["pack_id", "automatisation_id"]);
@@ -224,5 +224,14 @@ describe("tables de la plateforme : auteur et journal d'audit (relecture de T2-0
     for (const t of COMMUNES) expect(migration, t).toMatch(new RegExp(`CREATE TRIGGER ${t}_audit AFTER INSERT OR UPDATE OR DELETE ON "public"\\."${t}"`));
     // Une écriture qui porte de l'argent exige un acteur au journal (pas de repli sur « systeme »).
     expect(migration).toMatch(/acteur obligatoire pour une écriture qui porte de l'+argent/);
+  });
+
+  it("[A-126] la cohérence des colonnes de instances est gardée par un déclencheur (version publiée de la même automatisation, préréglage et sa version)", () => {
+    expect(migration).toMatch(/CREATE TRIGGER instances_coherence BEFORE INSERT OR UPDATE ON "public"\."instances" FOR EACH ROW EXECUTE FUNCTION public\.instances_garde\(\)/);
+  });
+
+  it("[A-139] la composition d'un pack se fixe dans la transaction de sa création (cree_le = now()), pas après", () => {
+    expect(migration).toMatch(/p\.cree_le = now\(\)/);
+    expect(migration).not.toMatch(/interval '1 hour'/);
   });
 });

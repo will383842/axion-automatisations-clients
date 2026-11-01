@@ -16,6 +16,10 @@ export const etatATrancher = pgEnum("etat_a_trancher", ["ouvert", "tranche"]);
 export const porteeExclusion = pgEnum("portee_exclusion", ["client", "plateforme"]);
 export const motifExclusion = pgEnum("motif_exclusion", ["rebond", "plainte", "desabonnement", "demande_client"]);
 export const sourceExclusion = pgEnum("source_exclusion", ["retour_rebond", "rapport_plainte", "lien_desinscription", "saisie_equipe"]);
+export const typeCondition = pgEnum("type_condition", ["remise", "frais", "engagement", "garantie", "delai", "seuil_alerte", "periode"]);
+export const sourceCondition = pgEnum("source_condition", ["defaut", "client"]);
+export const gravite = pgEnum("gravite_alerte", ["information", "avertissement", "critique"]);
+export const etatAlerte = pgEnum("etat_alerte", ["ouverte", "acquittee", "close"]);
 
 const HEX64 = "^[0-9a-f]{64}$";
 
@@ -145,10 +149,63 @@ export const exclusionsPlateforme = pgTable(
     empreinteEmail: text("empreinte_email").primaryKey(),
     motif: motifExclusion("motif").notNull(),
     source: sourceExclusion("source").notNull(),
+    // Une adresse bloquée pour tous les clients : on sait toujours qui l'a ajoutée.
+    ajoutePar: text("ajoute_par").notNull(),
     creeLe: date("cree_le").notNull().defaultNow(),
   },
   (t) => [
+    check("exclusions_plateforme_auteur_non_vide", sql`length(btrim(${t.ajoutePar})) > 0`),
     check("exclusions_plateforme_empreinte_format", sql`${t.empreinteEmail} ~ '${sql.raw(HEX64)}'`),
     check("exclusions_plateforme_motif_commun", sql`${t.motif} IN ('rebond', 'plainte')`),
   ],
+);
+
+// Lignes sans client (ADR 0040) : valeurs globales d'AXION, lues par d'autres fiches. `tenant_id` reste OBLIGATOIRE ; les lignes globales
+// appartiennent à l'organisation réservée « plateforme » (PLATEFORME_ID). Lecture par console_app : client actif OU plateforme ; écriture par console_equipe seul.
+// Réglage global du délai de proposition de suppression (lu par T2-45) : ajout seul, la valeur en vigueur est la dernière ligne ; la première (24) est posée par la migration.
+export const reglageGlobalFinDeContrat = tableClient(
+  "reglage_global_fin_de_contrat",
+  {
+    id: uuid("id").notNull(),
+    delaiPropositionSuppressionMois: integer("delai_proposition_suppression_mois").notNull(),
+    auteur: text("auteur").notNull(),
+    changeLe: timestamp("change_le", { withTimezone: true }).notNull().defaultNow(),
+  },
+  // audit: false pour les trois tables : console_equipe, seul à y écrire, ne peut pas exécuter audit_ajouter (ADR 0050). L'auteur est dans la ligne.
+  { audit: false, contraintes: (t) => [check("reglage_global_delai_minimal", sql`${t["delaiPropositionSuppressionMois"]} >= 2`)] },
+);
+
+// Conditions par défaut d'AXION (lues par T2-04 et T2-08) : mêmes colonnes que conditions_commerciales de T2-04, source toujours `defaut`.
+export const conditionsParDefaut = tableClient(
+  "conditions_par_defaut",
+  {
+    id: uuid("id").notNull(),
+    type: typeCondition("type").notNull(),
+    valeur: jsonb("valeur").notNull(),
+    source: sourceCondition("source").notNull().default("defaut"),
+    valideDu: date("valide_du"),
+    valideAu: date("valide_au"),
+  },
+  {
+    audit: false,
+    contraintes: (t) => [
+      check("conditions_par_defaut_source_defaut", sql`${t["source"]} = 'defaut'`),
+      check("conditions_par_defaut_validite", sql`${t["valideDu"]} IS NULL OR ${t["valideAu"]} IS NULL OR ${t["valideAu"]} >= ${t["valideDu"]}`),
+    ],
+  },
+);
+
+// Alertes de la plateforme (lues par T2-06) : mêmes colonnes que alertes de T2-06, sans organisation.
+export const alertesPlateforme = tableClient(
+  "alertes_plateforme",
+  {
+    id: uuid("id").notNull(),
+    type: text("type").notNull(),
+    gravite: gravite("gravite").notNull(),
+    regle: text("regle").notNull(),
+    etat: etatAlerte("etat").notNull().default("ouverte"),
+    assigneeA: text("assignee_a"),
+    creeLe: timestamp("cree_le", { withTimezone: true }).notNull().defaultNow(),
+  },
+  { audit: false },
 );

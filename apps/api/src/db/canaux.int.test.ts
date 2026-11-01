@@ -221,7 +221,7 @@ describe("lignes de la plateforme, avec le socle", { timeout: 30_000 }, () => {
 
   it("[C-715] le réglage global refuse un délai inférieur à 2 mois, et sa première ligne vaut 24 sous la plateforme", async () => {
     await expect(parEquipe("reglage_global_fin_de_contrat", { tenant_id: PLATEFORME, delai_proposition_suppression_mois: 1, auteur: "agent-essai" })).rejects.toMatchObject({ code: "23514" });
-    const { rows } = await migration.query("SELECT delai_proposition_suppression_mois AS d FROM reglage_global_fin_de_contrat WHERE tenant_id = $1 ORDER BY change_le, id LIMIT 1", [PLATEFORME]).catch(async () => ({ rows: (await equipe.query("SELECT delai_proposition_suppression_mois AS d FROM reglage_global_fin_de_contrat WHERE tenant_id = $1 ORDER BY change_le, id LIMIT 1", [PLATEFORME])).rows }));
+    const { rows } = await equipe.query("SELECT delai_proposition_suppression_mois AS d FROM reglage_global_fin_de_contrat WHERE tenant_id = $1 ORDER BY change_le, id LIMIT 1", [PLATEFORME]);
     expect(rows[0]?.d).toBe(24);
     await expect(parEquipe("reglage_global_fin_de_contrat", { tenant_id: PLATEFORME, delai_proposition_suppression_mois: 36, auteur: "agent-essai" })).resolves.toMatchObject({ rowCount: 1 });
   });

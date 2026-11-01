@@ -1,5 +1,5 @@
 {
-  "id": "9ce03be8-a512-45cf-bdb1-d8ede197aa90",
+  "id": "0942ac9e-a4a6-4e63-b81e-779948a78548",
   "prevId": "fe711017-bbae-410a-856b-c5f0be34492a",
   "version": "7",
   "dialect": "postgresql",
@@ -2103,6 +2103,104 @@
       },
       "isRLSEnabled": false
     },
+    "public.alertes_plateforme": {
+      "name": "alertes_plateforme",
+      "schema": "",
+      "columns": {
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "type": {
+          "name": "type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "gravite": {
+          "name": "gravite",
+          "type": "gravite_alerte",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "regle": {
+          "name": "regle",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "etat": {
+          "name": "etat",
+          "type": "etat_alerte",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'ouverte'"
+        },
+        "assignee_a": {
+          "name": "assignee_a",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cree_le": {
+          "name": "cree_le",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "alertes_plateforme_tenant_id_idx": {
+          "name": "alertes_plateforme_tenant_id_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "alertes_plateforme_tenant_id_id_pk": {
+          "name": "alertes_plateforme_tenant_id_id_pk",
+          "columns": [
+            "tenant_id",
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "alertes_plateforme_tenant_id_id_unique": {
+          "name": "alertes_plateforme_tenant_id_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "tenant_id",
+            "id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.boite_envoi": {
       "name": "boite_envoi",
       "schema": "",
@@ -2260,6 +2358,106 @@
       },
       "isRLSEnabled": false
     },
+    "public.conditions_par_defaut": {
+      "name": "conditions_par_defaut",
+      "schema": "",
+      "columns": {
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "type": {
+          "name": "type",
+          "type": "type_condition",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "valeur": {
+          "name": "valeur",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source": {
+          "name": "source",
+          "type": "source_condition",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'defaut'"
+        },
+        "valide_du": {
+          "name": "valide_du",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "valide_au": {
+          "name": "valide_au",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "conditions_par_defaut_tenant_id_idx": {
+          "name": "conditions_par_defaut_tenant_id_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "conditions_par_defaut_tenant_id_id_pk": {
+          "name": "conditions_par_defaut_tenant_id_id_pk",
+          "columns": [
+            "tenant_id",
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "conditions_par_defaut_tenant_id_id_unique": {
+          "name": "conditions_par_defaut_tenant_id_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "tenant_id",
+            "id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "conditions_par_defaut_source_defaut": {
+          "name": "conditions_par_defaut_source_defaut",
+          "value": "\"conditions_par_defaut\".\"source\" = 'defaut'"
+        },
+        "conditions_par_defaut_validite": {
+          "name": "conditions_par_defaut_validite",
+          "value": "\"conditions_par_defaut\".\"valide_du\" IS NULL OR \"conditions_par_defaut\".\"valide_au\" IS NULL OR \"conditions_par_defaut\".\"valide_au\" >= \"conditions_par_defaut\".\"valide_du\""
+        }
+      },
+      "isRLSEnabled": false
+    },
     "public.exclusions": {
       "name": "exclusions",
       "schema": "",
@@ -2394,6 +2592,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "ajoute_par": {
+          "name": "ajoute_par",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
         "cree_le": {
           "name": "cree_le",
           "type": "date",
@@ -2408,6 +2612,10 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
+        "exclusions_plateforme_auteur_non_vide": {
+          "name": "exclusions_plateforme_auteur_non_vide",
+          "value": "length(btrim(\"exclusions_plateforme\".\"ajoute_par\")) > 0"
+        },
         "exclusions_plateforme_empreinte_format": {
           "name": "exclusions_plateforme_empreinte_format",
           "value": "\"exclusions_plateforme\".\"empreinte_email\" ~ '^[0-9a-f]{64}$'"
@@ -2654,6 +2862,88 @@
         }
       },
       "isRLSEnabled": false
+    },
+    "public.reglage_global_fin_de_contrat": {
+      "name": "reglage_global_fin_de_contrat",
+      "schema": "",
+      "columns": {
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "delai_proposition_suppression_mois": {
+          "name": "delai_proposition_suppression_mois",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "auteur": {
+          "name": "auteur",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "change_le": {
+          "name": "change_le",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "reglage_global_fin_de_contrat_tenant_id_idx": {
+          "name": "reglage_global_fin_de_contrat_tenant_id_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "reglage_global_fin_de_contrat_tenant_id_id_pk": {
+          "name": "reglage_global_fin_de_contrat_tenant_id_id_pk",
+          "columns": [
+            "tenant_id",
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "reglage_global_fin_de_contrat_tenant_id_id_unique": {
+          "name": "reglage_global_fin_de_contrat_tenant_id_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "tenant_id",
+            "id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "reglage_global_delai_minimal": {
+          "name": "reglage_global_delai_minimal",
+          "value": "\"reglage_global_fin_de_contrat\".\"delai_proposition_suppression_mois\" >= 2"
+        }
+      },
+      "isRLSEnabled": false
     }
   },
   "enums": {
@@ -2828,6 +3118,15 @@
         "tranche"
       ]
     },
+    "public.etat_alerte": {
+      "name": "etat_alerte",
+      "schema": "public",
+      "values": [
+        "ouverte",
+        "acquittee",
+        "close"
+      ]
+    },
     "public.etat_envoi": {
       "name": "etat_envoi",
       "schema": "public",
@@ -2844,6 +3143,15 @@
       "values": [
         "actif",
         "absorbe"
+      ]
+    },
+    "public.gravite_alerte": {
+      "name": "gravite_alerte",
+      "schema": "public",
+      "values": [
+        "information",
+        "avertissement",
+        "critique"
       ]
     },
     "public.methode_envoi": {
@@ -2903,6 +3211,14 @@
         "crm"
       ]
     },
+    "public.source_condition": {
+      "name": "source_condition",
+      "schema": "public",
+      "values": [
+        "defaut",
+        "client"
+      ]
+    },
     "public.source_exclusion": {
       "name": "source_exclusion",
       "schema": "public",
@@ -2911,6 +3227,19 @@
         "rapport_plainte",
         "lien_desinscription",
         "saisie_equipe"
+      ]
+    },
+    "public.type_condition": {
+      "name": "type_condition",
+      "schema": "public",
+      "values": [
+        "remise",
+        "frais",
+        "engagement",
+        "garantie",
+        "delai",
+        "seuil_alerte",
+        "periode"
       ]
     }
   },

@@ -237,9 +237,9 @@ describe("catalogue commun, avec le socle", { timeout: 60_000 }, () => {
 
   it("[C-676] une instance garde préréglage et version de départ et source de copie ; console_app ne les lit pas, console_equipe oui", async () => {
     const A = randomUUID();
-    const source = randomUUID();
     const a = await creerAutomatisation();
     const org = A;
+    const source = randomUUID();
     await avecClient(app, A, async (c) => {
       await c.query("INSERT INTO organisations (tenant_id, id, console_client_id, raison_sociale) VALUES ($1, $1, $1, 'Lemoine Rénovation')", [A]);
       await c.query("INSERT INTO instances (tenant_id, id, organisation_id, code_automatisation, formule, environnement, automatisation_id, instance_source_copie, copie_le, copie_par) VALUES ($1, $2, $3, 'X', 'abonnement', 'production', $4, $5, now(), $6)", [A, randomUUID(), org, a["id"], source, ACTEUR_COPIE]);
@@ -487,5 +487,28 @@ describe("catalogue commun, avec le socle", { timeout: 60_000 }, () => {
     await expect(inserer({ automatisation_id: a["id"], prereglage_depart_id: prereglageRetire, version_prereglage_depart: 3 }), "préréglage retiré").rejects.toThrow(refus);
     await expect(inserer({ automatisation_id: b["id"], prereglage_depart_id: prereglagePublie, version_prereglage_depart: 1 }), "préréglage d'une autre automatisation").rejects.toThrow(refus);
     await expect(inserer({ automatisation_id: a["id"], version_courante_id: publiee["id"], prereglage_depart_id: prereglagePublie, version_prereglage_depart: 1 })).resolves.toBeDefined();
+  });
+
+  it("[A-126] un préréglage retiré ne peut pas servir de départ à une nouvelle instance", async () => {
+    const T = randomUUID();
+    const a = await creerAutomatisation();
+    const metier = (await lire("SELECT id FROM metiers LIMIT 1")).rows[0]?.id;
+    const p = (await sql("INSERT INTO prereglages_metier (automatisation_id, metier_id, donnees, version, auteur, justification) VALUES ($1, $2, '{}', 1, 'agent-essai', 'essai') RETURNING id", [a["id"], metier])).rows[0];
+    await sql("UPDATE prereglages_metier SET statut = 'publie' WHERE id = $1", [p?.id]);
+    await sql("UPDATE prereglages_metier SET statut = 'retire' WHERE id = $1", [p?.id]);
+    await avecClient(app, T, (c) => c.query("INSERT INTO organisations (tenant_id, id, console_client_id, raison_sociale) VALUES ($1, $1, $1, 'Atelier Bertin')", [T]), { acteur: ACTEUR });
+    await expect(avecClient(app, T, (c) => c.query("INSERT INTO instances (tenant_id, id, organisation_id, code_automatisation, formule, environnement, automatisation_id, prereglage_depart_id, version_prereglage_depart) VALUES ($1, $2, $1, 'X', 'abonnement', 'production', $3, $4, 1)", [T, randomUUID(), a["id"], p?.id]), { acteur: ACTEUR })).rejects.toThrow(/publié/i);
+  });
+
+  it("[A-139] le journal de l'équipe garde l'identifiant d'une ligne de liaison sans colonne id : automatisation/pack pour packs_automatisations", async () => {
+    const a = await creerAutomatisation();
+    const metier = (await lire("SELECT id FROM metiers LIMIT 1")).rows[0]?.id;
+    const pack = await ecrireEquipe(async (c) => {
+      const p = (await c.query("INSERT INTO packs (nom, metier_id, prix_centimes, auteur) VALUES ($1, $2, 99, 'agent-essai') RETURNING id", [`Pack journal ${sufixe()}`, metier])).rows[0];
+      await c.query("INSERT INTO packs_automatisations (pack_id, automatisation_id) VALUES ($1, $2)", [p?.id, a["id"]]);
+      return p?.id as string;
+    });
+    const { rows } = await equipe.query("SELECT entite_id FROM journal_audit WHERE entite = 'packs_automatisations' AND entite_id = $1", [`${String(a["id"])}/${pack}`]);
+    expect(rows).toEqual([{ entite_id: `${String(a["id"])}/${pack}` }]);
   });
 });

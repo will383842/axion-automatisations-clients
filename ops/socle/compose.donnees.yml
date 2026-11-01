@@ -1,0 +1,51 @@
+# Grappe PostgreSQL « données » (T2-31, ADR 0046) : les bases cli_<id> des clients, distincte de la grappe commune (ADR 0013), avec son PgBouncer.
+# Même image que le socle, volume à elle, réseau interne seulement, aucun port publié. Ni console, ni moteur, ni keycloak, ni passerelle_ia ici.
+# Le dossier ./donnees est monté tel quel : à l'initialisation PostgreSQL y exécute les scripts SQL (creer-base ne fait rien sans « id »), PgBouncer y lit sa configuration.
+# Un seul secret de test (SOCLE_PG_MOT_DE_PASSE) : chaque rôle a son mot de passe, SHA-256 de « secret/rôle ». PgBouncer n'ouvre que pgbouncer_auth, les clients passent par auth_query.
+services:
+  donnees:
+    image: ghcr.io/will383842/axion-automatisations-clients/postgres-socle:16-r41@sha256:c5fd480db4b8537bfaf082b5b73cd6e288994309b4ac0bf8cc58694f6757e2ce
+    restart: "no"
+    environment:
+      SOCLE_PG_MOT_DE_PASSE: ${SOCLE_PG_MOT_DE_PASSE:?mot de passe de test absent}
+      K: printf %s/donnees-postgres $$SOCLE_PG_MOT_DE_PASSE|sha256sum|cut -c1-64
+      G: export POSTGRES_PASSWORD=$$(eval "$$K")
+      X: sh
+      # P : 250 connexions serveur pour les clients = 263 - 3 (superutilisateur) - 10 (réservées au provisionneur)
+      P: -c max_connections=263 -c superuser_reserved_connections=3 -c reserved_connections=10
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    entrypoint: ['sh', '-c', 'eval "$$G"; exec docker-entrypoint.$$X postgres $$P']
+    volumes:
+      - donnees-pgdata:/var/lib/postgresql/data
+      - ./donnees:/docker-entrypoint-initdb.d:ro
+    networks: [interne]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d postgres"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+  pgbouncer-donnees:
+    image: edoburu/pgbouncer:v1.26.1-p0@sha256:488422e38cff912895d0d65d8963fcd306e6ac589a724398b6eb8e294e94d624
+    restart: "no"
+    depends_on:
+      donnees:
+        condition: service_healthy
+    # Variables courtes (« docker compose config » replie les lignes de plus de 80 colonnes). R : seul rôle du fichier · L : format d'une ligne · M : secret de test · K : mot de passe d'un rôle · G : génération de la liste · B : configuration
+    environment:
+      R: pgbouncer_auth
+      L: '\042%s\042 \042%s\042\n'
+      M: ${SOCLE_PG_MOT_DE_PASSE:?mot de passe de test absent}
+      K: printf %s/%s $$M $$u|sha256sum|cut -c1-64
+      G: 'for u in $$R; do printf "$$L" $$u $$(eval "$$K"); done >/tmp/u.txt'
+      B: /etc/pgbouncer/conf/pgbouncer
+    entrypoint: ['sh', '-c', 'eval "$$G"; exec pgbouncer $${B}.ini']
+    volumes:
+      - ./donnees:/etc/pgbouncer/conf:ro
+    networks: [interne]
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 6432"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+volumes:
+  donnees-pgdata: {}

@@ -47,11 +47,11 @@ const role = (id: string, nom: "proprietaire" | "app" | "lecture") => `cli_${id}
 // Recette de création : connexion directe du provisionneur (socket du conteneur), jamais PgBouncer.
 const creer = (id: string, extra: string[] = []) => {
   const env = ["CLI_MDP_APP", "CLI_MDP_LECTURE"].flatMap((v) => ["-e", `${v}=${mdpDe(role(id, v === "CLI_MDP_APP" ? "app" : "lecture"))}`]);
-  const r = executer("docker", ["exec", "-i", ...env, conteneur("donnees"), "psql", "-U", "provisionneur", "-d", "postgres", "-X", "-q", "-v", `id=${id}`, ...extra, "-f", "/opt/donnees/creer-base.sql"]);
+  const r = executer("docker", ["exec", "-i", ...env, conteneur("donnees"), "psql", "-U", "provisionneur", "-d", "postgres", "-X", "-q", "-v", `id=${id}`, ...extra, "-f", "/docker-entrypoint-initdb.d/creer-base.sql"]);
   if (r.status !== 0) throw new Error(`creer-base ${id} : ${r.stderr}`);
 };
 const creerPlusieurs = (ids: string[]) => {
-  const script = `for id in ${ids.join(" ")}; do psql -U provisionneur -d postgres -X -q -v id=$id -f /opt/donnees/creer-base.sql || exit 1; done`;
+  const script = `for id in ${ids.join(" ")}; do psql -U provisionneur -d postgres -X -q -v id=$id -f /docker-entrypoint-initdb.d/creer-base.sql || exit 1; done`;
   const env = ["CLI_MDP_APP=TEST-NE-PAS-UTILISER-charge-app", "CLI_MDP_LECTURE=TEST-NE-PAS-UTILISER-charge-lecture"].flatMap((v) => ["-e", v]);
   const r = executer("docker", ["exec", ...env, conteneur("donnees"), "sh", "-c", script]);
   if (r.status !== 0) throw new Error(`creation en série : ${r.stderr}`);
@@ -203,7 +203,8 @@ describe("PgBouncer de la grappe données (A-234, A-235, A-236, A-210)", () => {
     expect(ini()).toMatch(/^default_pool_size\s*=\s*2$/m);
     expect(ini()).toMatch(new RegExp(`^cli_${P4}\\s*=.*pool_size=4`, "m"));
     expect(ini()).toMatch(new RegExp(`^cli_${P8}\\s*=.*pool_size=8`, "m"));
-    expect(ini()).not.toMatch(/auth_file.*\.(txt|list)$/m);
+    expect(ini()).toMatch(/^auth_query\s*=.*pgbouncer\.chercher_utilisateur/m);
+    expect(existsSync(racine("ops/socle/donnees/userlist.txt"))).toBe(false);
     const h = adresse("pgbouncer-donnees");
     for (const [id, attendu] of [[A, 2], [P4, 4], [P8, 8]] as const) {
       const clients = Array.from({ length: attendu + 1 }, () => clientPg(h, 6432, role(id, "app"), `cli_${id}`, mdpDe(role(id, "app"))));
@@ -298,9 +299,11 @@ describe("limites par base (A-417)", () => {
     const h = adresse("donnees");
     const limite = Number(superu("postgres", `select rolconnlimit from pg_roles where rolname='${role(A, "app")}'`).sortie);
     expect(limite).toBeGreaterThan(0);
+    // Les connexions que PgBouncer garde encore ouvertes pour ce rôle comptent dans sa limite.
+    const deja = Number(superu("postgres", `select count(*) from pg_stat_activity where usename='${role(A, "app")}'`).sortie);
     const clients = Array.from({ length: limite + 1 }, () => clientPg(h, 5432, role(A, "app"), `cli_${A}`, mdpDe(role(A, "app"))));
     const issues = await Promise.all(clients.map((c) => c.connect().then(() => "ouverte", (e: Error) => e.message)));
-    expect(issues.filter((x) => x === "ouverte")).toHaveLength(limite);
+    expect(issues.filter((x) => x === "ouverte")).toHaveLength(limite - deja);
     expect(issues.find((x) => x !== "ouverte")).toMatch(/too many connections for role/);
     await Promise.allSettled(clients.map((c) => c.end()));
   }, 90_000);

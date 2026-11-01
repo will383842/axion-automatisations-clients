@@ -22,8 +22,8 @@ describe("journal d'audit en base (port)", () => {
   it("[A-131] avec un client, écrit par audit_ajouter dans la transaction du client actif, motif et montant dans nouvelle", async () => {
     const { pool, appels } = fauxPool();
     await creerJournalAuditBase(pool).ecrire({ action: "blocage_cle", tenantId: CLIENT_A, parQui: "systeme", motif: "plafond atteint", montantConsommeMicroCentimes: 1234 });
-    expect(appels.map((a) => a[0])).toEqual(["BEGIN", "SELECT set_config('app.tenant_id', $1, true)", expect.stringContaining("public.audit_ajouter"), "COMMIT"]);
-    expect(appels[2]?.[1]).toEqual([CLIENT_A, "systeme", "blocage_cle", "cle_api", JSON.stringify({ motif: "plafond atteint", montant_consomme_micro_centimes: 1234 })]);
+    expect(appels.map((a) => a[0])).toEqual(["BEGIN", expect.stringContaining("lock_timeout"), "SELECT set_config('app.tenant_id', $1, true)", expect.stringContaining("public.audit_ajouter"), "COMMIT"]);
+    expect(appels[3]?.[1]).toEqual([CLIENT_A, "systeme", "blocage_cle", "cle_api", JSON.stringify({ motif: "plafond atteint", montant_consomme_micro_centimes: 1234 })]);
   });
 
   it("[A-131] sans client (action de l'équipe), écrit dans une transaction sans client actif et sans montant", async () => {

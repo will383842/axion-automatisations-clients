@@ -2,6 +2,7 @@ import { z } from "zod";
 import { Connecteur } from "./connecteurs.ts";
 import { Declencheur } from "./declencheurs.ts";
 import { Etape } from "./etapes.ts";
+import { Donnees, Fonction as FonctionUsage, GardeIa, MODES_IA_PAR_DEFAUT, ModeIa, Permission } from "../../contrats/src/c4/donnees.ts";
 import { Ia } from "./ia.ts";
 
 // Un module = code commun versionné + réglages par client. Le manifeste est strict (aucune clé
@@ -19,6 +20,10 @@ const Table = z
   .strict();
 const Fonction = <T extends (...a: never[]) => unknown>() => z.custom<T>((v) => typeof v === "function");
 const Reglages = z.custom<z.ZodObject>((v) => v instanceof z.ZodObject && "actionsAutomatiquesAutorisees" in v.shape, "actionsAutomatiquesAutorisees obligatoire dans reglages");
+
+// 0.4.0 (additif) : modes absent = via_axion ; garde absente = bornes de la plateforme ; utilise est déclaré par le module, jamais déduit.
+const Ia04 = Ia.extend({ modes: z.array(ModeIa).min(1).default([...MODES_IA_PAR_DEFAUT]), garde: GardeIa.optional(), utilise: z.boolean().optional() });
+const doublon = (noms: string[]) => noms.find((n, i) => noms.indexOf(n) !== i);
 
 const ManifesteSchema = z
   .object({
@@ -39,7 +44,7 @@ const ManifesteSchema = z
       const double = actions.find((a, i) => actions.indexOf(a) !== i);
       if (double) ctx.addIssue({ code: "custom", message: `action déclarée par deux connecteurs : ${double}` });
     }),
-    ia: Ia,
+    ia: Ia04,
     jeuEssai: z
       .array(Cas)
       .min(20, "jeuEssai : 20 cas au moins")
@@ -48,8 +53,30 @@ const ManifesteSchema = z
     minutesGagneesParElement: z.number().int().nonnegative(),
     ecrans: z.array(Ecran),
     tables: z.array(Table),
+    donnees: Donnees.optional(),
+    permissions: z.array(Permission).max(50).optional(),
+    fonctions: z.array(FonctionUsage).max(50).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((m, ctx) => {
+    const erreur = (path: (string | number)[], message: string) => ctx.addIssue({ code: "custom", path, message });
+    const requetes = m.donnees?.requetes ?? [];
+    const actions = m.donnees?.actions ?? [];
+    const permissions = (m.permissions ?? []).map((p) => p.nom);
+    const nomsDonnees = [...requetes, ...actions].map((d) => d.nom);
+    if (doublon(nomsDonnees)) erreur(["donnees"], `deux requêtes ou actions portent le même nom : ${doublon(nomsDonnees)}`);
+    if (doublon(permissions)) erreur(["permissions"], `deux permissions portent le même nom : ${doublon(permissions)}`);
+    if (doublon((m.fonctions ?? []).map((f) => f.nom))) erreur(["fonctions"], "deux fonctions portent le même nom");
+    [...requetes, ...actions].forEach((d, i) => {
+      if (d.permission && !permissions.includes(d.permission)) erreur(["donnees", i < requetes.length ? "requetes" : "actions", i < requetes.length ? i : i - requetes.length, "permission"], `permission non déclarée : ${d.permission}`);
+    });
+    m.ecrans.forEach((e, i) => {
+      const { source, action } = e.proprietes as { source?: unknown; action?: unknown };
+      if (source !== undefined && !requetes.some((r) => r.nom === source)) erreur(["ecrans", i, "proprietes", "source"], "source non déclarée dans donnees.requetes");
+      // Une action de Bouton sans `donnees` reste valide (0.3.0) ; dès que le module déclare des données, elle doit y figurer.
+      if (action !== undefined && m.donnees && !actions.some((a) => a.nom === action)) erreur(["ecrans", i, "proprietes", "action"], "action non déclarée dans donnees.actions");
+    });
+  });
 
 export type Manifeste = z.input<typeof ManifesteSchema>;
 

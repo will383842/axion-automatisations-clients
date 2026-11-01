@@ -21,14 +21,16 @@ function fauxPool(echecSur?: string) {
   return { pool, client, appels };
 }
 const textes = (appels: Appel[]) => appels.map((a) => a[0]);
+// Délais posés dès le BEGIN, pour toute transaction (ADR 0044, réserve R1 de l'ADR 0042) : portée de la transaction, jamais de la session.
+const DELAIS = "SELECT set_config('idle_in_transaction_session_timeout', '5s', true), set_config('lock_timeout', '5s', true)";
 
 describe("avecClient", () => {
   it("[A-164] ouvre une transaction, fixe le client actif avec la portée de la transaction, valide puis rend la connexion", async () => {
     const { pool, client, appels } = fauxPool();
     const resultat = await avecClient(pool, CLIENT_A, async () => "fait");
     expect(resultat).toBe("fait");
-    expect(textes(appels)).toEqual(["BEGIN", "SELECT set_config('app.tenant_id', $1, true)", "COMMIT"]);
-    expect(appels[1]?.[1]).toEqual([CLIENT_A]);
+    expect(textes(appels)).toEqual(["BEGIN", DELAIS, "SELECT set_config('app.tenant_id', $1, true)", "COMMIT"]);
+    expect(appels[2]?.[1]).toEqual([CLIENT_A]);
     expect(client.release).toHaveBeenCalledOnce();
     expect(client.release).toHaveBeenCalledWith();
   });
@@ -44,7 +46,7 @@ describe("avecClient", () => {
   it("[A-164] @isolation annule la transaction et rend la connexion quand la fonction échoue", async () => {
     const { pool, client, appels } = fauxPool();
     await expect(avecClient(pool, CLIENT_A, async () => { throw new Error("boum"); })).rejects.toThrow("boum");
-    expect(textes(appels)).toEqual(["BEGIN", "SELECT set_config('app.tenant_id', $1, true)", "ROLLBACK"]);
+    expect(textes(appels)).toEqual(["BEGIN", DELAIS, "SELECT set_config('app.tenant_id', $1, true)", "ROLLBACK"]);
     expect(client.release).toHaveBeenCalledWith();
   });
 
@@ -60,6 +62,13 @@ describe("avecClient", () => {
     expect(client.release).toHaveBeenCalledWith(true);
   });
 
+  it("[A-131] @isolation pose idle_in_transaction_session_timeout et lock_timeout à 5 s dès le BEGIN, avec la portée de la transaction", async () => {
+    const { pool, appels } = fauxPool();
+    await avecClient(pool, CLIENT_A, async () => 1);
+    expect(textes(appels).slice(0, 2)).toEqual(["BEGIN", DELAIS]);
+    expect(DELAIS.match(/, true\)/g)).toHaveLength(2);
+  });
+
   it("[A-164] @isolation ne fixe jamais le client actif pour la session (interdit derrière PgBouncer en mode transaction)", async () => {
     const { pool, appels } = fauxPool();
     await avecClient(pool, CLIENT_A, async (c) => { await c.query("SELECT 1"); });
@@ -73,17 +82,17 @@ describe("avecClient, acteur et adresse", () => {
   it("[A-178] fixe acteur et IP avec la portée de la transaction, dans la même transaction que le client actif", async () => {
     const { pool, appels } = fauxPool();
     await avecClient(pool, CLIENT_A, async () => 1, { acteur: "agent-test", ip: "192.0.2.17" });
-    expect(textes(appels)).toEqual(["BEGIN", "SELECT set_config('app.tenant_id', $1, true)", "SELECT set_config('app.acteur', $1, true), set_config('app.ip', $2, true)", "COMMIT"]);
-    expect(appels[2]?.[1]).toEqual(["agent-test", "192.0.2.17"]);
+    expect(textes(appels)).toEqual(["BEGIN", DELAIS, "SELECT set_config('app.tenant_id', $1, true)", "SELECT set_config('app.acteur', $1, true), set_config('app.ip', $2, true)", "COMMIT"]);
+    expect(appels[3]?.[1]).toEqual(["agent-test", "192.0.2.17"]);
   });
 
   it("[A-178] sans IP, l'IP fixée est vide ; une adresse IPv6 est acceptée", async () => {
     const sans = fauxPool();
     await avecClient(sans.pool, CLIENT_A, async () => 1, { acteur: "agent-test" });
-    expect(sans.appels[2]?.[1]).toEqual(["agent-test", ""]);
+    expect(sans.appels[3]?.[1]).toEqual(["agent-test", ""]);
     const v6 = fauxPool();
     await avecClient(v6.pool, CLIENT_A, async () => 1, { acteur: "agent-test", ip: "2001:db8::17" });
-    expect(v6.appels[2]?.[1]).toEqual(["agent-test", "2001:db8::17"]);
+    expect(v6.appels[3]?.[1]).toEqual(["agent-test", "2001:db8::17"]);
   });
 
   it("[A-178] avecClient refuse une IP mal formée et un acteur vide, sans prendre de connexion", async () => {
@@ -99,6 +108,9 @@ describe("avecClient, acteur et adresse", () => {
       { acteur: "agent\u2066forge", ip: "192.0.2.17" },
       { acteur: "agent\uFEFFforge", ip: "192.0.2.17" },
       { acteur: "agent\u061Cforge", ip: "192.0.2.17" },
+      { acteur: "agent\u180Eforge", ip: "192.0.2.17" },
+      { acteur: "agent\u00ADforge", ip: "192.0.2.17" },
+      { acteur: "agent\u3164forge", ip: "192.0.2.17" },
       { acteur: "\u00A0\u2003", ip: "192.0.2.17" },
       { acteur: "agent-test", ip: "300.1.1.1" },
       { acteur: "agent-test", ip: "192.0.2.17'; --" },
@@ -123,14 +135,14 @@ describe("avecEquipe", () => {
   it("[A-164] lit en transaction en lecture seule, sans client actif", async () => {
     const { pool, client, appels } = fauxPool();
     await avecEquipe(pool, async () => "lu");
-    expect(textes(appels)).toEqual(["BEGIN READ ONLY", "COMMIT"]);
+    expect(textes(appels)).toEqual(["BEGIN READ ONLY", DELAIS, "COMMIT"]);
     expect(client.release).toHaveBeenCalledWith();
   });
 
   it("[A-164] annule et rend la connexion quand la lecture échoue", async () => {
     const { pool, client, appels } = fauxPool();
     await expect(avecEquipe(pool, async () => { throw new Error("boum"); })).rejects.toThrow("boum");
-    expect(textes(appels)).toEqual(["BEGIN READ ONLY", "ROLLBACK"]);
+    expect(textes(appels)).toEqual(["BEGIN READ ONLY", DELAIS, "ROLLBACK"]);
     expect(client.release).toHaveBeenCalledWith();
   });
 });

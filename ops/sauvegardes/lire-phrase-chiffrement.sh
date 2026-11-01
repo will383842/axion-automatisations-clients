@@ -4,6 +4,8 @@
 #   Sinon : lue dans OpenBao, chemin technique/sauvegardes, champ « phrase ».
 #     BAO_ADDR            adresse sous la même forme que ops/socle/litellm/demarrer.sh : http://hote:port (le HTTPS n'est pas pris en charge ici)
 #     BAO_JETON_FICHIER   fichier qui contient le jeton (jamais le jeton lui-même dans l'environnement)
+#     BAO_DELAI           délai maximal, en secondes, de la connexion et de la lecture (défaut 10) : un OpenBao muet fait échouer le script
+#                         (code 1, message net) au lieu de bloquer le démarrage.
 # Une phrase de moins de 32 caractères est refusée : la production exige au moins 32 octets aléatoires (voir README).
 set -euo pipefail
 
@@ -22,6 +24,18 @@ else
   hote="${hote_port%%:*}"
   port="${hote_port##*:}"
   [ -n "$hote" ] && [ "$port" != "$hote_port" ] && [ -n "$port" ] || { echo "BAO_ADDR doit contenir un port : http://hote:port" >&2; exit 1; }
+  # Tout le dialogue avec OpenBao tourne sous « timeout » : le script se relance lui-même une fois, sous délai.
+  delai="${BAO_DELAI:-10}"
+  case "$delai" in "" | *[!0-9]* | 0) delai=10 ;; esac
+  if [ -z "${LIRE_PHRASE_SOUS_DELAI:-}" ]; then
+    code=0
+    LIRE_PHRASE_SOUS_DELAI=1 timeout "$delai" "${BASH_SOURCE[0]}" || code=$?
+    if [ "$code" -eq 124 ] || [ "$code" -eq 137 ]; then
+      echo "OpenBao n'a pas répondu en ${delai} s" >&2
+      exit 1
+    fi
+    exit "$code"
+  fi
   jeton="$(cat "$BAO_JETON_FICHIER")"
   # HTTP minimal par /dev/tcp : l'image ne contient ni curl ni wget.
   exec 3<>"/dev/tcp/${hote}/${port}"

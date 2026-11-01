@@ -1,0 +1,15 @@
+/* Inconsolata auto-hébergée (licence OFL, voir inconsolata-LICENSE-OFL.txt) : aucun CDN. */
+@font-face {
+  font-family: "Inconsolata";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url("./inconsolata-latin-400-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Inconsolata";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 700;
+  src: url("./inconsolata-latin-700-normal.woff2") format("woff2");
+}

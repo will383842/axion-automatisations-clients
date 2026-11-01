@@ -21,6 +21,18 @@
     ] } },
     { "nom": "coût IA flottant", "valide": false, "corps": { "evenements": [
       { "type": "fin", "instanceId": "inst-0001", "executionId": "exec-0001", "dureeMs": 1, "elements": 1, "minutesGagnees": 1, "jetons": 1, "coutIaMicroCentimes": 0.5 }
+    ] } },
+    { "nom": "0.4.0 : debut, etape, fin avec corrélation et mode d'IA, action d'écran", "valide": true, "corps": { "evenements": [
+      { "type": "debut", "instanceId": "inst-0001", "executionId": "exec-0001", "a": "2026-10-24T10:00:00Z", "correlation": "3b241101-e2bb-4255-8caf-4136c566a962" },
+      { "type": "etape", "instanceId": "inst-0001", "executionId": "exec-0001", "etape": "accuser", "correlation": "3b241101-e2bb-4255-8caf-4136c566a962" },
+      { "type": "fin", "instanceId": "inst-0001", "executionId": "exec-0001", "dureeMs": 1200, "elements": 3, "minutesGagnees": 15, "jetons": 800, "coutIaMicroCentimes": 4200, "correlation": "3b241101-e2bb-4255-8caf-4136c566a962", "ia": { "mode": "via_axion", "appels": 2, "jetonsEntree": 600, "jetonsSortie": 200 } },
+      { "type": "action_ecran", "instanceId": "inst-0001", "action": "changer-statut", "correlation": "3b241101-e2bb-4255-8caf-4136c566a962", "a": "2026-10-24T10:00:05Z" }
+    ] } },
+    { "nom": "0.4.0 : corrélation qui n'est pas un UUID v4", "valide": false, "corps": { "evenements": [
+      { "type": "debut", "instanceId": "inst-0001", "executionId": "exec-0001", "a": "2026-10-24T10:00:00Z", "correlation": "exec-0001" }
+    ] } },
+    { "nom": "0.4.0 : etape sans corrélation", "valide": false, "corps": { "evenements": [
+      { "type": "etape", "instanceId": "inst-0001", "executionId": "exec-0001", "etape": "accuser" }
     ] } }
   ]
 }

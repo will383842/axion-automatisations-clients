@@ -33,6 +33,8 @@ export default defineConfig({
       { test: { name: "tests/e2e", root: "./tests/e2e", retry, exclude: excludeDefaut } },
       // Bouchons du Hub et du CRM (T2-13) ; leurs suites .int.test.ts passent par le projet integration.
       { test: { name: "tests/bouchons", root: "./tests/bouchons", retry, exclude: excludeDefaut } },
+      // Tests de la documentation et des consignes (CLAUDE.md), par exemple [A-023].
+      { test: { name: "tests/docs", root: "./tests/docs", retry, exclude: excludeDefaut } },
       { test: { name: "tests/comportement", root: "./tests/comportement", retry, exclude: excludeDefaut, passWithNoTests: true } },
       // Vide sans SOCLE_INTEGRATION=1, pour que « vitest run » ne lance jamais ces tests faute de services.
       { test: { name: "integration", root: ".", retry, exclude, include: integration ? ["**/*.int.test.ts"] : [] } },

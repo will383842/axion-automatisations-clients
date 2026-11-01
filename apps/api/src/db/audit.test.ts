@@ -34,3 +34,24 @@ describe("migration du journal d'audit", () => {
     }
   });
 });
+
+// Réserves de l'audit de la PR 95 (T2-01b) : la preuve contre PostgreSQL est dans clients.int.test.ts.
+const reserves = () => readFileSync(new URL("../../drizzle/0003_journal_audit_reserves_t201b.sql", import.meta.url), "utf8");
+
+describe("migration 0003 du journal d'audit (réserves de la PR 95)", () => {
+  it("[A-131] contrôle d'abord les adresses IP avec masque et refuse la migration s'il en reste (ADR 0042, R2)", () => {
+    const premiere = reserves().split("--> statement-breakpoint")[0] ?? "";
+    expect(premiere).toContain("masklen(ip)");
+    expect(premiere).toContain("adresse IP avec masque");
+  });
+
+  it("[A-131] la classe de caractères refusés compte U+180E, U+00AD et U+3164 (acteur et identifiant d'entité)", () => {
+    for (const code of ["180E", "00AD", "3164"]) expect(reserves().match(new RegExp(`\\\\u${code}`, "gi"))?.length, code).toBeGreaterThanOrEqual(2);
+  });
+
+  it("[A-131] audit_ecrire borne ce qu'il copie sans faire échouer l'écriture métier ; il reste sans SECURITY DEFINER", () => {
+    const f = (reserves().split("--> statement-breakpoint").find((i) => i.includes("FUNCTION public.audit_ecrire(")) ?? "");
+    expect(f).toContain("262144");
+    expect(f.split("AS $fonction$")[0]).not.toContain("SECURITY DEFINER");
+  });
+});

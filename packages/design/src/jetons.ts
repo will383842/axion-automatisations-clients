@@ -7,7 +7,7 @@ export const jetons = {
     fond: { portail: "#f6efe6", console: "#f3ece2", carte: "#ffffff" },
     bordure: { carte: "#ead9c6", secondaire: "#857a69", champ: "#7a6f5f" },
     separateur: "#e3d9c6",
-    texte: { principal: "#14120f", secondaire: "#3a332b" },
+    texte: { principal: "#14120f", secondaire: "#3a332b", discret: "#5e5548" },
     action: "#c24a1b",
     actionTexte: "#9e3a12",
     lien: "#a83e15",
@@ -43,12 +43,14 @@ export const jetons = {
   ombre: {
     carte: "0 2px 4px rgba(122,44,13,0.06), 0 12px 32px rgba(122,44,13,0.08)",
     action: "0 6px 16px rgba(194,74,27,0.28)",
+    menu: "0 1px 3px rgba(40,12,2,0.35)",
   },
   police: {
     titre: '"Fraunces", Georgia, serif',
     texte: '"Manrope", system-ui, sans-serif',
+    code: '"Inconsolata", ui-monospace, monospace',
   },
-  taille: { texte: "15px", precision: "13px", soustitre: "18px", titreCarte: "24px", titrePage: "40px", titreMobile: "30px" },
+  taille: { texte: "15px", texteMobile: "16px", precision: "13px", soustitre: "18px", titreCarte: "24px", titrePage: "40px", titreMobile: "30px" },
 } as const;
 
 type Arbre = { readonly [cle: string]: string | Arbre };
@@ -147,6 +149,15 @@ export function estBleu(couleur: string): boolean {
   const s = d / (1 - Math.abs(2 * l - 1));
   const h = max === r ? 60 * (((g - b) / d + 6) % 6) : max === g ? 60 * ((b - r) / d + 2) : 60 * ((r - g) / d + 4);
   return h >= 190 && h <= 260 && s > 0.15;
+}
+
+/** Teinte (HSL, en degrés) d'une couleur ; 0 pour un gris. */
+export function teinte(couleur: string): number {
+  const [r, g, b] = rvb(couleur).map((x) => x / 255) as [number, number, number];
+  const max = Math.max(r, g, b);
+  const d = max - Math.min(r, g, b);
+  if (d === 0) return 0;
+  return max === r ? 60 * (((g - b) / d + 6) % 6) : max === g ? 60 * ((b - r) / d + 2) : 60 * ((r - g) / d + 4);
 }
 
 function luminance(couleur: string): number {

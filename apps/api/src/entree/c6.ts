@@ -1,4 +1,5 @@
 import { CONSERVATION_JTI_SECONDES } from "../../../../packages/contrats/src/c6/jeton.js";
+import { LIMITES_DEBIT } from "../../../../packages/contrats/src/commun/debit.js";
 import { verifierJeton } from "../../../../packages/contrats/src/c6/verifier.js";
 import type { Alertes } from "../alertes/port.js";
 import type { CleEchange, Sens } from "../coffre/cles-echanges.js";
@@ -10,7 +11,6 @@ import type { CleEchange, Sens } from "../coffre/cles-echanges.js";
 export interface Memoire {
   set(cle: string, valeur: string, ex: "EX", secondes: number, nx: "NX"): Promise<"OK" | null>;
   incr(cle: string): Promise<number>;
-  expire(cle: string, secondes: number): Promise<number>;
 }
 export interface DepsEntree {
   cles: { clesAcceptees(canal: string, sens: Sens): Promise<CleEchange[]> };
@@ -24,12 +24,13 @@ export interface DepsEntree {
   plancherMs?: number;
   attendre?: (ms: number) => Promise<void>;
 }
-export type Resultat = { statut: 200; url: string } | { statut: 429 };
+export type Resultat = { statut: 200; url: string } | { statut: 429; retryAfter: number };
 // Le détail d'un refus : un code seulement, jamais le jeton, l'e-mail ni l'adresse.
 export type Noter = (code: "limite" | "jeton_invalide" | "rejeu" | "memoire_indisponible" | "cles_indisponibles" | "requete_refusee" | "forme") => void;
 
-export const ESSAIS_PAR_MINUTE = 10;
-export const REFUS_AVANT_ALERTE = 10;
+// Limites lues dans le contrat gelé (CLAUDE.md §5), jamais recopiées.
+export const ESSAIS_PAR_MINUTE = LIMITES_DEBIT.c6.parMinute;
+export const REFUS_AVANT_ALERTE = LIMITES_DEBIT.c6.alerteRefusParMinute;
 const DELAI_MS = 2000;
 const PLANCHER_MS = 150;
 
@@ -38,6 +39,12 @@ const delai = <T>(p: Promise<T>): Promise<T> => {
   const limite = new Promise<never>((_, non) => (minuteur = setTimeout(() => non(new Error("delai")), DELAI_MS)));
   return Promise.race([p, limite]).finally(() => clearTimeout(minuteur));
 };
+
+// Compteur de minute : la clé naît avec sa durée de vie (SET NX EX, atomique), puis INCR. Jamais de clé sans expiration.
+async function compter(memoire: Memoire, cle: string): Promise<number> {
+  await delai(memoire.set(cle, "0", "EX", 120, "NX"));
+  return delai(memoire.incr(cle));
+}
 
 export function creerEntree(deps: DepsEntree) {
   const maintenant = deps.maintenant ?? (() => Math.floor(Date.now() / 1000));
@@ -48,14 +55,15 @@ export function creerEntree(deps: DepsEntree) {
   async function compterRefus(minute: number): Promise<void> {
     try {
       const cle = `entree-refus:${minute}`;
-      const n = await delai(deps.memoire.incr(cle));
-      if (n === 1) await delai(deps.memoire.expire(cle, 120));
+      const n = await compter(deps.memoire, cle);
       if (n === REFUS_AVANT_ALERTE) await deps.alertes.envoyer({ type: "soupcon_acces_non_autorise", clientId: "console-equipe" });
     } catch {
       // volontairement muet
     }
   }
 
+  // E-mail : transmis tel quel (forme validée par le contrat), sans passage en minuscules ici. Aucune comparaison n'est faite dans cette route ;
+  // c'est Keycloak qui rapproche le login_hint du compte, sans tenir compte de la casse.
   function adresseKeycloak(email: string): string {
     const u = new URL(deps.keycloak.autorisation);
     u.search = "";
@@ -74,12 +82,12 @@ export function creerEntree(deps: DepsEntree) {
     // Limite par adresse : une panne de Valkey refuse (jamais d'accès sans limite).
     try {
       const cle = `entree-limite:${adresse}:${minute}`;
-      const n = await delai(deps.memoire.incr(cle));
-      if (n === 1) await delai(deps.memoire.expire(cle, 120));
+      const n = await compter(deps.memoire, cle);
       if (n > ESSAIS_PAR_MINUTE) {
         noter("limite");
         await compterRefus(minute);
-        return { statut: 429 };
+        // Il reste au plus 60 s avant la minute suivante (Retry-After : entier de 1 à 60).
+        return { statut: 429, retryAfter: Math.min(60, Math.max(1, 60 - (maintenant() % 60))) };
       }
     } catch {
       return echec("memoire_indisponible");

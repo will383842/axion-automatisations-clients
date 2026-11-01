@@ -7,12 +7,13 @@ import { useEffect } from "react";
 const CONNEXION = "/connexion";
 const ENTREE = "/api/console/v1/entree";
 
-// Adresse acceptée : chemin local, ou http(s) ; jamais « // », « javascript: » ni « data: ».
+// Origine de Keycloak attendue, fixée à la construction. Adresse acceptée : un chemin local, ou une adresse de CETTE origine ; sinon connexion normale.
+const ORIGINE_KEYCLOAK = process.env.NEXT_PUBLIC_ORIGINE_KEYCLOAK ?? "";
 function adresseSure(valeur: unknown): string {
   if (typeof valeur !== "string" || valeur.startsWith("//") || /[\s\\]/.test(valeur)) return CONNEXION;
   if (valeur.startsWith("/")) return valeur;
   try {
-    return /^https?:$/.test(new URL(valeur).protocol) ? valeur : CONNEXION;
+    return ORIGINE_KEYCLOAK !== "" && new URL(valeur).origin === ORIGINE_KEYCLOAK ? valeur : CONNEXION;
   } catch {
     return CONNEXION;
   }

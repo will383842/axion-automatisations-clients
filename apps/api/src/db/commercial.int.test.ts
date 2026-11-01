@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { controlerInvariants, EXCEPTIONS_UNICITE, type Requete } from "../../../../packages/contrats/src/c5/invariants.js";
-import { avecClient, avecEquipe } from "./client-actif.js";
+import { avecClient } from "./client-actif.js";
 import { migrer } from "./migrer.js";
 
 // Tables du plan commercial (T2-04) : abonnements, plans, phases, échéances, conditions. Socle lancé par ops/socle/lancer.sh (job socle-integration).
@@ -174,6 +174,9 @@ describe("plan commercial, avec le socle", { timeout: 60_000 }, () => {
     await expect(ecrire(app, A, (c) => c.query("INSERT INTO conditions_commerciales (id, tenant_id, organisation_id, type, valeur, source, auteur) VALUES ($1, $2, $2, 'frais', '{}'::jsonb, 'client', 'x')", [randomUUID(), B]))).rejects.toMatchObject({ code: "42501" });
     await expect(ecrire(app, A, (c) => c.query("DELETE FROM conditions_commerciales WHERE tenant_id = $1", [B]))).rejects.toMatchObject({ code: "42501" });
     await expect(ecrire(app, A, (c) => c.query("UPDATE conditions_par_defaut SET valeur = '{}'::jsonb"))).rejects.toMatchObject({ code: "42501" });
+    // L'équipe lit en lecture seule : aucune écriture sur les conditions.
+    expect((await equipe.query("SELECT 1 FROM conditions_commerciales WHERE id = $1", [cond["id"]])).rowCount).toBe(1);
+    await expect(equipe.query("UPDATE conditions_commerciales SET valide_au = '2030-01-01'")).rejects.toMatchObject({ code: "42501" });
     // Un plan de B ne se lie pas à une instance de A (clé étrangère composée).
     const instanceA = await creerInstance(A);
     await expect(plan(B, instanceA["id"])).rejects.toMatchObject({ code: "23503" });

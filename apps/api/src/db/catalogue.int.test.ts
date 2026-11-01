@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
+import { writeSync } from "node:fs";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { controlerInvariants, type Requete } from "../../../../packages/contrats/src/c5/invariants.js";
 import { automatisationFictive, empreinteFictive, GRILLE_FICTIVE, versionFictive } from "../catalogue/fixtures.js";
@@ -93,7 +94,7 @@ afterAll(async () => {
 
 // Le rapport de la CI est un JSON hors du journal : un essai en échec est écrit ici pour être lisible dans le journal du job.
 afterEach((contexte) => {
-  if (contexte.task.result?.state === "fail") console.log(`ECHEC ${contexte.task.name} : ${String(contexte.task.result.errors?.[0]?.message ?? "").slice(0, 400)}`);
+  if (contexte.task.result?.state === "fail") writeSync(2, `ECHEC ${contexte.task.name} : ${String(contexte.task.result.errors?.[0]?.message ?? "").slice(0, 400)}\n`);
 });
 
 describe("catalogue commun, avec le socle", { timeout: 60_000 }, () => {

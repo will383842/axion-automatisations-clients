@@ -285,7 +285,7 @@ describe("garde-royaumes : niveau d'authentification (acr)", () => {
   it("[C-003] le royaume de l'équipe pose le niveau mfa par le sous-flux du double facteur et expose acr dans le jeton", () => {
     const r = JSON.parse(lire("royaume-equipe.json")) as Royaume;
     expect(r.attributes["acr.loa.map"]).toBe('{"mfa":"2"}');
-    expect(r.authenticatorConfig).toEqual([expect.objectContaining({ alias: "niveau-mfa", config: expect.objectContaining({ "loa-condition-level": "2" }) })]);
+    expect(r.authenticatorConfig).toContainEqual(expect.objectContaining({ alias: "niveau-mfa", config: expect.objectContaining({ "loa-condition-level": "2" }) }));
     const formulaire = r.authenticationFlows.find((f: Royaume) => f.alias === "formulaire-equipe");
     expect(formulaire.authenticationExecutions).toContainEqual(expect.objectContaining({ flowAlias: "niveau-mfa-equipe", requirement: "CONDITIONAL" }));
     const niveau = r.authenticationFlows.find((f: Royaume) => f.alias === "niveau-mfa-equipe");
@@ -295,5 +295,25 @@ describe("garde-royaumes : niveau d'authentification (acr)", () => {
     ]);
     expect(r.clients[0].defaultClientScopes).toContain("acr");
     expect(verifierRoyaume("royaume-equipe.json", JSON.stringify(r))).toEqual([]);
+  });
+  it("[C-541] le client console du royaume de l'équipe émet amr (mappeur AMR, références otp et hwk sur les deux authentificateurs)", () => {
+    const r = JSON.parse(lire("royaume-equipe.json")) as Royaume;
+    const console_ = r.clients.find((c: Royaume) => c.clientId === "console");
+    const mappeur = console_.protocolMappers.find((m: Royaume) => m.protocolMapper === "oidc-amr-mapper");
+    expect(mappeur?.config["id.token.claim"]).toBe("true");
+    const reference = (authentificateur: string) => {
+      const execution = r.authenticationFlows.flatMap((f: Royaume) => f.authenticationExecutions).find((e: Royaume) => e.authenticator === authentificateur);
+      return r.authenticatorConfig.find((c: Royaume) => c.alias === execution?.authenticatorConfig)?.config["default.reference.value"];
+    };
+    expect(reference("auth-otp-form")).toBe("otp");
+    expect(reference("webauthn-authenticator")).toBe("hwk");
+    expect(verifierRoyaume("royaume-equipe.json", JSON.stringify(r))).toEqual([]);
+  });
+  it("[C-541] le client console déclare l'adresse de rappel et de fin de session, sans joker", () => {
+    const r = JSON.parse(lire("royaume-equipe.json")) as Royaume;
+    const c = r.clients.find((x: Royaume) => x.clientId === "console");
+    expect(c.redirectUris).toEqual(["${KC_ORIGINE_CONSOLE}/api/auth/rappel"]);
+    expect(c.attributes["post.logout.redirect.uris"]).toBe("${KC_ORIGINE_CONSOLE}/");
+    expect(c.webOrigins ?? []).toEqual([]);
   });
 });

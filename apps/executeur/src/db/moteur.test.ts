@@ -94,6 +94,11 @@ describe("base moteur : schéma et migration 0000", () => {
     await expect(chiffrerSortie(chiffreur, A, { message: "texte libre avec des espaces" })).rejects.toThrow();
   });
 
+  it("[C-021] la migration double la purge de politiques RESTRICTIVE en DELETE : exécution terminée, intention faite", () => {
+    expect(migration).toContain('CREATE POLICY purge_garde_execution ON "public"."executions" AS RESTRICTIVE FOR DELETE TO moteur_purge USING ("fin" IS NOT NULL)');
+    expect(migration).toContain('CREATE POLICY purge_garde_intention ON "public"."intentions" AS RESTRICTIVE FOR DELETE TO moteur_purge USING ("etat" = \'faite\')');
+  });
+
   it("[C-415] moteur_purge n'a de droit de connexion que sur moteur : aucune base console ni cli_<id>", () => {
     expect(init).toMatch(/CREATE ROLE moteur_purge LOGIN NOBYPASSRLS NOINHERIT/);
     expect([...init.matchAll(/GRANT CONNECT ON DATABASE (\w+)/g)].map((m) => m[1])).toEqual(["moteur"]);

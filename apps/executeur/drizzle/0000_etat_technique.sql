@@ -169,3 +169,10 @@ CREATE POLICY depart_execution ON "public"."executions" AS RESTRICTIVE FOR INSER
 CREATE POLICY depart_etape ON "public"."journal_etape" AS RESTRICTIVE FOR INSERT TO moteur_app WITH CHECK ("statut" = 'en_cours');
 --> statement-breakpoint
 CREATE POLICY depart_intention ON "public"."intentions" AS RESTRICTIVE FOR INSERT TO moteur_app WITH CHECK ("etat" = 'ecrite');
+
+--> statement-breakpoint
+-- Seconde barrière de la purge (C-021) : même si la requête de purger() était fausse, moteur_purge ne peut supprimer qu'une exécution terminée et qu'une intention « faite ».
+-- Politiques RESTRICTIVE en DELETE : elles s'ajoutent à purge_suppression, jamais à la place. Une ligne interdite est simplement invisible pour la suppression (0 ligne supprimée).
+CREATE POLICY purge_garde_execution ON "public"."executions" AS RESTRICTIVE FOR DELETE TO moteur_purge USING ("fin" IS NOT NULL);
+--> statement-breakpoint
+CREATE POLICY purge_garde_intention ON "public"."intentions" AS RESTRICTIVE FOR DELETE TO moteur_purge USING ("etat" = 'faite');

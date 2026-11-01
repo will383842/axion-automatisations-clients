@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { DELAI_ERREUR_MS, DELAI_REUSSITE_MS, estPurgeable, purger } from "./purge.ts";
 
+// Ce test unitaire ne prouve que la logique pure (estPurgeable) et l'arrêt sans gel. La preuve qui compte est l'essai d'intégration [C-021] de moteur.int.test.ts : la vraie requête SQL, sur la vraie base.
+// Les seuils ont une seule source (DELAI_*_MS de purge.ts), utilisée par estPurgeable et par la requête SQL ; ce test les fige.
 // Règle de purge de l'état technique (C-021) : réussite après 24 h, erreur après 7 jours, jamais sous gel, jamais sans réponse du gel.
 const MAINTENANT = new Date("2026-11-01T12:00:00Z");
 const il_y_a = (ms: number) => new Date(MAINTENANT.getTime() - ms);

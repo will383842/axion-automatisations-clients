@@ -37,6 +37,7 @@ export async function purger(pool: Pool, options: { lireGel?: LireGel; maintenan
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    // Les clés étrangères sont NO ACTION : vérifiées en fin d'instruction, elles ne bloquent pas puisque enfants et parent partent ensemble (essai [C-021]).
     // Une seule instruction : les mêmes cibles pour les trois suppressions (CTE modifiantes), sans table temporaire (refusée à ce rôle).
     const r = await client.query(
       `WITH cibles AS (${CIBLES}),

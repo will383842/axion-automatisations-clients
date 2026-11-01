@@ -48,7 +48,7 @@ describe("page /entree", () => {
     adresse.hash = "";
     Page();
     await attendre();
-    expect(evenements).toEqual(["assign:/connexion"]);
+    expect(evenements).toEqual(["replaceState:/entree", "assign:/connexion"]);
   });
 
   it("[C-404] une réponse qui n'est pas une adresse http(s) ou locale est ignorée", async () => {

@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { emettreJeton } from "../../../../packages/contrats/src/c6/jeton.js";
 import type { CleEchange } from "../coffre/cles-echanges.js";
@@ -10,7 +10,8 @@ const MAINTENANT = 1_792_800_000;
 const EMAIL = "equipe@exemple.fr";
 const CHEMIN = "/api/console/v1/entree";
 const CLE = { kid: "c6-essai-a", secret: randomBytes(32) };
-const AUTRE_CANAL = { kid: "c1-essai-a", secret: randomBytes(32) };
+// Clé d'un autre canal (c1) : même kid annoncé, autre secret.
+const AUTRE_CANAL = { kid: CLE.kid, secret: randomBytes(32) };
 const secretDe = (c: CleEchange) => c.secret.toString("base64");
 const jetonDe = (cle = CLE, email = EMAIL, iat = MAINTENANT) => emettreJeton(secretDe(cle), cle.kid, email, iat);
 
@@ -22,9 +23,9 @@ function memoireFausse() {
   return {
     etat,
     valeurs,
-    async set(cle: string, valeur: string, _ex: "EX", _s: number, _nx: "NX") { garde(); if (valeurs.has(cle)) return null; valeurs.set(cle, valeur); return "OK" as const; },
+    async set(cle: string, valeur: string) { garde(); if (valeurs.has(cle)) return null; valeurs.set(cle, valeur); return "OK" as const; },
     async incr(cle: string) { garde(); const n = Number(valeurs.get(cle) ?? "0") + 1; valeurs.set(cle, String(n)); return n; },
-    async expire(_cle: string, _s: number) { garde(); return 1; },
+    async expire() { garde(); return 1; },
   };
 }
 
@@ -119,6 +120,11 @@ describe("réception du lien signé C6", () => {
       emettreJeton(secretDe(CLE), "c6-retiree", EMAIL, MAINTENANT),
       emettreJeton(secretDe({ kid: CLE.kid, secret: randomBytes(32) }), CLE.kid, EMAIL, MAINTENANT),
       bon.slice(0, -5),
+      // kid d'un autre canal, bien signé avec la clé de ce canal.
+      (() => {
+        const c = Buffer.from(JSON.stringify({ v: 1, kid: "c1-essai-a", jti: randomUUID(), email: EMAIL, iat: MAINTENANT, exp: MAINTENANT + 60 })).toString("base64url");
+        return `${c}.${createHmac("sha256", secretDe(AUTRE_CANAL)).update(c).digest("base64url")}`;
+      })(),
     ];
     for (const j of cas) expect((await poster(serveur, { jeton: j })).json()).toEqual({ url: "/connexion" });
     await serveur.close();
@@ -207,8 +213,13 @@ describe("réception du lien signé C6", () => {
 
   it("[C-404] e-mail piégé : jamais d'injection dans l'URL, e-mail transmis tel quel après validation", async () => {
     const { serveur } = monter();
-    for (const piege of ["a@exemple.fr&prompt=none", "a@exemple.fr#x", 'a"@exemple.fr', "a b@exemple.fr", "a@exemple.fr\r\nLocation: https://autre.test"]) {
-      const j = jetonDe(CLE, piege);
+    // Bien signés avec la bonne clé : seul le contrôle de forme de l'e-mail peut les refuser.
+    const signeAvec = (email: string) => {
+      const c = Buffer.from(JSON.stringify({ v: 1, kid: CLE.kid, jti: randomUUID(), email, iat: MAINTENANT, exp: MAINTENANT + 60 })).toString("base64url");
+      return `${c}.${createHmac("sha256", secretDe(CLE)).update(c).digest("base64url")}`;
+    };
+    for (const piege of ["a@exemple.fr&prompt=none", 'a"@exemple.fr', "a b@exemple.fr", "a@exemple.fr\r\nLocation: https://autre.test", "a@exemple.fr\u202e"]) {
+      const j = signeAvec(piege);
       expect((await poster(serveur, { jeton: j })).json(), piege).toEqual({ url: "/connexion" });
     }
     const r = await poster(serveur, { jeton: jetonDe(CLE, "Prénom.Nom+test@Exemple.fr") });

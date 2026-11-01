@@ -1,0 +1,21 @@
+# 0101 · Base moteur : état technique, isolation par client, partitions et purge
+
+Date : 01/11/2026 · Statut : proposé (T4-15, première migration de `apps/executeur/drizzle/`) · Contrat touché : aucun · Relecture : isolation entre clients, audit en 2 tours
+
+## Contexte
+L'exécuteur garde son état technique dans la base `moteur` : journal d'étapes, intentions, exécutions, curseurs. Cette base ne contient aucune donnée métier (C-022). Elle suit tout de même les invariants C5 : une ligne appartient à un client (`tenant_id`), la RLS est forcée, un oubli de réglage ne montre aucune ligne.
+
+## Décision
+1. **Quatre tables**, toutes avec `tenant_id` NOT NULL en première colonne, `ENABLE` et `FORCE ROW LEVEL SECURITY`, index qui commence par `tenant_id` : `executions`, `journal_etape`, `intentions`, `curseurs`.
+2. **Politiques** pour `moteur_app` : une politique permissive `isolation_client` et une politique `RESTRICTIVE` `garde_client`, toutes deux sur `tenant_id = app.tenant_id` (posé par `set_config(..., true)` à chaque transaction, ADR 0035). Aucun repli sur un client « système » : sans réglage, zéro ligne.
+3. **Pas d'insertion directe en état final** : trois politiques `RESTRICTIVE` en `INSERT` (exécution sans fin ni issue, étape `en_cours`, intention `ecrite`). Le passage à l'état final est une mise à jour, par colonnes nommées. Aucune fonction ni déclencheur n'est écrit (ADR 0041, la liste des fonctions permises ne change pas).
+4. **`executions` partitionnée par jour** avec pg_partman (`create_parent` dans la migration, avant la RLS). La clé primaire contient `debut` ; les clés étrangères des autres tables aussi. Les partitions créées par pg_partman ne reprennent pas la RLS : `securiserPartitions()` (`connexion.ts`) la pose, de façon répétable ; `moteur_app` n'a aucun droit sur une partition, il passe par la table parente. Les invariants C5 contrôlent chaque partition.
+5. **Sortie réduite et chiffrée** (A-313, C-022) : `sortie` n'accepte qu'un objet fermé d'identifiants et de codes (clés en minuscules, valeurs sans espace, 64 caractères au plus, 16 champs au plus, pas de tableau ni d'objet imbriqué). Elle est chiffrée avec la clé du client (chiffrement par enveloppe, le client est lié au chiffré) avant l'écriture ; la colonne est de type `bytea`.
+6. **Purge** (A-183, A-185, A-314, C-021) : rôle `moteur_purge`, créé par `ops/socle/postgres/init/06-moteur-purge.sql`, avec `CONNECT` sur `moteur` seulement (C-415). Il lit et supprime sous RLS dans `executions`, `journal_etape` et `intentions`, rien d'autre. Réussites après 24 h, erreurs après 7 jours. Une instance sous gel pour litige n'est pas purgée ; si le gel est illisible ou si aucune lecture n'est branchée, la purge s'arrête sans rien supprimer. Une exécution qui garde une intention non terminée reste (la clé d'intention est l'anti-doublon de dernier recours). Aucun `DROP`, aucun `TRUNCATE`.
+7. Aucune donnée d'un client n'est détruite : la purge ne touche que l'état technique de `moteur`, jamais `console` ni une base `cli_<id>`.
+
+## Conséquences
+- Tant que la lecture du gel (registre de la console, lot 2b) n'est pas branchée sur `purger`, la purge ne tourne pas : c'est voulu.
+- L'outil `migrer` de l'API est écrit pour le rôle `console_migration` ; la migration moteur est appliquée par les essais avec `moteur_migration`. Un outil commun reste à écrire (dette).
+- Le détachement des vieilles partitions (retention de pg_partman) n'est pas réglé ici : la purge supprime des lignes, pas des partitions (dette).
+- Numéros : ADR 0101 et migration moteur 0000, réservés par la fiche.

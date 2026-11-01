@@ -83,9 +83,9 @@ describe("plan commercial, avec le socle", { timeout: 60_000 }, () => {
     const p = await plan(A, instance["id"]);
     expect(p).toMatchObject({ prix_recurrent_mensuel_centimes: 200, periode_facturation_mois: 1 });
     await expect(plan(A, instance["id"])).rejects.toMatchObject({ code: "23505" });
-    await ecrire(app, A, (c) => c.query("UPDATE instances SET plan_commercial = $2 WHERE id = $1", [instance["id"], p["id"]]));
+    await ecrire(app, A, (c) => c.query("UPDATE instances SET plan_commercial = $2 WHERE id = $1", [instance["id"], p["id"]]), APPELANT);
     expect((await ecrire(app, A, (c) => c.query("SELECT plan_commercial FROM instances WHERE id = $1", [instance["id"]]))).rows[0]?.plan_commercial).toBe(p["id"]);
-    await expect(ecrire(app, A, (c) => c.query("UPDATE instances SET plan_commercial = $2 WHERE id = $1", [instance["id"], randomUUID()]))).rejects.toMatchObject({ code: "23503" });
+    await expect(ecrire(app, A, (c) => c.query("UPDATE instances SET plan_commercial = $2 WHERE id = $1", [instance["id"], randomUUID()]), APPELANT)).rejects.toMatchObject({ code: "23503" });
   });
 
   it("[A-143] @argent une valeur du plan sans sa source, ou avec une source inconnue, est refusée", async () => {
@@ -132,7 +132,8 @@ describe("plan commercial, avec le socle", { timeout: 60_000 }, () => {
     const p = await nouveauPlan(A);
     const resultats = await Promise.allSettled(Array.from({ length: 10 }, () => echeance(A, p["id"])));
     expect(resultats.filter((r) => r.status === "fulfilled")).toHaveLength(1);
-    for (const r of resultats) if (r.status === "rejected") expect(r.reason).toMatchObject({ code: "23505" });
+    // Table auditée : une attente du verrou du journal (55P03) reste possible pour un perdant ; la preuve est « une seule ligne ».
+    for (const r of resultats) if (r.status === "rejected") expect(["23505", "55P03"]).toContain((r.reason as { code?: string }).code);
     expect((await ecrire(app, A, (c) => c.query("SELECT count(*)::int AS n FROM echeances WHERE plan_id = $1", [p["id"]]))).rows[0]?.n).toBe(1);
     await expect(echeance(A, p["id"], { debut_periode: "2026-02-01", fin_periode: "2026-03-01" })).resolves.toBeTruthy();
   });
@@ -147,9 +148,9 @@ describe("plan commercial, avec le socle", { timeout: 60_000 }, () => {
     await expect(echeance(A, p["id"], { fin_periode: "2026-01-01" })).rejects.toMatchObject({ code: "23514" });
     await expect(plan(A, (await creerInstance(A))["id"], { prix_recurrent_mensuel_centimes: -5 })).rejects.toMatchObject({ code: "23514" });
     const e = await echeance(A, p["id"], { debut_periode: "2026-05-01", fin_periode: "2026-06-01" });
-    await expect(ecrire(app, A, (c) => c.query("UPDATE echeances SET montant_ht_centimes = 1 WHERE id = $1", [e["id"]]))).rejects.toMatchObject({ code: "42501" });
-    await expect(ecrire(app, A, (c) => c.query("UPDATE echeances SET statut = 'payee' WHERE id = $1", [e["id"]]))).rejects.toMatchObject({ code: "23514" });
-    await expect(ecrire(app, A, (c) => c.query("DELETE FROM echeances WHERE id = $1", [e["id"]]))).rejects.toMatchObject({ code: "42501" });
+    await expect(ecrire(app, A, (c) => c.query("UPDATE echeances SET montant_ht_centimes = 1 WHERE id = $1", [e["id"]]), APPELANT)).rejects.toMatchObject({ code: "42501" });
+    await expect(ecrire(app, A, (c) => c.query("UPDATE echeances SET statut = 'payee' WHERE id = $1", [e["id"]]), APPELANT)).rejects.toMatchObject({ code: "23514" });
+    await expect(ecrire(app, A, (c) => c.query("DELETE FROM echeances WHERE id = $1", [e["id"]]), APPELANT)).rejects.toMatchObject({ code: "42501" });
   });
 
   it("[A-146] une condition du client porte la source client, son auteur et ses dates", async () => {
@@ -170,10 +171,10 @@ describe("plan commercial, avec le socle", { timeout: 60_000 }, () => {
     await ecrire(app, A, async (c) => {
       expect((await c.query("SELECT count(*)::int AS n FROM conditions_commerciales WHERE tenant_id = $1", [B])).rows[0]?.n).toBe(0);
     });
-    expect((await ecrire(app, A, (c) => c.query("UPDATE conditions_commerciales SET valide_au = '2030-01-01' WHERE id = $1", [cond["id"]]))).rowCount).toBe(0);
-    await expect(ecrire(app, A, (c) => c.query("INSERT INTO conditions_commerciales (id, tenant_id, organisation_id, type, valeur, source, auteur) VALUES ($1, $2, $2, 'frais', '{}'::jsonb, 'client', 'x')", [randomUUID(), B]))).rejects.toMatchObject({ code: "42501" });
-    await expect(ecrire(app, A, (c) => c.query("DELETE FROM conditions_commerciales WHERE tenant_id = $1", [B]))).rejects.toMatchObject({ code: "42501" });
-    await expect(ecrire(app, A, (c) => c.query("UPDATE conditions_par_defaut SET valeur = '{}'::jsonb"))).rejects.toMatchObject({ code: "42501" });
+    expect((await ecrire(app, A, (c) => c.query("UPDATE conditions_commerciales SET valide_au = '2030-01-01' WHERE id = $1", [cond["id"]]), APPELANT)).rowCount).toBe(0);
+    await expect(ecrire(app, A, (c) => c.query("INSERT INTO conditions_commerciales (id, tenant_id, organisation_id, type, valeur, source, auteur) VALUES ($1, $2, $2, 'frais', '{}'::jsonb, 'client', 'x')", [randomUUID(), B]), APPELANT)).rejects.toMatchObject({ code: "42501" });
+    await expect(ecrire(app, A, (c) => c.query("DELETE FROM conditions_commerciales WHERE tenant_id = $1", [B]), APPELANT)).rejects.toMatchObject({ code: "42501" });
+    await expect(ecrire(app, A, (c) => c.query("UPDATE conditions_par_defaut SET valeur = '{}'::jsonb"), APPELANT)).rejects.toMatchObject({ code: "42501" });
     // L'équipe lit en lecture seule : aucune écriture sur les conditions.
     expect((await equipe.query("SELECT 1 FROM conditions_commerciales WHERE id = $1", [cond["id"]])).rowCount).toBe(1);
     await expect(equipe.query("UPDATE conditions_commerciales SET valide_au = '2030-01-01'")).rejects.toMatchObject({ code: "42501" });

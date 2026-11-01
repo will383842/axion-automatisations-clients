@@ -37,3 +37,16 @@ export function tableClient<C extends Record<string, PgColumnBuilderBase>>(nom: 
     },
   );
 }
+
+// Tables communes à tous les clients (catalogue, ADR 0051) : SANS tenant_id, par exception fermée aux invariants C5 (liste TABLES_COMMUNES de
+// packages/contrats/src/c5/invariants.ts). La migration écrit, pour chacune, ENABLE + FORCE ROW LEVEL SECURITY, une politique de lecture, SELECT seul
+// pour console_app, des droits d'écriture limités à console_equipe et le déclencheur du journal d'audit. Un test relit la migration contre cette liste.
+export const TABLES_COMMUNES_SCHEMA: { nom: string }[] = [];
+export function tableCommune<C extends Record<string, PgColumnBuilderBase>>(
+  nom: string,
+  colonnes: C,
+  contraintes?: (t: Record<string, PgColumn>) => PgTableExtraConfigValue[],
+) {
+  TABLES_COMMUNES_SCHEMA.push({ nom });
+  return pgTable(nom, colonnes, (brut) => contraintes?.(brut as unknown as Record<string, PgColumn>) ?? []);
+}

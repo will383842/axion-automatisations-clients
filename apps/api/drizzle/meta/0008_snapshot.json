@@ -1,6 +1,6 @@
 {
   "id": "1c839993-d683-4cb0-be4e-39e2465d0bad",
-  "prevId": "0942ac9e-a4a6-4e63-b81e-779948a78548",
+  "prevId": "12bb1f74-1a9a-4e2e-97a5-ea8ccd07466c",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -305,6 +305,48 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "version_courante_id": {
+          "name": "version_courante_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "automatisation_id": {
+          "name": "automatisation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "prereglage_depart_id": {
+          "name": "prereglage_depart_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "version_prereglage_depart": {
+          "name": "version_prereglage_depart",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "instance_source_copie": {
+          "name": "instance_source_copie",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "copie_le": {
+          "name": "copie_le",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "copie_par": {
+          "name": "copie_par",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -325,6 +367,45 @@
         }
       },
       "foreignKeys": {
+        "instances_version_courante_id_versions_automatisation_id_fk": {
+          "name": "instances_version_courante_id_versions_automatisation_id_fk",
+          "tableFrom": "instances",
+          "tableTo": "versions_automatisation",
+          "columnsFrom": [
+            "version_courante_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "instances_automatisation_id_automatisations_id_fk": {
+          "name": "instances_automatisation_id_automatisations_id_fk",
+          "tableFrom": "instances",
+          "tableTo": "automatisations",
+          "columnsFrom": [
+            "automatisation_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "instances_prereglage_depart_id_prereglages_metier_id_fk": {
+          "name": "instances_prereglage_depart_id_prereglages_metier_id_fk",
+          "tableFrom": "instances",
+          "tableTo": "prereglages_metier",
+          "columnsFrom": [
+            "prereglage_depart_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
         "instances_organisation_fk": {
           "name": "instances_organisation_fk",
           "tableFrom": "instances",
@@ -361,7 +442,12 @@
         }
       },
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "instances_copie_complete": {
+          "name": "instances_copie_complete",
+          "value": "(\"instances\".\"instance_source_copie\" IS NULL) = (\"instances\".\"copie_le\" IS NULL) AND (\"instances\".\"instance_source_copie\" IS NULL) = (\"instances\".\"copie_par\" IS NULL)"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.organisations": {
@@ -2406,6 +2492,12 @@
           "type": "date",
           "primaryKey": false,
           "notNull": false
+        },
+        "auteur": {
+          "name": "auteur",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
         }
       },
       "indexes": {
@@ -2447,6 +2539,10 @@
       },
       "policies": {},
       "checkConstraints": {
+        "conditions_par_defaut_auteur_non_vide": {
+          "name": "conditions_par_defaut_auteur_non_vide",
+          "value": "length(btrim(\"conditions_par_defaut\".\"auteur\")) > 0"
+        },
         "conditions_par_defaut_source_defaut": {
           "name": "conditions_par_defaut_source_defaut",
           "value": "\"conditions_par_defaut\".\"source\" = 'defaut'"
@@ -2941,6 +3037,1264 @@
         "reglage_global_delai_minimal": {
           "name": "reglage_global_delai_minimal",
           "value": "\"reglage_global_fin_de_contrat\".\"delai_proposition_suppression_mois\" >= 2"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.automatisation_metiers": {
+      "name": "automatisation_metiers",
+      "schema": "",
+      "columns": {
+        "automatisation_id": {
+          "name": "automatisation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "metier_id": {
+          "name": "metier_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "automatisation_metiers_metier_automatisation_idx": {
+          "name": "automatisation_metiers_metier_automatisation_idx",
+          "columns": [
+            {
+              "expression": "metier_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "automatisation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "automatisation_metiers_automatisation_id_automatisations_id_fk": {
+          "name": "automatisation_metiers_automatisation_id_automatisations_id_fk",
+          "tableFrom": "automatisation_metiers",
+          "tableTo": "automatisations",
+          "columnsFrom": [
+            "automatisation_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "automatisation_metiers_metier_id_metiers_id_fk": {
+          "name": "automatisation_metiers_metier_id_metiers_id_fk",
+          "tableFrom": "automatisation_metiers",
+          "tableTo": "metiers",
+          "columnsFrom": [
+            "metier_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "automatisation_metiers_automatisation_id_metier_id_pk": {
+          "name": "automatisation_metiers_automatisation_id_metier_id_pk",
+          "columns": [
+            "automatisation_id",
+            "metier_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.automatisation_postes": {
+      "name": "automatisation_postes",
+      "schema": "",
+      "columns": {
+        "automatisation_id": {
+          "name": "automatisation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "poste_id": {
+          "name": "poste_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "automatisation_postes_poste_automatisation_idx": {
+          "name": "automatisation_postes_poste_automatisation_idx",
+          "columns": [
+            {
+              "expression": "poste_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "automatisation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "automatisation_postes_automatisation_id_automatisations_id_fk": {
+          "name": "automatisation_postes_automatisation_id_automatisations_id_fk",
+          "tableFrom": "automatisation_postes",
+          "tableTo": "automatisations",
+          "columnsFrom": [
+            "automatisation_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "automatisation_postes_poste_id_postes_id_fk": {
+          "name": "automatisation_postes_poste_id_postes_id_fk",
+          "tableFrom": "automatisation_postes",
+          "tableTo": "postes",
+          "columnsFrom": [
+            "poste_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "automatisation_postes_automatisation_id_poste_id_pk": {
+          "name": "automatisation_postes_automatisation_id_poste_id_pk",
+          "columns": [
+            "automatisation_id",
+            "poste_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.automatisations": {
+      "name": "automatisations",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "code": {
+          "name": "code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "nom": {
+          "name": "nom",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "fonction": {
+          "name": "fonction",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "visibilite": {
+          "name": "visibilite",
+          "type": "visibilite_automatisation",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'interne'"
+        },
+        "priorite": {
+          "name": "priorite",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "minutes_gagnees": {
+          "name": "minutes_gagnees",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "origine": {
+          "name": "origine",
+          "type": "origine_automatisation",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'axion'"
+        },
+        "niveau_risque_ia": {
+          "name": "niveau_risque_ia",
+          "type": "niveau_risque_ia",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "statut": {
+          "name": "statut",
+          "type": "statut_automatisation",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'idee'"
+        },
+        "cree_le": {
+          "name": "cree_le",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "automatisations_statut_idx": {
+          "name": "automatisations_statut_idx",
+          "columns": [
+            {
+              "expression": "statut",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "automatisations_visibilite_idx": {
+          "name": "automatisations_visibilite_idx",
+          "columns": [
+            {
+              "expression": "visibilite",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "automatisations_nom_idx": {
+          "name": "automatisations_nom_idx",
+          "columns": [
+            {
+              "expression": "nom",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "automatisations_priorite_idx": {
+          "name": "automatisations_priorite_idx",
+          "columns": [
+            {
+              "expression": "priorite",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "automatisations_code_unique": {
+          "name": "automatisations_code_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "code"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "automatisations_code_format": {
+          "name": "automatisations_code_format",
+          "value": "\"automatisations\".\"code\" ~ '^[A-Z]{2,6}-[0-9]{3,5}$'"
+        },
+        "automatisations_nom_non_vide": {
+          "name": "automatisations_nom_non_vide",
+          "value": "length(btrim(\"automatisations\".\"nom\")) > 0"
+        },
+        "automatisations_fonction_courte": {
+          "name": "automatisations_fonction_courte",
+          "value": "\"automatisations\".\"fonction\" IS NULL OR length(\"automatisations\".\"fonction\") <= 200"
+        },
+        "automatisations_minutes_gagnees_positives": {
+          "name": "automatisations_minutes_gagnees_positives",
+          "value": "\"automatisations\".\"minutes_gagnees\" IS NULL OR \"automatisations\".\"minutes_gagnees\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.connecteurs": {
+      "name": "connecteurs",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "famille": {
+          "name": "famille",
+          "type": "famille_connecteur",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "outil": {
+          "name": "outil",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "version": {
+          "name": "version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "capacites": {
+          "name": "capacites",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "connecteurs_famille_outil_version_unique": {
+          "name": "connecteurs_famille_outil_version_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "famille",
+            "outil",
+            "version"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "connecteurs_capacites_liste": {
+          "name": "connecteurs_capacites_liste",
+          "value": "jsonb_typeof(\"connecteurs\".\"capacites\") = 'array'"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.grilles_prix": {
+      "name": "grilles_prix",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "automatisation_id": {
+          "name": "automatisation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "formules_actives": {
+          "name": "formules_actives",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "montant_installation_centimes": {
+          "name": "montant_installation_centimes",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "montant_mensuel_centimes": {
+          "name": "montant_mensuel_centimes",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "maintenance_incluse_mois": {
+          "name": "maintenance_incluse_mois",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "maintenance_ensuite_centimes": {
+          "name": "maintenance_ensuite_centimes",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "auteur": {
+          "name": "auteur",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "cree_le": {
+          "name": "cree_le",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "grilles_prix_automatisation_idx": {
+          "name": "grilles_prix_automatisation_idx",
+          "columns": [
+            {
+              "expression": "automatisation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "cree_le",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "grilles_prix_automatisation_id_automatisations_id_fk": {
+          "name": "grilles_prix_automatisation_id_automatisations_id_fk",
+          "tableFrom": "grilles_prix",
+          "tableTo": "automatisations",
+          "columnsFrom": [
+            "automatisation_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "grilles_prix_montants_positifs": {
+          "name": "grilles_prix_montants_positifs",
+          "value": "\"grilles_prix\".\"montant_installation_centimes\" >= 0 AND \"grilles_prix\".\"montant_mensuel_centimes\" >= 0 AND \"grilles_prix\".\"maintenance_ensuite_centimes\" >= 0"
+        },
+        "grilles_prix_maintenance_mois_positifs": {
+          "name": "grilles_prix_maintenance_mois_positifs",
+          "value": "\"grilles_prix\".\"maintenance_incluse_mois\" >= 0"
+        },
+        "grilles_prix_auteur_non_vide": {
+          "name": "grilles_prix_auteur_non_vide",
+          "value": "length(btrim(\"grilles_prix\".\"auteur\")) > 0"
+        },
+        "grilles_prix_formules_liste": {
+          "name": "grilles_prix_formules_liste",
+          "value": "jsonb_typeof(\"grilles_prix\".\"formules_actives\") = 'array'"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.metiers": {
+      "name": "metiers",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "code": {
+          "name": "code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "nom": {
+          "name": "nom",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "groupe": {
+          "name": "groupe",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ordre": {
+          "name": "ordre",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "actif": {
+          "name": "actif",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "metiers_code_unique": {
+          "name": "metiers_code_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "code"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "metiers_code_format": {
+          "name": "metiers_code_format",
+          "value": "\"metiers\".\"code\" ~ '^[a-z][a-z0-9_]{1,62}$'"
+        },
+        "metiers_nom_non_vide": {
+          "name": "metiers_nom_non_vide",
+          "value": "length(btrim(\"metiers\".\"nom\")) > 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.packs": {
+      "name": "packs",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "nom": {
+          "name": "nom",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "metier_id": {
+          "name": "metier_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "prix_centimes": {
+          "name": "prix_centimes",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "actif": {
+          "name": "actif",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "auteur": {
+          "name": "auteur",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "cree_le": {
+          "name": "cree_le",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "packs_metier_id_metiers_id_fk": {
+          "name": "packs_metier_id_metiers_id_fk",
+          "tableFrom": "packs",
+          "tableTo": "metiers",
+          "columnsFrom": [
+            "metier_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "packs_nom_unique": {
+          "name": "packs_nom_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "nom"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "packs_prix_positif": {
+          "name": "packs_prix_positif",
+          "value": "\"packs\".\"prix_centimes\" >= 0"
+        },
+        "packs_nom_non_vide": {
+          "name": "packs_nom_non_vide",
+          "value": "length(btrim(\"packs\".\"nom\")) > 0"
+        },
+        "packs_auteur_non_vide": {
+          "name": "packs_auteur_non_vide",
+          "value": "length(btrim(\"packs\".\"auteur\")) > 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.packs_automatisations": {
+      "name": "packs_automatisations",
+      "schema": "",
+      "columns": {
+        "pack_id": {
+          "name": "pack_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "automatisation_id": {
+          "name": "automatisation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "packs_automatisations_automatisation_idx": {
+          "name": "packs_automatisations_automatisation_idx",
+          "columns": [
+            {
+              "expression": "automatisation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "packs_automatisations_pack_id_packs_id_fk": {
+          "name": "packs_automatisations_pack_id_packs_id_fk",
+          "tableFrom": "packs_automatisations",
+          "tableTo": "packs",
+          "columnsFrom": [
+            "pack_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "packs_automatisations_automatisation_id_automatisations_id_fk": {
+          "name": "packs_automatisations_automatisation_id_automatisations_id_fk",
+          "tableFrom": "packs_automatisations",
+          "tableTo": "automatisations",
+          "columnsFrom": [
+            "automatisation_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "packs_automatisations_pack_id_automatisation_id_pk": {
+          "name": "packs_automatisations_pack_id_automatisation_id_pk",
+          "columns": [
+            "pack_id",
+            "automatisation_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.postes": {
+      "name": "postes",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "code": {
+          "name": "code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "nom": {
+          "name": "nom",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "groupe": {
+          "name": "groupe",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ordre": {
+          "name": "ordre",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "actif": {
+          "name": "actif",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "postes_code_unique": {
+          "name": "postes_code_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "code"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "postes_code_format": {
+          "name": "postes_code_format",
+          "value": "\"postes\".\"code\" ~ '^[a-z][a-z0-9_]{1,62}$'"
+        },
+        "postes_nom_non_vide": {
+          "name": "postes_nom_non_vide",
+          "value": "length(btrim(\"postes\".\"nom\")) > 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.prereglages_metier": {
+      "name": "prereglages_metier",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "automatisation_id": {
+          "name": "automatisation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "metier_id": {
+          "name": "metier_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "donnees": {
+          "name": "donnees",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "statut": {
+          "name": "statut",
+          "type": "statut_prereglage",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'brouillon'"
+        },
+        "auteur": {
+          "name": "auteur",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "justification": {
+          "name": "justification",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "cree_le": {
+          "name": "cree_le",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "version_precedente_id": {
+          "name": "version_precedente_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "module_version_min": {
+          "name": "module_version_min",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "module_version_max": {
+          "name": "module_version_max",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "prereglages_metier_metier_idx": {
+          "name": "prereglages_metier_metier_idx",
+          "columns": [
+            {
+              "expression": "metier_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "automatisation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "prereglages_metier_automatisation_idx": {
+          "name": "prereglages_metier_automatisation_idx",
+          "columns": [
+            {
+              "expression": "automatisation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "statut",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "prereglages_metier_automatisation_id_automatisations_id_fk": {
+          "name": "prereglages_metier_automatisation_id_automatisations_id_fk",
+          "tableFrom": "prereglages_metier",
+          "tableTo": "automatisations",
+          "columnsFrom": [
+            "automatisation_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "prereglages_metier_metier_id_metiers_id_fk": {
+          "name": "prereglages_metier_metier_id_metiers_id_fk",
+          "tableFrom": "prereglages_metier",
+          "tableTo": "metiers",
+          "columnsFrom": [
+            "metier_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "prereglages_metier_version_precedente_fk": {
+          "name": "prereglages_metier_version_precedente_fk",
+          "tableFrom": "prereglages_metier",
+          "tableTo": "prereglages_metier",
+          "columnsFrom": [
+            "version_precedente_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "prereglages_metier_automatisation_id_metier_id_version_unique": {
+          "name": "prereglages_metier_automatisation_id_metier_id_version_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "automatisation_id",
+            "metier_id",
+            "version"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "prereglages_metier_version_positive": {
+          "name": "prereglages_metier_version_positive",
+          "value": "\"prereglages_metier\".\"version\" >= 1"
+        },
+        "prereglages_metier_auteur_non_vide": {
+          "name": "prereglages_metier_auteur_non_vide",
+          "value": "length(btrim(\"prereglages_metier\".\"auteur\")) > 0"
+        },
+        "prereglages_metier_justification_non_vide": {
+          "name": "prereglages_metier_justification_non_vide",
+          "value": "length(btrim(\"prereglages_metier\".\"justification\")) > 0"
+        },
+        "prereglages_metier_donnees_objet": {
+          "name": "prereglages_metier_donnees_objet",
+          "value": "jsonb_typeof(\"prereglages_metier\".\"donnees\") = 'object'"
+        },
+        "prereglages_metier_donnees_sans_client": {
+          "name": "prereglages_metier_donnees_sans_client",
+          "value": "\"prereglages_metier\".\"donnees\"::text !~* '\"[^\"]*(tenant|client|organisation|instance|mail|courriel|t[eé]l[eé]phone|phone|siren|siret|iban)[^\"]*\"[[:space:]]*:' AND \"prereglages_metier\".\"donnees\"::text !~* '[^\"[:space:]@]+@[^\"[:space:]@]+\\.[a-z]{2,}' AND \"prereglages_metier\".\"donnees\"::text !~ '(^|[^0-9])([0-9]{9}|[0-9]{14})([^0-9]|$)'"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.synonymes_catalogue": {
+      "name": "synonymes_catalogue",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "mot": {
+          "name": "mot",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "equivalent": {
+          "name": "equivalent",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "synonymes_catalogue_mot_equivalent_unique": {
+          "name": "synonymes_catalogue_mot_equivalent_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "mot",
+            "equivalent"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "synonymes_catalogue_non_vides": {
+          "name": "synonymes_catalogue_non_vides",
+          "value": "length(btrim(\"synonymes_catalogue\".\"mot\")) > 0 AND length(btrim(\"synonymes_catalogue\".\"equivalent\")) > 0 AND \"synonymes_catalogue\".\"mot\" <> \"synonymes_catalogue\".\"equivalent\""
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.versions_automatisation": {
+      "name": "versions_automatisation",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "automatisation_id": {
+          "name": "automatisation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "semver": {
+          "name": "semver",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "api_moteur": {
+          "name": "api_moteur",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "artefact_ref": {
+          "name": "artefact_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "empreinte_sha256": {
+          "name": "empreinte_sha256",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "signature_ed25519": {
+          "name": "signature_ed25519",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sbom_ref": {
+          "name": "sbom_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "nature": {
+          "name": "nature",
+          "type": "nature_version",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'evolution'"
+        },
+        "schema_configuration": {
+          "name": "schema_configuration",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "manifeste": {
+          "name": "manifeste",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "migration": {
+          "name": "migration",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "notes": {
+          "name": "notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "statut": {
+          "name": "statut",
+          "type": "statut_version",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'brouillon'"
+        },
+        "cree_le": {
+          "name": "cree_le",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "versions_automatisation_automatisation_idx": {
+          "name": "versions_automatisation_automatisation_idx",
+          "columns": [
+            {
+              "expression": "automatisation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "statut",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "versions_automatisation_automatisation_id_automatisations_id_fk": {
+          "name": "versions_automatisation_automatisation_id_automatisations_id_fk",
+          "tableFrom": "versions_automatisation",
+          "tableTo": "automatisations",
+          "columnsFrom": [
+            "automatisation_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "versions_automatisation_automatisation_id_semver_unique": {
+          "name": "versions_automatisation_automatisation_id_semver_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "automatisation_id",
+            "semver"
+          ]
+        },
+        "versions_automatisation_empreinte_sha256_unique": {
+          "name": "versions_automatisation_empreinte_sha256_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "empreinte_sha256"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "versions_automatisation_empreinte_format": {
+          "name": "versions_automatisation_empreinte_format",
+          "value": "\"versions_automatisation\".\"empreinte_sha256\" ~ '^[0-9a-f]{64}$'"
+        },
+        "versions_automatisation_semver_format": {
+          "name": "versions_automatisation_semver_format",
+          "value": "\"versions_automatisation\".\"semver\" ~ '^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\\+[0-9A-Za-z.-]+)?$'"
+        },
+        "versions_automatisation_signature_non_vide": {
+          "name": "versions_automatisation_signature_non_vide",
+          "value": "length(btrim(\"versions_automatisation\".\"signature_ed25519\")) > 0"
         }
       },
       "isRLSEnabled": false
@@ -4101,6 +5455,89 @@
         "delai",
         "seuil_alerte",
         "periode"
+      ]
+    },
+    "public.famille_connecteur": {
+      "name": "famille_connecteur",
+      "schema": "public",
+      "values": [
+        "messagerie",
+        "agenda",
+        "crm",
+        "comptabilite",
+        "stockage",
+        "signature",
+        "telephonie",
+        "autre"
+      ]
+    },
+    "public.nature_version": {
+      "name": "nature_version",
+      "schema": "public",
+      "values": [
+        "creation",
+        "correctif",
+        "evolution",
+        "rupture"
+      ]
+    },
+    "public.niveau_risque_ia": {
+      "name": "niveau_risque_ia",
+      "schema": "public",
+      "values": [
+        "sans_ia",
+        "minimal",
+        "limite",
+        "eleve",
+        "inacceptable"
+      ]
+    },
+    "public.origine_automatisation": {
+      "name": "origine_automatisation",
+      "schema": "public",
+      "values": [
+        "axion",
+        "client",
+        "partenaire"
+      ]
+    },
+    "public.statut_automatisation": {
+      "name": "statut_automatisation",
+      "schema": "public",
+      "values": [
+        "idee",
+        "en_construction",
+        "au_catalogue",
+        "archivee"
+      ]
+    },
+    "public.statut_prereglage": {
+      "name": "statut_prereglage",
+      "schema": "public",
+      "values": [
+        "brouillon",
+        "publie",
+        "retire"
+      ]
+    },
+    "public.statut_version": {
+      "name": "statut_version",
+      "schema": "public",
+      "values": [
+        "brouillon",
+        "recette",
+        "pilote",
+        "publiee",
+        "depreciee",
+        "retiree"
+      ]
+    },
+    "public.visibilite_automatisation": {
+      "name": "visibilite_automatisation",
+      "schema": "public",
+      "values": [
+        "interne",
+        "visible_clients"
       ]
     },
     "public.mode_avance": {

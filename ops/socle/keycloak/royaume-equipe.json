@@ -13,7 +13,9 @@
   "browserFlow": "navigateur-equipe",
   "attributes": { "acr.loa.map": "{\"mfa\":\"2\"}" },
   "authenticatorConfig": [
-    { "alias": "niveau-mfa", "config": { "loa-condition-level": "2", "loa-max-age": "28800", "loa-store-in-user-session": "true" } }
+    { "alias": "niveau-mfa", "config": { "loa-condition-level": "2", "loa-max-age": "28800", "loa-store-in-user-session": "true" } },
+    { "alias": "reference-otp", "config": { "default.reference.value": "otp", "default.reference.maxAge": "28800" } },
+    { "alias": "reference-cle-d-acces", "config": { "default.reference.value": "hwk", "default.reference.maxAge": "28800" } }
   ],
   "requiredActions": [
     { "alias": "CONFIGURE_TOTP", "name": "Configurer le TOTP", "providerId": "CONFIGURE_TOTP", "enabled": true, "defaultAction": true, "priority": 10 },
@@ -46,8 +48,8 @@
       "topLevel": false,
       "builtIn": false,
       "authenticationExecutions": [
-        { "authenticator": "webauthn-authenticator", "requirement": "ALTERNATIVE", "priority": 10, "userSetupAllowed": false, "authenticatorFlow": false },
-        { "authenticator": "auth-otp-form", "requirement": "ALTERNATIVE", "priority": 20, "userSetupAllowed": false, "authenticatorFlow": false }
+        { "authenticator": "webauthn-authenticator", "authenticatorConfig": "reference-cle-d-acces", "requirement": "ALTERNATIVE", "priority": 10, "userSetupAllowed": false, "authenticatorFlow": false },
+        { "authenticator": "auth-otp-form", "authenticatorConfig": "reference-otp", "requirement": "ALTERNATIVE", "priority": 20, "userSetupAllowed": false, "authenticatorFlow": false }
       ]
     },
     {
@@ -74,8 +76,16 @@
       "serviceAccountsEnabled": false,
       "defaultClientScopes": ["basic", "profile", "acr"],
       "optionalClientScopes": [],
-      "attributes": { "pkce.code.challenge.method": "S256", "default.acr.values": "mfa", "minimum.acr.value": "mfa" },
+      "redirectUris": ["${KC_ORIGINE_CONSOLE}/api/auth/rappel"],
+      "webOrigins": [],
+      "attributes": { "pkce.code.challenge.method": "S256", "default.acr.values": "mfa", "minimum.acr.value": "mfa", "post.logout.redirect.uris": "${KC_ORIGINE_CONSOLE}/" },
       "protocolMappers": [
+        {
+          "name": "amr",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-amr-mapper",
+          "config": { "id.token.claim": "true", "access.token.claim": "false", "introspection.token.claim": "false" }
+        },
         {
           "name": "audience-api-equipe",
           "protocol": "openid-connect",

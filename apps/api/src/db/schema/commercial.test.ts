@@ -3,7 +3,7 @@ import { getTableConfig } from "drizzle-orm/pg-core";
 import { describe, expect, it } from "vitest";
 import { EXCEPTIONS_UNICITE } from "../../../../../packages/contrats/src/c5/invariants.ts";
 import { TABLES_CLIENT } from "./aides.ts";
-import { abonnements, conditionsCommerciales, echeances, modeAvance, phasesPlan, plansCommerciaux, sourceValeur, statutEcheance } from "./commercial.ts";
+import { abonnements, conditionsCommerciales, echeances, modeAvance, phasesPlan, plansCommerciaux, schemaQuotas, schemaValeurCondition, sourceValeur, statutEcheance } from "./commercial.ts";
 import { instances, organisations } from "./clients.ts";
 
 // Contrôles sans base de données du schéma et de la migration 0008 ; les essais contre PostgreSQL sont dans db/commercial.int.test.ts (job socle-integration).
@@ -18,7 +18,7 @@ const VALEURS = ["formule", "frais_mise_en_place", "prix_recurrent_mensuel", "pe
 
 describe("plan commercial : schéma et migration 0008", () => {
   it("[A-041] @argent un plan commercial lié à une instance dit ce qu'elle paie (mise en place, mensuel) et sa période", () => {
-    expect(colonnes(plansCommerciaux)).toEqual(expect.arrayContaining(["tenant_id", "instance_id", "frais_mise_en_place_centimes", "prix_recurrent_mensuel_centimes", "periode_facturation_mois"]));
+    expect(colonnes(plansCommerciaux)).toEqual(expect.arrayContaining(["tenant_id", "instance_id", "frais_mise_en_place_ht_centimes", "prix_recurrent_mensuel_ht_centimes", "periode_facturation_mois"]));
     expect(uniques(plansCommerciaux)).toContainEqual(["tenant_id", "instance_id"]);
     expect(migration).toContain('CONSTRAINT "plans_commerciaux_instance_fk" FOREIGN KEY ("tenant_id","instance_id")');
   });
@@ -32,16 +32,25 @@ describe("plan commercial : schéma et migration 0008", () => {
     expect(colonnes(plansCommerciaux)).toEqual(expect.arrayContaining(["maintenance_incluse_mois", "suite_maintenance", "engagement_mois", "mode_avance"]));
   });
 
-  it("[A-006] la formule est portée par l'instance, pas par l'organisation", () => {
+  it("[A-006] la formule n'a qu'une seule source : instances.formule, aucune copie dans les tables du plan, ni dans la migration", () => {
     expect(colonnes(instances)).toContain("formule");
-    expect(colonnes(organisations)).not.toContain("formule");
-    expect(colonnes(abonnements)).not.toContain("formule");
+    for (const t of [organisations, abonnements, plansCommerciaux, phasesPlan, echeances, conditionsCommerciales]) expect(colonnes(t), getTableConfig(t).name).not.toContain("formule");
+    // Seule la source de la formule reste dans le plan (source_formule) : jamais la valeur elle-même.
+    expect(migration).not.toMatch(/"formule"|formule_instance|formule_v1/);
+    expect(contraintes(plansCommerciaux)).not.toContain("plans_commerciaux_formule_v1");
     expect(migration).toContain('ALTER TABLE "public"."instances" ADD COLUMN "plan_commercial" uuid');
   });
 
-  it("[A-006] en V1, la formule achat est refusée", () => {
-    expect(contraintes(plansCommerciaux)).toContain("plans_commerciaux_formule_v1");
-    expect(migration).toContain(`CONSTRAINT "plans_commerciaux_formule_v1" CHECK ("plans_commerciaux"."formule" = 'abonnement')`);
+  it("[A-145] @argent tout montant d'argent dit s'il est hors taxes : plus aucune colonne en centimes sans _ht", () => {
+    for (const t of [plansCommerciaux, phasesPlan, echeances]) for (const c of colonnes(t).filter((n) => n.endsWith("_centimes"))) expect(c, getTableConfig(t).name).toMatch(/_ht_centimes$/);
+    expect(migration).not.toMatch(/(?<!_ht)_centimes/);
+  });
+
+  it("[A-125] les quotas et la valeur d'une condition sont vérifiés par Zod : objet de nombres entiers positifs, objet JSON", () => {
+    expect(schemaQuotas.safeParse({ messages: 10 }).success).toBe(true);
+    for (const mauvais of [[1], "5", null, { messages: -1 }, { messages: 1.5 }, { messages: "10" }, { "": 1 }]) expect(schemaQuotas.safeParse(mauvais).success, JSON.stringify(mauvais)).toBe(false);
+    expect(schemaValeurCondition.safeParse({ points_de_base: 500, liste: [1, "a"] }).success).toBe(true);
+    for (const mauvais of [[1], "5", null, 5]) expect(schemaValeurCondition.safeParse(mauvais).success, String(mauvais)).toBe(false);
   });
 
   it("[A-125] un abonnement refuse une période de facturation hors 1, 6, 12", () => {
@@ -52,7 +61,7 @@ describe("plan commercial : schéma et migration 0008", () => {
   });
 
   it("[A-144] deux phases d'un plan ne peuvent pas avoir le même ordre", () => {
-    expect(colonnes(phasesPlan)).toEqual(expect.arrayContaining(["plan_id", "ordre", "debut", "fin", "nature", "montant_centimes", "periode_facturation_mois", "id_plan_hub"]));
+    expect(colonnes(phasesPlan)).toEqual(expect.arrayContaining(["plan_id", "ordre", "debut", "fin", "nature", "montant_ht_centimes", "periode_facturation_mois", "id_plan_hub"]));
     expect(uniques(phasesPlan)).toContainEqual(["tenant_id", "plan_id", "ordre"]);
   });
 
@@ -65,14 +74,22 @@ describe("plan commercial : schéma et migration 0008", () => {
 
   it("[A-145] @argent un montant non entier ou négatif est refusé : bigint en centimes, jamais numeric, CHECK >= 0 et borne 2^53", () => {
     expect(migration).not.toMatch(/numeric|decimal|real|double precision|float|money/i);
-    for (const c of ["frais_mise_en_place_centimes", "prix_recurrent_mensuel_centimes"]) expect(migration).toContain(`"${c}" bigint NOT NULL`);
+    for (const c of ["frais_mise_en_place_ht_centimes", "prix_recurrent_mensuel_ht_centimes"]) expect(migration).toContain(`"${c}" bigint NOT NULL`);
     expect(migration).toContain(`CHECK ("echeances"."montant_ht_centimes" BETWEEN 0 AND 9007199254740991)`);
-    expect(migration).toContain(`CHECK ("phases_plan"."montant_centimes" BETWEEN 0 AND 9007199254740991)`);
-    expect(migration).toContain(`CHECK ("plans_commerciaux"."prix_recurrent_mensuel_centimes" BETWEEN 0 AND 9007199254740991)`);
+    expect(migration).toContain(`CHECK ("phases_plan"."montant_ht_centimes" BETWEEN 0 AND 9007199254740991)`);
+    expect(migration).toContain(`CHECK ("plans_commerciaux"."prix_recurrent_mensuel_ht_centimes" BETWEEN 0 AND 9007199254740991)`);
     // Taux en points de base : entier, de 0 à 10000.
     expect(migration).toContain(`CHECK ("abonnements"."acompte_points_de_base" BETWEEN 0 AND 10000)`);
     // Le montant d'une échéance ne se modifie jamais après coup.
     expect(droits("echeances").join()).not.toContain("montant_ht_centimes");
+  });
+
+  it("[A-146] @argent conditions_commerciales : auteur = appelant à l'insertion et à la modification, comme les autres tables d'argent", () => {
+    const acteur = `WITH CHECK (auteur = NULLIF(current_setting('app.acteur', true), ''))`;
+    expect(migration).toContain(`CREATE POLICY auteur_insertion ON "public"."conditions_commerciales" AS RESTRICTIVE FOR INSERT TO console_app ${acteur}`);
+    expect(migration).toContain(`CREATE POLICY auteur_modification ON "public"."conditions_commerciales" AS RESTRICTIVE FOR UPDATE TO console_app USING (true) ${acteur}`);
+    expect(droits("conditions_commerciales").join()).toMatch(/UPDATE \("valide_au", "auteur"\)/);
+    expect(droits("conditions_commerciales").join()).not.toMatch(/"valeur"|"type"/);
   });
 
   it("[A-146] une condition du client porte la source client, son auteur et ses dates", () => {
@@ -131,8 +148,10 @@ describe("plan commercial : schéma et migration 0008", () => {
     }
   });
 
-  it("[A-145] @argent une échéance se crée prevue et sans date de paiement (politique restrictive à l'insertion)", () => {
-    expect(migration).toContain(`CREATE POLICY creation_echeance ON "public"."echeances" AS RESTRICTIVE FOR INSERT TO console_app WITH CHECK (statut = 'prevue' AND date_paiement IS NULL)`);
+  it("[A-145] @argent une échéance se crée prevue, sans date d'émission, sans facture et sans date de paiement (politique restrictive à l'insertion)", () => {
+    expect(migration).toContain(`CREATE POLICY creation_echeance ON "public"."echeances" AS RESTRICTIVE FOR INSERT TO console_app WITH CHECK (statut = 'prevue' AND date_paiement IS NULL AND date_emission IS NULL AND facture_id IS NULL)`);
+    expect(contraintes(echeances)).toContain("echeances_paiement_apres_emission");
+    expect(migration).toContain(`CONSTRAINT "echeances_paiement_apres_emission" CHECK ("echeances"."date_paiement" IS NULL OR "echeances"."date_emission" IS NULL OR "echeances"."date_paiement" >= "echeances"."date_emission")`);
   });
 
   it("[A-145] @argent une échéance ne sort jamais de payee ni d'annulee, ne revient pas à prevue, et emise ou payee exige une date d'émission", () => {

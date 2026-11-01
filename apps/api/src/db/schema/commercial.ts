@@ -1,12 +1,13 @@
 import { bigint, check, date, foreignKey, integer, jsonb, pgEnum, text, unique, uuid } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+import { z } from "zod";
 import { tableClient } from "./aides.ts";
-import { formuleInstance, instances, organisations } from "./clients.ts";
+import { instances, organisations } from "./clients.ts";
 import { sourceCondition, typeCondition } from "./canaux.ts";
 
 // Plan commercial (C5, lot 2) : abonnements, plans, phases, échéances, conditions du client (ADR 0052). Aucun calcul ici (héritage : T2-08).
 // Argent : `bigint` en centimes, lu en `number` (mode « number »), sans jamais dépasser 2^53 − 1 : un CHECK le borne. Taux en points de base (entier).
-// Vocabulaires provisoires : une valeur s'ajoute plus tard (additif), jamais ne se renomme. La formule vient de `formule_instance` (clients.ts).
+// Vocabulaires provisoires : une valeur s'ajoute plus tard (additif), jamais ne se renomme. La formule n'est portée que par `instances.formule` (A-006) : le plan n'en a pas de copie.
 export const sourceValeur = pgEnum("source_valeur", ["grille", "defaut", "client", "instance"]);
 export const modeAvance = pgEnum("mode_avance", ["aucune", "acompte", "periode_entiere"]);
 export const suiteMaintenance = pgEnum("suite_maintenance", ["arret", "reconduction"]);
@@ -48,7 +49,7 @@ export const abonnements = tableClient(
     conditionsId: uuid("conditions_id"),
     debut: date("debut").notNull(),
     fin: date("fin"),
-    // Forme des quotas vérifiée par Zod dans l'application ; la base garantit seulement un objet.
+    // Forme des quotas vérifiée par `schemaQuotas` (Zod, plus bas) dans l'application ; la base garantit seulement un objet.
     quotas: jsonb("quotas").notNull().default(sql`'{}'::jsonb`),
     periodeFacturationMois: integer("periode_facturation_mois").notNull(),
     modeAvance: modeAvance("mode_avance").notNull().default("aucune"),
@@ -76,9 +77,8 @@ export const plansCommerciaux = tableClient(
   {
     id: uuid("id").notNull(),
     instanceId: uuid("instance_id").notNull(),
-    formule: formuleInstance("formule").notNull(),
-    fraisMiseEnPlaceCentimes: centimes("frais_mise_en_place_centimes").notNull(),
-    prixRecurrentMensuelCentimes: centimes("prix_recurrent_mensuel_centimes").notNull(),
+    fraisMiseEnPlaceHtCentimes: centimes("frais_mise_en_place_ht_centimes").notNull(),
+    prixRecurrentMensuelHtCentimes: centimes("prix_recurrent_mensuel_ht_centimes").notNull(),
     periodeFacturationMois: integer("periode_facturation_mois").notNull(),
     modeAvance: modeAvance("mode_avance").notNull(),
     maintenanceIncluseMois: integer("maintenance_incluse_mois").notNull(),
@@ -102,10 +102,8 @@ export const plansCommerciaux = tableClient(
       // Cible de la clé étrangère de instances.plan_commercial : le plan d'une instance appartient à CETTE instance.
       unique("plans_commerciaux_tenant_id_instance_id_id_unique").on(t["tenantId"] as never, t["instanceId"] as never, t["id"] as never),
       check("plans_commerciaux_auteur_non_vide", sql`length(btrim(${t["auteur"]})) > 0`),
-      // V1 : seule la formule abonnement est permise ; achat et installation avec maintenance viennent en V2 (levée de ce CHECK par un ADR).
-      check("plans_commerciaux_formule_v1", sql`${t["formule"]} = 'abonnement'`),
-      check("plans_commerciaux_frais_entier", sql`${t["fraisMiseEnPlaceCentimes"]} BETWEEN 0 AND ${sql.raw(MAX_ENTIER)}`),
-      check("plans_commerciaux_prix_entier", sql`${t["prixRecurrentMensuelCentimes"]} BETWEEN 0 AND ${sql.raw(MAX_ENTIER)}`),
+      check("plans_commerciaux_frais_entier", sql`${t["fraisMiseEnPlaceHtCentimes"]} BETWEEN 0 AND ${sql.raw(MAX_ENTIER)}`),
+      check("plans_commerciaux_prix_entier", sql`${t["prixRecurrentMensuelHtCentimes"]} BETWEEN 0 AND ${sql.raw(MAX_ENTIER)}`),
       check("plans_commerciaux_periode_valide", sql`${t["periodeFacturationMois"]} IN (1, 6, 12)`),
       check("plans_commerciaux_mois_positifs", sql`${t["maintenanceIncluseMois"]} >= 0 AND ${t["engagementMois"]} >= 0`),
     ],
@@ -121,7 +119,7 @@ export const phasesPlan = tableClient(
     debut: date("debut").notNull(),
     fin: date("fin"),
     nature: natureLignePlan("nature").notNull(),
-    montantCentimes: centimes("montant_centimes").notNull(),
+    montantHtCentimes: centimes("montant_ht_centimes").notNull(),
     periodeFacturationMois: integer("periode_facturation_mois").notNull(),
     idPlanHub: text("id_plan_hub"),
     // Qui a écrit la ligne : obligatoire pour tout ce qui porte de l'argent (le journal remplacerait un acteur vide par « systeme »).
@@ -134,7 +132,7 @@ export const phasesPlan = tableClient(
       check("phases_plan_auteur_non_vide", sql`length(btrim(${t["auteur"]})) > 0`),
       check("phases_plan_ordre_positif", sql`${t["ordre"]} >= 1`),
       check("phases_plan_dates", sql`${t["fin"]} IS NULL OR ${t["fin"]} >= ${t["debut"]}`),
-      check("phases_plan_montant_entier", sql`${t["montantCentimes"]} BETWEEN 0 AND ${sql.raw(MAX_ENTIER)}`),
+      check("phases_plan_montant_entier", sql`${t["montantHtCentimes"]} BETWEEN 0 AND ${sql.raw(MAX_ENTIER)}`),
       check("phases_plan_periode_valide", sql`${t["periodeFacturationMois"]} IN (1, 6, 12)`),
     ],
   },
@@ -165,6 +163,12 @@ export const echeances = tableClient(
       check("echeances_periode_ordonnee", sql`${t["finPeriode"]} > ${t["debutPeriode"]}`),
       check("echeances_montant_entier", sql`${t["montantHtCentimes"]} BETWEEN 0 AND ${sql.raw(MAX_ENTIER)}`),
       check("echeances_paiement_coherent", sql`(${t["statut"]} = 'payee') = (${t["datePaiement"]} IS NOT NULL)`),
+      check("echeances_paiement_apres_emission", sql`${t["datePaiement"]} IS NULL OR ${t["dateEmission"]} IS NULL OR ${t["datePaiement"]} >= ${t["dateEmission"]}`),
     ],
   },
 );
+
+// Formes JSON vérifiées côté application (la base ne garantit qu'un objet). Forme provisoire, resserrée quand T2-08 fixera les clés.
+// Quotas : nom de quota -> entier positif ou nul. Valeur d'une condition : objet JSON quelconque (clés propres à chaque type de condition).
+export const schemaQuotas = z.record(z.string().min(1), z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER));
+export const schemaValeurCondition = z.record(z.string().min(1), z.json());

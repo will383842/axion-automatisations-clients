@@ -62,7 +62,8 @@ CREATE TABLE "echeances" (
 	CONSTRAINT "echeances_emission_datee" CHECK ("echeances"."statut" NOT IN ('emise', 'payee') OR "echeances"."date_emission" IS NOT NULL),
 	CONSTRAINT "echeances_periode_ordonnee" CHECK ("echeances"."fin_periode" > "echeances"."debut_periode"),
 	CONSTRAINT "echeances_montant_entier" CHECK ("echeances"."montant_ht_centimes" BETWEEN 0 AND 9007199254740991),
-	CONSTRAINT "echeances_paiement_coherent" CHECK (("echeances"."statut" = 'payee') = ("echeances"."date_paiement" IS NOT NULL))
+	CONSTRAINT "echeances_paiement_coherent" CHECK (("echeances"."statut" = 'payee') = ("echeances"."date_paiement" IS NOT NULL)),
+	CONSTRAINT "echeances_paiement_apres_emission" CHECK ("echeances"."date_paiement" IS NULL OR "echeances"."date_emission" IS NULL OR "echeances"."date_paiement" >= "echeances"."date_emission")
 );
 --> statement-breakpoint
 CREATE TABLE "phases_plan" (
@@ -73,7 +74,7 @@ CREATE TABLE "phases_plan" (
 	"debut" date NOT NULL,
 	"fin" date,
 	"nature" "nature_ligne_plan" NOT NULL,
-	"montant_centimes" bigint NOT NULL,
+	"montant_ht_centimes" bigint NOT NULL,
 	"periode_facturation_mois" integer NOT NULL,
 	"id_plan_hub" text,
 	"auteur" text NOT NULL,
@@ -83,7 +84,7 @@ CREATE TABLE "phases_plan" (
 	CONSTRAINT "phases_plan_auteur_non_vide" CHECK (length(btrim("phases_plan"."auteur")) > 0),
 	CONSTRAINT "phases_plan_ordre_positif" CHECK ("phases_plan"."ordre" >= 1),
 	CONSTRAINT "phases_plan_dates" CHECK ("phases_plan"."fin" IS NULL OR "phases_plan"."fin" >= "phases_plan"."debut"),
-	CONSTRAINT "phases_plan_montant_entier" CHECK ("phases_plan"."montant_centimes" BETWEEN 0 AND 9007199254740991),
+	CONSTRAINT "phases_plan_montant_entier" CHECK ("phases_plan"."montant_ht_centimes" BETWEEN 0 AND 9007199254740991),
 	CONSTRAINT "phases_plan_periode_valide" CHECK ("phases_plan"."periode_facturation_mois" IN (1, 6, 12))
 );
 --> statement-breakpoint
@@ -91,9 +92,8 @@ CREATE TABLE "plans_commerciaux" (
 	"tenant_id" uuid NOT NULL,
 	"id" uuid NOT NULL,
 	"instance_id" uuid NOT NULL,
-	"formule" "formule_instance" NOT NULL,
-	"frais_mise_en_place_centimes" bigint NOT NULL,
-	"prix_recurrent_mensuel_centimes" bigint NOT NULL,
+	"frais_mise_en_place_ht_centimes" bigint NOT NULL,
+	"prix_recurrent_mensuel_ht_centimes" bigint NOT NULL,
 	"periode_facturation_mois" integer NOT NULL,
 	"mode_avance" "mode_avance" NOT NULL,
 	"maintenance_incluse_mois" integer NOT NULL,
@@ -113,9 +113,8 @@ CREATE TABLE "plans_commerciaux" (
 	CONSTRAINT "plans_commerciaux_tenant_id_instance_id_unique" UNIQUE("tenant_id","instance_id"),
 	CONSTRAINT "plans_commerciaux_tenant_id_instance_id_id_unique" UNIQUE("tenant_id","instance_id","id"),
 	CONSTRAINT "plans_commerciaux_auteur_non_vide" CHECK (length(btrim("plans_commerciaux"."auteur")) > 0),
-	CONSTRAINT "plans_commerciaux_formule_v1" CHECK ("plans_commerciaux"."formule" = 'abonnement'),
-	CONSTRAINT "plans_commerciaux_frais_entier" CHECK ("plans_commerciaux"."frais_mise_en_place_centimes" BETWEEN 0 AND 9007199254740991),
-	CONSTRAINT "plans_commerciaux_prix_entier" CHECK ("plans_commerciaux"."prix_recurrent_mensuel_centimes" BETWEEN 0 AND 9007199254740991),
+	CONSTRAINT "plans_commerciaux_frais_entier" CHECK ("plans_commerciaux"."frais_mise_en_place_ht_centimes" BETWEEN 0 AND 9007199254740991),
+	CONSTRAINT "plans_commerciaux_prix_entier" CHECK ("plans_commerciaux"."prix_recurrent_mensuel_ht_centimes" BETWEEN 0 AND 9007199254740991),
 	CONSTRAINT "plans_commerciaux_periode_valide" CHECK ("plans_commerciaux"."periode_facturation_mois" IN (1, 6, 12)),
 	CONSTRAINT "plans_commerciaux_mois_positifs" CHECK ("plans_commerciaux"."maintenance_incluse_mois" >= 0 AND "plans_commerciaux"."engagement_mois" >= 0)
 );
@@ -144,7 +143,9 @@ CREATE POLICY isolation_client ON "public"."conditions_commerciales" FOR ALL TO 
 CREATE POLICY lecture_equipe ON "public"."conditions_commerciales" FOR SELECT TO console_equipe USING (tenant_id IS NOT NULL);--> statement-breakpoint
 REVOKE ALL ON TABLE "public"."conditions_commerciales" FROM PUBLIC;--> statement-breakpoint
 GRANT SELECT, INSERT ON TABLE "public"."conditions_commerciales" TO console_app;--> statement-breakpoint
-GRANT UPDATE ("valide_au") ON TABLE "public"."conditions_commerciales" TO console_app;--> statement-breakpoint
+GRANT UPDATE ("valide_au", "auteur") ON TABLE "public"."conditions_commerciales" TO console_app;--> statement-breakpoint
+CREATE POLICY auteur_insertion ON "public"."conditions_commerciales" AS RESTRICTIVE FOR INSERT TO console_app WITH CHECK (auteur = NULLIF(current_setting('app.acteur', true), ''));--> statement-breakpoint
+CREATE POLICY auteur_modification ON "public"."conditions_commerciales" AS RESTRICTIVE FOR UPDATE TO console_app USING (true) WITH CHECK (auteur = NULLIF(current_setting('app.acteur', true), ''));--> statement-breakpoint
 GRANT SELECT ON TABLE "public"."conditions_commerciales" TO console_equipe;--> statement-breakpoint
 CREATE TRIGGER conditions_commerciales_audit AFTER INSERT OR UPDATE OR DELETE ON "public"."conditions_commerciales" FOR EACH ROW EXECUTE FUNCTION public.audit_ecrire();--> statement-breakpoint
 ALTER TABLE "public"."abonnements" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
@@ -191,7 +192,7 @@ GRANT UPDATE ("statut", "date_emission", "date_paiement", "facture_id", "auteur"
 CREATE POLICY transitions_echeance ON "public"."echeances" AS RESTRICTIVE FOR UPDATE TO console_app USING (tenant_id IS NOT NULL AND statut IN ('prevue', 'emise')) WITH CHECK (tenant_id IS NOT NULL AND statut IN ('emise', 'payee', 'annulee'));--> statement-breakpoint
 CREATE POLICY auteur_insertion ON "public"."echeances" AS RESTRICTIVE FOR INSERT TO console_app WITH CHECK (auteur = NULLIF(current_setting('app.acteur', true), ''));--> statement-breakpoint
 CREATE POLICY auteur_modification ON "public"."echeances" AS RESTRICTIVE FOR UPDATE TO console_app USING (true) WITH CHECK (auteur = NULLIF(current_setting('app.acteur', true), ''));--> statement-breakpoint
--- Une échéance se crée toujours prevue et sans date de paiement : la chaîne des transitions ne se contourne pas à l'insertion (ADR 0052).
-CREATE POLICY creation_echeance ON "public"."echeances" AS RESTRICTIVE FOR INSERT TO console_app WITH CHECK (statut = 'prevue' AND date_paiement IS NULL);--> statement-breakpoint
+-- Une échéance se crée toujours prevue, sans date d'émission, sans facture et sans date de paiement : la chaîne des transitions ne se contourne pas à l'insertion (ADR 0052).
+CREATE POLICY creation_echeance ON "public"."echeances" AS RESTRICTIVE FOR INSERT TO console_app WITH CHECK (statut = 'prevue' AND date_paiement IS NULL AND date_emission IS NULL AND facture_id IS NULL);--> statement-breakpoint
 GRANT SELECT ON TABLE "public"."echeances" TO console_equipe;--> statement-breakpoint
 CREATE TRIGGER echeances_audit AFTER INSERT OR UPDATE OR DELETE ON "public"."echeances" FOR EACH ROW EXECUTE FUNCTION public.audit_ecrire();

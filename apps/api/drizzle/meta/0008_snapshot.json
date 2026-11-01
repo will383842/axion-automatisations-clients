@@ -4762,6 +4762,10 @@
         "echeances_paiement_coherent": {
           "name": "echeances_paiement_coherent",
           "value": "(\"echeances\".\"statut\" = 'payee') = (\"echeances\".\"date_paiement\" IS NOT NULL)"
+        },
+        "echeances_paiement_apres_emission": {
+          "name": "echeances_paiement_apres_emission",
+          "value": "\"echeances\".\"date_paiement\" IS NULL OR \"echeances\".\"date_emission\" IS NULL OR \"echeances\".\"date_paiement\" >= \"echeances\".\"date_emission\""
         }
       },
       "isRLSEnabled": false
@@ -4813,8 +4817,8 @@
           "primaryKey": false,
           "notNull": true
         },
-        "montant_centimes": {
-          "name": "montant_centimes",
+        "montant_ht_centimes": {
+          "name": "montant_ht_centimes",
           "type": "bigint",
           "primaryKey": false,
           "notNull": true
@@ -4916,7 +4920,7 @@
         },
         "phases_plan_montant_entier": {
           "name": "phases_plan_montant_entier",
-          "value": "\"phases_plan\".\"montant_centimes\" BETWEEN 0 AND 9007199254740991"
+          "value": "\"phases_plan\".\"montant_ht_centimes\" BETWEEN 0 AND 9007199254740991"
         },
         "phases_plan_periode_valide": {
           "name": "phases_plan_periode_valide",
@@ -4947,21 +4951,14 @@
           "primaryKey": false,
           "notNull": true
         },
-        "formule": {
-          "name": "formule",
-          "type": "formule_instance",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "frais_mise_en_place_centimes": {
-          "name": "frais_mise_en_place_centimes",
+        "frais_mise_en_place_ht_centimes": {
+          "name": "frais_mise_en_place_ht_centimes",
           "type": "bigint",
           "primaryKey": false,
           "notNull": true
         },
-        "prix_recurrent_mensuel_centimes": {
-          "name": "prix_recurrent_mensuel_centimes",
+        "prix_recurrent_mensuel_ht_centimes": {
+          "name": "prix_recurrent_mensuel_ht_centimes",
           "type": "bigint",
           "primaryKey": false,
           "notNull": true
@@ -5137,17 +5134,13 @@
           "name": "plans_commerciaux_auteur_non_vide",
           "value": "length(btrim(\"plans_commerciaux\".\"auteur\")) > 0"
         },
-        "plans_commerciaux_formule_v1": {
-          "name": "plans_commerciaux_formule_v1",
-          "value": "\"plans_commerciaux\".\"formule\" = 'abonnement'"
-        },
         "plans_commerciaux_frais_entier": {
           "name": "plans_commerciaux_frais_entier",
-          "value": "\"plans_commerciaux\".\"frais_mise_en_place_centimes\" BETWEEN 0 AND 9007199254740991"
+          "value": "\"plans_commerciaux\".\"frais_mise_en_place_ht_centimes\" BETWEEN 0 AND 9007199254740991"
         },
         "plans_commerciaux_prix_entier": {
           "name": "plans_commerciaux_prix_entier",
-          "value": "\"plans_commerciaux\".\"prix_recurrent_mensuel_centimes\" BETWEEN 0 AND 9007199254740991"
+          "value": "\"plans_commerciaux\".\"prix_recurrent_mensuel_ht_centimes\" BETWEEN 0 AND 9007199254740991"
         },
         "plans_commerciaux_periode_valide": {
           "name": "plans_commerciaux_periode_valide",

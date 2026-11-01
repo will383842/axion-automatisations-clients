@@ -68,7 +68,7 @@ const creerInstance = (A: string) =>
 const SOURCES = Object.fromEntries(["formule", "frais_mise_en_place", "prix_recurrent_mensuel", "periode_facturation", "mode_avance", "maintenance_incluse", "suite_maintenance", "engagement"].map((v) => [`source_${v}`, "grille"]));
 // Valeurs fictives (jamais un prix réel) : 100, 200 et 300 centimes.
 const plan = (A: string, instance: unknown, extra: Record<string, unknown> = {}) =>
-  inserer(A, "plans_commerciaux", { instance_id: instance, formule: "abonnement", frais_mise_en_place_centimes: 100, prix_recurrent_mensuel_centimes: 200, periode_facturation_mois: 1, mode_avance: "aucune", maintenance_incluse_mois: 0, suite_maintenance: "arret", engagement_mois: 0, ...SOURCES, auteur: "agent-essai", ...extra });
+  inserer(A, "plans_commerciaux", { instance_id: instance, frais_mise_en_place_ht_centimes: 100, prix_recurrent_mensuel_ht_centimes: 200, periode_facturation_mois: 1, mode_avance: "aucune", maintenance_incluse_mois: 0, suite_maintenance: "arret", engagement_mois: 0, ...SOURCES, auteur: "agent-essai", ...extra });
 const nouveauPlan = async (A: string) => plan(A, (await creerInstance(A))["id"]);
 const echeance = (A: string, planId: unknown, extra: Record<string, unknown> = {}) =>
   inserer(A, "echeances", { plan_id: planId, debut_periode: "2026-01-01", fin_periode: "2026-02-01", montant_ht_centimes: 200, auteur: "agent-essai", ...extra });
@@ -92,7 +92,7 @@ describe("plan commercial, avec le socle", { timeout: 60_000 }, () => {
     const instance = await creerInstance(A);
     const p = await plan(A, instance["id"]);
     // pg rend le bigint en chaîne ; le schéma Drizzle le lit en nombre (borné à 2^53 − 1).
-    expect(p).toMatchObject({ prix_recurrent_mensuel_centimes: "200", periode_facturation_mois: 1 });
+    expect(p).toMatchObject({ prix_recurrent_mensuel_ht_centimes: "200", periode_facturation_mois: 1 });
     await expect(plan(A, instance["id"])).rejects.toMatchObject({ code: "23505" });
   });
 
@@ -117,10 +117,9 @@ describe("plan commercial, avec le socle", { timeout: 60_000 }, () => {
     await expect(plan(A, instance["id"], { source_engagement: "devine" })).rejects.toMatchObject({ code: "22P02" });
   });
 
-  it("[A-006] en V1, la formule achat est refusée par la base", async () => {
-    const A = randomUUID();
-    await creerOrg(A);
-    for (const formule of ["achat", "installation_maintenance"]) await expect(plan(A, (await creerInstance(A))["id"], { formule })).rejects.toMatchObject({ code: "23514" });
+  it("[A-006] la formule n'a qu'une seule source dans la base : instances.formule, aucune autre table du plan ne la porte", async () => {
+    const { rows } = await migration.query("SELECT table_name FROM information_schema.columns WHERE table_schema = 'public' AND column_name = 'formule' AND table_name = ANY($1) ORDER BY 1", [["instances", "organisations", "abonnements", "plans_commerciaux", "phases_plan", "echeances", "conditions_commerciales"]]);
+    expect(rows.map((r) => r.table_name)).toEqual(["instances"]);
   });
 
   it("[A-125] un abonnement refuse une période hors 1, 6, 12 ; un plan aussi", async () => {
@@ -144,11 +143,11 @@ describe("plan commercial, avec le socle", { timeout: 60_000 }, () => {
     const A = randomUUID();
     await creerOrg(A);
     const p = await nouveauPlan(A);
-    const phase = (extra: Record<string, unknown>) => inserer(A, "phases_plan", { plan_id: p["id"], ordre: 1, debut: "2026-01-01", nature: "recurrente", montant_centimes: 200, periode_facturation_mois: 1, auteur: "agent-essai", ...extra });
+    const phase = (extra: Record<string, unknown>) => inserer(A, "phases_plan", { plan_id: p["id"], ordre: 1, debut: "2026-01-01", nature: "recurrente", montant_ht_centimes: 200, periode_facturation_mois: 1, auteur: "agent-essai", ...extra });
     await phase({});
     await expect(phase({})).rejects.toMatchObject({ code: "23505" });
     await expect(phase({ ordre: 2 })).resolves.toMatchObject({ ordre: 2 });
-    await expect(phase({ ordre: 3, montant_centimes: -1 })).rejects.toMatchObject({ code: "23514" });
+    await expect(phase({ ordre: 3, montant_ht_centimes: -1 })).rejects.toMatchObject({ code: "23514" });
   });
 
   it("[A-145] @argent 10 insertions parallèles d'une échéance pour la même période : une seule ligne", async () => {
@@ -174,7 +173,7 @@ describe("plan commercial, avec le socle", { timeout: 60_000 }, () => {
     await expect(echeance(A, p["id"], { montant_ht_centimes: 12.5 })).rejects.toMatchObject({ code: "22P02" });
     await expect(echeance(A, p["id"], { montant_ht_centimes: "9007199254740992" })).rejects.toMatchObject({ code: "23514" });
     await expect(echeance(A, p["id"], { fin_periode: "2026-01-01" })).rejects.toMatchObject({ code: "23514" });
-    await expect(plan(A, (await creerInstance(A))["id"], { prix_recurrent_mensuel_centimes: -5 })).rejects.toMatchObject({ code: "23514" });
+    await expect(plan(A, (await creerInstance(A))["id"], { prix_recurrent_mensuel_ht_centimes: -5 })).rejects.toMatchObject({ code: "23514" });
     const e = await echeance(A, p["id"], { debut_periode: "2026-05-01", fin_periode: "2026-06-01" });
     await expect(ecrire(app, A, (c) => c.query("UPDATE echeances SET montant_ht_centimes = 1 WHERE id = $1", [e["id"]]), APPELANT)).rejects.toMatchObject({ code: "42501" });
     await expect(ecrire(app, A, (c) => c.query("UPDATE echeances SET statut = 'payee' WHERE id = $1", [e["id"]]), APPELANT)).rejects.toMatchObject({ code: "23514" });
@@ -215,7 +214,7 @@ describe("plan commercial, avec le socle", { timeout: 60_000 }, () => {
     await expect(plan(A, instance["id"], { auteur: "autre-agent" })).rejects.toMatchObject({ code: "42501" });
     const p = await plan(A, instance["id"]);
     await expect(echeance(A, p["id"], { auteur: "autre-agent" })).rejects.toMatchObject({ code: "42501" });
-    const phase = { plan_id: p["id"], ordre: 1, debut: "2026-01-01", nature: "recurrente", montant_centimes: 1, periode_facturation_mois: 1 };
+    const phase = { plan_id: p["id"], ordre: 1, debut: "2026-01-01", nature: "recurrente", montant_ht_centimes: 1, periode_facturation_mois: 1 };
     await expect(inserer(A, "phases_plan", { ...phase, auteur: "autre-agent" })).rejects.toMatchObject({ code: "42501" });
     await expect(inserer(A, "phases_plan", { ...phase, auteur: "agent-essai" }, null)).rejects.toMatchObject({ code: "42501" });
     const abo = { organisation_id: A, debut: "2026-01-01", periode_facturation_mois: 1, mode_avance: "aucune" };
@@ -243,6 +242,38 @@ describe("plan commercial, avec le socle", { timeout: 60_000 }, () => {
     await expect(echeance(A, p["id"])).resolves.toMatchObject({ statut: "prevue" });
   });
 
+  it("[A-145] @argent une échéance se crée sans date d'émission ni facture (42501), et le paiement ne précède pas l'émission (23514)", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    const p = await nouveauPlan(A);
+    await expect(echeance(A, p["id"], { date_emission: "2026-01-02" })).rejects.toMatchObject({ code: "42501" });
+    await expect(echeance(A, p["id"], { facture_id: randomUUID() })).rejects.toMatchObject({ code: "42501" });
+    const e = await echeance(A, p["id"]);
+    const maj = (set: string) => ecrire(app, A, (c) => c.query(`UPDATE echeances SET ${set} WHERE id = $1`, [e["id"]]), APPELANT);
+    await expect(maj("statut = 'payee', date_emission = '2026-01-10', date_paiement = '2026-01-09'")).rejects.toMatchObject({ code: "23514" });
+    expect((await maj("statut = 'payee', date_emission = '2026-01-10', date_paiement = '2026-01-10'")).rowCount).toBe(1);
+  });
+
+  it("[A-146] @argent plans, abonnements, conditions : une colonne non accordée ne se modifie pas (42501), l'équipe n'écrit sur aucune table d'argent", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    const instance = await creerInstance(A);
+    const p = await plan(A, instance["id"]);
+    const abo = await inserer(A, "abonnements", { organisation_id: A, debut: "2026-01-01", periode_facturation_mois: 1, mode_avance: "aucune", auteur: "agent-essai" });
+    const cond = await inserer(A, "conditions_commerciales", { organisation_id: A, type: "remise", valeur: "{}", source: "client", auteur: "agent-essai" });
+    const refus = (sql: string, params: unknown[]) => expect(ecrire(app, A, (c) => c.query(sql, params), APPELANT)).rejects.toMatchObject({ code: "42501" });
+    await refus("UPDATE plans_commerciaux SET prix_recurrent_mensuel_ht_centimes = 1 WHERE id = $1", [p["id"]]);
+    await refus("UPDATE plans_commerciaux SET frais_mise_en_place_ht_centimes = 1 WHERE id = $1", [p["id"]]);
+    await refus("UPDATE abonnements SET periode_facturation_mois = 12 WHERE id = $1", [abo["id"]]);
+    await refus("UPDATE conditions_commerciales SET valeur = '{}'::jsonb WHERE id = $1", [cond["id"]]);
+    const e = await echeance(A, p["id"]);
+    for (const [table, id] of [["abonnements", abo["id"]], ["plans_commerciaux", p["id"]], ["phases_plan", randomUUID()], ["echeances", e["id"]]] as const) {
+      await expect(equipe.query(`INSERT INTO ${table} DEFAULT VALUES`), `INSERT ${table}`).rejects.toMatchObject({ code: "42501" });
+      await expect(equipe.query(`UPDATE ${table} SET auteur = 'x' WHERE id = $1`, [id]), `UPDATE ${table}`).rejects.toMatchObject({ code: "42501" });
+      await expect(equipe.query(`DELETE FROM ${table} WHERE id = $1`, [id]), `DELETE ${table}`).rejects.toMatchObject({ code: "42501" });
+    }
+  });
+
   it("[A-145] @argent un plan, une phase, une échéance ou un abonnement sans auteur, ou avec un auteur vide, est refusé (42501 : la politique « auteur = appelant » passe avant NOT NULL et CHECK)", async () => {
     const A = randomUUID();
     await creerOrg(A);
@@ -252,21 +283,35 @@ describe("plan commercial, avec le socle", { timeout: 60_000 }, () => {
     const p = await plan(A, instance["id"]);
     await expect(echeance(A, p["id"], { auteur: null })).rejects.toMatchObject({ code: "42501" });
     await expect(echeance(A, p["id"], { auteur: "" })).rejects.toMatchObject({ code: "42501" });
-    await expect(inserer(A, "phases_plan", { plan_id: p["id"], ordre: 1, debut: "2026-01-01", nature: "recurrente", montant_centimes: 1, periode_facturation_mois: 1, auteur: " " })).rejects.toMatchObject({ code: "42501" });
+    await expect(inserer(A, "phases_plan", { plan_id: p["id"], ordre: 1, debut: "2026-01-01", nature: "recurrente", montant_ht_centimes: 1, periode_facturation_mois: 1, auteur: " " })).rejects.toMatchObject({ code: "42501" });
     await expect(inserer(A, "abonnements", { organisation_id: A, debut: "2026-01-01", periode_facturation_mois: 1, mode_avance: "aucune", auteur: " " })).rejects.toMatchObject({ code: "42501" });
   });
 
   it("[A-146] une condition du client porte la source client, son auteur et ses dates", async () => {
     const A = randomUUID();
     await creerOrg(A);
-    const cond = (extra: Record<string, unknown>) => inserer(A, "conditions_commerciales", { organisation_id: A, type: "remise", valeur: JSON.stringify({ points_de_base: 500 }), source: "client", auteur: "agent-essai", valide_du: "2026-01-01", ...extra });
+    const cond = (extra: Record<string, unknown>, appelant: typeof APPELANT | null = APPELANT) => inserer(A, "conditions_commerciales", { organisation_id: A, type: "remise", valeur: JSON.stringify({ points_de_base: 500 }), source: "client", auteur: "agent-essai", valide_du: "2026-01-01", ...extra }, appelant);
     await expect(cond({})).resolves.toMatchObject({ source: "client", auteur: "agent-essai" });
     await expect(cond({ source: "defaut" })).rejects.toMatchObject({ code: "23514" });
-    await expect(cond({ auteur: " " })).rejects.toMatchObject({ code: "23514" });
-    await expect(cond({ auteur: null })).rejects.toMatchObject({ code: "23502" });
+    // Auteur = appelant (politique restrictive) : un auteur vide, nul ou autre que l'appelant donne 42501, avant les contraintes de colonne.
+    await expect(cond({ auteur: " " })).rejects.toMatchObject({ code: "42501" });
+    await expect(cond({ auteur: null })).rejects.toMatchObject({ code: "42501" });
+    await expect(cond({ auteur: "autre-agent" })).rejects.toMatchObject({ code: "42501" });
+    await expect(cond({}, null)).rejects.toMatchObject({ code: "42501" });
     await expect(cond({ valide_au: "2025-12-31" })).rejects.toMatchObject({ code: "23514" });
     await expect(cond({ valeur: JSON.stringify([1]) })).rejects.toMatchObject({ code: "23514" });
     await expect(cond({ valeur: "5" })).rejects.toMatchObject({ code: "23514" });
+  });
+
+  it("[A-146] @argent une condition ne se modifie que par son appelant, et seules valide_au et auteur sont modifiables (valeur : 42501)", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    const c = await inserer(A, "conditions_commerciales", { organisation_id: A, type: "remise", valeur: JSON.stringify({ points_de_base: 500 }), source: "client", auteur: "agent-essai" });
+    const maj = (set: string, appelant?: typeof APPELANT) => ecrire(app, A, (cl) => cl.query(`UPDATE conditions_commerciales SET ${set} WHERE id = $1`, [c["id"]]), appelant);
+    await expect(maj("valide_au = '2030-01-01'")).rejects.toMatchObject({ code: "42501" });
+    await expect(maj("valide_au = '2030-01-01'", { acteur: "autre-agent", ip: "192.0.2.18" })).rejects.toMatchObject({ code: "42501" });
+    await expect(maj("valeur = '{}'::jsonb", APPELANT)).rejects.toMatchObject({ code: "42501" });
+    expect((await maj("valide_au = '2030-01-01'", APPELANT)).rowCount).toBe(1);
   });
 
   it("[A-146] @isolation console_app ne modifie pas les conditions par défaut et ne lit ni ne modifie celles de B", async () => {

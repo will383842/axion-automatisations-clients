@@ -3,7 +3,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { CreateBucketCommand, DeleteObjectCommand, GetObjectCommand, GetObjectRetentionCommand, ListObjectVersionsCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, onTestFailed } from "vitest";
 import { lireYaml } from "../../../../scripts/garde-compose.js";
 import { COMPARTIMENT, copierVeille, creerPortCopieAws, type PortCopie } from "./copie-quotidienne.js";
 import { empreinteDe, type LigneJournal } from "./contenu-canonique.js";
@@ -59,7 +59,10 @@ async function deposer(): Promise<string> {
   return `${veille}.jsonl`;
 }
 
+// Le rapport JSON de la CI n'est pas publié : le nom du test et la cause sont donc écrits dans le journal.
 describe("copie quotidienne du journal, avec la brique de stockage", { timeout: 60_000 }, () => {
+  beforeEach((ctx) => { onTestFailed((c) => console.log(`ECHEC ${ctx.task.name} : ${String(c.task.result?.errors?.[0]?.message ?? "").slice(0, 400)}`)); });
+
   it("[C-029] la copie de la veille est déposée avec ObjectLock COMPLIANCE et une rétention de 5 ans", async () => {
     const cle = await deposer();
     const r = await s3.send(new GetObjectRetentionCommand({ Bucket: COMPARTIMENT, Key: cle }));
@@ -87,8 +90,10 @@ describe("copie quotidienne du journal, avec la brique de stockage", { timeout: 
 
   it("[C-029] @anti-doublon deux lancements la même nuit ne déposent qu'une copie", async () => {
     const o = { lecteur: lecteur(), port, signataire, alertes, maintenant: () => MAINTENANT };
-    const etats = (await Promise.all([copierVeille(o), copierVeille(o)])).map((r) => r.etat);
+    // L'unicité de la tâche la même nuit est tenue par le jobId (enfilerCopie) ; ici, le second lancement trouve la clé et ne dépose rien.
+    const etats = [(await copierVeille(o)).etat, (await copierVeille(o)).etat];
     expect(etats.filter((e) => e === "deposee").length).toBeLessThanOrEqual(1);
+    expect(etats[1]).toBe("deja_deposee");
     const versions = (await s3.send(new ListObjectVersionsCommand({ Bucket: COMPARTIMENT, Prefix: `${veille}.jsonl` }))).Versions ?? [];
     expect(versions).toHaveLength(1);
   });

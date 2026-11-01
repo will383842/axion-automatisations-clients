@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, onTestFailed } from "vitest";
 import { avecClient } from "../db/client-actif.js";
 import { migrer } from "../db/migrer.js";
 import { lireJournalSql } from "../routes/journal.js";
@@ -51,6 +51,8 @@ afterAll(async () => {
 });
 
 describe("vérification de la chaîne du journal, avec le socle", { timeout: 60_000 }, () => {
+  beforeEach((ctx) => { onTestFailed((c) => console.log(`ECHEC ${ctx.task.name} : ${String(c.task.result?.errors?.[0]?.message ?? "").slice(0, 400)}`)); });
+
   it("[C-028] la vérification d'un journal intact ne trouve aucune rupture", async () => {
     const A = randomUUID();
     for (let i = 0; i < 5; i++) await ecrire(A, "essai_t210", `e${i}`, { i, texte: "é\"\\\n" }, i % 2 ? "192.0.2.9" : undefined);

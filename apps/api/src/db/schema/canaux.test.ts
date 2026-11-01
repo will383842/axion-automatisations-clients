@@ -3,7 +3,8 @@ import { getTableConfig } from "drizzle-orm/pg-core";
 import { describe, expect, it } from "vitest";
 import { TABLES_COMMUNES, TENANT_FACULTATIF } from "../../../../../packages/contrats/src/c5/invariants.ts";
 import { TABLES_CLIENT } from "./aides.ts";
-import { aTrancher, boiteEnvoi, destinationEnvoi, etatATrancher, etatEnvoi, exclusions, exclusionsPlateforme, faitsRecus, liensCrm, motifATrancher, motifExclusion } from "./canaux.ts";
+import { aTrancher, alertesPlateforme, boiteEnvoi, conditionsParDefaut, destinationEnvoi, etatAlerte, etatATrancher, etatEnvoi, exclusions, exclusionsPlateforme, faitsRecus, liensCrm, motifATrancher, motifExclusion, reglageGlobalFinDeContrat } from "./canaux.ts";
+import { PLATEFORME_ID } from "./aides.ts";
 
 // Contrôles sans base de données du schéma et de la migration 0006 ; les essais contre PostgreSQL sont dans db/canaux.int.test.ts (job socle-integration).
 const migration = readFileSync(new URL("../../../drizzle/0006_canaux.sql", import.meta.url), "utf8");
@@ -13,6 +14,9 @@ const contraintes = (t: Table) => getTableConfig(t).checks.map((c) => c.name);
 const uniques = (t: Table) => getTableConfig(t).uniqueConstraints.map((u) => u.columns.map((c) => c.name));
 const droits = (table: string) => [...migration.matchAll(new RegExp(`GRANT ([A-Z, ]+(?:\\([^)]*\\))?) ON TABLE "public"\\."${table}" TO console_app`, "g"))].map((m) => m[1]);
 const TABLES = ["boite_envoi", "faits_recus", "liens_crm", "a_trancher", "exclusions"];
+const GLOBALES = ["reglage_global_fin_de_contrat", "conditions_par_defaut", "alertes_plateforme"];
+const droitsEquipe = (table: string) => [...migration.matchAll(new RegExp(`GRANT ([A-Z, ]+(?:\\([^)]*\\))?) ON TABLE "public"\\."${table}" TO console_equipe`, "g"))].map((m) => m[1]);
+const LECTURE_PLATEFORME = `USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid OR tenant_id = '${PLATEFORME_ID}')`;
 
 describe("tables des canaux : schéma et migration 0006", () => {
   it("[C-402] une ligne de boîte d'envoi porte sa destination, sa route, sa méthode, son corps, sa clé, son empreinte et son état a_envoyer par défaut", () => {
@@ -92,4 +96,76 @@ describe("tables des canaux : schéma et migration 0006", () => {
     expect(droits("boite_envoi").join()).toBe('SELECT, INSERT,UPDATE ("etat", "nombre_essais", "prochain_essai", "derniere_erreur", "reponse_recue")');
     expect(migration).not.toMatch(/GRANT UPDATE[^;]*cle_anti_doublon/);
   });
+
+  it("[C-715] @isolation console_app n'écrit pas dans reglage_global_fin_de_contrat et portail_app n'y a aucun droit", () => {
+    expect(droits("reglage_global_fin_de_contrat")).toEqual(["SELECT"]);
+    // Ajout seul pour l'équipe : ni UPDATE ni DELETE, et la ligne appartient à la plateforme.
+    expect(droitsEquipe("reglage_global_fin_de_contrat")).toEqual(["SELECT, INSERT"]);
+    expect(migration).toContain(`CREATE POLICY ecriture_equipe ON "public"."reglage_global_fin_de_contrat" FOR INSERT TO console_equipe WITH CHECK (tenant_id = '${PLATEFORME_ID}')`);
+    expect(migration).not.toMatch(/portail_app/);
+    expect(colonnes(reglageGlobalFinDeContrat)).toEqual(expect.arrayContaining(["tenant_id", "delai_proposition_suppression_mois", "auteur", "cree_le"]));
+  });
+
+  it("[C-715] @isolation un client ne lit que sa ligne et celle de la plateforme, jamais celle d'un autre client", () => {
+    for (const t of GLOBALES) {
+      expect(migration, t).toContain(`CREATE POLICY lecture_client_ou_plateforme ON "public"."${t}" FOR SELECT TO console_app ${LECTURE_PLATEFORME}`);
+      expect(migration, t).not.toContain(`CREATE POLICY isolation_client ON "public"."${t}"`);
+      expect(contraintes(getTableOf(t)), t).toContain(`${t}_plateforme`);
+    }
+  });
+
+  it("[C-715] le réglage global refuse un délai inférieur à 2, son défaut est 24 (première ligne posée avant FORCE)", () => {
+    expect(contraintes(reglageGlobalFinDeContrat)).toContain("reglage_global_delai_minimal");
+    expect(migration).toContain(`CHECK ("reglage_global_fin_de_contrat"."delai_proposition_suppression_mois" >= 2)`);
+    const insertion = migration.indexOf('INSERT INTO "public"."reglage_global_fin_de_contrat"');
+    expect(insertion).toBeGreaterThan(-1);
+    expect(migration.slice(insertion, insertion + 400)).toContain(`'${PLATEFORME_ID}'`);
+    expect(migration.slice(insertion, insertion + 400)).toContain("24");
+    expect(insertion).toBeLessThan(migration.indexOf('ALTER TABLE "public"."reglage_global_fin_de_contrat" FORCE ROW LEVEL SECURITY'));
+  });
+
+  it("[A-146] @isolation console_app ne modifie pas conditions_par_defaut ; seule la plateforme les porte", () => {
+    expect(droits("conditions_par_defaut")).toEqual(["SELECT"]);
+    expect(droitsEquipe("conditions_par_defaut").join()).toMatch(/^SELECT, INSERT,UPDATE \(/);
+    expect(colonnes(conditionsParDefaut)).toEqual(expect.arrayContaining(["tenant_id", "type", "valeur", "source", "valide_du", "valide_au", "cree_par"]));
+    expect(contraintes(conditionsParDefaut)).toEqual(expect.arrayContaining(["conditions_par_defaut_source_defaut", "conditions_par_defaut_validite"]));
+  });
+
+  it("[A-130] alertes_plateforme refuse un état hors ouverte, acquittee, close", () => {
+    expect(etatAlerte.enumValues).toEqual(["ouverte", "acquittee", "close"]);
+    expect(getTableConfig(alertesPlateforme).columns.find((c) => c.name === "etat")?.default).toBe("ouverte");
+    expect(droits("alertes_plateforme")).toEqual(["SELECT"]);
+    expect(migration).toContain('CREATE TYPE "public"."etat_alerte" AS ENUM(\'ouverte\', \'acquittee\', \'close\')');
+  });
+
+  it("[A-119] les trois tables de la plateforme : tenant_id obligatoire, ENABLE, FORCE, aucune écriture pour console_app, lecture seule hors équipe", () => {
+    expect(TABLES_CLIENT.map((t) => t.nom)).toEqual(expect.arrayContaining(GLOBALES));
+    for (const t of GLOBALES) {
+      expect(migration, t).toContain(`ALTER TABLE "public"."${t}" ENABLE ROW LEVEL SECURITY`);
+      expect(migration, t).toContain(`ALTER TABLE "public"."${t}" FORCE ROW LEVEL SECURITY`);
+      expect(migration, t).toContain(`CREATE POLICY lecture_equipe ON "public"."${t}" FOR SELECT TO console_equipe`);
+      expect(migration, t).toContain(`CREATE INDEX "${t}_tenant_id_idx" ON "${t}" USING btree ("tenant_id")`);
+      expect(colonnes(getTableOf(t)), t).toContain("tenant_id");
+      expect(droitsEquipe(t).join(), t).not.toMatch(/DELETE|TRUNCATE/);
+    }
+    for (const t of GLOBALES) expect(droits(t), t).toEqual(["SELECT"]);
+  });
+
+  it("[A-119] exclusions_plateforme garde l'auteur de chaque ajout (NOT NULL, celui de la transaction)", () => {
+    expect(colonnes(exclusionsPlateforme)).toContain("ajoute_par");
+    expect(getTableConfig(exclusionsPlateforme).columns.find((c) => c.name === "ajoute_par")?.notNull).toBe(true);
+    expect(migration).toContain(`CREATE POLICY ajout_equipe ON "public"."exclusions_plateforme" FOR INSERT TO console_equipe WITH CHECK (ajoute_par = NULLIF(current_setting('app.acteur', true), ''))`);
+    expect(contraintes(exclusionsPlateforme)).toContain("exclusions_plateforme_auteur");
+  });
+
+  it("[C-456] une entrée à trancher déjà tranchée est immuable : un déclencheur refuse tout retour d'état", () => {
+    expect(migration).toMatch(/CREATE FUNCTION public\.a_trancher_figer\(\)/);
+    expect(migration).toContain('CREATE TRIGGER a_trancher_figer BEFORE UPDATE ON "public"."a_trancher" FOR EACH ROW EXECUTE FUNCTION public.a_trancher_figer()');
+    expect(migration).toMatch(/OLD\.etat = 'tranche'[\s\S]*RAISE EXCEPTION/);
+  });
 });
+
+const TOUTES: Record<string, Table> = { reglage_global_fin_de_contrat: reglageGlobalFinDeContrat, conditions_par_defaut: conditionsParDefaut, alertes_plateforme: alertesPlateforme };
+function getTableOf(nom: string): Table {
+  return TOUTES[nom] as Table;
+}

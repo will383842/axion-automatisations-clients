@@ -64,8 +64,23 @@ const envoi = (A: string, extra: Record<string, unknown> = {}) =>
   inserer(A, "boite_envoi", { destination: "crm", route: "/api/v1/evenements", methode: "POST", corps: JSON.stringify({ type: "essai" }), cle_anti_doublon: randomUUID(), empreinte_corps: empreinte("corps"), ...extra });
 const fait = (A: string, extra: Record<string, unknown> = {}) => inserer(A, "faits_recus", { source: "hub", event_id: randomUUID(), type: "essai", sequence: 1, sujet: "sujet-essai", ...extra });
 const exclusion = (A: string, extra: Record<string, unknown> = {}) => inserer(A, "exclusions", { empreinte_email: empreinte(`${randomUUID()}@exemple.fr`), motif: "rebond", source: "retour_rebond", ...extra });
-const commune = (extra: Record<string, unknown> = {}) =>
-  equipe.query("INSERT INTO exclusions_plateforme (empreinte_email, motif, source) VALUES ($1, $2, $3) RETURNING *", [extra["empreinte"] ?? empreinte(`${randomUUID()}@exemple.fr`), extra["motif"] ?? "plainte", extra["source"] ?? "rapport_plainte"]);
+// L'auteur d'un ajout à la liste commune est l'acteur de la transaction (politique ajout_equipe) : jamais une valeur libre.
+async function commune(extra: Record<string, unknown> = {}, acteur = "agent-essai") {
+  const c = await equipe.connect();
+  try {
+    await c.query("BEGIN");
+    await c.query("SELECT set_config('app.acteur', $1, true)", [acteur]);
+    const r = await c.query("INSERT INTO exclusions_plateforme (empreinte_email, motif, source, ajoute_par) VALUES ($1, $2, $3, $4) RETURNING *", [extra["empreinte"] ?? empreinte(`${randomUUID()}@exemple.fr`), extra["motif"] ?? "plainte", extra["source"] ?? "rapport_plainte", extra["auteur"] ?? acteur]);
+    await c.query("COMMIT");
+    return r;
+  } catch (e) {
+    await c.query("ROLLBACK").catch(() => undefined);
+    throw e;
+  } finally {
+    c.release();
+  }
+}
+const PLATEFORME = "00000000-0000-0000-0000-000000000001";
 
 beforeAll(async () => {
   await migrer({ url: `postgres://console_migration:${motDePasseDe("console_migration")}@${DIRECT.host}:${DIRECT.port}/console`, dossier: fileURLToPath(new URL("../../drizzle", import.meta.url)) });
@@ -159,7 +174,7 @@ describe("tables des canaux, avec le socle", { timeout: 30_000 }, () => {
     await commune({ empreinte: adresse });
     for (const client of [A, B]) {
       expect((await ecrire(app, client, (c) => c.query("SELECT count(*)::int AS n FROM exclusions_plateforme WHERE empreinte_email = $1", [adresse]))).rows[0]?.n).toBe(1);
-      await expect(ecrire(app, client, (c) => c.query("INSERT INTO exclusions_plateforme (empreinte_email, motif, source) VALUES ($1, 'rebond', 'retour_rebond')", [empreinte(`${randomUUID()}@exemple.fr`)]))).rejects.toMatchObject({ code: "42501" });
+      await expect(ecrire(app, client, (c) => c.query("INSERT INTO exclusions_plateforme (empreinte_email, motif, source, ajoute_par) VALUES ($1, 'rebond', 'retour_rebond', 'agent-essai')", [empreinte(`${randomUUID()}@exemple.fr`)]))).rejects.toMatchObject({ code: "42501" });
       await expect(ecrire(app, client, (c) => c.query("DELETE FROM exclusions_plateforme WHERE empreinte_email = $1", [adresse]))).rejects.toMatchObject({ code: "42501" });
     }
     await expect(equipe.query("DELETE FROM exclusions_plateforme WHERE empreinte_email = $1", [adresse])).rejects.toMatchObject({ code: "42501" });
@@ -199,11 +214,40 @@ describe("tables des canaux, avec le socle", { timeout: 30_000 }, () => {
     await expect(equipe.query("UPDATE boite_envoi SET etat = 'echec'")).rejects.toMatchObject({ code: "42501" });
   });
 
+  it("[A-119] une adresse de la liste commune garde l'auteur de la transaction : un autre nom ou un nom vide est refusé", async () => {
+    expect((await commune({}, "agent-essai")).rows[0]).toMatchObject({ ajoute_par: "agent-essai" });
+    await expect(commune({ auteur: "quelqu-un-d-autre" })).rejects.toMatchObject({ code: "42501" });
+    await expect(commune({ auteur: "" }, "")).rejects.toMatchObject({ code: expect.stringMatching(/42501|23514/) });
+  });
+
+  it("[C-456] une entrée à trancher déjà tranchée ne se rouvre pas et ne change plus", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    const ligne = await inserer(A, "a_trancher", { source: "hub", motif: "fiche_absorbee" });
+    const maj = (set: string) => ecrire(app, A, (c) => c.query(`UPDATE a_trancher SET ${set} WHERE id = $1`, [ligne["id"]]));
+    await maj("etat = 'tranche', decision = 'fusionner', tranche_par = 'agent-essai'");
+    await expect(maj("etat = 'ouvert', decision = NULL, tranche_par = NULL")).rejects.toThrow(/tranchée est immuable/);
+    await expect(maj("decision = 'séparer'")).rejects.toThrow(/tranchée est immuable/);
+    expect((await ecrire(app, A, (c) => c.query("SELECT etat, decision FROM a_trancher WHERE id = $1", [ligne["id"]]))).rows[0]).toMatchObject({ etat: "tranche", decision: "fusionner" });
+  });
+
+  it("[C-715] @isolation le réglage global : défaut 24, lu par un client, jamais écrit par console_app, ajout par l'équipe avec le tenant de la plateforme", async () => {
+    const A = randomUUID();
+    const lire = () => ecrire(app, A, (c) => c.query("SELECT delai_proposition_suppression_mois AS d, tenant_id FROM reglage_global_fin_de_contrat ORDER BY cree_le, id"));
+    const avant = (await lire()).rows;
+    expect(avant[0]).toMatchObject({ d: 24, tenant_id: PLATEFORME });
+    await expect(ecrire(app, A, (c) => c.query("INSERT INTO reglage_global_fin_de_contrat (id, tenant_id, delai_proposition_suppression_mois, auteur) VALUES ($1, $2, 12, 'x')", [randomUUID(), A]))).rejects.toMatchObject({ code: "42501" });
+    const ajout = (tenant: string, mois: number) => equipe.query("INSERT INTO reglage_global_fin_de_contrat (id, tenant_id, delai_proposition_suppression_mois, auteur) VALUES ($1, $2, $3, 'agent-essai')", [randomUUID(), tenant, mois]);
+    await expect(ajout(PLATEFORME, 1)).rejects.toMatchObject({ code: "23514" });
+    await expect(ajout(A, 12)).rejects.toMatchObject({ code: expect.stringMatching(/42501|23514/) });
+    await expect(equipe.query("UPDATE reglage_global_fin_de_contrat SET delai_proposition_suppression_mois = 3")).rejects.toMatchObject({ code: "42501" });
+  });
+
   it("[A-119] toutes les migrations appliquées, les invariants C5 ne trouvent aucun écart", async () => {
     const ecarts = (await controlerInvariants(requete, "console", OPTIONS)).filter((e) => !/(^|\.)essai_/.test(e.objet) && !e.objet.startsWith("partman."));
     expect(ecarts).toEqual([]);
-    const { rows } = await migration.query("SELECT relname FROM pg_class WHERE relkind = 'r' AND relnamespace = 'public'::regnamespace AND relname = ANY($1) ORDER BY 1", [["boite_envoi", "faits_recus", "liens_crm", "a_trancher", "exclusions", "exclusions_plateforme"]]);
-    expect(rows).toHaveLength(6);
+    const { rows } = await migration.query("SELECT relname FROM pg_class WHERE relkind = 'r' AND relnamespace = 'public'::regnamespace AND relname = ANY($1) ORDER BY 1", [["boite_envoi", "faits_recus", "liens_crm", "a_trancher", "exclusions", "exclusions_plateforme", "reglage_global_fin_de_contrat", "conditions_par_defaut", "alertes_plateforme"]]);
+    expect(rows).toHaveLength(9);
     expect(EXCEPTIONS_UNICITE).toEqual([]);
   });
 });

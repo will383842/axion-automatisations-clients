@@ -150,6 +150,28 @@ describe.skipIf(!URL_PG)("C5 invariants du schéma", () => { // fiche: T0-16
       (e) => expect(e).toEqual([]));
   });
 
+  it("[C-536] une table sans tenant_id hors de la liste commune est signalée tenant_id_absent ; une table listée qui porte tenant_id suit les règles ordinaires", async () => {
+    await avec("horsliste", `CREATE TABLE listes_x (empreinte text PRIMARY KEY); ALTER TABLE listes_x ENABLE ROW LEVEL SECURITY; ALTER TABLE listes_x FORCE ROW LEVEL SECURITY; CREATE POLICY lire ON listes_x FOR SELECT USING (true);`,
+      (e) => expect(e).toContainEqual({ regle: "tenant_id_absent", objet: "listes_x" }));
+    await avec("listee", `CREATE TABLE exclusions_plateforme (id bigint PRIMARY KEY, tenant_id uuid NOT NULL); ALTER TABLE exclusions_plateforme ENABLE ROW LEVEL SECURITY; ALTER TABLE exclusions_plateforme FORCE ROW LEVEL SECURITY; CREATE POLICY lire ON exclusions_plateforme FOR SELECT USING (true);`, (e) => {
+      expect(e).toContainEqual({ regle: "politique_ouverte", objet: "exclusions_plateforme" });
+      expect(e).toContainEqual({ regle: "index_tenant_absent", objet: "exclusions_plateforme" });
+    });
+  });
+
+  it("[C-536] sur une table commune, tout droit d'écriture de console_app (privilège, colonne ou politique) est signalé ; la lecture seule ne l'est pas", async () => {
+    const role = "DO $$ BEGIN CREATE ROLE console_app NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$;";
+    const COMMUNE = `${role} CREATE TABLE exclusions_plateforme (empreinte_email text PRIMARY KEY, motif text); ALTER TABLE exclusions_plateforme ENABLE ROW LEVEL SECURITY; ALTER TABLE exclusions_plateforme FORCE ROW LEVEL SECURITY;
+      CREATE POLICY lecture ON exclusions_plateforme FOR SELECT TO console_app USING (true); GRANT SELECT ON exclusions_plateforme TO console_app;`;
+    const signalee = (e: Ecart[]) => expect(e).toContainEqual({ regle: "politique_ouverte", objet: "exclusions_plateforme" });
+    await avec("commune_ok", COMMUNE, (e) => expect(e).toEqual([]));
+    await avec("commune_insert", `${COMMUNE} GRANT INSERT ON exclusions_plateforme TO console_app;`, signalee);
+    await avec("commune_colonne", `${COMMUNE} GRANT UPDATE (motif) ON exclusions_plateforme TO console_app;`, signalee);
+    await avec("commune_suppr", `${COMMUNE} GRANT DELETE ON exclusions_plateforme TO console_app;`, signalee);
+    await avec("commune_politique", `${COMMUNE} CREATE POLICY tout ON exclusions_plateforme FOR ALL TO console_app USING (true) WITH CHECK (true);`, signalee);
+    await avec("commune_public", `${COMMUNE} GRANT INSERT ON exclusions_plateforme TO PUBLIC;`, signalee);
+  });
+
   it("[C-536] une partition sans RLS, sans FORCE ou sans politique est signalée, même si le parent est conforme", async () => {
     await avec("part", `${EXECUTIONS} ${PARTITION}`, (e) => {
       expect(e).toContainEqual({ regle: "rls_absente", objet: "executions_2026_10" });

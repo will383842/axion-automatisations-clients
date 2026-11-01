@@ -42,6 +42,10 @@ export const ROLES_ADMINISTRATION: readonly string[] = [];
 // Seule table où tenant_id peut être NULL : les lignes d'équipe du journal d'audit n'ont pas de client (T2-01a).
 // La colonne doit exister ; RLS, FORCE et index restent exigés. Liste fermée : aucune option d'appel ne l'étend.
 export const TENANT_FACULTATIF: readonly string[] = Object.freeze(["public.journal_audit"]);
+// Tables communes à tous les clients, SANS colonne tenant_id (ADR 0050) : listes de valeurs d'AXION IA (empreintes d'adresses exclues pour rebond ou plainte).
+// Elles gardent RLS, FORCE et propriétaire contrôlés ; seuls tenant_id, son index et la lecture ouverte à tous les clients leur sont permis.
+// Liste fermée : aucune option d'appel ne l'étend ; une table qui porte un tenant_id suit les règles ordinaires même si elle est listée ici.
+export const TABLES_COMMUNES: readonly string[] = Object.freeze(["public.exclusions_plateforme"]);
 // Unicités permises sans tenant_id : liste fermée et vide. Une entrée ne s'ajoute qu'avec sa raison, relue en 2 tours (ADR 0040).
 // Aucune option d'appel ne l'étend.
 export const EXCEPTIONS_UNICITE: readonly { table: string; index: string; raison: string }[] = Object.freeze([]);
@@ -168,11 +172,12 @@ export async function controlerInvariants(
     const siennes = politiques.filter((p) => p.schema === t.schema && p.table === nom);
     const tenant = colonnes.find((c) => c.schema === t.schema && c.table === nom && c.colonne === "tenant_id");
     const facultatif = TENANT_FACULTATIF.includes(cleTable(t.schema, nom));
-    if (!tenant || (tenant.nullable !== "NO" && !facultatif)) noter("tenant_id_absent", objet);
+    const commune = !tenant && TABLES_COMMUNES.includes(cleTable(t.schema, nom));
+    if (!commune && (!tenant || (tenant.nullable !== "NO" && !facultatif))) noter("tenant_id_absent", objet);
     if (!t.rls || siennes.length === 0) noter("rls_absente", objet);
-    if (siennes.some(politiqueOuverte)) noter("politique_ouverte", objet);
+    if (!commune && siennes.some(politiqueOuverte)) noter("politique_ouverte", objet);
     if (!t.force_rls) noter("force_rls_absent", objet);
-    if (!index.some((i) => i.oid === t.oid)) noter("index_tenant_absent", objet);
+    if (!commune && !index.some((i) => i.oid === t.oid)) noter("index_tenant_absent", objet);
     const membres = Array.isArray(t.membres) ? t.membres : [t.proprietaire];
     if (membres.some((m) => options.rolesApplication.test(String(m)))) noter("proprietaire_application", objet);
 

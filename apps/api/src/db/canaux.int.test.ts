@@ -50,6 +50,10 @@ async function ecrire<T>(...args: Parameters<typeof avecClient<T>>): Promise<T> 
     try {
       return await avecClient(...args);
     } catch (e) {
+      if ((e as { code?: string }).code !== "55P03" || essai >= 4) throw e;
+    }
+  }
+}
 const inserer = (tenant: string, table: string, valeurs: Record<string, unknown>) => {
   const v = { id: randomUUID(), tenant_id: tenant, ...valeurs };
   const cles = Object.keys(v);

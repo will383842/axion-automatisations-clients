@@ -1,12 +1,17 @@
 import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { controlerInvariants, type Requete } from "../../../../packages/contrats/src/c5/invariants.js";
 import { avecClient, avecEquipe } from "./client-actif.js";
 import { migrer } from "./migrer.js";
+
+// Le rapport de la CI est un JSON hors du journal : un essai en échec est écrit sur la sortie d'erreur pour être lisible dans le journal du job.
+afterEach((contexte) => {
+  if (contexte.task.result?.state === "fail") writeSync(2, `ECHEC ${contexte.task.name} : ${String(contexte.task.result.errors?.[0]?.message ?? "").slice(0, 400)}\n`);
+});
 
 // Tables clients, contacts, instances et journal d'audit branché (T2-01b), contre le socle lancé par ops/socle/lancer.sh (job socle-integration).
 // Les essais tournent en parallèle sur une base partagée : identifiants de client tirés au hasard.

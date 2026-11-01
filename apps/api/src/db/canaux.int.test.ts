@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { controlerInvariants, EXCEPTIONS_UNICITE, type Requete } from "../../../../packages/contrats/src/c5/invariants.js";
 import { avecClient, avecEquipe } from "./client-actif.js";
 import { migrer } from "./migrer.js";
@@ -54,6 +54,20 @@ async function ecrire<T>(...args: Parameters<typeof avecClient<T>>): Promise<T> 
     }
   }
 }
+// Écritures directes de l'équipe sur les tables auditées (T2-03) : même attente du verrou du journal, même reprise.
+async function equipeRejouee(texte: string, valeurs: unknown[] = []) {
+  for (let essai = 1; ; essai++) {
+    try {
+      return await equipe.query(texte, valeurs);
+    } catch (e) {
+      if ((e as { code?: string }).code !== "55P03" || essai >= 4) throw e;
+    }
+  }
+}
+// Le rapport de la CI est un JSON hors du journal : un essai en échec est écrit ici pour être lisible dans le journal du job.
+afterEach((contexte) => {
+  if (contexte.task.result?.state === "fail") console.log(`ECHEC ${contexte.task.name} : ${String(contexte.task.result.errors?.[0]?.message ?? "").slice(0, 400)}`);
+});
 const inserer = (tenant: string, table: string, valeurs: Record<string, unknown>) => {
   const v = { id: randomUUID(), tenant_id: tenant, ...valeurs };
   const cles = Object.keys(v);
@@ -215,7 +229,7 @@ describe("lignes de la plateforme, avec le socle", { timeout: 30_000 }, () => {
   const parEquipe = (table: string, valeurs: Record<string, unknown>) => {
     const v = { id: randomUUID(), ...valeurs };
     const cles = Object.keys(v);
-    return equipe.query(`INSERT INTO ${table} (${cles.join(", ")}) VALUES (${cles.map((_, i) => `$${i + 1}`).join(", ")}) RETURNING *`, Object.values(v));
+    return equipeRejouee(`INSERT INTO ${table} (${cles.join(", ")}) VALUES (${cles.map((_, i) => `$${i + 1}`).join(", ")}) RETURNING *`, Object.values(v));
   };
   const lire = (A: string, table: string) => ecrire(app, A, async (c) => (await c.query(`SELECT tenant_id FROM ${table}`)).rows.map((r) => r.tenant_id as string));
 
@@ -256,8 +270,8 @@ describe("lignes de la plateforme, avec le socle", { timeout: 30_000 }, () => {
   it("[A-130] alertes_plateforme refuse un état hors ouverte, acquittee, close", async () => {
     const alerte = (await parEquipe("alertes_plateforme", { tenant_id: PLATEFORME, type: "sauvegarde", gravite: "critique", regle: "essai" })).rows[0];
     expect(alerte).toMatchObject({ etat: "ouverte", assignee_a: null });
-    for (const etat of ["acquittee", "close"]) expect((await equipe.query("UPDATE alertes_plateforme SET etat = $2, assignee_a = 'agent-essai' WHERE id = $1 RETURNING etat", [alerte?.id, etat])).rows[0]?.etat).toBe(etat);
-    await expect(equipe.query("UPDATE alertes_plateforme SET etat = 'resolue' WHERE id = $1", [alerte?.id])).rejects.toMatchObject({ code: "22P02" });
+    for (const etat of ["acquittee", "close"]) expect((await equipeRejouee("UPDATE alertes_plateforme SET etat = $2, assignee_a = 'agent-essai' WHERE id = $1 RETURNING etat", [alerte?.id, etat])).rows[0]?.etat).toBe(etat);
+    await expect(equipeRejouee("UPDATE alertes_plateforme SET etat = 'resolue' WHERE id = $1", [alerte?.id])).rejects.toMatchObject({ code: "22P02" });
     await expect(ecrire(app, randomUUID(), (c) => c.query("UPDATE alertes_plateforme SET etat = 'close'"))).rejects.toMatchObject({ code: "42501" });
   });
 });

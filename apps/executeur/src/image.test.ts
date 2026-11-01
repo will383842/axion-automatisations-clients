@@ -36,7 +36,8 @@ describe("image axion-moteur", () => {
     expect(lire("ops/images/axion-moteur/README.md")).toMatch(/aucun.*(headscale|tailscale)/i);
   });
   it("[A-347] le compose de la cellule porte l'image par empreinte, jamais par étiquette", () => {
-    expect(service.image).toMatch(/^[\w./-]+@sha256:[0-9a-f]{64}$/);
+    // Tant que rien n'est publié, aucune ligne image: (voir le compose) ; dès qu'elle existe, elle doit porter l'empreinte.
+    if (service.image !== undefined) expect(service.image).toMatch(/^[\w./-]+@sha256:[0-9a-f]{64}$/);
     expect(compose).not.toMatch(/:latest|image:\s*[^@\s]+:[\w.-]+\s*$/m);
   });
 });

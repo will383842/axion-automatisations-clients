@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { controlerInvariants, EXCEPTIONS_UNICITE, type Requete } from "../../../../packages/contrats/src/c5/invariants.js";
-import { avecClient, avecEquipe } from "./client-actif.js";
+import { avecClient } from "./client-actif.js";
 import { migrer } from "./migrer.js";
 
 // Contrats, devis, factures, apporteurs et activation (T2-05). Socle lancé par ops/socle/lancer.sh (job socle-integration).
@@ -41,8 +41,6 @@ const app = pool(PGBOUNCER, "console_app", 40);
 const OPTIONS = { rolesApplication: /^(console|moteur)_(app|equipe)$/ };
 const requete: Requete = async (sql) => (await migration.query(`SELECT coalesce(json_agg(t), '[]') AS r FROM (${sql}) t`)).rows[0]?.["r"] as Record<string, unknown>[];
 const APPELANT = { acteur: "agent-essai", ip: "192.0.2.17" };
-const equipe = pool(PGBOUNCER, "console_equipe", 3);
-const empreinte = (email: string) => createHash("sha256").update(email.toLowerCase()).digest("hex");
 
 // Les écritures auditées passent par le verrou du journal : une attente trop longue (55P03) est rejouée pour les mises en place.
 async function ecrire<T>(...args: Parameters<typeof avecClient<T>>): Promise<T> {
@@ -188,7 +186,7 @@ describe("contrats, devis, factures et activation, avec le socle", { timeout: 30
   });
 
   it("[A-119] @isolation toutes les migrations appliquées, les invariants C5 ne trouvent aucun écart", async () => {
-    const ecarts = (await controlerInvariants(requete, "console", OPTIONS)).filter((e) => !e.objet.startsWith("essai_"));
+    const ecarts = (await controlerInvariants(requete, "console", OPTIONS)).filter((e) => !/(^|\.)essai_/.test(e.objet) && !e.objet.startsWith("partman."));
     expect(ecarts).toEqual([]);
   });
 

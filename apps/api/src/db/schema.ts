@@ -3,3 +3,4 @@ export * from "./schema/audit.ts";
 export * from "./schema/clients.ts";
 export * from "./schema/bases-client.ts";
 export * from "./schema/canaux.ts";
+export * from "./schema/contrats.ts";

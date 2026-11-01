@@ -13,6 +13,7 @@
     {"fichier":"0005_bases_client.sql","nom":"propositions_transition","empreinte":"b6e549d946da483b0325c7029d9dd6b0d96750b26f77f947f92cee8c7385aea2","adr":"0047"},
     {"fichier":"0005_bases_client.sql","nom":"decisions_controle_gel","empreinte":"ed62e4065a11fe16c867adce4f9bb26d787ffd07e17b5a3429daa64dd77214b5","adr":"0047"},
     {"fichier":"0005_bases_client.sql","nom":"gels_levee_unique","empreinte":"257f5f551d069760ad07cf43791f91046f1de576b6f5e2b9d96411da24cd9005","adr":"0047"},
-    {"fichier":"0005_bases_client.sql","nom":"demandes_transition","empreinte":"5b2ff4396b55751f96b659f27bf7bdc3da3da189008240b16ada382961d2e713","adr":"0047"}
+    {"fichier":"0005_bases_client.sql","nom":"demandes_transition","empreinte":"5b2ff4396b55751f96b659f27bf7bdc3da3da189008240b16ada382961d2e713","adr":"0047"},
+    {"fichier":"0009_contrats.sql","nom":"instances_exiger_sous_traitance","empreinte":"356a7c4aee06567dabdbc8945f3cc65db3c56d556210ebe22821d6da9f1be44f","adr":"0053"}
   ]
 }

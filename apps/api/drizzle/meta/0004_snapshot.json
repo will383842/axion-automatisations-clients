@@ -1,0 +1,603 @@
+{
+  "id": "afb38f75-8bd4-41bc-8498-e6bb15c15c36",
+  "prevId": "00e5bbd5-32f1-4a82-bc8b-d48f648dbdca",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.journal_audit": {
+      "name": "journal_audit",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "journal_audit_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "acteur": {
+          "name": "acteur",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "action": {
+          "name": "action",
+          "type": "action_audit",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "entite": {
+          "name": "entite",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "entite_id": {
+          "name": "entite_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ancienne": {
+          "name": "ancienne",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "nouvelle": {
+          "name": "nouvelle",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ip": {
+          "name": "ip",
+          "type": "inet",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cree_le": {
+          "name": "cree_le",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "empreinte_precedente": {
+          "name": "empreinte_precedente",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "empreinte": {
+          "name": "empreinte",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "journal_audit_tenant_id_idx": {
+          "name": "journal_audit_tenant_id_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.contacts": {
+      "name": "contacts",
+      "schema": "",
+      "columns": {
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "organisation_id": {
+          "name": "organisation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "nom": {
+          "name": "nom",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "role": {
+          "name": "role",
+          "type": "role_contact",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'principal'"
+        },
+        "acces_portail": {
+          "name": "acces_portail",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "keycloak_id": {
+          "name": "keycloak_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cree_le": {
+          "name": "cree_le",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "contacts_tenant_id_idx": {
+          "name": "contacts_tenant_id_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "contacts_organisation_fk": {
+          "name": "contacts_organisation_fk",
+          "tableFrom": "contacts",
+          "tableTo": "organisations",
+          "columnsFrom": [
+            "tenant_id",
+            "organisation_id"
+          ],
+          "columnsTo": [
+            "tenant_id",
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "contacts_tenant_id_id_pk": {
+          "name": "contacts_tenant_id_id_pk",
+          "columns": [
+            "tenant_id",
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "contacts_tenant_id_id_unique": {
+          "name": "contacts_tenant_id_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "tenant_id",
+            "id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "contacts_email_format": {
+          "name": "contacts_email_format",
+          "value": "\"contacts\".\"email\" ~ '^[^@[:space:]]+@[^@[:space:]]+$'"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.instances": {
+      "name": "instances",
+      "schema": "",
+      "columns": {
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "organisation_id": {
+          "name": "organisation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "code_automatisation": {
+          "name": "code_automatisation",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "formule": {
+          "name": "formule",
+          "type": "formule_instance",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "environnement": {
+          "name": "environnement",
+          "type": "environnement_instance",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "etat": {
+          "name": "etat",
+          "type": "etat_instance",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'active'"
+        },
+        "cree_le": {
+          "name": "cree_le",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "instances_tenant_id_idx": {
+          "name": "instances_tenant_id_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "instances_organisation_fk": {
+          "name": "instances_organisation_fk",
+          "tableFrom": "instances",
+          "tableTo": "organisations",
+          "columnsFrom": [
+            "tenant_id",
+            "organisation_id"
+          ],
+          "columnsTo": [
+            "tenant_id",
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "instances_tenant_id_id_pk": {
+          "name": "instances_tenant_id_id_pk",
+          "columns": [
+            "tenant_id",
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "instances_tenant_id_id_unique": {
+          "name": "instances_tenant_id_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "tenant_id",
+            "id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.organisations": {
+      "name": "organisations",
+      "schema": "",
+      "columns": {
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "console_client_id": {
+          "name": "console_client_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "raison_sociale": {
+          "name": "raison_sociale",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "siren": {
+          "name": "siren",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "metier": {
+          "name": "metier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "code_naf": {
+          "name": "code_naf",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "taille": {
+          "name": "taille",
+          "type": "taille_organisation",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "modele_ia_defaut": {
+          "name": "modele_ia_defaut",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "statut": {
+          "name": "statut",
+          "type": "statut_organisation",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'prospect'"
+        },
+        "responsable_axion": {
+          "name": "responsable_axion",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "crm_company_id": {
+          "name": "crm_company_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cree_le": {
+          "name": "cree_le",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "organisations_tenant_id_idx": {
+          "name": "organisations_tenant_id_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "organisations_tenant_id_id_pk": {
+          "name": "organisations_tenant_id_id_pk",
+          "columns": [
+            "tenant_id",
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "organisations_tenant_id_id_unique": {
+          "name": "organisations_tenant_id_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "tenant_id",
+            "id"
+          ]
+        },
+        "organisations_tenant_id_console_client_id_unique": {
+          "name": "organisations_tenant_id_console_client_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "tenant_id",
+            "console_client_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "organisations_id_tenant": {
+          "name": "organisations_id_tenant",
+          "value": "\"organisations\".\"id\" = \"organisations\".\"tenant_id\""
+        },
+        "organisations_console_client_id_derive": {
+          "name": "organisations_console_client_id_derive",
+          "value": "\"organisations\".\"console_client_id\" = \"organisations\".\"tenant_id\""
+        },
+        "organisations_siren_format": {
+          "name": "organisations_siren_format",
+          "value": "\"organisations\".\"siren\" ~ '^[0-9]{9}$'"
+        },
+        "organisations_code_naf_format": {
+          "name": "organisations_code_naf_format",
+          "value": "\"organisations\".\"code_naf\" ~ '^[0-9]{2}\\.[0-9]{2}[A-Z]$'"
+        }
+      },
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {
+    "public.action_audit": {
+      "name": "action_audit",
+      "schema": "public",
+      "values": [
+        "insertion",
+        "modification",
+        "suppression",
+        "blocage_cle",
+        "levee_blocage_cle",
+        "levee_blocage_cle_echouee",
+        "levee_budget_jour"
+      ]
+    },
+    "public.environnement_instance": {
+      "name": "environnement_instance",
+      "schema": "public",
+      "values": [
+        "test",
+        "production"
+      ]
+    },
+    "public.etat_instance": {
+      "name": "etat_instance",
+      "schema": "public",
+      "values": [
+        "active",
+        "pause",
+        "erreur",
+        "livree"
+      ]
+    },
+    "public.formule_instance": {
+      "name": "formule_instance",
+      "schema": "public",
+      "values": [
+        "abonnement",
+        "achat",
+        "installation_maintenance"
+      ]
+    },
+    "public.role_contact": {
+      "name": "role_contact",
+      "schema": "public",
+      "values": [
+        "principal",
+        "facturation",
+        "technique",
+        "autre"
+      ]
+    },
+    "public.statut_organisation": {
+      "name": "statut_organisation",
+      "schema": "public",
+      "values": [
+        "prospect",
+        "en_signature",
+        "client",
+        "ancien_client"
+      ]
+    },
+    "public.taille_organisation": {
+      "name": "taille_organisation",
+      "schema": "public",
+      "values": [
+        "tpe",
+        "pme",
+        "eti",
+        "grande"
+      ]
+    }
+  },
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

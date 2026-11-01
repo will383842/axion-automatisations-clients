@@ -230,6 +230,40 @@ describe("PgBouncer de la grappe données (A-234, A-235, A-236, A-210)", () => {
     beforeAll(() => creerPlusieurs(ids), 600_000);
     const motDePasse = (r: string) => `TEST-NE-PAS-UTILISER-charge-${r.endsWith("app") ? "app" : "lecture"}`;
 
+    it("[A-210] l'essai de 50 bases à 2 connexions est mesuré et écrit", async () => {
+      const h = adresse("pgbouncer-donnees");
+      const cinquante = ids.slice(0, 50);
+      const clients = cinquante.flatMap((id) => [0, 1].map(() => clientPg(h, 6432, role(id, "app"), `cli_${id}`, motDePasse(role(id, "app")))));
+      await Promise.all(clients.map((c) => c.connect()));
+      const latences: number[] = [];
+      const fin = Date.now() + 10_000;
+      let erreurs = 0;
+      await Promise.all(
+        clients.map(async (c) => {
+          while (Date.now() < fin) {
+            const t = performance.now();
+            try {
+              await c.query("select 1");
+              latences.push(performance.now() - t);
+            } catch (e) {
+              if (erreurs++ === 0) writeSync(2, `A-210 première erreur : ${(e as Error).message}\n`);
+            }
+          }
+        }),
+      );
+      await Promise.allSettled(clients.map((c) => c.end()));
+      latences.sort((x, y) => x - y);
+      const debit = Math.round(latences.length / 10);
+      const pct = (p: number) => (latences[Math.floor(latences.length * p)] ?? 0).toFixed(1);
+      writeSync(2, `MESURE A-210 : 50 bases, 2 connexions chacune, ${debit} requêtes/s, latence p50 ${pct(0.5)} ms, p95 ${pct(0.95)} ms, ${erreurs} erreurs\n`);
+      expect(erreurs).toBe(0);
+      expect(debit).toBeGreaterThan(0);
+      const md = existsSync(racine("ops/donnees/mesure-pgbouncer.md")) ? lire("ops/donnees/mesure-pgbouncer.md") : "";
+      expect(md).toMatch(/50 bases/);
+      expect(md).toMatch(/requêtes par seconde/);
+      expect(md).toMatch(/Conclusion : (validé|à revoir)/);
+    }, 120_000);
+
     it("[A-236] la grappe refuse au-delà de 250 connexions serveur sans priver une base existante", async () => {
       const h = adresse("pgbouncer-donnees");
       const existante = clientPg(h, 6432, role(A, "app"), `cli_${A}`, mdpDe(role(A, "app")));
@@ -251,40 +285,6 @@ describe("PgBouncer de la grappe données (A-234, A-235, A-236, A-210)", () => {
       // PgBouncer garde ses connexions serveur 30 s : on attend qu'elles retombent avant les essais suivants.
       expect(await attendre(() => toutesLesConnexions() === 0, 80)).toBe(true);
     }, 300_000);
-
-    it("[A-210] l'essai de 50 bases à 2 connexions est mesuré et écrit", async () => {
-      const h = adresse("pgbouncer-donnees");
-      const cinquante = ids.slice(0, 50);
-      const clients = cinquante.flatMap((id) => [0, 1].map(() => clientPg(h, 6432, role(id, "app"), `cli_${id}`, motDePasse(role(id, "app")))));
-      await Promise.all(clients.map((c) => c.connect()));
-      const latences: number[] = [];
-      const fin = Date.now() + 10_000;
-      let erreurs = 0;
-      await Promise.all(
-        clients.map(async (c) => {
-          while (Date.now() < fin) {
-            const t = performance.now();
-            try {
-              await c.query("select 1");
-              latences.push(performance.now() - t);
-            } catch {
-              erreurs++;
-            }
-          }
-        }),
-      );
-      await Promise.allSettled(clients.map((c) => c.end()));
-      latences.sort((x, y) => x - y);
-      const debit = Math.round(latences.length / 10);
-      const pct = (p: number) => (latences[Math.floor(latences.length * p)] ?? 0).toFixed(1);
-      writeSync(2, `MESURE A-210 : 50 bases, 2 connexions chacune, ${debit} requêtes/s, latence p50 ${pct(0.5)} ms, p95 ${pct(0.95)} ms, ${erreurs} erreurs\n`);
-      expect(erreurs).toBe(0);
-      expect(debit).toBeGreaterThan(0);
-      const md = existsSync(racine("ops/donnees/mesure-pgbouncer.md")) ? lire("ops/donnees/mesure-pgbouncer.md") : "";
-      expect(md).toMatch(/50 bases/);
-      expect(md).toMatch(/requêtes par seconde/);
-      expect(md).toMatch(/Conclusion : (validé|à revoir)/);
-    }, 120_000);
   });
 });
 

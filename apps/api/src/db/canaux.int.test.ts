@@ -50,7 +50,26 @@ async function ecrire<T>(...args: Parameters<typeof avecClient<T>>): Promise<T> 
     try {
       return await avecClient(...args);
     } catch (e) {
-      if ((e as { code?: string }).code !== "55P03" || essai >= 4) throw e;
+      if (!["55P03", "40P01"].includes((e as { code?: string }).code ?? "") || essai >= 4) throw e;
+    }
+  }
+}
+// Écritures directes de l'équipe sur les tables auditées (T2-03) : même attente du verrou du journal, même reprise.
+async function equipeRejouee(texte: string, valeurs: unknown[] = []) {
+  for (let essai = 1; ; essai++) {
+    const c = await equipe.connect();
+    try {
+      // Les tables de la plateforme sont auditées : une écriture qui porte de l'argent exige un acteur (app.acteur), posé pour la durée de la transaction.
+      await c.query("BEGIN");
+      await c.query("SELECT set_config('app.acteur', 'agent-essai', true)");
+      const r = await c.query(texte, valeurs);
+      await c.query("COMMIT");
+      return r;
+    } catch (e) {
+      await c.query("ROLLBACK").catch(() => undefined);
+      if (!["55P03", "40P01"].includes((e as { code?: string }).code ?? "") || essai >= 4) throw e;
+    } finally {
+      c.release();
     }
   }
 }
@@ -215,7 +234,7 @@ describe("lignes de la plateforme, avec le socle", { timeout: 30_000 }, () => {
   const parEquipe = (table: string, valeurs: Record<string, unknown>) => {
     const v = { id: randomUUID(), ...valeurs };
     const cles = Object.keys(v);
-    return equipe.query(`INSERT INTO ${table} (${cles.join(", ")}) VALUES (${cles.map((_, i) => `$${i + 1}`).join(", ")}) RETURNING *`, Object.values(v));
+    return equipeRejouee(`INSERT INTO ${table} (${cles.join(", ")}) VALUES (${cles.map((_, i) => `$${i + 1}`).join(", ")}) RETURNING *`, Object.values(v));
   };
   const lire = (A: string, table: string) => ecrire(app, A, async (c) => (await c.query(`SELECT tenant_id FROM ${table}`)).rows.map((r) => r.tenant_id as string));
 
@@ -245,19 +264,19 @@ describe("lignes de la plateforme, avec le socle", { timeout: 30_000 }, () => {
 
   it("[A-146] @isolation console_app ne modifie pas conditions_par_defaut ; elle lit celle de la plateforme", async () => {
     const A = randomUUID();
-    const ligne = (await parEquipe("conditions_par_defaut", { tenant_id: PLATEFORME, type: "remise", valeur: JSON.stringify({ taux: 5 }) })).rows[0];
+    const ligne = (await parEquipe("conditions_par_defaut", { tenant_id: PLATEFORME, type: "remise", valeur: JSON.stringify({ taux: 5 }), auteur: "agent-essai" })).rows[0];
     expect(ligne).toMatchObject({ source: "defaut", type: "remise" });
     expect(await lire(A, "conditions_par_defaut")).toContain(PLATEFORME);
     await expect(ecrire(app, A, (c) => c.query("UPDATE conditions_par_defaut SET valeur = '{}'::jsonb"))).rejects.toMatchObject({ code: "42501" });
     await expect(ecrire(app, A, (c) => c.query("INSERT INTO conditions_par_defaut (id, tenant_id, type, valeur) VALUES ($1, $2, 'frais', '{}'::jsonb)", [randomUUID(), A]))).rejects.toMatchObject({ code: "42501" });
-    await expect(parEquipe("conditions_par_defaut", { tenant_id: PLATEFORME, type: "frais", valeur: "{}", source: "client" })).rejects.toMatchObject({ code: "23514" });
+    await expect(parEquipe("conditions_par_defaut", { tenant_id: PLATEFORME, type: "frais", valeur: "{}", source: "client", auteur: "agent-essai" })).rejects.toMatchObject({ code: "23514" });
   });
 
   it("[A-130] alertes_plateforme refuse un état hors ouverte, acquittee, close", async () => {
     const alerte = (await parEquipe("alertes_plateforme", { tenant_id: PLATEFORME, type: "sauvegarde", gravite: "critique", regle: "essai" })).rows[0];
     expect(alerte).toMatchObject({ etat: "ouverte", assignee_a: null });
-    for (const etat of ["acquittee", "close"]) expect((await equipe.query("UPDATE alertes_plateforme SET etat = $2, assignee_a = 'agent-essai' WHERE id = $1 RETURNING etat", [alerte?.id, etat])).rows[0]?.etat).toBe(etat);
-    await expect(equipe.query("UPDATE alertes_plateforme SET etat = 'resolue' WHERE id = $1", [alerte?.id])).rejects.toMatchObject({ code: "22P02" });
+    for (const etat of ["acquittee", "close"]) expect((await equipeRejouee("UPDATE alertes_plateforme SET etat = $2, assignee_a = 'agent-essai' WHERE id = $1 RETURNING etat", [alerte?.id, etat])).rows[0]?.etat).toBe(etat);
+    await expect(equipeRejouee("UPDATE alertes_plateforme SET etat = 'resolue' WHERE id = $1", [alerte?.id])).rejects.toMatchObject({ code: "22P02" });
     await expect(ecrire(app, randomUUID(), (c) => c.query("UPDATE alertes_plateforme SET etat = 'close'"))).rejects.toMatchObject({ code: "42501" });
   });
 });

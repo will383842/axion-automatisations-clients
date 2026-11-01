@@ -204,10 +204,10 @@ describe("rôles", () => {
   it("[A-165] aucune extension ne s'ajoute par console_app ; la liste des extensions est fermée ; aucun rôle prédéfini dangereux", async () => {
     for (const b of BASES) {
       const app = await client("direct", `${b}_app`, b);
-      for (const extension of ["dblink", "pg_trgm"]) expect(await codeRefus(app, `CREATE EXTENSION ${extension}`), extension).toBe("42501");
+      for (const extension of ["dblink", "hstore"]) expect(await codeRefus(app, `CREATE EXTENSION ${extension}`), extension).toBe("42501");
       expect(await codeRefus(app, "COPY (SELECT 1) TO PROGRAM 'true'")).toBe("42501");
       const extensions = await lignes(app, "SELECT extname FROM pg_extension ORDER BY extname");
-      expect(extensions.map((e) => e["extname"])).toEqual(["pg_partman", "plpgsql"]);
+      expect(extensions.map((e) => e["extname"])).toEqual(b === "console" ? ["pg_partman", "pg_trgm", "plpgsql", "unaccent"] : ["pg_partman", "plpgsql"]);
       for (const [, r] of Object.entries(ROLES(b))) {
         for (const predefini of ["pg_read_server_files", "pg_write_server_files", "pg_execute_server_program", "pg_read_all_data", "pg_write_all_data", "pg_monitor", "pg_signal_backend", "pg_checkpoint", "pg_create_subscription"]) {
           const [l] = await lignes(app, "SELECT pg_has_role($1, $2, 'MEMBER') AS ok", [r, predefini]);
@@ -262,8 +262,9 @@ describe("secrets et propriétaire (audit B2, B3)", () => {
       await m.query("SET ROLE NONE");
       expect(await codeRefus(m, "CREATE TABLE public.orpheline (id int)"), "table").toBe("42501");
       expect(await codeRefus(m, "CREATE FUNCTION public.f_orph() RETURNS int LANGUAGE sql SECURITY DEFINER AS 'SELECT 1'"), "fonction").toBe("42501");
-      const exec = await lignes(equipe, "SELECT p.oid::regprocedure::text AS f FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND has_function_privilege($1, p.oid, 'EXECUTE')", [`${b}_app`]);
-      expect(exec.map((e) => String(e["f"]).replace(/[(].*$/, "").replace(/^public[.]/, ""))).toEqual(b === "console" ? ["audit_ajouter"] : []);
+      const exec = await lignes(equipe, "SELECT p.oid::regprocedure::text AS f FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND has_function_privilege($1, p.oid, 'EXECUTE') AND NOT EXISTS (SELECT 1 FROM pg_depend d JOIN pg_extension x ON x.oid = d.refobjid WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e' AND x.extname IN ('pg_trgm', 'unaccent'))", [`${b}_app`]);
+      // Seules les fonctions des extensions unaccent et pg_trgm sont écartées, nommées (PostgreSQL les laisse ouvertes, elles ne lisent rien). Seconde exception, ADR 0051 : sans_accent (index de recherche du catalogue).
+      expect(exec.map((e) => String(e["f"]).replace(/[(].*$/, "").replace(/^public[.]/, "")).sort()).toEqual(b === "console" ? ["audit_ajouter", "sans_accent"] : []);
     }
   });
 });

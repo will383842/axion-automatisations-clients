@@ -50,6 +50,13 @@
       "when": 1793555735003,
       "tag": "0006_canaux",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1793567982603,
+      "tag": "0007_catalogue",
+      "breakpoints": true
     }
   ]
 }

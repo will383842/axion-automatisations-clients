@@ -1,0 +1,56 @@
+# Grappe PostgreSQL « données » (T2-31, ADR 0046) : les bases cli_<id> des clients, distincte de la grappe commune (ADR 0013), avec son PgBouncer.
+# Même image que le socle, volume à elle, réseau interne seulement, aucun port publié. Ni console, ni moteur, ni keycloak, ni passerelle_ia ici.
+# Le dossier ./donnees est monté tel quel : à l'initialisation PostgreSQL y exécute les scripts SQL (creer-base ne fait rien sans « id »), PgBouncer y lit sa configuration.
+# Un seul secret de test (SOCLE_PG_MOT_DE_PASSE), lu par le seul service « donnees » : chaque rôle a son mot de passe, SHA-256 de « secret/rôle ».
+# PgBouncer ne reçoit JAMAIS ce secret : « donnees » écrit dans le volume donnees-socket la seule ligne de pgbouncer_auth, et PgBouncer la lit. Les clients passent par auth_query.
+# PgBouncer joint PostgreSQL par une socket Unix (volume donnees-socket) : les rôles des clients n'entrent que par là, jamais en TCP (règles pg_hba dans init.sql).
+services:
+  donnees:
+    image: ghcr.io/will383842/axion-automatisations-clients/postgres-socle:16-r41@sha256:c5fd480db4b8537bfaf082b5b73cd6e288994309b4ac0bf8cc58694f6757e2ce
+    restart: "no"
+    environment:
+      SOCLE_PG_MOT_DE_PASSE: ${SOCLE_PG_MOT_DE_PASSE:?mot de passe de test absent}
+      K: printf %s/donnees-postgres $$SOCLE_PG_MOT_DE_PASSE|sha256sum|cut -c1-64
+      G: export POSTGRES_PASSWORD=$$(eval "$$K")
+      # L : format d'une ligne de la liste · A : mot de passe de pgbouncer_auth · H : écriture de la liste (une seule ligne) dans le volume lu par PgBouncer (le seul dossier où postgres peut écrire)
+      L: '\042%s\042 \042%s\042\n'
+      A: printf %s/pgbouncer_auth $$SOCLE_PG_MOT_DE_PASSE|sha256sum|cut -c1-64
+      D: /var/run/postgresql
+      H: printf "$$L" pgbouncer_auth $$(eval "$$A") >$$D/u.txt; chmod 644 $$D/u.txt
+      X: sh
+      # P : 250 connexions serveur pour les clients = 263 - 3 (superutilisateur) - 10 (réservées au provisionneur)
+      P: -c max_connections=263 -c superuser_reserved_connections=3 -c reserved_connections=10
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    entrypoint: ['sh', '-c', 'eval "$$G"; eval "$$H"; exec docker-entrypoint.$$X postgres $$P']
+    volumes:
+      - donnees-pgdata:/var/lib/postgresql/data
+      - donnees-socket:/var/run/postgresql
+      - ./donnees:/docker-entrypoint-initdb.d:ro
+    networks: [interne]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d postgres"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+  pgbouncer-donnees:
+    image: edoburu/pgbouncer:v1.26.1-p0@sha256:488422e38cff912895d0d65d8963fcd306e6ac589a724398b6eb8e294e94d624
+    restart: "no"
+    depends_on:
+      donnees:
+        condition: service_healthy
+    # Aucun secret racine ici. B : configuration (variable courte : « docker compose config » replie les lignes de plus de 80 colonnes)
+    environment:
+      B: /etc/pgbouncer/conf/pgbouncer
+    entrypoint: ['sh', '-c', 'exec pgbouncer $${B}.ini']
+    volumes:
+      - ./donnees:/etc/pgbouncer/conf:ro
+      - donnees-socket:/var/run/postgresql:ro
+    networks: [interne]
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 6432"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+volumes:
+  donnees-pgdata: {}
+  donnees-socket: {}

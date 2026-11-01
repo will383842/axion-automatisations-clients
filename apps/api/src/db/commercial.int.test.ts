@@ -266,7 +266,7 @@ describe("plan commercial, avec le socle", { timeout: 60_000 }, () => {
       CREATE INDEX ${nom}_tenant ON ${schema}.${nom} (tenant_id);
       ALTER TABLE ${schema}.${nom} ENABLE ROW LEVEL SECURITY; ALTER TABLE ${schema}.${nom} FORCE ROW LEVEL SECURITY;
       CREATE POLICY isolation ON ${schema}.${nom} USING (tenant_id = current_setting('app.tenant_id')::uuid);
-      ${unique}`;
+      ${unique};`;
     await migration.query(`CREATE SCHEMA ${schema}`);
     try {
       await migration.query(copie("echeances", `CREATE UNIQUE INDEX echeances_sans_tenant ON ${schema}.echeances (plan_id, debut_periode)`) + copie("phases_plan", `CREATE UNIQUE INDEX phases_sans_tenant ON ${schema}.phases_plan (plan_id, ordre)`));

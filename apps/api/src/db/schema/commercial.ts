@@ -34,6 +34,7 @@ export const conditionsCommerciales = tableClient(
       foreignKey({ name: "conditions_commerciales_organisation_fk", columns: [t["tenantId"] as never, t["organisationId"] as never], foreignColumns: [organisations.tenantId, organisations.id] }),
       check("conditions_commerciales_source_client", sql`${t["source"]} = 'client'`),
       check("conditions_commerciales_auteur_non_vide", sql`length(btrim(${t["auteur"]})) > 0`),
+      check("conditions_commerciales_valeur_objet", sql`jsonb_typeof(${t["valeur"]}) = 'object'`),
       check("conditions_commerciales_validite", sql`${t["valideDu"]} IS NULL OR ${t["valideAu"]} IS NULL OR ${t["valideAu"]} >= ${t["valideDu"]}`),
     ],
   },
@@ -52,6 +53,8 @@ export const abonnements = tableClient(
     periodeFacturationMois: integer("periode_facturation_mois").notNull(),
     modeAvance: modeAvance("mode_avance").notNull().default("aucune"),
     acomptePointsDeBase: integer("acompte_points_de_base"),
+    // Qui a écrit la ligne : obligatoire pour tout ce qui porte de l'argent (le journal remplacerait un acteur vide par « systeme »).
+    auteur: text("auteur").notNull(),
   },
   {
     contraintes: (t) => [
@@ -60,6 +63,8 @@ export const abonnements = tableClient(
       check("abonnements_periode_valide", sql`${t["periodeFacturationMois"]} IN (1, 6, 12)`),
       check("abonnements_dates", sql`${t["fin"]} IS NULL OR ${t["fin"]} >= ${t["debut"]}`),
       check("abonnements_quotas_objet", sql`jsonb_typeof(${t["quotas"]}) = 'object'`),
+      check("abonnements_auteur_non_vide", sql`length(btrim(${t["auteur"]})) > 0`),
+      check("abonnements_acompte_coherent", sql`(${t["modeAvance"]} = 'acompte') = (${t["acomptePointsDeBase"]} IS NOT NULL)`),
       check("abonnements_acompte_taux", sql`${t["acomptePointsDeBase"]} BETWEEN 0 AND 10000`),
     ],
   },
@@ -87,11 +92,16 @@ export const plansCommerciaux = tableClient(
     sourceMaintenanceIncluse: sourceValeur("source_maintenance_incluse").notNull(),
     sourceSuiteMaintenance: sourceValeur("source_suite_maintenance").notNull(),
     sourceEngagement: sourceValeur("source_engagement").notNull(),
+    // Qui a écrit la ligne : obligatoire pour tout ce qui porte de l'argent (le journal remplacerait un acteur vide par « systeme »).
+    auteur: text("auteur").notNull(),
   },
   {
     contraintes: (t) => [
       foreignKey({ name: "plans_commerciaux_instance_fk", columns: [t["tenantId"] as never, t["instanceId"] as never], foreignColumns: [instances.tenantId, instances.id] }),
       unique("plans_commerciaux_tenant_id_instance_id_unique").on(t["tenantId"] as never, t["instanceId"] as never),
+      // Cible de la clé étrangère de instances.plan_commercial : le plan d'une instance appartient à CETTE instance.
+      unique("plans_commerciaux_tenant_id_instance_id_id_unique").on(t["tenantId"] as never, t["instanceId"] as never, t["id"] as never),
+      check("plans_commerciaux_auteur_non_vide", sql`length(btrim(${t["auteur"]})) > 0`),
       // V1 : seule la formule abonnement est permise ; achat et installation avec maintenance viennent en V2 (levée de ce CHECK par un ADR).
       check("plans_commerciaux_formule_v1", sql`${t["formule"]} = 'abonnement'`),
       check("plans_commerciaux_frais_entier", sql`${t["fraisMiseEnPlaceCentimes"]} BETWEEN 0 AND ${sql.raw(MAX_ENTIER)}`),
@@ -114,11 +124,14 @@ export const phasesPlan = tableClient(
     montantCentimes: centimes("montant_centimes").notNull(),
     periodeFacturationMois: integer("periode_facturation_mois").notNull(),
     idPlanHub: text("id_plan_hub"),
+    // Qui a écrit la ligne : obligatoire pour tout ce qui porte de l'argent (le journal remplacerait un acteur vide par « systeme »).
+    auteur: text("auteur").notNull(),
   },
   {
     contraintes: (t) => [
       foreignKey({ name: "phases_plan_plan_fk", columns: [t["tenantId"] as never, t["planId"] as never], foreignColumns: [plansCommerciaux.tenantId, plansCommerciaux.id] }),
       unique("phases_plan_tenant_id_plan_id_ordre_unique").on(t["tenantId"] as never, t["planId"] as never, t["ordre"] as never),
+      check("phases_plan_auteur_non_vide", sql`length(btrim(${t["auteur"]})) > 0`),
       check("phases_plan_ordre_positif", sql`${t["ordre"]} >= 1`),
       check("phases_plan_dates", sql`${t["fin"]} IS NULL OR ${t["fin"]} >= ${t["debut"]}`),
       check("phases_plan_montant_entier", sql`${t["montantCentimes"]} BETWEEN 0 AND ${sql.raw(MAX_ENTIER)}`),
@@ -140,11 +153,15 @@ export const echeances = tableClient(
     datePaiement: date("date_paiement"),
     statut: statutEcheance("statut").notNull().default("prevue"),
     factureId: uuid("facture_id"),
+    // Qui a écrit la ligne : obligatoire pour tout ce qui porte de l'argent (le journal remplacerait un acteur vide par « systeme »).
+    auteur: text("auteur").notNull(),
   },
   {
     contraintes: (t) => [
       foreignKey({ name: "echeances_plan_fk", columns: [t["tenantId"] as never, t["planId"] as never], foreignColumns: [plansCommerciaux.tenantId, plansCommerciaux.id] }),
       unique("echeances_tenant_id_plan_id_debut_periode_unique").on(t["tenantId"] as never, t["planId"] as never, t["debutPeriode"] as never),
+      check("echeances_auteur_non_vide", sql`length(btrim(${t["auteur"]})) > 0`),
+      check("echeances_emission_datee", sql`${t["statut"]} NOT IN ('emise', 'payee') OR ${t["dateEmission"]} IS NOT NULL`),
       check("echeances_periode_ordonnee", sql`${t["finPeriode"]} > ${t["debutPeriode"]}`),
       check("echeances_montant_entier", sql`${t["montantHtCentimes"]} BETWEEN 0 AND ${sql.raw(MAX_ENTIER)}`),
       check("echeances_paiement_coherent", sql`(${t["statut"]} = 'payee') = (${t["datePaiement"]} IS NOT NULL)`),

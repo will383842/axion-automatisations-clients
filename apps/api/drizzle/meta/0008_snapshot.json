@@ -1,5 +1,5 @@
 {
-  "id": "2ad6eb0f-da92-4feb-9480-b2e7d8963002",
+  "id": "1c839993-d683-4cb0-be4e-39e2465d0bad",
   "prevId": "0942ac9e-a4a6-4e63-b81e-779948a78548",
   "version": "7",
   "dialect": "postgresql",
@@ -3011,6 +3011,12 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": false
+        },
+        "auteur": {
+          "name": "auteur",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
         }
       },
       "indexes": {
@@ -3094,6 +3100,14 @@
         "abonnements_quotas_objet": {
           "name": "abonnements_quotas_objet",
           "value": "jsonb_typeof(\"abonnements\".\"quotas\") = 'object'"
+        },
+        "abonnements_auteur_non_vide": {
+          "name": "abonnements_auteur_non_vide",
+          "value": "length(btrim(\"abonnements\".\"auteur\")) > 0"
+        },
+        "abonnements_acompte_coherent": {
+          "name": "abonnements_acompte_coherent",
+          "value": "(\"abonnements\".\"mode_avance\" = 'acompte') = (\"abonnements\".\"acompte_points_de_base\" IS NOT NULL)"
         },
         "abonnements_acompte_taux": {
           "name": "abonnements_acompte_taux",
@@ -3227,6 +3241,10 @@
           "name": "conditions_commerciales_auteur_non_vide",
           "value": "length(btrim(\"conditions_commerciales\".\"auteur\")) > 0"
         },
+        "conditions_commerciales_valeur_objet": {
+          "name": "conditions_commerciales_valeur_objet",
+          "value": "jsonb_typeof(\"conditions_commerciales\".\"valeur\") = 'object'"
+        },
         "conditions_commerciales_validite": {
           "name": "conditions_commerciales_validite",
           "value": "\"conditions_commerciales\".\"valide_du\" IS NULL OR \"conditions_commerciales\".\"valide_au\" IS NULL OR \"conditions_commerciales\".\"valide_au\" >= \"conditions_commerciales\".\"valide_du\""
@@ -3299,6 +3317,12 @@
           "type": "uuid",
           "primaryKey": false,
           "notNull": false
+        },
+        "auteur": {
+          "name": "auteur",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
         }
       },
       "indexes": {
@@ -3365,6 +3389,14 @@
       },
       "policies": {},
       "checkConstraints": {
+        "echeances_auteur_non_vide": {
+          "name": "echeances_auteur_non_vide",
+          "value": "length(btrim(\"echeances\".\"auteur\")) > 0"
+        },
+        "echeances_emission_datee": {
+          "name": "echeances_emission_datee",
+          "value": "\"echeances\".\"statut\" NOT IN ('emise', 'payee') OR \"echeances\".\"date_emission\" IS NOT NULL"
+        },
         "echeances_periode_ordonnee": {
           "name": "echeances_periode_ordonnee",
           "value": "\"echeances\".\"fin_periode\" > \"echeances\".\"debut_periode\""
@@ -3444,6 +3476,12 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
+        },
+        "auteur": {
+          "name": "auteur",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
         }
       },
       "indexes": {
@@ -3510,6 +3548,10 @@
       },
       "policies": {},
       "checkConstraints": {
+        "phases_plan_auteur_non_vide": {
+          "name": "phases_plan_auteur_non_vide",
+          "value": "length(btrim(\"phases_plan\".\"auteur\")) > 0"
+        },
         "phases_plan_ordre_positif": {
           "name": "phases_plan_ordre_positif",
           "value": "\"phases_plan\".\"ordre\" >= 1"
@@ -3657,6 +3699,12 @@
           "typeSchema": "public",
           "primaryKey": false,
           "notNull": true
+        },
+        "auteur": {
+          "name": "auteur",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
         }
       },
       "indexes": {
@@ -3718,10 +3766,23 @@
             "tenant_id",
             "instance_id"
           ]
+        },
+        "plans_commerciaux_tenant_id_instance_id_id_unique": {
+          "name": "plans_commerciaux_tenant_id_instance_id_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "tenant_id",
+            "instance_id",
+            "id"
+          ]
         }
       },
       "policies": {},
       "checkConstraints": {
+        "plans_commerciaux_auteur_non_vide": {
+          "name": "plans_commerciaux_auteur_non_vide",
+          "value": "length(btrim(\"plans_commerciaux\".\"auteur\")) > 0"
+        },
         "plans_commerciaux_formule_v1": {
           "name": "plans_commerciaux_formule_v1",
           "value": "\"plans_commerciaux\".\"formule\" = 'abonnement'"

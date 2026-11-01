@@ -110,9 +110,9 @@ describe("mandataire de sortie", () => {
     // Les délais de socket de Node n'obéissent pas aux horloges simulées : on relève le délai demandé, puis on le fait « expirer ».
     const reglages: { socket: Socket; ms: number }[] = [];
     const reel = Socket.prototype.setTimeout;
-    vi.spyOn(Socket.prototype, "setTimeout").mockImplementation(function (this: Socket, ms: number, ...reste: never[]) {
+    vi.spyOn(Socket.prototype, "setTimeout").mockImplementation(function (this: Socket, ms: number, cb?: () => void) {
       reglages.push({ socket: this, ms });
-      return reel.call(this, ms, ...reste);
+      return reel.call(this, ms, cb);
     });
     const journal = vi.spyOn(console, "log");
     const erreurs = vi.spyOn(console, "error");

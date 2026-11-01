@@ -1,0 +1,198 @@
+import { execFileSync } from "node:child_process";
+import { createHash, randomUUID } from "node:crypto";
+import { fileURLToPath } from "node:url";
+import pg from "pg";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { controlerInvariants, EXCEPTIONS_UNICITE, type Requete } from "../../../../packages/contrats/src/c5/invariants.js";
+import { avecClient, avecEquipe } from "./client-actif.js";
+import { migrer } from "./migrer.js";
+
+// Contrats, devis, factures, apporteurs et activation (T2-05). Socle lancé par ops/socle/lancer.sh (job socle-integration).
+// Les essais tournent en parallèle sur une base partagée : identifiants de client tirés au hasard.
+const docker = (...args: string[]) => execFileSync("docker", args, { encoding: "utf8" }).trim();
+const conteneur = (service: string) =>
+  docker("ps", "-q", "--filter", "label=com.docker.compose.project=socle", "--filter", `label=com.docker.compose.service=${service}`);
+function cible(service: string, port: number, surcharge: string | undefined): { host: string; port: number } {
+  if (surcharge) return { host: surcharge.split(":")[0] ?? "", port: Number(surcharge.split(":")[1]) };
+  const modele = '{{(index .NetworkSettings.Networks "socle_interne").IPAddress}}';
+  return { host: docker("inspect", "-f", modele, conteneur(service)), port };
+}
+function secret(): string {
+  if (process.env["SOCLE_PG_MOT_DE_PASSE"]) return process.env["SOCLE_PG_MOT_DE_PASSE"];
+  const variables = docker("inspect", "-f", "{{range .Config.Env}}{{println .}}{{end}}", conteneur("postgres")).split("\n");
+  const ligne = variables.find((l) => l.startsWith("SOCLE_PG_MOT_DE_PASSE="));
+  if (!ligne) throw new Error("mot de passe de test introuvable");
+  return ligne.slice("SOCLE_PG_MOT_DE_PASSE=".length);
+}
+const SECRET = secret();
+const DIRECT = cible("postgres", 5432, process.env["SOCLE_PG_DIRECT"]);
+const PGBOUNCER = cible("pgbouncer", 6432, process.env["SOCLE_PG_PGBOUNCER"]);
+const motDePasseDe = (role: string) => createHash("sha256").update(`${SECRET}/${role}`).digest("hex");
+const ouverts: { end(): Promise<void> }[] = [];
+function pool(voie: { host: string; port: number }, user: string, max: number): pg.Pool {
+  const p = new pg.Pool({ ...voie, user, database: "console", password: motDePasseDe(user), max, connectionTimeoutMillis: 10_000 });
+  p.on("error", () => undefined);
+  ouverts.push(p);
+  return p;
+}
+
+const migration = pool(DIRECT, "console_migration", 3);
+const app = pool(PGBOUNCER, "console_app", 40);
+const OPTIONS = { rolesApplication: /^(console|moteur)_(app|equipe)$/ };
+const requete: Requete = async (sql) => (await migration.query(`SELECT coalesce(json_agg(t), '[]') AS r FROM (${sql}) t`)).rows[0]?.["r"] as Record<string, unknown>[];
+const APPELANT = { acteur: "agent-essai", ip: "192.0.2.17" };
+const equipe = pool(PGBOUNCER, "console_equipe", 3);
+const empreinte = (email: string) => createHash("sha256").update(email.toLowerCase()).digest("hex");
+
+// Les écritures auditées passent par le verrou du journal : une attente trop longue (55P03) est rejouée pour les mises en place.
+async function ecrire<T>(...args: Parameters<typeof avecClient<T>>): Promise<T> {
+  for (let essai = 1; ; essai++) {
+    try {
+      return await avecClient(...args);
+    } catch (e) {
+      if ((e as { code?: string }).code !== "55P03" || essai >= 4) throw e;
+    }
+  }
+}
+const inserer = (tenant: string, table: string, valeurs: Record<string, unknown>) => {
+  const v = { id: randomUUID(), tenant_id: tenant, ...valeurs };
+  const cles = Object.keys(v);
+  return ecrire(app, tenant, async (c) => (await c.query(`INSERT INTO ${table} (${cles.join(", ")}) VALUES (${cles.map((_, i) => `$${i + 1}`).join(", ")}) RETURNING *`, Object.values(v))).rows[0] as Record<string, unknown>, APPELANT);
+};
+const creerOrg = (id: string) => inserer(id, "organisations", { id, console_client_id: id, raison_sociale: "Boulangerie Rivoire" });
+beforeAll(async () => {
+  await migrer({ url: `postgres://console_migration:${motDePasseDe("console_migration")}@${DIRECT.host}:${DIRECT.port}/console`, dossier: fileURLToPath(new URL("../../drizzle", import.meta.url)) });
+}, 120_000);
+afterAll(async () => {
+  await Promise.all(ouverts.map((o) => o.end().catch(() => undefined)));
+});
+
+
+const SHA = "a".repeat(64);
+const contrat = (A: string, extra: Record<string, unknown> = {}) =>
+  inserer(A, "contrats", { organisation_id: A, type: "sous_traitance_art28", date_signature: "2026-01-15", pdf_ref: `contrats/${A}/art28.pdf`, empreinte_sha256: SHA, ...extra });
+const instance = (A: string, extra: Record<string, unknown> = {}) =>
+  inserer(A, "instances", { organisation_id: A, code_automatisation: "relance-devis", formule: "abonnement", environnement: "production", ...extra });
+const facture = (A: string, extra: Record<string, unknown> = {}) =>
+  inserer(A, "factures", { organisation_id: A, numero: `AXI-FACT-${randomUUID()}`, hub_id: randomUUID(), nature: "abonnement", plan: "essentiel", periode_debut: "2026-02-01", periode_fin: "2026-02-28", montant_ht_centimes: 10000, statut: "emise", pdf_ref: "factures/a.pdf", empreinte_sha256: SHA, ...extra });
+const code = (p: Promise<unknown>) => p.then(() => "ok", (e: { code?: string }) => e.code);
+
+describe("contrats, devis, factures et activation, avec le socle", { timeout: 30_000 }, () => {
+  it("[C-030] une instance insérée directement à l'état active sans contrat est refusée ; avec le contrat signé elle passe", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    await expect(instance(A, { etat: "active" })).rejects.toMatchObject({ code: "P0001", message: "regle_metier", detail: "sous_traitance_absente" });
+    await expect(instance(A)).rejects.toMatchObject({ detail: "sous_traitance_absente" }); // l'état par défaut est active
+    expect(await code(instance(A, { etat: "pause" }))).toBe("ok");
+    await contrat(A);
+    expect(await code(instance(A, { etat: "active" }))).toBe("ok");
+  });
+
+  it("[C-030] l'activation d'une instance est refusée tant que le contrat de sous-traitance du client n'est pas signé (UPDATE direct)", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    const id = (await instance(A, { etat: "pause" }))["id"] as string;
+    await expect(ecrire(app, A, (c) => c.query("UPDATE instances SET etat = 'active' WHERE id = $1", [id]), APPELANT)).rejects.toMatchObject({ detail: "sous_traitance_absente" });
+    await contrat(A, { type: "contrat_service" });
+    await expect(ecrire(app, A, (c) => c.query("UPDATE instances SET etat = 'active' WHERE id = $1", [id]), APPELANT)).rejects.toMatchObject({ detail: "sous_traitance_absente" });
+    await contrat(A, { date_signature: "2999-01-01" });
+    await expect(ecrire(app, A, (c) => c.query("UPDATE instances SET etat = 'active' WHERE id = $1", [id]), APPELANT)).rejects.toMatchObject({ detail: "sous_traitance_absente" });
+    await contrat(A);
+    expect((await ecrire(app, A, (c) => c.query("UPDATE instances SET etat = 'active' WHERE id = $1", [id]), APPELANT)).rowCount).toBe(1);
+  });
+
+  it("[C-030] @isolation un contrat de sous-traitance d'un autre client ne permet pas l'activation", async () => {
+    const A = randomUUID();
+    const B = randomUUID();
+    await creerOrg(A);
+    await creerOrg(B);
+    await contrat(B);
+    await expect(instance(A, { etat: "active" })).rejects.toMatchObject({ detail: "sous_traitance_absente" });
+    // Contrat du client A rangé sous une autre organisation : refusé par la clé étrangère composée.
+    await expect(contrat(A, { organisation_id: B })).rejects.toMatchObject({ code: "23503" });
+  });
+
+  it("[A-155] le contrat de sous-traitance est rangé avec son empreinte et ne se modifie ni ne se supprime", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    const c = await contrat(A);
+    expect(c).toMatchObject({ type: "sous_traitance_art28", empreinte_sha256: SHA });
+    await expect(ecrire(app, A, (x) => x.query("UPDATE contrats SET date_signature = '2020-01-01' WHERE id = $1", [c["id"]]), APPELANT)).rejects.toMatchObject({ code: "42501" });
+    await expect(ecrire(app, A, (x) => x.query("DELETE FROM contrats WHERE id = $1", [c["id"]]), APPELANT)).rejects.toMatchObject({ code: "42501" });
+    await expect(contrat(A, { empreinte_sha256: "pas-une-empreinte" })).rejects.toMatchObject({ code: "23514" });
+    await expect(contrat(A, { pdf_ref: "JVBERi0xLjQK".repeat(40) })).rejects.toMatchObject({ code: "23514" });
+  });
+
+  it("[A-148] un contrat refuse un type hors énumération", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    await expect(contrat(A, { type: "contrat_inconnu" })).rejects.toMatchObject({ code: "22P02" });
+  });
+
+  it("[A-154] un devis refuse un statut hors énumération ; un numéro du Hub n'existe qu'une fois par client", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    const d = (extra: Record<string, unknown> = {}) => inserer(A, "devis", { organisation_id: A, numero_hub: "DEV-0001", pdf_ref: "devis/a.pdf", duree_validite_jours: 30, ...extra });
+    await expect(d({ statut: "perdu" })).rejects.toMatchObject({ code: "22P02" });
+    await d();
+    await expect(d()).rejects.toMatchObject({ code: "23505" });
+    await expect(d({ numero_hub: "DEV-0002", statut: "annule" })).rejects.toMatchObject({ code: "23514" }); // annulé sans motif, date ni auteur
+  });
+
+  it("[A-133] @argent deux factures d'abonnement pour la même période sont refusées ; un avoir passe", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    await facture(A);
+    await expect(facture(A)).rejects.toMatchObject({ code: "23505" });
+    expect(await code(facture(A, { nature: "avoir", montant_ht_centimes: 10000 }))).toBe("ok");
+    expect(await code(facture(A, { periode_debut: "2026-03-01", periode_fin: "2026-03-31" }))).toBe("ok");
+    expect(await code(facture(A, { plan: "avance" }))).toBe("ok");
+  });
+
+  it("[A-133] @argent une seconde facture de mise en place pour la même automatisation est refusée", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    const mep = (extra: Record<string, unknown> = {}) => facture(A, { nature: "mise_en_place", plan: null, code_automatisation: "relance-devis", ...extra });
+    await mep();
+    await expect(mep()).rejects.toMatchObject({ code: "23505" });
+    expect(await code(mep({ code_automatisation: "suivi-chantier" }))).toBe("ok");
+  });
+
+  it("[A-133] @argent la console ne modifie jamais le montant, le numéro ni le PDF d'une facture reçue ; le statut seul change", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    const f = await facture(A);
+    for (const colonne of ["montant_ht_centimes = 1", "numero = 'AXI-FACT-X'", "pdf_ref = 'x.pdf'", "nature = 'avoir'"]) {
+      await expect(ecrire(app, A, (c) => c.query(`UPDATE factures SET ${colonne} WHERE id = $1`, [f["id"]]), APPELANT), colonne).rejects.toMatchObject({ code: "42501" });
+    }
+    expect((await ecrire(app, A, (c) => c.query("UPDATE factures SET statut = 'payee' WHERE id = $1", [f["id"]]), APPELANT)).rowCount).toBe(1);
+  });
+
+  it("[A-163] @isolation @argent le même numéro de facture chez deux clients passe, chez le même client est refusé, et le client A ne reçoit aucune erreur 23505 révélant une facture de B", async () => {
+    const A = randomUUID();
+    const B = randomUUID();
+    await creerOrg(A);
+    await creerOrg(B);
+    const numero = `AXI-FACT-${randomUUID()}`;
+    await facture(B, { numero });
+    expect(await code(facture(A, { numero }))).toBe("ok");
+    await expect(facture(A, { numero, hub_id: randomUUID(), periode_debut: "2026-05-01", periode_fin: "2026-05-31" })).rejects.toMatchObject({ code: "23505" });
+  });
+
+  it("[A-147] la table des apporteurs ne reçoit aucune écriture de console_app (taux et commissions viennent de la synchronisation)", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    for (const sql of ["INSERT INTO apporteurs_clients (tenant_id, id, organisation_id, apporteur_axion_ia_id, taux_points_de_base) VALUES ($1, gen_random_uuid(), $1, 'app-1', 500)", "UPDATE apporteurs_clients SET taux_points_de_base = 9000", "DELETE FROM apporteurs_clients"]) {
+      await expect(ecrire(app, A, (c) => c.query(sql, sql.includes("$1") ? [A] : []), APPELANT), sql).rejects.toMatchObject({ code: "42501" });
+    }
+  });
+
+  it("[A-119] @isolation toutes les migrations appliquées, les invariants C5 ne trouvent aucun écart", async () => {
+    const ecarts = (await controlerInvariants(requete, "console", OPTIONS)).filter((e) => !e.objet.startsWith("essai_"));
+    expect(ecarts).toEqual([]);
+  });
+
+  it("[A-163] la liste EXCEPTIONS_UNICITE reste vide après la migration de T2-05", () => {
+    expect(EXCEPTIONS_UNICITE).toEqual([]);
+  });
+});

@@ -242,7 +242,7 @@ describe("catalogue commun, avec le socle", { timeout: 60_000 }, () => {
     const source = randomUUID();
     await avecClient(app, A, async (c) => {
       await c.query("INSERT INTO organisations (tenant_id, id, console_client_id, raison_sociale) VALUES ($1, $1, $1, 'Lemoine Rénovation')", [A]);
-      await c.query("INSERT INTO instances (tenant_id, id, organisation_id, code_automatisation, formule, environnement, automatisation_id, instance_source_copie, copie_le, copie_par) VALUES ($1, $2, $3, 'X', 'abonnement', 'production', $4, $5, now(), $6)", [A, randomUUID(), org, a["id"], source, ACTEUR_COPIE]);
+      await c.query("INSERT INTO instances (tenant_id, id, organisation_id, code_automatisation, formule, environnement, automatisation_id, instance_source_copie, copie_le, copie_par, etat) VALUES ($1, $2, $3, 'X', 'abonnement', 'production', $4, $5, now(), $6, 'pause')", [A, randomUUID(), org, a["id"], source, ACTEUR_COPIE]);
     }, { acteur: ACTEUR });
     await expect(avecClient(app, A, (c) => c.query("SELECT instance_source_copie FROM instances"))).rejects.toMatchObject({ code: "42501" });
     await expect(avecClient(app, A, (c) => c.query("SELECT * FROM instances"))).rejects.toMatchObject({ code: "42501" });
@@ -472,7 +472,7 @@ describe("catalogue commun, avec le socle", { timeout: 60_000 }, () => {
     const prereglageRetire = await preregler("retire", 3);
     await avecClient(app, T, (c) => c.query("INSERT INTO organisations (tenant_id, id, console_client_id, raison_sociale) VALUES ($1, $1, $1, 'Boulangerie Rivoire')", [T]), { acteur: ACTEUR });
     const inserer = (extra: Record<string, unknown>) => {
-      const v = { tenant_id: T, id: randomUUID(), organisation_id: T, code_automatisation: "X", formule: "abonnement", environnement: "production", ...extra };
+      const v = { tenant_id: T, id: randomUUID(), organisation_id: T, code_automatisation: "X", formule: "abonnement", environnement: "production", etat: "pause", ...extra };
       const cles = Object.keys(v);
       return avecClient(app, T, (c) => c.query(`INSERT INTO instances (${cles.join(", ")}) VALUES (${cles.map((_, i) => `$${i + 1}`).join(", ")})`, Object.values(v)), { acteur: ACTEUR });
     };
@@ -497,7 +497,7 @@ describe("catalogue commun, avec le socle", { timeout: 60_000 }, () => {
     await sql("UPDATE prereglages_metier SET statut = 'publie' WHERE id = $1", [p?.id]);
     await sql("UPDATE prereglages_metier SET statut = 'retire' WHERE id = $1", [p?.id]);
     await avecClient(app, T, (c) => c.query("INSERT INTO organisations (tenant_id, id, console_client_id, raison_sociale) VALUES ($1, $1, $1, 'Atelier Bertin')", [T]), { acteur: ACTEUR });
-    await expect(avecClient(app, T, (c) => c.query("INSERT INTO instances (tenant_id, id, organisation_id, code_automatisation, formule, environnement, automatisation_id, prereglage_depart_id, version_prereglage_depart) VALUES ($1, $2, $1, 'X', 'abonnement', 'production', $3, $4, 1)", [T, randomUUID(), a["id"], p?.id]), { acteur: ACTEUR })).rejects.toThrow(/publié/i);
+    await expect(avecClient(app, T, (c) => c.query("INSERT INTO instances (tenant_id, id, organisation_id, code_automatisation, formule, environnement, automatisation_id, prereglage_depart_id, version_prereglage_depart, etat) VALUES ($1, $2, $1, 'X', 'abonnement', 'production', $3, $4, 1, 'pause')", [T, randomUUID(), a["id"], p?.id]), { acteur: ACTEUR })).rejects.toThrow(/publié/i);
   });
 
   it("[A-139] le journal de l'équipe garde l'identifiant d'une ligne de liaison sans colonne id : automatisation/pack pour packs_automatisations", async () => {

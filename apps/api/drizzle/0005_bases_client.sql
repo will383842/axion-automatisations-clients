@@ -63,7 +63,7 @@ CREATE TABLE "decisions_effacement" (
 	"proposition_id" uuid,
 	"decideur" uuid NOT NULL,
 	"decision" "decision_effacement" NOT NULL,
-	"motif" text NOT NULL,
+	"motif_ecrit" text NOT NULL,
 	"cause" "cause_effacement",
 	"gel_id" uuid,
 	"reference_texte" text,
@@ -72,7 +72,7 @@ CREATE TABLE "decisions_effacement" (
 	CONSTRAINT "decisions_effacement_tenant_id_id_pk" PRIMARY KEY("tenant_id","id"),
 	CONSTRAINT "decisions_effacement_tenant_id_id_unique" UNIQUE("tenant_id","id"),
 	CONSTRAINT "decisions_une_seule_cible" CHECK (num_nonnulls("decisions_effacement"."demande_id", "decisions_effacement"."proposition_id") = 1),
-	CONSTRAINT "decisions_motif_non_vide" CHECK (length(btrim("decisions_effacement"."motif")) > 0),
+	CONSTRAINT "decisions_motif_non_vide" CHECK (length(btrim("decisions_effacement"."motif_ecrit")) > 0),
 	CONSTRAINT "decisions_cause_selon_decision" CHECK (("decisions_effacement"."decision" = 'accepter' AND "decisions_effacement"."cause" IS NULL) OR ("decisions_effacement"."decision" IN ('refuser', 'ecarter') AND "decisions_effacement"."cause" IS NOT NULL)),
 	CONSTRAINT "decisions_decision_de_will_ecarter" CHECK ("decisions_effacement"."cause" IS DISTINCT FROM 'decision_de_will' OR "decisions_effacement"."decision" = 'ecarter'),
 	CONSTRAINT "decisions_gel_si_litige" CHECK ("decisions_effacement"."cause" IS DISTINCT FROM 'litige_en_cours' OR "decisions_effacement"."gel_id" IS NOT NULL),
@@ -113,14 +113,14 @@ CREATE TABLE "gels_litige" (
 	"tenant_id" uuid NOT NULL,
 	"id" uuid NOT NULL,
 	"organisation_id" uuid NOT NULL,
-	"motif" text NOT NULL,
+	"motif_litige" text NOT NULL,
 	"posee_le" timestamp with time zone DEFAULT now() NOT NULL,
 	"posee_par" text NOT NULL,
 	"levee_le" timestamp with time zone,
 	"leve_par" text,
 	CONSTRAINT "gels_litige_tenant_id_id_pk" PRIMARY KEY("tenant_id","id"),
 	CONSTRAINT "gels_litige_tenant_id_id_unique" UNIQUE("tenant_id","id"),
-	CONSTRAINT "gels_litige_motif_non_vide" CHECK (length(btrim("gels_litige"."motif")) > 0),
+	CONSTRAINT "gels_litige_motif_non_vide" CHECK (length(btrim("gels_litige"."motif_litige")) > 0),
 	CONSTRAINT "gels_litige_levee_complete" CHECK (("gels_litige"."levee_le" IS NULL) = ("gels_litige"."leve_par" IS NULL) AND ("gels_litige"."levee_le" IS NULL OR "gels_litige"."levee_le" >= "gels_litige"."posee_le"))
 );
 --> statement-breakpoint
@@ -205,9 +205,8 @@ CREATE INDEX "gels_litige_tenant_id_idx" ON "gels_litige" USING btree ("tenant_i
 CREATE INDEX "propositions_suppression_tenant_id_idx" ON "propositions_suppression" USING btree ("tenant_id");--> statement-breakpoint
 CREATE INDEX "reglages_fin_de_contrat_tenant_id_idx" ON "reglages_fin_de_contrat" USING btree ("tenant_id");--> statement-breakpoint
 CREATE INDEX "versions_structure_tenant_id_idx" ON "versions_structure" USING btree ("tenant_id");--> statement-breakpoint
-CREATE INDEX "visibilite_acces_tenant_id_idx" ON "visibilite_acces" USING btree ("tenant_id");--> statement-breakpoint
--- Partie écrite à la main (drizzle-kit ne génère ni RLS, ni droits, ni déclencheurs), dans la même migration que les tables (ADR 0044).
--- Droits : aucun DELETE ni TRUNCATE, aucun droit pour PUBLIC. Le rôle portail_app n'existe pas dans la base console : il n'a donc aucun droit ici (C-715).
+CREATE INDEX "visibilite_acces_tenant_id_idx" ON "visibilite_acces" USING btree ("tenant_id");-- Partie écrite à la main (drizzle-kit ne génère ni RLS, ni droits, ni déclencheurs), dans la même migration que les tables (ADR 0044).
+-- Droits : aucun DELETE ni TRUNCATE, aucun droit pour PUBLIC. Le rôle du portail n'existe pas dans la base console : il n'a donc aucun droit ici (C-715).
 -- Ajout seul = pas de droit UPDATE. gels_litige : seule la levée se modifie (colonnes levee_le et leve_par).
 ALTER TABLE "public"."bases_client" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
 ALTER TABLE "public"."bases_client" FORCE ROW LEVEL SECURITY;--> statement-breakpoint

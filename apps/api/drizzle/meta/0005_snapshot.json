@@ -1,5 +1,5 @@
 {
-  "id": "9bb6edd0-a898-4595-8ad4-b21ed9958ecd",
+  "id": "fe711017-bbae-410a-856b-c5f0be34492a",
   "prevId": "afb38f75-8bd4-41bc-8498-e6bb15c15c36",
   "version": "7",
   "dialect": "postgresql",
@@ -955,8 +955,8 @@
           "primaryKey": false,
           "notNull": true
         },
-        "motif": {
-          "name": "motif",
+        "motif_ecrit": {
+          "name": "motif_ecrit",
           "type": "text",
           "primaryKey": false,
           "notNull": true
@@ -1085,7 +1085,7 @@
         },
         "decisions_motif_non_vide": {
           "name": "decisions_motif_non_vide",
-          "value": "length(btrim(\"decisions_effacement\".\"motif\")) > 0"
+          "value": "length(btrim(\"decisions_effacement\".\"motif_ecrit\")) > 0"
         },
         "decisions_cause_selon_decision": {
           "name": "decisions_cause_selon_decision",
@@ -1377,8 +1377,8 @@
           "primaryKey": false,
           "notNull": true
         },
-        "motif": {
-          "name": "motif",
+        "motif_litige": {
+          "name": "motif_litige",
           "type": "text",
           "primaryKey": false,
           "notNull": true
@@ -1466,7 +1466,7 @@
       "checkConstraints": {
         "gels_litige_motif_non_vide": {
           "name": "gels_litige_motif_non_vide",
-          "value": "length(btrim(\"gels_litige\".\"motif\")) > 0"
+          "value": "length(btrim(\"gels_litige\".\"motif_litige\")) > 0"
         },
         "gels_litige_levee_complete": {
           "name": "gels_litige_levee_complete",

@@ -23,6 +23,7 @@ const lien = (nom: string, t: Record<string, unknown>, colonne: string, cible: u
   return foreignKey({ name: nom, columns: [t["tenantId"] as PgColumn, t[colonne] as PgColumn], foreignColumns: [c.tenantId, c.id] });
 };
 
+// Les colonnes de texte libre ne portent pas le nom d'un vocabulaire (motif, etat…) : la règle vocabulaire_en_texte de C5 les voudrait en énumération.
 // nom_base est DÉRIVÉ de tenant_id : aucun index unique sur nom_base seul (oracle d'existence entre clients, règle unicite_sans_tenant).
 export const basesClient = tableClient(
   "bases_client",
@@ -122,7 +123,7 @@ export const gelsLitige = tableClient(
   {
     id: uuid("id").notNull(),
     organisationId: uuid("organisation_id").notNull(),
-    motif: text("motif").notNull(),
+    motifLitige: text("motif_litige").notNull(),
     poseeLe: instant("posee_le").notNull().defaultNow(),
     poseePar: text("posee_par").notNull(),
     leveeLe: instant("levee_le"),
@@ -131,7 +132,7 @@ export const gelsLitige = tableClient(
   {
     contraintes: (t) => [
       lien("gels_litige_organisation_fk", t, "organisationId", organisations),
-      check("gels_litige_motif_non_vide", sql`length(btrim(${t["motif"]})) > 0`),
+      check("gels_litige_motif_non_vide", sql`length(btrim(${t["motifLitige"]})) > 0`),
       check("gels_litige_levee_complete", sql`(${t["leveeLe"]} IS NULL) = (${t["levePar"]} IS NULL) AND (${t["leveeLe"]} IS NULL OR ${t["leveeLe"]} >= ${t["poseeLe"]})`),
     ],
   },
@@ -169,7 +170,7 @@ export const decisionsEffacement = tableClient(
     propositionId: uuid("proposition_id"),
     decideur: uuid("decideur").notNull(),
     decision: decisionEffacement("decision").notNull(),
-    motif: text("motif").notNull(),
+    motifEcrit: text("motif_ecrit").notNull(),
     cause: causeEffacement("cause"),
     gelId: uuid("gel_id"),
     referenceTexte: text("reference_texte"),
@@ -182,7 +183,7 @@ export const decisionsEffacement = tableClient(
       lien("decisions_proposition_fk", t, "propositionId", propositionsSuppression),
       lien("decisions_gel_fk", t, "gelId", gelsLitige),
       check("decisions_une_seule_cible", sql`num_nonnulls(${t["demandeId"]}, ${t["propositionId"]}) = 1`),
-      check("decisions_motif_non_vide", sql`length(btrim(${t["motif"]})) > 0`),
+      check("decisions_motif_non_vide", sql`length(btrim(${t["motifEcrit"]})) > 0`),
       check("decisions_cause_selon_decision", sql`(${t["decision"]} = 'accepter' AND ${t["cause"]} IS NULL) OR (${t["decision"]} IN ('refuser', 'ecarter') AND ${t["cause"]} IS NOT NULL)`),
       check("decisions_decision_de_will_ecarter", sql`${t["cause"]} IS DISTINCT FROM 'decision_de_will' OR ${t["decision"]} = 'ecarter'`),
       check("decisions_gel_si_litige", sql`${t["cause"]} IS DISTINCT FROM 'litige_en_cours' OR ${t["gelId"]} IS NOT NULL`),

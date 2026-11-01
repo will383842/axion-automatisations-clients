@@ -12,6 +12,7 @@ T2-30 pose en une migration (`0005_bases_client.sql`) les onze tables du lot 2b 
 4. **Rôles absents** : `portail_app` et `equipe-export` n'existent pas dans la base `console` du socle. La migration ne leur accorde rien (elle échouerait sur un rôle inconnu) : `PUBLIC` est fermé et seuls `console_app` (lecture, ajout, changements d'état prévus) et `console_equipe` (lecture) ont des droits. L'absence de droit du portail est prouvée par les droits réels de chaque table. Si `equipe-export` doit exister, son rôle et son `GRANT SELECT` viennent avec la fiche qui crée le rôle.
 5. **Préavis** : six colonnes (date d'envoi et preuve d'accusé de J+1, J+20, J+27) dans `fins_de_contrat`, car « aucune table hors de la liste » de la fiche. **Valeurs provisoires** : états d'une fin de contrat (`preavis`, `export_disponible`, `a_l_ecart`, `effacee`) ; ajouter une valeur est additif.
 6. **Visibilité** : une ligne par client (`UNIQUE (tenant_id, organisation_id)`), accords écrits en tableau de dates.
+7. **Noms de colonnes de texte libre** : `motif_litige` (gel) et `motif_ecrit` (décision), pas `motif` : la règle C5 `vocabulaire_en_texte` refuse une colonne de texte nommée comme un vocabulaire (`motif`, `etat`, `role`…). Écart de nom avec la fiche, sans effet sur le sens.
 
 ## Conséquences
 - Aucune exception d'unicité (`EXCEPTIONS_UNICITE` reste vide). Aucune colonne de date d'effacement (C-623).

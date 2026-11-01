@@ -63,7 +63,7 @@ const inserer = (tenant: string, table: string, valeurs: Record<string, unknown>
 const creerOrg = (id: string) => inserer(id, "organisations", { id, console_client_id: id, raison_sociale: "Atelier Bertin" });
 const creerBase = (A: string, extra: Record<string, unknown> = {}) => inserer(A, "bases_client", { organisation_id: A, grappe: "donnees-1", nom_base: nomDe(A), ...extra });
 const creerFin = (A: string) => inserer(A, "fins_de_contrat", { organisation_id: A, date_fin: "2027-03-31" });
-const creerGel = (A: string, extra: Record<string, unknown> = {}) => inserer(A, "gels_litige", { organisation_id: A, motif: "litige d'essai", posee_par: "agent-essai", ...extra });
+const creerGel = (A: string, extra: Record<string, unknown> = {}) => inserer(A, "gels_litige", { organisation_id: A, motif_litige: "litige d'essai", posee_par: "agent-essai", ...extra });
 const creerProposition = (A: string, fin: unknown, echeance = "2029-03-31", extra: Record<string, unknown> = {}) => inserer(A, "propositions_suppression", { fin_de_contrat_id: fin, echeance, ...extra });
 async function nouveauClient(): Promise<string> {
   const A = randomUUID();
@@ -128,15 +128,15 @@ describe("registre des bases des clients, avec le socle", { timeout: 30_000 }, (
   it("[C-609] un gel se pose avec motif, date et auteur, et sa levée garde l'historique (aucune ligne supprimée)", async () => {
     const A = await nouveauClient();
     const gel = await creerGel(A);
-    expect(gel).toMatchObject({ motif: "litige d'essai", posee_par: "agent-essai", levee_le: null, leve_par: null });
+    expect(gel).toMatchObject({ motif_litige: "litige d'essai", posee_par: "agent-essai", levee_le: null, leve_par: null });
     expect(gel["posee_le"]).toBeInstanceOf(Date);
-    await expect(creerGel(A, { motif: "   " })).rejects.toMatchObject({ code: "23514" });
+    await expect(creerGel(A, { motif_litige: "   " })).rejects.toMatchObject({ code: "23514" });
     await ecrire(app, A, (c) => c.query("UPDATE gels_litige SET levee_le = now(), leve_par = 'agent-essai' WHERE id = $1", [gel["id"]]), APPELANT);
     await expect(ecrire(app, A, (c) => c.query("DELETE FROM gels_litige WHERE id = $1", [gel["id"]]))).rejects.toMatchObject({ code: "42501" });
     // Seule la levée se modifie : le motif et l'auteur de la pose ne changent pas.
-    await expect(ecrire(app, A, (c) => c.query("UPDATE gels_litige SET motif = 'autre' WHERE id = $1", [gel["id"]]))).rejects.toMatchObject({ code: "42501" });
-    const { rows } = await ecrire(app, A, (c) => c.query("SELECT motif, levee_le, leve_par FROM gels_litige WHERE id = $1", [gel["id"]]));
-    expect(rows[0]).toMatchObject({ motif: "litige d'essai", leve_par: "agent-essai" });
+    await expect(ecrire(app, A, (c) => c.query("UPDATE gels_litige SET motif_litige = 'autre' WHERE id = $1", [gel["id"]]))).rejects.toMatchObject({ code: "42501" });
+    const { rows } = await ecrire(app, A, (c) => c.query("SELECT motif_litige, levee_le, leve_par FROM gels_litige WHERE id = $1", [gel["id"]]));
+    expect(rows[0]).toMatchObject({ motif_litige: "litige d'essai", leve_par: "agent-essai" });
     expect(rows[0]?.levee_le).toBeInstanceOf(Date);
   });
 
@@ -247,7 +247,7 @@ describe("fin de contrat et effacement (C-715)", { timeout: 40_000 }, () => {
     expect(issues.filter((i) => i === "23505")).toHaveLength(5);
   });
 
-  const decision = (A: string, valeurs: Record<string, unknown>) => inserer(A, "decisions_effacement", { decideur: randomUUID(), decision: "refuser", motif: "motif d'essai", reauth_le: new Date().toISOString(), ...valeurs });
+  const decision = (A: string, valeurs: Record<string, unknown>) => inserer(A, "decisions_effacement", { decideur: randomUUID(), decision: "refuser", motif_ecrit: "motif d'essai", reauth_le: new Date().toISOString(), ...valeurs });
   async function demande(A: string) {
     return inserer(A, "demandes_effacement", { fin_de_contrat_id: (await creerFin(A))["id"], ecrit_reference: "objet-essai-001" });
   }
@@ -257,7 +257,7 @@ describe("fin de contrat et effacement (C-715)", { timeout: 40_000 }, () => {
     const d = (await demande(A))["id"];
     await expect(decision(A, { demande_id: d })).rejects.toMatchObject({ code: "23514" });
     await expect(decision(A, { demande_id: d, decision: "accepter", cause: "obligation_legale", reference_texte: "texte d'essai" })).rejects.toMatchObject({ code: "23514" });
-    await expect(decision(A, { demande_id: d, decision: "accepter", motif: "  " })).rejects.toMatchObject({ code: "23514" });
+    await expect(decision(A, { demande_id: d, decision: "accepter", motif_ecrit: "  " })).rejects.toMatchObject({ code: "23514" });
     await expect(decision(A, { decision: "accepter" })).rejects.toMatchObject({ code: "23514" });
     await expect(decision(A, { demande_id: d, cause: "decision_de_will" })).rejects.toMatchObject({ code: "23514" });
     await decision(A, { demande_id: d, decision: "accepter" });

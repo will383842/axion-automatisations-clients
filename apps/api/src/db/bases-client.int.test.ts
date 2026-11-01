@@ -329,4 +329,58 @@ describe("fin de contrat et effacement (C-715)", { timeout: 40_000 }, () => {
     const q = await creerProposition(A, fin["id"], "2041-01-01");
     await ecrire(app, A, (c) => c.query("UPDATE propositions_suppression SET rappels_envoyes = 1, avis_client_le = now() WHERE id = $1", [q["id"]]), APPELANT);
   }, 120_000);
+  // Correctifs de relecture (PR n° 114) : les règles de droits tenues par la base.
+  it("[C-715] un refus de demande d'effacement ne peut pas être « écarté » : `ecarter` vise une proposition, jamais une demande du client", async () => {
+    const A = await nouveauClient();
+    const d = (await demande(A))["id"];
+    await expect(decision(A, { demande_id: d, decision: "ecarter", cause: "decision_de_will" })).rejects.toMatchObject({ code: "23514" });
+    await expect(decision(A, { demande_id: d, decision: "ecarter", cause: "obligation_legale", reference_texte: "texte d'essai" })).rejects.toMatchObject({ code: "23514" });
+    const fin = await creerFin(A);
+    const prop = await creerProposition(A, fin["id"], "2032-06-30");
+    expect(await decision(A, { proposition_id: prop["id"], decision: "ecarter", cause: "decision_de_will" })).toMatchObject({ cause: "decision_de_will" });
+  });
+
+  it("[C-715] une décision pour litige ne peut pas être antidatée pour s'appuyer sur un gel déjà levé", async () => {
+    const A = await nouveauClient();
+    const d = (await demande(A))["id"];
+    const gel = await creerGel(A, { posee_le: "2020-01-01T00:00:00Z" });
+    await ecrire(app, A, (c) => c.query("UPDATE gels_litige SET levee_le = now(), leve_par = 'agent-essai' WHERE id = $1", [gel["id"]]), APPELANT);
+    await expect(decision(A, { demande_id: d, cause: "litige_en_cours", gel_id: gel["id"], decidee_le: "2020-06-01T00:00:00Z" })).rejects.toMatchObject({ code: "23514" });
+  });
+
+  it("[C-609] la levée d'un gel ne se réécrit pas : une seule fois, à la date du jour, sans retour en arrière", async () => {
+    const A = await nouveauClient();
+    const gel = await creerGel(A, { posee_le: "2020-01-01T00:00:00Z" });
+    const maj = (sql: string) => ecrire(app, A, (c) => c.query(sql, [gel["id"]]), APPELANT);
+    await expect(maj("UPDATE gels_litige SET levee_le = '2020-02-01T00:00:00Z', leve_par = 'agent-essai' WHERE id = $1")).rejects.toMatchObject({ code: "23514" });
+    await maj("UPDATE gels_litige SET levee_le = now(), leve_par = 'agent-essai' WHERE id = $1");
+    await expect(maj("UPDATE gels_litige SET levee_le = NULL, leve_par = NULL WHERE id = $1")).rejects.toMatchObject({ code: "23514" });
+    await expect(maj("UPDATE gels_litige SET levee_le = levee_le - interval '1 day' WHERE id = $1")).rejects.toMatchObject({ code: "23514" });
+    await expect(maj("UPDATE gels_litige SET leve_par = 'autre' WHERE id = $1")).rejects.toMatchObject({ code: "23514" });
+  });
+
+  it("[C-715] la mise à jour d'une demande ou d'une proposition se limite aux changements d'état prévus", async () => {
+    const A = await nouveauClient();
+    const dem = await demande(A);
+    const maj = (sql: string, id: unknown) => ecrire(app, A, (c) => c.query(sql, [id]), APPELANT);
+    await expect(maj("UPDATE demandes_effacement SET ecrit_reference = 'autre' WHERE id = $1", dem["id"])).rejects.toMatchObject({ code: "42501" });
+    await expect(maj("UPDATE demandes_effacement SET recue_le = now() - interval '1 year' WHERE id = $1", dem["id"])).rejects.toMatchObject({ code: "42501" });
+    await expect(maj("UPDATE demandes_effacement SET fin_de_contrat_id = gen_random_uuid() WHERE id = $1", dem["id"])).rejects.toMatchObject({ code: "42501" });
+    await maj("UPDATE demandes_effacement SET etat = 'refusee' WHERE id = $1", dem["id"]);
+    await maj("UPDATE demandes_effacement SET etat = 'en_attente' WHERE id = $1", dem["id"]);
+    await maj("UPDATE demandes_effacement SET etat = 'acceptee' WHERE id = $1", dem["id"]);
+    await expect(maj("UPDATE demandes_effacement SET etat = 'en_attente' WHERE id = $1", dem["id"])).rejects.toMatchObject({ code: "23514" });
+    const prop = await creerProposition(A, dem["fin_de_contrat_id"], "2033-06-30");
+    await expect(maj("UPDATE propositions_suppression SET cree_le = now() - interval '1 year' WHERE id = $1", prop["id"])).rejects.toMatchObject({ code: "42501" });
+  });
+
+  it("[C-567] la double confirmation exige deux personnes : la même personne ne confirme pas sous les deux rôles", async () => {
+    const A = await nouveauClient();
+    const fin = await creerFin(A);
+    const personne = randomUUID();
+    const confirmer = (confirmateur: string, role: string) => inserer(A, "confirmations_mise_a_l_ecart", { fin_de_contrat_id: fin["id"], confirmateur, role, reauth_le: new Date().toISOString() });
+    await confirmer(personne, "will");
+    await expect(confirmer(personne, "second_administrateur")).rejects.toMatchObject({ code: "23505" });
+    await confirmer(randomUUID(), "second_administrateur");
+  });
 });

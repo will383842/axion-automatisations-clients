@@ -270,7 +270,7 @@ describe("secrets et propriétaire (audit B2, B3)", () => {
       expect(await codeRefus(m, "CREATE FUNCTION public.f_orph() RETURNS int LANGUAGE sql SECURITY DEFINER AS 'SELECT 1'"), "fonction").toBe("42501");
       const exec = await lignes(equipe, "SELECT p.oid::regprocedure::text AS f FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND has_function_privilege($1, p.oid, 'EXECUTE') AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e')", [`${b}_app`]);
       // Fonctions des extensions écartées (unaccent, pg_trgm : PostgreSQL les laisse ouvertes, elles ne lisent rien). Seconde exception, ADR 0051 : sans_accent (index de recherche du catalogue).
-      expect(exec.map((e) => String(e["f"]).replace(/[(].*$/, "").replace(/^public[.]/, ""))).toEqual(b === "console" ? ["audit_ajouter", "sans_accent"] : []);
+      expect(exec.map((e) => String(e["f"]).replace(/[(].*$/, "").replace(/^public[.]/, "")).sort()).toEqual(b === "console" ? ["audit_ajouter", "sans_accent"] : []);
     }
   });
 });

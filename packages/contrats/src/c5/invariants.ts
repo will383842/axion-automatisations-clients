@@ -44,6 +44,7 @@ export const ROLES_ADMINISTRATION: readonly string[] = [];
 export const TENANT_FACULTATIF: readonly string[] = Object.freeze(["public.journal_audit"]);
 // Tables communes à tous les clients, SANS colonne tenant_id (ADR 0050) : listes de valeurs d'AXION IA (empreintes d'adresses exclues pour rebond ou plainte).
 // Elles gardent RLS, FORCE et propriétaire contrôlés ; seuls tenant_id, son index et la lecture ouverte à tous les clients leur sont permis.
+// En échange, console_app n'y a AUCUN droit d'écriture (privilège, colonne ou politique) : l'écart est signalé « politique_ouverte » (aucune règle nouvelle, C5 inchangé).
 // Liste fermée : aucune option d'appel ne l'étend ; une table qui porte un tenant_id suit les règles ordinaires même si elle est listée ici.
 export const TABLES_COMMUNES: readonly string[] = Object.freeze(["public.exclusions_plateforme"]);
 // Unicités permises sans tenant_id : liste fermée et vide. Une entrée ne s'ajoute qu'avec sa raison, relue en 2 tours (ADR 0040).
@@ -76,7 +77,12 @@ const TEXTES = new Set(["text", "character varying", "character"]);
 const COLONNES = `
   SELECT table_schema AS "schema", table_name AS "table", column_name AS colonne, data_type AS type, is_nullable AS nullable
   FROM information_schema.columns`;
-const POLITIQUES = `SELECT schemaname AS "schema", tablename AS "table", permissive, cmd, qual, with_check FROM pg_policies`;
+const POLITIQUES = `SELECT schemaname AS "schema", tablename AS "table", permissive, cmd, qual, with_check, roles FROM pg_policies`;
+// Tables sur lesquelles le rôle console_app (ou PUBLIC) a un droit d'écriture, de colonne comprise : interdit pour les tables communes.
+const ECRITURES_APP = `
+  SELECT n.nspname AS "schema", c.relname AS "table" FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace, pg_roles r
+  WHERE r.rolname = 'console_app' AND c.relkind IN ('r', 'p')
+    AND (has_any_column_privilege(r.oid, c.oid, 'INSERT,UPDATE') OR has_table_privilege(r.oid, c.oid, 'DELETE,TRUNCATE'))`;
 // Index valide, complet (non partiel) dont la 1re colonne de la clé est la colonne tenant_id de la table
 // (indkey[0] ; une expression vaut 0, INCLUDE n'est pas dans la clé).
 const INDEX = `
@@ -153,9 +159,9 @@ export async function controlerInvariants(
   if (!NOM_BASE.test(nomBase)) throw new Error("nom de base invalide");
   const migrations = options.tableMigrations ?? TABLE_MIGRATIONS;
   if (!NOM_BASE.test(migrations)) throw new Error("nom de table de migrations invalide");
-  const [tables, colonnes, politiques, index, declencheurs, roles, uniques, etrangeres] = await Promise.all([
+  const [tables, colonnes, politiques, index, declencheurs, roles, uniques, etrangeres, ecritures] = await Promise.all([
     requete(tablesSql(migrations)), requete(COLONNES), requete(POLITIQUES), requete(INDEX), requete(DECLENCHEURS), requete(ROLES),
-    requete(UNIQUES), requete(ETRANGERES),
+    requete(UNIQUES), requete(ETRANGERES), requete(ECRITURES_APP),
   ]);
   const ecarts: Ecart[] = [];
   const noter = (regle: Regle, objet: string) => ecarts.push({ regle, objet });
@@ -176,6 +182,10 @@ export async function controlerInvariants(
     if (!commune && (!tenant || (tenant.nullable !== "NO" && !facultatif))) noter("tenant_id_absent", objet);
     if (!t.rls || siennes.length === 0) noter("rls_absente", objet);
     if (!commune && siennes.some(politiqueOuverte)) noter("politique_ouverte", objet);
+    // Une table commune est en lecture seule pour console_app : ni droit d'écriture, ni politique d'écriture pour lui ou PUBLIC (écriture par console_equipe seul).
+    const ecritureApp = ecritures.some((e) => e.schema === t.schema && e.table === nom)
+      || siennes.some((p) => p.cmd !== "SELECT" && Array.isArray(p.roles) && (p.roles.includes("console_app") || p.roles.includes("public")));
+    if (commune && ecritureApp) noter("politique_ouverte", objet);
     if (!t.force_rls) noter("force_rls_absent", objet);
     if (!commune && !index.some((i) => i.oid === t.oid)) noter("index_tenant_absent", objet);
     const membres = Array.isArray(t.membres) ? t.membres : [t.proprietaire];

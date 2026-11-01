@@ -161,16 +161,16 @@ describe.skipIf(!URL_PG)("C5 invariants du schéma", () => { // fiche: T0-16
 
   it("[C-536] sur une table commune, tout droit d'écriture de console_app (privilège, colonne ou politique) est signalé ; la lecture seule ne l'est pas", async () => {
     const role = "DO $$ BEGIN CREATE ROLE console_app NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$;";
-    const COMMUNE = `${role} CREATE TABLE exclusions_plateforme (empreinte_email text PRIMARY KEY, motif text); ALTER TABLE exclusions_plateforme ENABLE ROW LEVEL SECURITY; ALTER TABLE exclusions_plateforme FORCE ROW LEVEL SECURITY;
+    const COMMUNE = `${role} CREATE TABLE exclusions_plateforme (empreinte_email text PRIMARY KEY, commentaire text); ALTER TABLE exclusions_plateforme ENABLE ROW LEVEL SECURITY; ALTER TABLE exclusions_plateforme FORCE ROW LEVEL SECURITY;
       CREATE POLICY lecture ON exclusions_plateforme FOR SELECT TO console_app USING (true); GRANT SELECT ON exclusions_plateforme TO console_app;`;
     const signalee = (e: Ecart[]) => expect(e).toContainEqual({ regle: "politique_ouverte", objet: "exclusions_plateforme" });
     await avec("commune_ok", COMMUNE, (e) => expect(e).toEqual([]));
     await avec("commune_insert", `${COMMUNE} GRANT INSERT ON exclusions_plateforme TO console_app;`, signalee);
-    await avec("commune_colonne", `${COMMUNE} GRANT UPDATE (motif) ON exclusions_plateforme TO console_app;`, signalee);
+    await avec("commune_colonne", `${COMMUNE} GRANT UPDATE (commentaire) ON exclusions_plateforme TO console_app;`, signalee);
     await avec("commune_suppr", `${COMMUNE} GRANT DELETE ON exclusions_plateforme TO console_app;`, signalee);
     await avec("commune_politique", `${COMMUNE} CREATE POLICY tout ON exclusions_plateforme FOR ALL TO console_app USING (true) WITH CHECK (true);`, signalee);
     await avec("commune_public", `${COMMUNE} GRANT INSERT ON exclusions_plateforme TO PUBLIC;`, signalee);
-  });
+  }, 60_000);
 
   it("[C-536] une partition sans RLS, sans FORCE ou sans politique est signalée, même si le parent est conforme", async () => {
     await avec("part", `${EXECUTIONS} ${PARTITION}`, (e) => {

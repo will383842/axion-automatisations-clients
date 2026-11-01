@@ -70,7 +70,7 @@ describe("vérification de la chaîne du journal, avec le socle", { timeout: 60_
     const A = randomUUID();
     for (let i = 0; i < 100; i++) await ecrire(A, "essai_t210_canon", `e${i}`, { i, o: { b: [1, 2.5, null, true], a: "x" }, texte: i % 3 ? "é\"\\\t" : " " }, i % 4 === 0 ? "2001:db8::1" : i % 4 === 1 ? "192.0.2.77" : undefined);
     const { rows } = await migration.query(
-      `SELECT id::text, public.audit_contenu(id, tenant_id, acteur, action, entite, entite_id, ancienne, nouvelle, ip, cree_le) AS sql FROM public.journal_audit WHERE tenant_id = $1 ORDER BY id`, [A]);
+      `SELECT id::text, public.audit_contenu(id, tenant_id, acteur, action, entite, entite_id, ancienne, nouvelle, ip, cree_le) AS sql FROM public.journal_audit WHERE tenant_id = $1 ORDER BY journal_audit.id`, [A]);
     const lignes = await lecteurSql(requeteEquipe).lireIntervalle("1970-01-01T00:00:00.000000Z", "2100-01-01T00:00:00.000000Z");
     const parId = new Map(lignes.map((l) => [l.id, l]));
     expect(rows).toHaveLength(100);
@@ -87,7 +87,7 @@ describe("vérification de la chaîne du journal, avec le socle", { timeout: 60_
     const requeteCopie = async (sql: string, v: unknown[]) => (await migration.query(sql, v)).rows as Record<string, unknown>[];
     const lecteur = lecteurSql(requeteCopie, `${SCHEMA}.journal_audit`);
     expect(await verifierChaine(lecteur)).toMatchObject({ intacte: true });
-    const { rows } = await migration.query(`SELECT id::text, empreinte FROM ${SCHEMA}.journal_audit WHERE tenant_id = $1 ORDER BY id`, [A]);
+    const { rows } = await migration.query(`SELECT id::text, empreinte FROM ${SCHEMA}.journal_audit WHERE tenant_id = $1 ORDER BY journal_audit.id`, [A]);
     const cible = rows[3]!;
     await migration.query(`UPDATE ${SCHEMA}.journal_audit SET acteur = 'forge' WHERE id = $1`, [cible["id"]]);
     expect(await verifierChaine(lecteur)).toMatchObject({ intacte: false, rupture: { id: cible["id"], trouve: cible["empreinte"] } });

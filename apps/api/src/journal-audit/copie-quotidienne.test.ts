@@ -67,6 +67,16 @@ describe("copierVeille", () => {
     expect(s.objets.size).toBe(2);
   });
 
+  it("[C-040] une ligne de la veille est lisible dans la copie, et la rétention demandée tient encore à 5 ans moins un jour", async () => {
+    const s = stockage();
+    await copierVeille({ lecteur: lecteurDe(journal()), port: s.port, signataire, alertes: alertes(), maintenant: () => MAINTENANT });
+    const d = s.objets.get(`${COMPARTIMENT}/2026-10-31.jsonl`)!;
+    expect(JSON.parse(new TextDecoder().decode(d.octets).split("\n")[0]!)).toMatchObject({ id: "3", acteur: "agent-essai" });
+    const cinqAnsMoinsUnJour = MAINTENANT.getTime() + 5 * 365 * 86_400_000 - 86_400_000;
+    expect(d.modeRetention).toBe("COMPLIANCE");
+    expect(d.retenirJusquA.getTime()).toBeGreaterThan(cinqAnsMoinsUnJour);
+  });
+
   it("[C-029] @anti-doublon deux lancements la même nuit ne déposent qu'une copie", async () => {
     const s = stockage();
     const o = { lecteur: lecteurDe([]), port: s.port, signataire, alertes: alertes(), maintenant: () => MAINTENANT };

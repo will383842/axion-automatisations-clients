@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { magasin } from "../../lib/session.ts";
 import config from "../../../next.config.ts";
 
 const ENV = {
@@ -61,6 +62,21 @@ describe("route /connexion", () => {
     await appeler("/connexion?login_hint=secret.unique%40exemple.fr");
     await appeler("/connexion?login_hint=mauvais");
     for (const s of sorties) expect(JSON.stringify(s.mock.calls)).not.toContain("secret.unique");
+  });
+
+  it("[LOT3-session] au plafond des transactions ouvertes, la route répond 503 sans créer d'entrée, puis reprend", async () => {
+    vi.useFakeTimers();
+    try {
+      for (let i = 0; i < 10_000; i++) magasin.ouvrirTransaction({ verifier: "v", nonce: "n", retour: "/" });
+      const r = await appeler("/connexion");
+      expect(r.status).toBe(503);
+      expect(r.headers.get("location")).toBeNull();
+      expect(r.headers.get("set-cookie")).toBeNull();
+      vi.setSystemTime(Date.now() + 11 * 60_000);
+      expect((await appeler("/connexion")).status).toBe(302);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("[C-404] la réponse porte Referrer-Policy: no-referrer et n'est pas mise en cache", async () => {

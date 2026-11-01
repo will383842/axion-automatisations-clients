@@ -1,5 +1,6 @@
 import { createHash, generateKeyPairSync, sign, type KeyObject } from "node:crypto";
 import { describe, expect, it } from "vitest";
+import { emailValide } from "../../../../packages/contrats/src/c6/jeton.ts";
 import { adresseAutorisation, creerDefi, loginHintValide, retourSur, verifierJeton } from "./connexion.ts";
 
 const CFG = { emetteur: "https://sso.exemple.test/realms/equipe", clientId: "console", origine: "https://console.exemple.test" };
@@ -34,13 +35,22 @@ describe("connexion de l'équipe : adresse d'autorisation", () => {
 
   it("[C-404] login_hint : une adresse e-mail courte, sans injection, sinon refus", () => {
     expect(loginHintValide("Prénom.Nom+test@Exemple.fr")).toBe(true);
-    const mauvais = ["", "pas-un-mail", "a@b", "a b@exemple.fr", "a@exemple.fr&prompt=none", "a@exemple.fr\r\nX: 1", "a@@exemple.fr", "<x>@exemple.fr", `${"a".repeat(250)}@exemple.fr`, `${"a".repeat(65)}@exemple.fr`, "a@exemple.fr#x", "a@exemple.fr?x=1", "a%40exemple.fr", "a@exemple.fr,b@exemple.fr"];
+    const mauvais = ["", "pas-un-mail", "a b@exemple.fr", "a@exemple.fr&prompt=none", "a@exemple.fr\r\nX: 1", "a@@exemple.fr", "<x>@exemple.fr", `${"a".repeat(250)}@exemple.fr`, `${"a".repeat(65)}@exemple.fr`, "a@exemple.fr\u202e"];
     for (const m of mauvais) expect(loginHintValide(m), m).toBe(false);
+  });
+
+  it("[C-541] la console accepte tout e-mail que le contrat C6 accepte (apostrophe, domaine sans point), dans les limites de 254 et 64", () => {
+    for (const m of ["o'neil@exemple.fr", "a@b", "a#x@exemple.fr", "a@exemple.fr,b", "a%40exemple.fr", "Prénom.Nom+test@Exemple.fr"]) {
+      expect(emailValide(m), m).toBe(true);
+      expect(loginHintValide(m), m).toBe(true);
+    }
+    const tropLong = `a@${"b".repeat(253)}`;
+    expect(loginHintValide(tropLong)).toBe(false);
   });
 
   it("[LOT3-session] un retour vers une autre origine est refusé (seul un chemin local passe)", () => {
     expect(retourSur("/clients?vue=a")).toBe("/clients?vue=a");
-    for (const m of ["//autre.test", "/\\autre.test", "https://autre.test", "https:", "javascript:alert(1)", "/\t/autre.test", "/%0d%0aX", "\\\\autre.test", "autre", "/connexion", "/api/auth/rappel", null, ""]) expect(retourSur(m), String(m)).toBe("/");
+    for (const m of ["//autre.test", "/\\autre.test", "https://autre.test", "https:", "javascript:alert(1)", "/\t/autre.test", "/%0d%0aX", "\\\\autre.test", "autre", "/connexion", "/api/auth/rappel", "/entree", "/entree#j=x", "/entree?a=1", "/%65ntree", "/%63onnexion", null, ""]) expect(retourSur(m), String(m)).toBe("/");
   });
 });
 
@@ -73,6 +83,17 @@ describe("connexion de l'équipe : jeton d'identité", () => {
     await expect(verifier(jeton({ aud: ["console", "portail"], azp: "portail" }))).rejects.toThrow(/azp/);
     await expect(verifier(jeton({ exp: MAINTENANT - 1 }))).rejects.toThrow(/exp/);
     await expect(verifier(jeton({ nonce: "autre" }))).rejects.toThrow(/nonce/);
-    await expect(verifier(jeton({ email: undefined }))).rejects.toThrow();
+    await expect(verifier(jeton({ azp: "portail" }))).rejects.toThrow(/azp/);
+    await expect(verifier(jeton({ sub: undefined }))).rejects.toThrow();
+  });
+
+  it("[C-541] email absent du jeton (portées du royaume) : la connexion reste possible, l'identité est sub", async () => {
+    expect(await verifier(jeton({ email: undefined }))).toEqual({ sub: "u1", email: undefined });
+    expect((await verifier(jeton({ email: 42 }))).email).toBeUndefined();
+  });
+
+  it("[C-541] une clé du royaume réservée au chiffrement (use=enc) ne vérifie jamais une signature", async () => {
+    const chiffrement = async () => [{ ...publicKey.export({ format: "jwk" }), kid: "k1", alg: "RSA-OAEP", use: "enc" }];
+    await expect(verifier(jeton(), { cles: chiffrement })).rejects.toThrow(/signature/);
   });
 });

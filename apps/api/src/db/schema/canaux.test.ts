@@ -158,10 +158,11 @@ describe("tables des canaux : schéma et migration 0006", () => {
     expect(contraintes(exclusionsPlateforme)).toContain("exclusions_plateforme_auteur");
   });
 
-  it("[C-456] une entrée à trancher déjà tranchée est immuable : un déclencheur refuse tout retour d'état", () => {
-    expect(migration).toMatch(/CREATE FUNCTION public\.a_trancher_figer\(\)/);
-    expect(migration).toContain('CREATE TRIGGER a_trancher_figer BEFORE UPDATE ON "public"."a_trancher" FOR EACH ROW EXECUTE FUNCTION public.a_trancher_figer()');
-    expect(migration).toMatch(/OLD\.etat = 'tranche'[\s\S]*RAISE EXCEPTION/);
+  it("[C-456] une entrée à trancher déjà tranchée est immuable : une politique restrictive ne laisse mettre à jour que les entrées ouvertes (aucune fonction en migration)", () => {
+    expect(migration).toContain(`CREATE POLICY ouverte_seulement ON "public"."a_trancher" AS RESTRICTIVE FOR UPDATE TO console_app USING (etat = 'ouvert') WITH CHECK (etat IN ('ouvert', 'tranche'))`);
+    expect(migration).not.toMatch(/CREATE FUNCTION/);
+    // L'isolation par client reste une politique permissive distincte : la restrictive s'ajoute (ET), elle ne la remplace pas.
+    expect(migration).toContain(`CREATE POLICY isolation_client ON "public"."a_trancher" FOR ALL TO console_app`);
   });
 });
 

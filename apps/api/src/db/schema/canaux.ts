@@ -1,6 +1,6 @@
-import { bigint, check, date, foreignKey, integer, jsonb, pgEnum, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
+import { bigint, check, date, foreignKey, integer, jsonb, pgEnum, pgTable, text, timestamp, unique, uuid, type PgColumn } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
-import { tableClient } from "./aides.ts";
+import { PLATEFORME_ID, tableClient } from "./aides.ts";
 import { organisations } from "./clients.ts";
 
 // Tables des canaux (C5, lot 2) : boîte d'envoi, faits reçus, lien CRM, file « à trancher », exclusions (ADR 0050).
@@ -16,6 +16,11 @@ export const etatATrancher = pgEnum("etat_a_trancher", ["ouvert", "tranche"]);
 export const porteeExclusion = pgEnum("portee_exclusion", ["client", "plateforme"]);
 export const motifExclusion = pgEnum("motif_exclusion", ["rebond", "plainte", "desabonnement", "demande_client"]);
 export const sourceExclusion = pgEnum("source_exclusion", ["retour_rebond", "rapport_plainte", "lien_desinscription", "saisie_equipe"]);
+// Valeurs globales d'AXION IA (ADR 0050) : énumérations créées ici, lues par T2-04 (conditions) et T2-06 (alertes).
+export const etatAlerte = pgEnum("etat_alerte", ["ouverte", "acquittee", "close"]);
+export const graviteAlerte = pgEnum("gravite_alerte", ["information", "avertissement", "critique"]);
+export const typeCondition = pgEnum("type_condition", ["remise", "frais", "engagement", "garantie", "delai", "seuil_alerte", "periode"]);
+export const sourceCondition = pgEnum("source_condition", ["defaut", "client"]);
 
 const HEX64 = "^[0-9a-f]{64}$";
 
@@ -145,10 +150,71 @@ export const exclusionsPlateforme = pgTable(
     empreinteEmail: text("empreinte_email").primaryKey(),
     motif: motifExclusion("motif").notNull(),
     source: sourceExclusion("source").notNull(),
+    // Auteur de l'ajout : l'acteur de la transaction (politique ajout_equipe), car une ligne bloque une adresse pour tous les clients.
+    ajoutePar: text("ajoute_par").notNull(),
     creeLe: date("cree_le").notNull().defaultNow(),
   },
   (t) => [
+    check("exclusions_plateforme_auteur", sql`length(btrim(${t.ajoutePar})) BETWEEN 1 AND 128`),
     check("exclusions_plateforme_empreinte_format", sql`${t.empreinteEmail} ~ '${sql.raw(HEX64)}'`),
     check("exclusions_plateforme_motif_commun", sql`${t.motif} IN ('rebond', 'plainte')`),
   ],
+);
+
+// Lignes globales d'AXION IA : toujours au nom de l'organisation « plateforme » (ADR 0040, 0050), jamais d'un client.
+const plateforme = (nom: string, t: Record<string, PgColumn>) => check(`${nom}_plateforme`, sql`${t["tenantId"]} = '${sql.raw(PLATEFORME_ID)}'`);
+
+export const reglageGlobalFinDeContrat = tableClient(
+  "reglage_global_fin_de_contrat",
+  {
+    id: uuid("id").notNull(),
+    delaiPropositionSuppressionMois: integer("delai_proposition_suppression_mois").notNull(),
+    auteur: text("auteur").notNull(),
+    creeLe: timestamp("cree_le", { withTimezone: true }).notNull().defaultNow(),
+  },
+  {
+    // Ajout seul : le réglage en vigueur est la dernière ligne. L'équipe écrit, donc pas de copie au journal (ADR 0050 §8).
+    audit: false,
+    contraintes: (t) => [
+      plateforme("reglage_global_fin_de_contrat", t),
+      check("reglage_global_delai_minimal", sql`${t["delaiPropositionSuppressionMois"]} >= 2`),
+      check("reglage_global_auteur", sql`length(btrim(${t["auteur"]})) BETWEEN 1 AND 128`),
+    ],
+  },
+);
+
+export const conditionsParDefaut = tableClient(
+  "conditions_par_defaut",
+  {
+    id: uuid("id").notNull(),
+    type: typeCondition("type").notNull(),
+    valeur: jsonb("valeur").notNull(),
+    source: sourceCondition("source").notNull().default("defaut"),
+    valideDu: date("valide_du").notNull().defaultNow(),
+    valideAu: date("valide_au"),
+    creePar: text("cree_par").notNull(),
+  },
+  {
+    audit: false,
+    contraintes: (t) => [
+      plateforme("conditions_par_defaut", t),
+      check("conditions_par_defaut_source_defaut", sql`${t["source"]} = 'defaut'`),
+      check("conditions_par_defaut_validite", sql`${t["valideAu"]} IS NULL OR ${t["valideAu"]} >= ${t["valideDu"]}`),
+      check("conditions_par_defaut_auteur", sql`length(btrim(${t["creePar"]})) BETWEEN 1 AND 128`),
+    ],
+  },
+);
+
+export const alertesPlateforme = tableClient(
+  "alertes_plateforme",
+  {
+    id: uuid("id").notNull(),
+    type: text("type").notNull(),
+    gravite: graviteAlerte("gravite").notNull(),
+    regle: text("regle").notNull(),
+    etat: etatAlerte("etat").notNull().default("ouverte"),
+    assigneeA: text("assignee_a"),
+    creeLe: timestamp("cree_le", { withTimezone: true }).notNull().defaultNow(),
+  },
+  { audit: false, contraintes: (t) => [plateforme("alertes_plateforme", t)] },
 );

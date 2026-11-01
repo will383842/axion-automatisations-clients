@@ -226,8 +226,9 @@ describe("tables des canaux, avec le socle", { timeout: 30_000 }, () => {
     const ligne = await inserer(A, "a_trancher", { source: "hub", motif: "fiche_absorbee" });
     const maj = (set: string) => ecrire(app, A, (c) => c.query(`UPDATE a_trancher SET ${set} WHERE id = $1`, [ligne["id"]]));
     await maj("etat = 'tranche', decision = 'fusionner', tranche_par = 'agent-essai'");
-    await expect(maj("etat = 'ouvert', decision = NULL, tranche_par = NULL")).rejects.toThrow(/tranchée est immuable/);
-    await expect(maj("decision = 'séparer'")).rejects.toThrow(/tranchée est immuable/);
+    // La politique restrictive cache la ligne tranchée à toute mise à jour : zéro ligne touchée, rien ne change.
+    expect((await maj("etat = 'ouvert', decision = NULL, tranche_par = NULL")).rowCount).toBe(0);
+    expect((await maj("decision = 'séparer'")).rowCount).toBe(0);
     expect((await ecrire(app, A, (c) => c.query("SELECT etat, decision FROM a_trancher WHERE id = $1", [ligne["id"]]))).rows[0]).toMatchObject({ etat: "tranche", decision: "fusionner" });
   });
 

@@ -378,21 +378,24 @@ describe("PgBouncer de la grappe données (A-234, A-235, A-236, A-210)", () => {
       await existante.query("begin; select 1");
       const clients = ids.flatMap((id) => [0, 1].map(() => clientPg(h, 6432, role(id, "app"), `cli_${id}`, motDePasse(role(id, "app")))));
       // Refus propre = saturation seulement (SQLSTATE 53300, attente dépassée, plafond de PgBouncer). Un échec d'authentification, une base absente ou une coupure ne comptent pas.
-      const saturation = /too many clients|remaining connection slots|query_wait_timeout|no more connections allowed|max_client_conn|cannot connect to server|server login has been failing/i;
-      const issues = await Promise.all(
-        clients.map((c) => c.connect().then(() => c.query("begin; select 1")).then(() => "ouverte", (e: Error & { code?: string }) => (e.code === "53300" || saturation.test(e.message) ? "refus propre" : `autre : ${e.message}`))),
-      );
-      writeSync(2, `A-236 issues : ${JSON.stringify([...new Set(issues.map((x) => x.slice(0, 120)))])}\n`);
-      const ouvertes = issues.filter((x) => x === "ouverte").length;
-      expect(issues.filter((x) => x.startsWith("autre"))).toEqual([]);
-      expect(ouvertes).toBeGreaterThan(0);
-      expect(issues.filter((x) => x === "refus propre").length).toBeGreaterThan(0);
-      expect(Number(superu("postgres", "select count(*) from pg_stat_activity where usename like 'cli\\_%'").sortie)).toBeLessThanOrEqual(250);
-      // La base qui tenait déjà sa connexion la garde.
-      expect((await existante.query("select 1 as v")).rows[0]?.v).toBe(1);
-      await Promise.allSettled([existante.end(), ...clients.map((c) => c.end())]);
-      // PgBouncer garde ses connexions serveur 30 s : on attend qu'elles retombent avant les essais suivants.
-      expect(await attendre(() => toutesLesConnexions() === 0, 80)).toBe(true);
+      const saturation = /too many clients|remaining connection slots|query_wait_timeout|query_timeout|no more connections allowed|max_client_conn|cannot connect to server|server login has been failing/i;
+      try {
+        const issues = await Promise.all(
+          clients.map((c) => c.connect().then(() => c.query("begin; select 1")).then(() => "ouverte", (e: Error & { code?: string }) => (e.code === "53300" || saturation.test(e.message) ? "refus propre" : `autre : ${e.message}`))),
+        );
+        writeSync(2, `A-236 issues : ${JSON.stringify([...new Set(issues.map((x) => x.slice(0, 120)))])}\n`);
+        const ouvertes = issues.filter((x) => x === "ouverte").length;
+        expect(issues.filter((x) => x.startsWith("autre"))).toEqual([]);
+        expect(ouvertes).toBeGreaterThan(0);
+        expect(issues.filter((x) => x === "refus propre").length).toBeGreaterThan(0);
+        expect(Number(superu("postgres", "select count(*) from pg_stat_activity where usename like 'cli\\_%'").sortie)).toBeLessThanOrEqual(250);
+        // La base qui tenait déjà sa connexion la garde.
+        expect((await existante.query("select 1 as v")).rows[0]?.v).toBe(1);
+      } finally {
+        await Promise.allSettled([existante.end(), ...clients.map((c) => c.end())]);
+        // PgBouncer garde ses connexions serveur 30 s : on attend qu'elles retombent avant les essais suivants, même si une vérification a échoué.
+        await attendre(() => toutesLesConnexions() === 0, 80);
+      }
     }, 300_000);
   });
 });

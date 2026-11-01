@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { chargerConfig } from "../config.ts";
 import { Cellule, InstanceHorsCellule } from "./cellule.ts";
@@ -162,5 +164,15 @@ describe("configuration", () => {
   });
   it("[A-268] sans VALKEY_HOTE, le démarrage est refusé (aucun hôte par défaut)", () => {
     expect(() => chargerConfig({})).toThrow("VALKEY_HOTE");
+  });
+});
+
+describe("stabilité de la CI", () => {
+  it("[CI] couverture-req ne dépend d'aucune temporisation fixe", () => {
+    // Cause trouvée (T1B-08) : le test du bail [A-325] attendait 200 ms réelles sur l'horloge réelle avec un bail de 60 ms ;
+    // sous la charge de la CI, un renouvellement en retard faisait expirer la place. Ce fichier ne doit plus jamais le faire.
+    const source = readFileSync(fileURLToPath(import.meta.url), "utf8").split("describe(\"stabilité de la CI\"")[0] ?? "";
+    expect(source.match(/setTimeout\(\s*\w+\s*,\s*\d/g) ?? []).toEqual([]);
+    expect(source.match(/PlacesMemoire\(\(\) => Date\.now\(\)\)/g) ?? []).toEqual([]);
   });
 });

@@ -14,6 +14,12 @@ Les secrets de l'équipe vivent dans Bitwarden ou sous `technique/` d'OpenBao, J
 | `NODE_ENV` | aucun | environnement cloud | sans objet |
 | `PORT` | aucun | environnement cloud | sans objet |
 | `APP_DATABASE_URL` | production | environnement cloud (le mot de passe vient d'OpenBao) | à chaque départ d'un administrateur |
+| `CONSOLE_CONNEXION_OUVERTE` | aucun | environnement cloud (interrupteur, fermé par défaut) | sans objet |
+| `CONSOLE_EMETTEUR_OIDC` | aucun | environnement cloud (adresse du royaume de l'équipe) | sans objet |
+| `CONSOLE_CLIENT_OIDC` | aucun | environnement cloud | sans objet |
+| `CONSOLE_SECRET_OIDC` | equipe | OpenBao `technique/` (secret du client `console` de Keycloak) | chaque trimestre |
+| `CONSOLE_ORIGINE` | aucun | environnement cloud (origine publique de la console) | sans objet |
+| `BACKOFFICE_URL` | aucun | environnement cloud (A-104) | sans objet |
 | `MIGRATION_DATABASE_URL` | production | environnement cloud, le temps d'une migration (le mot de passe du rôle qui modifie le schéma vient d'OpenBao) | à chaque départ d'un administrateur |
 | `APP_VERSION` | aucun | environnement de construction | sans objet |
 | `HUB_URL` | aucun | environnement cloud | sans objet |

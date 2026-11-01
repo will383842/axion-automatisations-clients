@@ -11,6 +11,8 @@ export function POST(requete: Request): Response {
   const session = sessionDe(requete);
   if (session) magasin.fermerSession(session.id);
   const fin = new URL(pointKeycloak(config, "logout"));
+  // client_id toujours présent : sans session il n'y a pas d'id_token_hint, et Keycloak refuse alors post_logout_redirect_uri.
+  fin.searchParams.set("client_id", config.clientId);
   if (session) fin.searchParams.set("id_token_hint", session.jeton);
   fin.searchParams.set("post_logout_redirect_uri", `${config.origine}/`);
   const entetes = new Headers(ENTETES);

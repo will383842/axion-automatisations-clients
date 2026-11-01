@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { PLAFOND_TRANSACTIONS, creerMagasin, cookieEffacer, cookieSession, cookieTransaction, lireCookie } from "./session.ts";
 
+const ouvrirT = (m: ReturnType<typeof creerMagasin>, t: Parameters<ReturnType<typeof creerMagasin>["ouvrirTransaction"]>[0]) => m.ouvrirTransaction(t) as string;
 const HUIT_HEURES = 8 * 3600 * 1000;
 
 describe("session de la console", () => {
@@ -24,10 +25,13 @@ describe("session de la console", () => {
     t += 6 * 60_000; // bien au-delà des 5 minutes du jeton d'identité
     expect(m.lireSession(s.id)).toBeDefined();
     const inactive = m.ouvrirSession({ sub: "u2", jeton: "j" });
-    t += 31 * 60_000;
-    expect(m.lireSession(inactive.id)).toBeUndefined();
+    t += 25 * 60_000;
+    expect(m.lireSession(s.id)).toBeDefined();
+    t += 6 * 60_000;
+    expect(m.lireSession(inactive.id)).toBeUndefined(); // 31 min sans activité
+    expect(m.lireSession(s.id)).toBeDefined();
     // une activité toutes les 20 minutes prolonge la session, mais jamais au-delà de 8 h
-    for (let i = 0; i < 20; i++) { t += 20 * 60_000; if (t - 1_000_000 < HUIT_HEURES) expect(m.lireSession(s.id), String(i)).toBeDefined(); }
+    for (let i = 0; i < 30; i++) { t += 20 * 60_000; if (t - 1_000_000 < HUIT_HEURES) expect(m.lireSession(s.id), String(i)).toBeDefined(); }
     expect(t - 1_000_000).toBeGreaterThan(HUIT_HEURES);
     expect(m.lireSession(s.id)).toBeUndefined();
   });
@@ -41,10 +45,10 @@ describe("session de la console", () => {
   it("[LOT3-session] les transactions de connexion ouvertes sont plafonnées (mémoire non authentifiée)", () => {
     let t = 0;
     const m = creerMagasin(() => t, 3);
-    for (let i = 0; i < 3; i++) expect(m.ouvrirTransaction({ verifier: "v", nonce: "n", retour: "/" })).toBeTypeOf("string");
-    expect(m.ouvrirTransaction({ verifier: "v", nonce: "n", retour: "/" })).toBeUndefined();
+    for (let i = 0; i < 3; i++) expect(ouvrirT(m, { verifier: "v", nonce: "n", retour: "/" })).toBeTypeOf("string");
+    expect(ouvrirT(m, { verifier: "v", nonce: "n", retour: "/" })).toBeUndefined();
     t += 601_000; // les anciennes expirent : la place revient
-    expect(m.ouvrirTransaction({ verifier: "v", nonce: "n", retour: "/" })).toBeTypeOf("string");
+    expect(ouvrirT(m, { verifier: "v", nonce: "n", retour: "/" })).toBeTypeOf("string");
     expect(PLAFOND_TRANSACTIONS).toBeGreaterThanOrEqual(1000);
   });
 
@@ -52,7 +56,7 @@ describe("session de la console", () => {
     const { vi } = await import("vitest");
     const a = await import("./session.ts");
     vi.resetModules();
-    const b = await import("./session.ts?second");
+    const b = await import(/* @vite-ignore */ `./session.ts${"?second"}`) as typeof a;
     expect(b.magasin).toBe(a.magasin);
   });
 
@@ -70,10 +74,10 @@ describe("session de la console", () => {
   it("[C-541] une transaction de connexion ne sert qu'une fois et expire en 10 minutes", () => {
     let t = 0;
     const m = creerMagasin(() => t);
-    const etat = m.ouvrirTransaction({ verifier: "v", nonce: "n", retour: "/clients" });
+    const etat = ouvrirT(m, { verifier: "v", nonce: "n", retour: "/clients" });
     expect(m.consommerTransaction(etat)).toEqual({ verifier: "v", nonce: "n", retour: "/clients" });
     expect(m.consommerTransaction(etat)).toBeUndefined();
-    const vieux = m.ouvrirTransaction({ verifier: "v", nonce: "n", retour: "/" });
+    const vieux = ouvrirT(m, { verifier: "v", nonce: "n", retour: "/" });
     t += 601_000;
     expect(m.consommerTransaction(vieux)).toBeUndefined();
   });

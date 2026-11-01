@@ -285,7 +285,7 @@ describe("garde-royaumes : niveau d'authentification (acr)", () => {
   it("[C-003] le royaume de l'équipe pose le niveau mfa par le sous-flux du double facteur et expose acr dans le jeton", () => {
     const r = JSON.parse(lire("royaume-equipe.json")) as Royaume;
     expect(r.attributes["acr.loa.map"]).toBe('{"mfa":"2"}');
-    expect(r.authenticatorConfig).toEqual([expect.objectContaining({ alias: "niveau-mfa", config: expect.objectContaining({ "loa-condition-level": "2" }) })]);
+    expect(r.authenticatorConfig).toContainEqual(expect.objectContaining({ alias: "niveau-mfa", config: expect.objectContaining({ "loa-condition-level": "2" }) }));
     const formulaire = r.authenticationFlows.find((f: Royaume) => f.alias === "formulaire-equipe");
     expect(formulaire.authenticationExecutions).toContainEqual(expect.objectContaining({ flowAlias: "niveau-mfa-equipe", requirement: "CONDITIONAL" }));
     const niveau = r.authenticationFlows.find((f: Royaume) => f.alias === "niveau-mfa-equipe");

@@ -54,6 +54,7 @@ Les secrets de l'équipe vivent dans Bitwarden ou sous `technique/` d'OpenBao, J
 | `SOCLE_KEYCLOAK_SECRET_PORTAIL` | construction | environnement de construction | généré à chaque lancement |
 | `KC_SECRET_CONSOLE` | production | environnement du conteneur Keycloak (substitué dans le fichier de royaume de l'équipe ; en essai, valeur de `SOCLE_KEYCLOAK_SECRET_CONSOLE`) | à chaque départ d'un administrateur |
 | `KC_SECRET_PORTAIL` | production | environnement du conteneur Keycloak (substitué dans le fichier de royaume des clients ; en essai, valeur de `SOCLE_KEYCLOAK_SECRET_PORTAIL`) | à chaque départ d'un administrateur |
+| `KC_ORIGINE_CONSOLE` | aucun | environnement du conteneur Keycloak (origine publique de la console, substituée dans les adresses de rappel et de fin de session du client `console` ; en essai, l'adresse fictive https://console.exemple.test) | sans objet |
 | `SOCLE_STOCKAGE_MOT_DE_PASSE` | construction | environnement de construction | généré à chaque lancement |
 
 ## Secrets rangés dans OpenBao

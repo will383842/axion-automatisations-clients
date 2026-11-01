@@ -33,7 +33,7 @@ function brancherKeycloak(idToken: () => string) {
   });
 }
 function ouvrir(retour = "/clients") {
-  const etat = magasin.ouvrirTransaction({ verifier: "V".repeat(43), nonce: "N", retour });
+  const etat = magasin.ouvrirTransaction({ verifier: "V".repeat(43), nonce: "N", retour }) as string;
   return etat;
 }
 const rappel = (etat: string, cookie: string | null = etat, code = "code-1") =>

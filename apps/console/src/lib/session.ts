@@ -1,25 +1,30 @@
 import { randomBytes } from "node:crypto";
 
 // Sessions et transactions de connexion gardées côté serveur (en mémoire du processus). Le navigateur ne reçoit qu'un identifiant opaque.
-const DUREE_SESSION = 8 * 3600 * 1000; // borne de la session Keycloak de l'équipe
+// La durée de la session ne vient JAMAIS de l'exp du jeton d'identité (5 min) : elle suit la session Keycloak de l'équipe.
+export const DUREE_SESSION = 8 * 3600 * 1000; // ssoSessionMaxLifespan
+const INACTIVITE_SESSION = 30 * 60 * 1000; // ssoSessionIdleTimeout
+export const PLAFOND_TRANSACTIONS = 10_000; // mémoire alimentée sans authentification : plafonnée
 const DUREE_TRANSACTION = 10 * 60 * 1000;
 export const COOKIE_SESSION = "__Host-session";
 export const COOKIE_TRANSACTION = "__Host-transaction";
 
-export interface Session { id: string; sub: string; email: string; jeton: string; expireA: number }
+export interface Session { id: string; sub: string; email?: string | undefined; jeton: string; expireA: number; activiteA: number }
 interface Transaction { verifier: string; nonce: string; retour: string }
 const aleatoire = () => randomBytes(32).toString("base64url");
 
-export function creerMagasin(maintenant: () => number = Date.now) {
+export function creerMagasin(maintenant: () => number = () => Date.now(), plafond: number = PLAFOND_TRANSACTIONS) {
   const sessions = new Map<string, Session>();
   const transactions = new Map<string, Transaction & { expireA: number }>();
+  const vivante = (s: Session) => s.expireA > maintenant() && s.activiteA + INACTIVITE_SESSION > maintenant();
   const purger = () => {
-    for (const [k, s] of sessions) if (s.expireA <= maintenant()) sessions.delete(k);
+    for (const [k, s] of sessions) if (!vivante(s)) sessions.delete(k);
     for (const [k, t] of transactions) if (t.expireA <= maintenant()) transactions.delete(k);
   };
   return {
-    ouvrirTransaction(t: Transaction): string {
+    ouvrirTransaction(t: Transaction): string | undefined {
       purger();
+      if (transactions.size >= plafond) return undefined;
       const etat = aleatoire();
       transactions.set(etat, { ...t, expireA: maintenant() + DUREE_TRANSACTION });
       return etat;
@@ -30,23 +35,31 @@ export function creerMagasin(maintenant: () => number = Date.now) {
       if (!t || t.expireA <= maintenant()) return undefined;
       return { verifier: t.verifier, nonce: t.nonce, retour: t.retour };
     },
-    ouvrirSession(s: Omit<Session, "id">): Session {
+    ouvrirSession(s: Pick<Session, "sub" | "email" | "jeton">): Session {
       purger();
-      const session = { ...s, id: aleatoire(), expireA: Math.min(s.expireA, maintenant() + DUREE_SESSION) };
+      const session: Session = { ...s, id: aleatoire(), expireA: maintenant() + DUREE_SESSION, activiteA: maintenant() };
       sessions.set(session.id, session);
       return session;
     },
     lireSession(id: string): Session | undefined {
       const s = sessions.get(id);
-      if (s && s.expireA <= maintenant()) sessions.delete(id);
-      return sessions.get(id);
+      if (!s) return undefined;
+      if (!vivante(s)) {
+        sessions.delete(id);
+        return undefined;
+      }
+      s.activiteA = maintenant();
+      return s;
     },
     fermerSession(id: string): void {
       sessions.delete(id);
     },
   };
 }
-export const magasin = creerMagasin();
+// Ancré sur globalThis : /connexion et /api/auth/rappel sont deux entrées du bundle Next.js, le module peut être chargé deux fois.
+const CLE_MAGASIN = Symbol.for("axion.console.magasin");
+const global = globalThis as unknown as Record<symbol, ReturnType<typeof creerMagasin> | undefined>;
+export const magasin = (global[CLE_MAGASIN] ??= creerMagasin());
 
 const BASE = "Path=/; Secure; HttpOnly";
 export const cookieSession = (id: string, secondes: number) => `${COOKIE_SESSION}=${id}; ${BASE}; SameSite=Strict; Max-Age=${secondes}`;

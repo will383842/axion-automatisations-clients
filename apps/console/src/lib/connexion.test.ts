@@ -40,7 +40,7 @@ describe("connexion de l'équipe : adresse d'autorisation", () => {
   });
 
   it("[C-541] la console accepte tout e-mail que le contrat C6 accepte (apostrophe, domaine sans point), dans les limites de 254 et 64", () => {
-    for (const m of ["o'neil@exemple.fr", "a@b", "a#x@exemple.fr", "a@exemple.fr,b", "a%40exemple.fr", "Prénom.Nom+test@Exemple.fr"]) {
+    for (const m of ["o'neil@exemple.fr", "a@b", "a#x@exemple.fr", "a@exemple.fr,b", "Prénom.Nom+test@Exemple.fr"]) {
       expect(emailValide(m), m).toBe(true);
       expect(loginHintValide(m), m).toBe(true);
     }

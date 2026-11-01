@@ -23,6 +23,8 @@ class FauxMoteur {
   requetes: string[] = [];
   // Nombre de requêtes avant la mort du processus (undefined : jamais) ; les suivantes lèvent CoupureProcessus.
   mortApres: number | undefined;
+  // Début de requête qui tue le processus (avant son effet).
+  mortSur: string | undefined;
   #vues = 0;
   #horloge = 0;
 
@@ -39,23 +41,23 @@ class FauxMoteur {
   }
 
   pool(): Pool {
-    const moteur = this;
     return {
-      async connect() {
+      connect: async () => {
         let copie: Etat | undefined;
         return {
-          release() {},
-          async query(texte: string, params: unknown[] = []) {
+          release: () => undefined,
+          query: async (texte: string, params: unknown[] = []) => {
             const sql = texte.replace(/\s+/g, " ").trim();
-            moteur.requetes.push(sql);
-            if (moteur.mortApres !== undefined && moteur.#vues >= moteur.mortApres) throw new CoupureProcessus();
-            moteur.#vues++;
+            this.requetes.push(sql);
+            if (this.mortSur && sql.startsWith(this.mortSur)) throw new CoupureProcessus();
+            if (this.mortApres !== undefined && this.#vues >= this.mortApres) throw new CoupureProcessus();
+            this.#vues++;
             if (sql === "BEGIN") {
-              copie = structuredClone(moteur.etat);
+              copie = structuredClone(this.etat);
               return { rows: [], rowCount: 0 };
             }
             if (sql === "COMMIT") {
-              if (copie) moteur.etat = copie;
+              if (copie) this.etat = copie;
               copie = undefined;
               return { rows: [], rowCount: 0 };
             }
@@ -63,8 +65,8 @@ class FauxMoteur {
               copie = undefined;
               return { rows: [], rowCount: 0 };
             }
-            const e = copie ?? moteur.etat;
-            return moteur.#executer(e, sql, params);
+            const e = copie ?? this.etat;
+            return this.#executer(e, sql, params);
           },
         };
       },
@@ -79,8 +81,8 @@ class FauxMoteur {
       return x ? { rows: [{ debut: x.debut }], rowCount: 1 } : rien;
     }
     if (sql.startsWith("INSERT INTO intentions")) {
-      if (e.intentions.some((v) => v.cle === p[4])) return rien;
-      e.intentions.push({ cle: p[4] as string, executionId: p[2] as string, garantie: p[5] as string, etat: "ecrite" });
+      if (e.intentions.some((v) => v.cle === p[3])) return rien;
+      e.intentions.push({ cle: p[3] as string, executionId: p[1] as string, garantie: p[4] as string, etat: "ecrite" });
       return { rows: [], rowCount: 1 };
     }
     if (sql.startsWith("SELECT etat, garantie FROM intentions")) {
@@ -94,8 +96,8 @@ class FauxMoteur {
       return { rows: [], rowCount: 1 };
     }
     if (sql.startsWith("INSERT INTO journal_etape")) {
-      if (e.journal.some((v) => v.executionId === p[2] && v.etape === p[4] && v.cle === p[5])) return rien;
-      e.journal.push({ executionId: p[2] as string, etape: p[4] as string, cle: p[5] as string, statut: "en_cours", creeLe: new Date(Date.UTC(2026, 10, 1, 0, 0, this.#horloge++)) });
+      if (e.journal.some((v) => v.executionId === p[1] && v.etape === p[3] && v.cle === p[4])) return rien;
+      e.journal.push({ executionId: p[1] as string, etape: p[3] as string, cle: p[4] as string, statut: "en_cours", creeLe: new Date(Date.UTC(2026, 10, 1, 0, 0, this.#horloge++)) });
       return { rows: [], rowCount: 1 };
     }
     if (sql.startsWith("UPDATE journal_etape SET statut")) {
@@ -113,9 +115,9 @@ class FauxMoteur {
       return x ? { rows: [{ valeur: x.valeur }], rowCount: 1 } : rien;
     }
     if (sql.startsWith("INSERT INTO curseurs")) {
-      const x = e.curseurs.find((v) => v.instanceId === p[2] && v.declencheur === p[3]);
-      if (x) x.valeur = p[4] as string;
-      else e.curseurs.push({ instanceId: p[2] as string, declencheur: p[3] as string, valeur: p[4] as string });
+      const x = e.curseurs.find((v) => v.instanceId === p[1] && v.declencheur === p[2]);
+      if (x) x.valeur = p[3] as string;
+      else e.curseurs.push({ instanceId: p[1] as string, declencheur: p[2] as string, valeur: p[3] as string });
       return { rows: [], rowCount: 1 };
     }
     throw new Error(`requête inconnue du faux moteur : ${sql.slice(0, 80)}`);
@@ -214,7 +216,9 @@ describe("boîte d'envoi sur PostgreSQL", () => {
 
   it("[A-316] @anti-doublon une transaction d'intention qui échoue : le connecteur n'est jamais appelé", async () => {
     const b = banc({ e1: envoyer });
-    const { lancer } = b.processus(2); // BEGIN, réglage du délai, puis mort avant l'écriture de l'intention
+    b.moteur.mortSur = "INSERT INTO intentions";
+    const { lancer } = b.processus();
+    b.moteur.mortSur = "INSERT INTO intentions"; // processus() remet le faux à neuf : la mort est réarmée
     await expect(lancer()).rejects.toBeInstanceOf(CoupureProcessus);
     expect(b.connecteur.appels).toEqual([]);
     expect(b.moteur.etat.intentions).toEqual([]);

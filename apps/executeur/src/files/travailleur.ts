@@ -1,9 +1,17 @@
-import { DelayedError, Worker, type Job } from "bullmq";
+import { DelayedError, UnrecoverableError, Worker, type Job } from "bullmq";
 import type { Redis } from "ioredis";
+import type { Pool } from "pg";
+import type { defineAutomation } from "@axion-auto/sdk-module";
 import type { Artefact } from "../../../../packages/sdk-module/src/emballage/signer.js";
 import type { ClePublique } from "../../../../packages/sdk-module/src/emballage/cles-publiques.js";
 import { executerIsole } from "../bac-a-sable/processus.ts";
 import type { ConfigExecuteur, Palier } from "../config.ts";
+import { HorlogeSysteme } from "../noyau/horloge.ts";
+import { Machine } from "../noyau/machine.ts";
+import { BoitePostgres } from "../noyau/postgres/boite-envoi.ts";
+import { JournalPostgres } from "../noyau/postgres/journal-etapes.ts";
+import { decider, ErreurConnecteur } from "../noyau/politique-erreurs.ts";
+import type { Connecteurs, Console, Horloge } from "../noyau/ports.ts";
 import type { Cellule } from "./cellule.ts";
 import type { Semaphore } from "./semaphore.ts";
 
@@ -65,6 +73,8 @@ export async function traiter(travail: Travail, d: Dependances): Promise<Resulta
   }
 }
 
+const horlogeSysteme = new HorlogeSysteme();
+
 export function creerTravailleur(
   connexion: Redis,
   config: ConfigExecuteur,
@@ -74,7 +84,16 @@ export function creerTravailleur(
   return new Worker(
     d.cellule.nomFile,
     async (job, token) => {
-      const r = await traiter(lire(job), { ...d, delaiRemiseMs: config.delaiRemiseMs });
+      let r: Resultat;
+      try {
+        r = await traiter(lire(job), { ...d, delaiRemiseMs: config.delaiRemiseMs });
+      } catch (e) {
+        // Délai calculé par la politique ; BullMQ ne fait que garder le travail jusque-là.
+        const p = planifierReprise(e, job.attemptsMade + 1, horlogeSysteme);
+        if (p.action !== "reporter") throw new UnrecoverableError(p.code);
+        await job.moveToDelayed(Date.now() + p.delaiMs, token);
+        throw new DelayedError();
+      }
       if (r.statut === "remis") {
         await job.moveToDelayed(Date.now() + r.delaiMs, token);
         throw new DelayedError();
@@ -82,4 +101,32 @@ export function creerTravailleur(
     },
     { connection: connexion, prefix: "axion", concurrency: config.concurrence },
   );
+}
+
+export type Reprise = { action: "reporter"; delaiMs: number } | { action: "pause"; code: string } | { action: "abandon"; code: string };
+
+// L'attente avant un nouvel essai vient de la politique des erreurs (A-321, A-324), jamais de l'option « backoff » de BullMQ.
+// Un seul plafond : 5 essais pour une erreur passagère. Une erreur d'identification met l'instance en pause (A-322).
+export function planifierReprise(erreur: unknown, essaisFaits: number, horloge: Horloge): Reprise {
+  const d = decider(erreur, essaisFaits, horloge);
+  if (d.action === "reessayer") return { action: "reporter", delaiMs: d.attenteMs };
+  return d.action === "pause" ? { action: "pause", code: d.code } : { action: "abandon", code: d.code };
+}
+
+export interface BrancheMoteur {
+  pool: Pool;
+  module: ReturnType<typeof defineAutomation>;
+  console: Console;
+  connecteurs: Connecteurs;
+  horloge: Horloge;
+}
+
+// Remplace les ports en mémoire : journal et boîte d'envoi sont ceux de la base moteur, pour le client du travail.
+export function executerAvecMoteur(b: BrancheMoteur): Dependances["executer"] {
+  return async (travail) => {
+    const ports = { journal: new JournalPostgres(b.pool, travail.clientId), boite: new BoitePostgres(b.pool, travail.clientId), connecteurs: b.connecteurs, console: b.console, horloge: b.horloge };
+    const r = await new Machine({ module: b.module, ports }).lancer(travail.instanceId, travail.id);
+    // Hors de la machine : seul un travail qui n'a ni fini ni échoué est relancé par BullMQ.
+    if (r.statut === "en_cours") throw new ErreurConnecteur("passagere", "intention_en_cours");
+  };
 }

@@ -2,7 +2,7 @@ import Fastify from "fastify";
 import { describe, expect, it } from "vitest";
 import type { LigneJournal } from "../journal-audit/contenu-canonique.js";
 import { brancherErreurs } from "../plugins/erreurs.js";
-import { routeJournal, type FiltreJournal } from "./journal.js";
+import { lireJournalSql, routeJournal, type FiltreJournal } from "./journal.js";
 
 // Route de lecture du journal pour l'équipe (C-401) : lecture seule, par entité et par période, derrière le contrôle d'accès de l'équipe.
 const ligne = (id: number): LigneJournal => ({ id: String(id), tenant_id: null, acteur: "agent-essai", action: "insertion", entite: "contacts", entite_id: "c1", ancienne: null, nouvelle: '{"v": 1}', ip: null, cree: "2026-10-31T10:00:00.000000Z", empreinte_precedente: null, empreinte: "e".repeat(64) });
@@ -41,5 +41,20 @@ describe("route du journal d'audit", () => {
     expect(filtres).toEqual([]);
     const ok = serveur().app;
     for (const methode of ["POST", "PUT", "PATCH", "DELETE"] as const) expect((await ok.inject({ method: methode, url: "/equipe/journal?entite=contacts" })).statusCode, methode).toBe(404);
+  });
+});
+
+describe("lecture SQL du journal", () => {
+  it("[C-401] le tri se fait sur la colonne de la table : l'identifiant texte renvoyé trierait 1, 10, 100, 2 (pagination fausse au-delà de 9 lignes)", async () => {
+    const sqls: string[] = [];
+    await lireJournalSql(async (sql) => { sqls.push(sql); return []; }, { entite: "contacts", limite: 50 });
+    expect(sqls[0]).toMatch(/ORDER BY journal_audit\.id\b/);
+    expect(sqls[0]).not.toMatch(/ORDER BY id\b/);
+  });
+
+  it("[C-401] une période valide avec fractions de seconde n'est pas refusée (comparaison de dates, pas de textes)", async () => {
+    const { app } = serveur();
+    const r = await app.inject({ method: "GET", url: "/equipe/journal?entite=contacts&du=2026-10-01T00:00:00Z&au=2026-10-01T00:00:00.5Z" });
+    expect(r.statusCode).toBe(200);
   });
 });

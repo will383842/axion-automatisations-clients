@@ -86,6 +86,15 @@ describe("vérification de la chaîne du journal, avec le socle", { timeout: 60_
     expect(await verifierChaine(lecteur)).toMatchObject({ intacte: false, rupture: { id: cible["id"], trouve: cible["empreinte"] } });
   });
 
+  it("[C-028] au-delà de 9 lignes, l'ordre suit l'identifiant numérique : 12 lignes lues dans l'ordre, chaîne intacte", async () => {
+    const A = randomUUID();
+    const entite = `essai_t210_ordre_${process.pid}`;
+    for (let i = 0; i < 12; i++) await ecrire(A, entite, `o${i}`, { i });
+    const lues = await lireJournalSql(requeteEquipe, { entite, limite: 50 });
+    expect(lues.map((l) => l.entite_id)).toEqual(Array.from({ length: 12 }, (_, i) => `o${i}`));
+    expect(await verifierChaine(lecteurSql(requeteEquipe))).toMatchObject({ intacte: true });
+  });
+
   it("[C-401] le journal se lit par entité et par période", async () => {
     const A = randomUUID();
     const entite = `essai_t210_lecture_${process.pid}`;

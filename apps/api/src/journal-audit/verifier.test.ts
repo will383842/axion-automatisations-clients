@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { empreinteDe, type LigneJournal } from "./contenu-canonique.js";
-import { verifierChaine, type LecteurJournal } from "./verifier.js";
+import { lecteurSql, verifierChaine, type LecteurJournal } from "./verifier.js";
 
 // Vérification de la chaîne (T2-10), sans base : le lecteur est une imitation qui sert les lignes par lots.
 function chaine(n: number, depart: { id: number; empreinte: string | null } = { id: 0, empreinte: null }): LigneJournal[] {
@@ -67,5 +67,20 @@ describe("verifierChaine", () => {
     const tete = { id: lignes[19]!.id, empreinte: lignes[19]!.empreinte };
     expect(await verifierChaine(lecteurDe(lignes), tete)).toMatchObject({ intacte: true, lignes: 10 });
     expect(await verifierChaine(lecteurDe(lignes), { id: tete.id, empreinte: "0".repeat(64) })).toMatchObject({ intacte: false, rupture: { id: "21", attendu: "0".repeat(64), trouve: lignes[19]!.empreinte } });
+  });
+});
+
+// En PostgreSQL, « ORDER BY id » désigne la colonne de SORTIE `id::text` : tri alphabétique (1, 10, 100, 2…). Il faut la colonne de la table.
+describe("lecteurSql : ordre des lignes", () => {
+  it("[C-028] les requêtes de lecture trient sur la colonne de la table, pas sur l'identifiant texte renvoyé (faux au-delà de 9 lignes)", async () => {
+    const sqls: string[] = [];
+    const lecteur = lecteurSql(async (sql) => { sqls.push(sql); return []; });
+    await lecteur.lireLot(null, 1000);
+    await lecteur.lireIntervalle("2026-10-31T00:00:00.000000Z", "2026-11-01T00:00:00.000000Z");
+    expect(sqls).toHaveLength(2);
+    for (const sql of sqls) {
+      expect(sql).toMatch(/ORDER BY journal_audit\.id\b/);
+      expect(sql).not.toMatch(/ORDER BY id\b/);
+    }
   });
 });

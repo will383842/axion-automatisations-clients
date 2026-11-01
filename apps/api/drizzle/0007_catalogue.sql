@@ -316,12 +316,12 @@ BEGIN
     coalesce(v_acteur, 'systeme'),
     (CASE TG_OP WHEN 'INSERT' THEN 'insertion' WHEN 'UPDATE' THEN 'modification' ELSE 'suppression' END)::public.action_audit,
     TG_TABLE_NAME::text,
-    coalesce(v_ligne ->> 'id', (SELECT string_agg(e.value, '/' ORDER BY e.key) FROM jsonb_each_text(v_ligne) e WHERE e.key LIKE '%\\_id')),
+    coalesce(v_ligne ->> 'id', (SELECT string_agg(e.value, '/' ORDER BY e.key) FROM jsonb_each_text(v_ligne) e WHERE right(e.key, 3) = '_id')),
     v_ancienne,
     v_nouvelle);
   RETURN NULL;
 END
-$fonction$;
+$fonction$;--> statement-breakpoint
 -- audit_ecrire, redéfinie : la copie d'une ligne de `instances` ne recopie JAMAIS les colonnes d'origine (C-676) : console_app lit le journal de son client et ne doit pas y
 -- retrouver l'instance d'un autre client ni le nom de la personne de l'équipe. Même corps que la 0003 ; seul le bloc `instances` est ajouté.
 CREATE OR REPLACE FUNCTION public.audit_ecrire()
@@ -408,7 +408,7 @@ BEGIN
   END IF;
   IF NEW.prereglage_depart_id IS NOT NULL AND (v_prereglage_change OR v_automatisation_change) THEN
     SELECT p.automatisation_id, p.version, p.statut INTO v_automatisation, v_numero, v_statut_prereglage FROM public.prereglages_metier p WHERE p.id = NEW.prereglage_depart_id;
-    IF NOT FOUND OR v_automatisation IS DISTINCT FROM NEW.automatisation_id OR v_numero <> NEW.version_prereglage_depart OR v_statut_prereglage = 'brouillon' THEN
+    IF NOT FOUND OR v_automatisation IS DISTINCT FROM NEW.automatisation_id OR v_numero <> NEW.version_prereglage_depart OR v_statut_prereglage <> 'publie' THEN
       RAISE EXCEPTION 'instances : le préréglage de départ doit être publié, de l''automatisation de l''instance, à la version indiquée';
     END IF;
   END IF;
@@ -528,7 +528,8 @@ CREATE POLICY ajout_equipe ON "public"."packs" FOR INSERT TO console_equipe WITH
 CREATE POLICY modification_equipe ON "public"."packs" FOR UPDATE TO console_equipe USING (true) WITH CHECK (true);--> statement-breakpoint
 REVOKE ALL ON TABLE "public"."packs" FROM PUBLIC;--> statement-breakpoint
 GRANT SELECT ON TABLE "public"."packs" TO console_app;--> statement-breakpoint
-GRANT SELECT, INSERT ON TABLE "public"."packs" TO console_equipe;--> statement-breakpoint
+GRANT SELECT ON TABLE "public"."packs" TO console_equipe;--> statement-breakpoint
+GRANT INSERT ("id", "nom", "metier_id", "prix_centimes", "actif", "auteur") ON TABLE "public"."packs" TO console_equipe;--> statement-breakpoint
 GRANT UPDATE ("actif") ON TABLE "public"."packs" TO console_equipe;--> statement-breakpoint
 CREATE TRIGGER packs_audit AFTER INSERT OR UPDATE OR DELETE ON "public"."packs" FOR EACH ROW EXECUTE FUNCTION public.audit_ecrire_equipe();--> statement-breakpoint
 ALTER TABLE "public"."packs_automatisations" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint

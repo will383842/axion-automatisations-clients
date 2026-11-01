@@ -3,7 +3,7 @@
 Une entrée par version, par contrat. Procédure : `README.md` et ADR 0032.
 
 ## 2026-11-01 · c5 0.5.0 (T2-03, ADR 0051)
-- Règle `ecriture_commune_ouverte` (ajoutée à la fin de `REGLES_C5`) : sur une table de `TABLES_COMMUNES`, aucun rôle de l'application hors rôle d'équipe (`rolesEquipe`, défaut `(^|_)equipe(_|$)`) n'a de droit d'écriture, direct, hérité, par colonne ou via `PUBLIC`. `TABLES_COMMUNES` passe à 13 entrées (le catalogue). Rétrécissement (0.x) : un schéma qui passait peut maintenant être signalé. **À valider par l'architecte.**
+- Règle `ecriture_commune_ouverte` (ajoutée à la fin de `REGLES_C5`) : sur une table de `TABLES_COMMUNES`, aucun rôle de l'application hors rôle d'équipe (`rolesEquipe`, liste exacte de noms, défaut `console_equipe` et `moteur_equipe` : aucun rôle n'est reconnu par la forme de son nom) n'a de droit d'écriture, direct, hérité, par colonne ou via `PUBLIC`. `TABLES_COMMUNES` passe à 13 entrées (le catalogue). Rétrécissement (0.x) : un schéma qui passait peut maintenant être signalé. **À valider par l'architecte.**
 
 ## 2026-10-29 · c4 0.4.0 (T4-49, ADR 0043) · révision additive
 - Manifeste : `donnees` (requêtes et actions déclarées), `permissions`, `fonctions`, `ia.modes`, `ia.garde`, `ia.utilise` ; écrans : `source` et `action` ; huit composants du portail (alias 0.3.0 gardés).

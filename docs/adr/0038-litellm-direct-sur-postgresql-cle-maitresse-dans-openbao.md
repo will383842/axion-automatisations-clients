@@ -1,6 +1,8 @@
 # 0038 · LiteLLM relié directement à PostgreSQL, clé maîtresse lue dans OpenBao
 
-Date : 29/10/2026 · Statut : proposé (T1B-02, consigne ce qui est livré au lot 1-A ; relecture de l'architecte du lot demandée) · Contrat touché : aucun
+Date : 29/10/2026 · Statut : proposé (T1B-02, consigne la décision d'architecte du lot 1-A ; relecture de l'architecte du lot demandée) · Contrat touché : aucun
+
+- État au moment de cet ADR : configuration (`ops/socle/litellm/config.yaml`) et point d'entrée livrés ; LiteLLM n'est pas encore branché : aucun fragment `ops/socle/compose.litellm.yml`, `DATABASE_URL` non défini (la configuration lit seulement `os.environ/DATABASE_URL`), brique non livrée (`litellm` reste dans la liste fermée de `scripts/garde-briques.ts`). Le branchement compose et l'adresse directe vers PostgreSQL viennent avec une PR séparée.
 
 ## Contexte
 Décision d'architecte n° 7 du sommaire du lot 1-A. La passerelle d'IA (LiteLLM) tient les clés virtuelles et les plafonds de dépense. Elle utilise des fonctions de base que PgBouncer en mode transaction n'accepte pas bien, et sa clé maîtresse ouvre toute la passerelle.

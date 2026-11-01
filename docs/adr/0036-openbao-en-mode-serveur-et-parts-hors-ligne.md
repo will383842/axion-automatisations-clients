@@ -10,7 +10,7 @@ Décision d'architecte n° 6 du sommaire du lot 1-A. Le mode « dev » d'OpenBao
 - `ops/socle/openbao/initialiser.sh` initialise le coffre, déverrouille et crée les rôles et les politiques.
 - Clé maîtresse : coupée en 5 parts, 3 suffisent. Les parts sont réparties par rôle, jamais par nom, et tenues hors ligne ; aucune part dans un dépôt, sur le serveur du coffre ou dans un message (`ops/openbao/procedure-deverrouillage.md`, `ops/openbao/deverrouiller.sh`).
 - Pendant le scellement, l'API répond `coffre_scelle`, suspend les envois et refuse toute lecture de secret ; tout reprend à l'ouverture.
-- Les clés de signature (HMAC) sont non exportables, mais l'instantané de secours (`ops/openbao/sauvegarde-de-secours.md`) permet la copie hors ligne ; il n'est jamais rangé dans le gestionnaire de mots de passe qui garde des parts.
+- La clé de signature `modules-signature` est non exportable ; les clés HMAC de `technique/` sont une autre famille. L'instantané de secours (`ops/openbao/sauvegarde-de-secours.md`) permet la copie hors ligne ; il n'est jamais rangé dans le gestionnaire de mots de passe qui garde des parts.
 
 ## Conséquences
 - Les essais sont un peu plus longs (initialisation, parts) mais prouvent ce que la production fera.

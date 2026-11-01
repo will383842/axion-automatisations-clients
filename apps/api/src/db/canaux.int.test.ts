@@ -2,15 +2,9 @@ import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
-import { writeSync } from "node:fs";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { controlerInvariants, EXCEPTIONS_UNICITE, type Requete } from "../../../../packages/contrats/src/c5/invariants.js";
 import { avecClient, avecEquipe } from "./client-actif.js";
-
-// DIAGNOSTIC TEMPORAIRE (retiré dès la cause trouvée) : le rapport de la CI est un JSON ; un essai en échec est écrit sur la sortie d'erreur.
-afterEach((contexte) => {
-  if (contexte.task.result?.state === "fail") writeSync(2, `ECHEC ${contexte.task.name} : ${String(contexte.task.result.errors?.[0]?.message ?? "").slice(0, 600)}\n`);
-});
 import { migrer } from "./migrer.js";
 
 // Tables des canaux (T2-02) : boîte d'envoi, faits reçus, liens CRM, file « à trancher », exclusions. Socle lancé par ops/socle/lancer.sh (job socle-integration).

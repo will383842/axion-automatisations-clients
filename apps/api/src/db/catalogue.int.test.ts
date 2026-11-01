@@ -302,12 +302,16 @@ describe("catalogue commun, avec le socle", { timeout: 60_000 }, () => {
 
   it("[C-686] 500 automatisations au catalogue : recherche filtrée < N s (N provisoire, fixé au lot 8a)", async () => {
     const lot = sufixe();
-    const valeurs: unknown[] = [];
-    const lignes = Array.from({ length: 500 }, (_, i) => {
-      valeurs.push(`${lot}-${String(i + 100).padStart(3, "0")}`, `Automatisation fictive ${lot} ${i}`);
-      return `($${valeurs.length - 1}, $${valeurs.length}, 'fonction fictive', 'description fictive', 'idee')`;
-    });
-    await sql(`INSERT INTO automatisations (code, nom, fonction, description, statut) VALUES ${lignes.join(", ")}`, valeurs);
+    // Par lots de 50 : chaque écriture est auditée sous le verrou du journal, une longue transaction ferait attendre les autres essais.
+    for (let depart = 0; depart < 500; depart += 50) {
+      const valeurs: unknown[] = [];
+      const lignes = Array.from({ length: 50 }, (_, k) => {
+        const i = depart + k;
+        valeurs.push(`${lot}-${String(i + 100).padStart(3, "0")}`, `Automatisation fictive ${lot} ${i}`);
+        return `($${valeurs.length - 1}, $${valeurs.length}, 'fonction fictive', 'description fictive', 'idee')`;
+      });
+      await sql(`INSERT INTO automatisations (code, nom, fonction, description, statut) VALUES ${lignes.join(", ")}`, valeurs);
+    }
     const debut = Date.now();
     const { rows } = await lire("SELECT code FROM automatisations WHERE statut = 'idee' AND nom ILIKE $1 ORDER BY nom LIMIT 50", [`%${lot}%`]);
     const duree = (Date.now() - debut) / 1000;

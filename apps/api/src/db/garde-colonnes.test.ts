@@ -1,4 +1,5 @@
-import { getTableConfig, integer, pgTable, text, uuid, type PgTable } from "drizzle-orm/pg-core";
+import { is } from "drizzle-orm";
+import { getTableConfig, integer, PgTable, pgTable, text, uuid } from "drizzle-orm/pg-core";
 import { describe, expect, it } from "vitest";
 import * as schema from "./schema.ts";
 
@@ -13,7 +14,7 @@ export function colonnesInterdites(tables: PgTable[]): string[] {
     return columns.filter((c) => INTERDITS.some((m) => c.name.toLowerCase().includes(m)) && !PERMISES.includes(c.name)).map((c) => `${name}.${c.name}`);
   });
 }
-const tablesDuSchema = () => Object.values(schema).filter((v): v is PgTable => typeof v === "object" && v !== null && Symbol.for("drizzle:IsDrizzleTable") in v);
+const tablesDuSchema = () => Object.values(schema).filter((v) => is(v, PgTable)) as PgTable[];
 
 describe("garde des colonnes : aucun secret en base", () => {
   it("[LOT2-garde] aucune colonne du schéma réel n'est nommée comme un secret", () => {

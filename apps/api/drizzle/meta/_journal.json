@@ -57,6 +57,13 @@
       "when": 1793567982603,
       "tag": "0007_catalogue",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1793580000000,
+      "tag": "0010_exploitation",
+      "breakpoints": true
     }
   ]
 }

@@ -14,6 +14,7 @@ interface ClientPg {
   connect(): Promise<void>;
   query(texte: string): Promise<{ rows: { v?: unknown }[] }>;
   end(): Promise<void>;
+  on(evenement: "error", ecouteur: () => void): unknown;
 }
 // Le pilote pg est une dépendance de apps/api : on le charge depuis là.
 const { Client } = createRequire(racine("apps/api/package.json"))("pg") as { Client: new (options: Record<string, unknown>) => ClientPg };
@@ -56,8 +57,12 @@ const creerPlusieurs = (ids: string[]) => {
   const r = executer("docker", ["exec", ...env, conteneur("donnees"), "sh", "-c", script]);
   if (r.status !== 0) throw new Error(`creation en série : ${r.stderr}`);
 };
-const clientPg = (hote: string, port: number, utilisateur: string, base: string, motDePasse: string): ClientPg =>
-  new Client({ host: hote, port, user: utilisateur, database: base, password: motDePasse, connectionTimeoutMillis: 25_000 });
+// Une connexion coupée par le serveur après coup émet « error » : sans écouteur, Vitest la compte comme erreur non gérée.
+const clientPg = (hote: string, port: number, utilisateur: string, base: string, motDePasse: string): ClientPg => {
+  const c = new Client({ host: hote, port, user: utilisateur, database: base, password: motDePasse, connectionTimeoutMillis: 25_000 });
+  c.on("error", () => undefined);
+  return c;
+};
 const attendre = async (condition: () => boolean, secondes: number) => {
   for (let i = 0; i < secondes; i++) {
     if (condition()) return true;

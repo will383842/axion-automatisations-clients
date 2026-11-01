@@ -37,7 +37,7 @@ export default defineConfig({
       { test: { name: "tests/docs", root: "./tests/docs", retry, exclude: excludeDefaut } },
       { test: { name: "tests/comportement", root: "./tests/comportement", retry, exclude: excludeDefaut, passWithNoTests: true } },
       // Vide sans SOCLE_INTEGRATION=1, pour que « vitest run » ne lance jamais ces tests faute de services.
-      { test: { name: "integration", root: ".", retry, exclude, include: integration ? ["**/*.int.test.ts"] : [], setupFiles: integration ? ["./tests/diag-int-setup.ts"] : [], globalSetup: integration ? ["./tests/diag-int-global.ts"] : [] } },
+      { test: { name: "integration", root: ".", retry, exclude, include: integration ? ["**/*.int.test.ts"] : [] } },
     ],
   },
 });

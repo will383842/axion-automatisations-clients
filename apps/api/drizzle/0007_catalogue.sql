@@ -214,8 +214,8 @@ $fonction$;--> statement-breakpoint
 -- Garde du catalogue : UNE fonction pour tous les déclencheurs (ils valent aussi pour le propriétaire des tables, pas seulement pour console_equipe).
 -- Aucune suppression (C-685) ; code d'automatisation figé ; version : aucun contenu ne change dès qu'elle quitte recette, un changement de statut ne change
 -- rien d'autre, et seules les transitions de la machine d'états de A-305 passent (publiee → depreciee → retiree, jamais de retour) ; préréglage : naît en
--- brouillon, se rattache à sa version précédente, et son contenu est figé une fois publié ; une version naît en brouillon ; la composition d'un pack est figée une heure
--- après sa création.
+-- brouillon, se rattache à sa version précédente, et son contenu est figé une fois publié ; une version naît en brouillon ; la composition d'un pack se fixe dans la transaction
+-- qui le crée.
 CREATE FUNCTION public.catalogue_garde()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -245,8 +245,8 @@ BEGIN
       RAISE EXCEPTION 'catalogue : version % immuable', OLD.statut;
     END IF;
   ELSIF TG_TABLE_NAME = 'packs_automatisations' THEN
-    IF EXISTS (SELECT 1 FROM public.packs p WHERE p.id = NEW.pack_id AND p.cree_le < now() - interval '1 hour') THEN
-      RAISE EXCEPTION 'catalogue : la composition d''un pack est figée une heure après sa création (le prix couvre ce contenu)';
+    IF NOT EXISTS (SELECT 1 FROM public.packs p WHERE p.id = NEW.pack_id AND p.cree_le = now()) THEN
+      RAISE EXCEPTION 'catalogue : la composition d''un pack est fixée à sa création (même transaction) ; un autre contenu fait un autre pack';
     END IF;
   ELSIF TG_TABLE_NAME = 'prereglages_metier' THEN
     IF TG_OP = 'INSERT' THEN
@@ -371,10 +371,55 @@ BEGIN
   RETURN NULL;
 END
 $fonction$;--> statement-breakpoint
+-- Cohérence des colonnes ajoutées à instances (A-126, C-676), contrôlée avec les droits de l'appelant (console_app ne voit que les versions publiées, dépréciées ou retirées,
+-- et les préréglages publiés ou retirés : un brouillon est donc inconnu pour lui) : la version courante est une version PUBLIÉE de l'automatisation de l'instance ;
+-- le préréglage de départ et sa version vont ensemble, le préréglage est publié, de la même automatisation, à cette version. Les clés étrangères seules ne le garantissent pas.
+CREATE FUNCTION public.instances_garde()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, pg_temp
+AS $fonction$
+DECLARE
+  v_naissance boolean := (TG_OP = 'INSERT');
+  v_version_change boolean := (TG_OP = 'INSERT');
+  v_automatisation_change boolean := (TG_OP = 'INSERT');
+  v_prereglage_change boolean := (TG_OP = 'INSERT');
+  v_automatisation uuid;
+  v_statut_version public.statut_version;
+  v_numero integer;
+  v_statut_prereglage public.statut_prereglage;
+BEGIN
+  IF NOT v_naissance THEN
+    v_version_change := NEW.version_courante_id IS DISTINCT FROM OLD.version_courante_id;
+    v_automatisation_change := NEW.automatisation_id IS DISTINCT FROM OLD.automatisation_id;
+    v_prereglage_change := NEW.prereglage_depart_id IS DISTINCT FROM OLD.prereglage_depart_id OR NEW.version_prereglage_depart IS DISTINCT FROM OLD.version_prereglage_depart;
+  END IF;
+  IF (NEW.prereglage_depart_id IS NULL) <> (NEW.version_prereglage_depart IS NULL) THEN
+    RAISE EXCEPTION 'instances : le préréglage de départ et sa version vont ensemble';
+  END IF;
+  IF NEW.version_courante_id IS NOT NULL AND (v_version_change OR v_automatisation_change) THEN
+    SELECT v.automatisation_id, v.statut INTO v_automatisation, v_statut_version FROM public.versions_automatisation v WHERE v.id = NEW.version_courante_id;
+    IF NOT FOUND OR v_automatisation IS DISTINCT FROM NEW.automatisation_id THEN
+      RAISE EXCEPTION 'instances : la version courante doit être une version de l''automatisation de l''instance';
+    END IF;
+    IF v_version_change AND v_statut_version <> 'publiee' THEN
+      RAISE EXCEPTION 'instances : la version courante doit être une version publiée';
+    END IF;
+  END IF;
+  IF NEW.prereglage_depart_id IS NOT NULL AND (v_prereglage_change OR v_automatisation_change) THEN
+    SELECT p.automatisation_id, p.version, p.statut INTO v_automatisation, v_numero, v_statut_prereglage FROM public.prereglages_metier p WHERE p.id = NEW.prereglage_depart_id;
+    IF NOT FOUND OR v_automatisation IS DISTINCT FROM NEW.automatisation_id OR v_numero <> NEW.version_prereglage_depart OR v_statut_prereglage = 'brouillon' THEN
+      RAISE EXCEPTION 'instances : le préréglage de départ doit être publié, de l''automatisation de l''instance, à la version indiquée';
+    END IF;
+  END IF;
+  RETURN NEW;
+END
+$fonction$;--> statement-breakpoint
 REVOKE ALL ON FUNCTION public.sans_accent(text) FROM PUBLIC;--> statement-breakpoint
 GRANT EXECUTE ON FUNCTION public.sans_accent(text) TO console_app, console_equipe;--> statement-breakpoint
 REVOKE ALL ON FUNCTION public.catalogue_garde() FROM PUBLIC;--> statement-breakpoint
 REVOKE ALL ON FUNCTION public.audit_ecrire_equipe() FROM PUBLIC;--> statement-breakpoint
+REVOKE ALL ON FUNCTION public.instances_garde() FROM PUBLIC;--> statement-breakpoint
 -- Amorces : les 7 premiers métiers (B-341) et les postes de départ. Le dirigeant en ajoute depuis la console, sans migration (C-670).
 INSERT INTO "public"."metiers" ("code", "nom", "groupe", "ordre") VALUES ('btp_artisans', 'BTP et artisans', 'terrain', 10), ('cabinets_comptables', 'Cabinets comptables', 'conseil', 20), ('avocats_conseils', 'Avocats et conseils', 'conseil', 30), ('agences_immobilieres', 'Agences immobilières', 'commerce', 40), ('commerce_ecommerce', 'Commerce et e-commerce', 'commerce', 50), ('industrie_services_b2b', 'Industrie et services B2B', 'industrie_et_logistique', 60), ('transport_logistique', 'Transport et logistique', 'industrie_et_logistique', 70);--> statement-breakpoint
 INSERT INTO "public"."postes" ("code", "nom", "groupe", "ordre") VALUES ('direction', 'Direction', 'direction', 10), ('commercial', 'Commercial', 'commercial', 20), ('comptabilite', 'Comptabilité', 'gestion', 30), ('rh', 'RH', 'gestion', 40), ('dsi', 'DSI', 'technique', 50), ('achats', 'Achats', 'gestion', 60), ('production', 'Production', 'operations', 70), ('service_client', 'Service client', 'commercial', 80);--> statement-breakpoint
@@ -524,6 +569,7 @@ CREATE TRIGGER prereglages_metier_naissance BEFORE INSERT ON "public"."prereglag
 CREATE TRIGGER prereglages_metier_evolution BEFORE UPDATE ON "public"."prereglages_metier" FOR EACH ROW EXECUTE FUNCTION public.catalogue_garde();--> statement-breakpoint
 -- Instances : les colonnes d'origine (C-676) nomment un autre client en cas de copie ; elles ne sont lisibles que par console_equipe. console_app peut les écrire
 -- (la copie se fait par l'API) mais ne les relit jamais : le droit SELECT du rôle passe de la table entière à la liste des autres colonnes.
+CREATE TRIGGER instances_coherence BEFORE INSERT OR UPDATE ON "public"."instances" FOR EACH ROW EXECUTE FUNCTION public.instances_garde();--> statement-breakpoint
 REVOKE SELECT ON TABLE "public"."instances" FROM console_app;--> statement-breakpoint
 GRANT SELECT ("tenant_id", "id", "organisation_id", "code_automatisation", "formule", "environnement", "etat", "cree_le", "version_courante_id", "automatisation_id") ON TABLE "public"."instances" TO console_app;--> statement-breakpoint
 -- Tables de la plateforme (T2-02) : auteur obligatoire de conditions_par_defaut. La colonne naît nulle, les lignes déjà là reçoivent un auteur d'origine

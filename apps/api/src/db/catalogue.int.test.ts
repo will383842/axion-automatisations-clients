@@ -260,8 +260,11 @@ describe("catalogue commun, avec le socle", { timeout: 60_000 }, () => {
   it("[A-139] un pack porte ses automatisations et un prix en centimes entiers ; un prix négatif ou un prix modifié est refusé", async () => {
     const a = await creerAutomatisation();
     const metier = (await lire("SELECT id FROM metiers LIMIT 1")).rows[0]?.id;
-    const pack = (await sql("INSERT INTO packs (nom, metier_id, prix_centimes, auteur) VALUES ($1, $2, $3, $4) RETURNING *", [`Pack essai ${sufixe()}`, metier, GRILLE_FICTIVE.pack, "agent-essai"])).rows[0] as Record<string, unknown>;
-    await sql("INSERT INTO packs_automatisations (pack_id, automatisation_id) VALUES ($1, $2)", [pack["id"], a["id"]]);
+    const pack = await ecrireEquipe(async (c) => {
+      const p = (await c.query("INSERT INTO packs (nom, metier_id, prix_centimes, auteur) VALUES ($1, $2, $3, $4) RETURNING *", [`Pack essai ${sufixe()}`, metier, GRILLE_FICTIVE.pack, "agent-essai"])).rows[0] as Record<string, unknown>;
+      await c.query("INSERT INTO packs_automatisations (pack_id, automatisation_id) VALUES ($1, $2)", [p["id"], a["id"]]);
+      return p;
+    });
     expect(pack["prix_centimes"]).toBe(String(GRILLE_FICTIVE.pack));
     await expect(sql("INSERT INTO packs (nom, metier_id, prix_centimes, auteur) VALUES ('Négatif', $1, -1, 'x')", [metier])).rejects.toMatchObject({ code: "23514" });
     await expect(sql("UPDATE packs SET prix_centimes = 99 WHERE id = $1", [pack["id"]])).rejects.toMatchObject({ code: "42501" });
@@ -403,14 +406,54 @@ describe("catalogue commun, avec le socle", { timeout: 60_000 }, () => {
     await expect(essayer({ delai_relance_jours: 3, canal: "messagerie" })).resolves.toMatchObject({ rowCount: 1 });
   });
 
-  it("[A-139] la composition d'un pack est figée une heure après sa création", async () => {
+  it("[A-139] la composition d'un pack est fixée à sa création : ajouter une automatisation à un pack existant est refusé", async () => {
+    const [a, b] = [await creerAutomatisation(), await creerAutomatisation()];
+    const metier = (await lire("SELECT id FROM metiers LIMIT 1")).rows[0]?.id;
+    const pack = (await sql("INSERT INTO packs (nom, metier_id, prix_centimes, auteur) VALUES ($1, $2, $3, $4) RETURNING *", [`Pack vide ${sufixe()}`, metier, GRILLE_FICTIVE.pack, ACTEUR])).rows[0] as Record<string, unknown>;
+    await expect(sql("INSERT INTO packs_automatisations (pack_id, automatisation_id) VALUES ($1, $2)", [pack["id"], a["id"]])).rejects.toThrow(/composition/i);
+    // Dans la transaction de sa création, le pack se compose librement.
+    await ecrireEquipe(async (c) => {
+      const p = (await c.query("INSERT INTO packs (nom, metier_id, prix_centimes, auteur) VALUES ($1, $2, $3, $4) RETURNING id", [`Pack composé ${sufixe()}`, metier, GRILLE_FICTIVE.pack, ACTEUR])).rows[0];
+      await c.query("INSERT INTO packs_automatisations (pack_id, automatisation_id) VALUES ($1, $2), ($1, $3)", [p?.id, a["id"], b["id"]]);
+    });
+  });
+
+  it("[A-126] une instance ne pointe que vers une version publiée de SON automatisation, et vers un préréglage publié de cette automatisation avec sa version", async () => {
+    const T = randomUUID();
     const a = await creerAutomatisation();
     const b = await creerAutomatisation();
+    const publiee = await creerVersion(a["id"]);
+    await passer(publiee["id"], "recette");
+    await passer(publiee["id"], "pilote");
+    await passer(publiee["id"], "publiee");
+    const brouillon = await creerVersion(a["id"], { semver: "1.1.0", empreinte_sha256: empreinteFictive() });
+    const autre = await creerVersion(b["id"]);
+    await passer(autre["id"], "recette");
+    await passer(autre["id"], "pilote");
+    await passer(autre["id"], "publiee");
     const metier = (await lire("SELECT id FROM metiers LIMIT 1")).rows[0]?.id;
-    const pack = (await sql("INSERT INTO packs (nom, metier_id, prix_centimes, auteur) VALUES ($1, $2, 99, 'agent-essai') RETURNING id", [`Pack figé ${sufixe()}`, metier])).rows[0];
-    await sql("INSERT INTO packs_automatisations (pack_id, automatisation_id) VALUES ($1, $2)", [pack?.id, a["id"]]);
-    // Un pack vieux de deux heures (daté par le propriétaire, qui n'écrit pas : on passe par une transaction de la migration sur une copie datée) : refusé.
-    const vieux = (await sql("INSERT INTO packs (nom, metier_id, prix_centimes, auteur, cree_le) VALUES ($1, $2, 99, 'agent-essai', now() - interval '2 hours') RETURNING id", [`Pack ancien ${sufixe()}`, metier])).rows[0];
-    await expect(sql("INSERT INTO packs_automatisations (pack_id, automatisation_id) VALUES ($1, $2)", [vieux?.id, b["id"]])).rejects.toThrow(/figée/i);
+    const preregler = async (statut: string, version: number) => {
+      const p = (await sql("INSERT INTO prereglages_metier (automatisation_id, metier_id, donnees, version, auteur, justification) VALUES ($1, $2, '{}', $3, 'agent-essai', 'essai') RETURNING id", [a["id"], metier, version])).rows[0];
+      if (statut !== "brouillon") await sql("UPDATE prereglages_metier SET statut = $2 WHERE id = $1", [p?.id, statut]);
+      return p?.id as string;
+    };
+    const prereglagePublie = await preregler("publie", 1);
+    const prereglageBrouillon = await preregler("brouillon", 2);
+    await avecClient(app, T, (c) => c.query("INSERT INTO organisations (tenant_id, id, console_client_id, raison_sociale) VALUES ($1, $1, $1, 'Boulangerie Rivoire')", [T]), { acteur: ACTEUR });
+    const inserer = (extra: Record<string, unknown>) => {
+      const v = { tenant_id: T, id: randomUUID(), organisation_id: T, code_automatisation: "X", formule: "abonnement", environnement: "production", ...extra };
+      const cles = Object.keys(v);
+      return avecClient(app, T, (c) => c.query(`INSERT INTO instances (${cles.join(", ")}) VALUES (${cles.map((_, i) => `$${i + 1}`).join(", ")})`, Object.values(v)), { acteur: ACTEUR });
+    };
+    const refus = /instances/i;
+    await expect(inserer({ automatisation_id: a["id"], version_courante_id: brouillon["id"] }), "brouillon").rejects.toThrow(refus);
+    await expect(inserer({ automatisation_id: a["id"], version_courante_id: autre["id"] }), "autre automatisation").rejects.toThrow(refus);
+    await expect(inserer({ version_courante_id: publiee["id"] }), "sans automatisation").rejects.toThrow(refus);
+    await expect(inserer({ automatisation_id: a["id"], prereglage_depart_id: prereglagePublie }), "version de préréglage absente").rejects.toThrow(refus);
+    await expect(inserer({ automatisation_id: a["id"], version_prereglage_depart: 1 }), "version sans préréglage").rejects.toThrow(refus);
+    await expect(inserer({ automatisation_id: a["id"], prereglage_depart_id: prereglagePublie, version_prereglage_depart: 7 }), "mauvaise version").rejects.toThrow(refus);
+    await expect(inserer({ automatisation_id: a["id"], prereglage_depart_id: prereglageBrouillon, version_prereglage_depart: 2 }), "préréglage brouillon").rejects.toThrow(refus);
+    await expect(inserer({ automatisation_id: b["id"], prereglage_depart_id: prereglagePublie, version_prereglage_depart: 1 }), "préréglage d'une autre automatisation").rejects.toThrow(refus);
+    await expect(inserer({ automatisation_id: a["id"], version_courante_id: publiee["id"], prereglage_depart_id: prereglagePublie, version_prereglage_depart: 1 })).resolves.toBeDefined();
   });
 });

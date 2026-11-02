@@ -1,7 +1,8 @@
-import { boolean, check, foreignKey, integer, pgEnum, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
+import { boolean, check, foreignKey, index, integer, pgEnum, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { tableClient } from "./aides.ts";
 import { automatisations, prereglagesMetier, versionsAutomatisation } from "./catalogue.ts";
+import { cellules } from "./suivi.ts";
 
 // Organisations, contacts et instances (C5, lot 2). Vocabulaires provisoires : une valeur s'ajoute plus tard (additif), jamais ne se renomme.
 export const statutOrganisation = pgEnum("statut_organisation", ["prospect", "en_signature", "client", "ancien_client"]);
@@ -84,11 +85,20 @@ export const instances = tableClient(
     instanceSourceCopie: uuid("instance_source_copie"),
     copieLe: timestamp("copie_le", { withTimezone: true }),
     copiePar: text("copie_par"),
+    // T4-21 (C-017) : cellule qui porte l'instance et état voulu de l'exécuteur. La version est écrite par le déclencheur (migration 0018), jamais par l'application.
+    celluleCode: text("cellule_code"),
+    arretEnvois: boolean("arret_envois").notNull().default(false),
+    versionEtatVoulu: integer("version_etat_voulu").notNull().default(0),
   },
   {
     contraintes: (t) => [
       check("instances_copie_complete", sql`(${t["instanceSourceCopie"]} IS NULL) = (${t["copieLe"]} IS NULL) AND (${t["instanceSourceCopie"]} IS NULL) = (${t["copiePar"]} IS NULL)`),
       foreignKey({ name: "instances_organisation_fk", columns: [t["tenantId"] as never, t["organisationId"] as never], foreignColumns: [organisations.tenantId, organisations.id] }),
+      // La table cellules est commune (suivi.ts) : clé étrangère simple sur son code, sans tenant_id.
+      foreignKey({ name: "instances_cellule_fk", columns: [t["celluleCode"] as never], foreignColumns: [cellules.code] }).onDelete("no action"),
+      check("instances_cellule_code_forme_c4", sql`${t["celluleCode"]} IS NULL OR (${t["celluleCode"]} ~ '^[a-z0-9]+(-[a-z0-9]+)*$' AND char_length(${t["celluleCode"]}) <= 64)`),
+      check("instances_version_etat_voulu_positive", sql`${t["versionEtatVoulu"]} >= 0`),
+      index("instances_id_cellule_idx").on(t["id"] as never, t["celluleCode"] as never),
     ],
   },
 );

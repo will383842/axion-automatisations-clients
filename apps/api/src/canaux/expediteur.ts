@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { CONSERVATION_IDEMPOTENCE_JOURS } from "../../../../packages/contrats/src/commun/signature.js";
+import { verifierAppelant, type Appelant } from "../db/client-actif.js";
 import { ErreurApi } from "../plugins/erreurs.js";
 import type { Canal } from "./journal-canal.js";
 
@@ -30,8 +32,11 @@ export interface Magasin {
   dues(destination: Destination, maintenant: Date, limite: number): Promise<(Ref & { cle: string })[]>;
   reprendre(avant: Date): Promise<number>;
   echecs(): Promise<EchecEnvoi[]>;
-  renvoyer(r: Ref): Promise<boolean>;
+  // Renvoi par un humain : l'acteur est obligatoire et inscrit au journal d'audit (action, ligne, acteur) dans la même transaction.
+  // Une ligne créée il y a plus de CONSERVATION_IDEMPOTENCE_JOURS jours est refusée (le Hub a oublié la clé : un second envoi créerait un doublon) sauf confirmation explicite.
+  renvoyer(r: Ref, appelant: Appelant, options?: { confirmerAnciennete?: boolean }): Promise<boolean>;
 }
+export const MESSAGE_TROP_ANCIENNE = `Ligne créée il y a plus de ${CONSERVATION_IDEMPOTENCE_JOURS} jours : le Hub a oublié la clé, un renvoi peut créer un doublon. Confirmation explicite requise.`;
 export interface AlerteEnvoi { type: "cle_reutilisee" | "envoi_en_echec"; destination: Destination; cle: string }
 export interface Signeur { signerRequete(canal: Canal, methode: string, chemin: string, corps: string, maintenant: number): Promise<Record<string, string>> }
 export type Verdict = "envoye" | "reessai" | "echec" | "ferme" | "ignore";
@@ -119,16 +124,18 @@ export function creerExpediteur(d: DepsExpediteur) {
 }
 
 // Magasin en mémoire (essais) : mêmes règles que la base.
-export function magasinEnMemoire(): Magasin & { deposer(l: Pick<LigneEnvoi, "tenantId" | "destination" | "route" | "methode" | "corps" | "cle"> & { creeLe?: Date }): Ref; lignes(): LigneEnvoi[] } {
+export function magasinEnMemoire(maintenant: () => number = Date.now): Magasin & { deposer(l: Pick<LigneEnvoi, "tenantId" | "destination" | "route" | "methode" | "corps" | "cle"> & { creeLe?: Date }): Ref; lignes(): LigneEnvoi[]; journal: { action: string; ligne: string; acteur: string }[] } {
   const tout: LigneEnvoi[] = [];
+  const journal: { action: string; ligne: string; acteur: string }[] = [];
   const trouver = (r: Ref) => tout.find((l) => l.id === r.id && l.tenantId === r.tenantId);
   return {
     deposer(l) {
-      const ligne: LigneEnvoi = { ...l, id: randomUUID(), etat: "a_envoyer", nombreEssais: 0, creeLe: l.creeLe ?? new Date() };
+      const ligne: LigneEnvoi = { ...l, id: randomUUID(), etat: "a_envoyer", nombreEssais: 0, creeLe: l.creeLe ?? new Date(maintenant()) };
       tout.push(ligne);
       return { tenantId: ligne.tenantId, id: ligne.id };
     },
     lignes: () => tout,
+    journal,
     async prendre(r, maintenant) {
       const l = trouver(r);
       if (!l || (l.etat !== "a_envoyer" && l.etat !== "en_cours")) return null;
@@ -165,9 +172,12 @@ export function magasinEnMemoire(): Magasin & { deposer(l: Pick<LigneEnvoi, "ten
     async echecs() {
       return tout.filter((l) => l.etat === "echec").map((l) => ({ tenantId: l.tenantId, id: l.id, destination: l.destination, route: l.route, nombreEssais: l.nombreEssais, derniereErreur: l.derniereErreur ?? null, creeLe: l.creeLe }));
     },
-    async renvoyer(r) {
+    async renvoyer(r, appelant, options) {
+      verifierAppelant(appelant);
       const l = trouver(r);
       if (!l || l.etat !== "echec") return false;
+      if (!options?.confirmerAnciennete && maintenant() - l.creeLe.getTime() > CONSERVATION_IDEMPOTENCE_JOURS * 86_400_000) throw new ErreurApi("regle_metier", MESSAGE_TROP_ANCIENNE);
+      journal.push({ action: "renvoi", ligne: l.id, acteur: appelant.acteur });
       Object.assign(l, { etat: "a_envoyer", nombreEssais: 0 });
       delete l.prochainEssai;
       return true;

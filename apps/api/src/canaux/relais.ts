@@ -2,8 +2,10 @@ import { Queue, Worker } from "bullmq";
 import pg from "pg";
 import type { Redis } from "ioredis";
 import { avecClient, avecEquipe } from "../db/client-actif.js";
+import { CONSERVATION_IDEMPOTENCE_JOURS } from "../../../../packages/contrats/src/commun/signature.js";
+import { ErreurApi } from "../plugins/erreurs.js";
 import { PREFIXE } from "../files/files.js";
-import type { Destination, EchecEnvoi, Magasin, Ref } from "./expediteur.js";
+import { MESSAGE_TROP_ANCIENNE, type Destination, type EchecEnvoi, type Magasin, type Ref } from "./expediteur.js";
 
 // Relais (A-088, C-402) : lit les lignes « a_envoyer » VALIDÉES (la transaction métier a fini), dépose une tâche par ligne, jobId = clé.
 // Valkey n'est qu'un transport : s'il est vidé, le balayage suivant redépose tout depuis la base (rien perdu, rien doublé : même jobId).
@@ -138,6 +140,16 @@ export function magasinPg(app: pg.Pool, equipe: pg.Pool): Magasin {
       const rows = (await avecEquipe(equipe, (c) => c.query("SELECT tenant_id, id, destination, route, nombre_essais, derniere_erreur, cree_le FROM boite_envoi WHERE etat = 'echec' ORDER BY cree_le, id LIMIT 200"))).rows;
       return rows.map((x) => ({ tenantId: x["tenant_id"], id: x["id"], destination: x["destination"], route: x["route"], nombreEssais: x["nombre_essais"], derniereErreur: x["derniere_erreur"], creeLe: x["cree_le"] }));
     },
-    async renvoyer(r) { return (await unique(r, "UPDATE boite_envoi SET etat = 'a_envoyer', nombre_essais = 0, prochain_essai = NULL WHERE tenant_id = $1 AND id = $2 AND etat = 'echec' RETURNING id", [])).length > 0; },
+    // Une seule transaction : verrou de la ligne, contrôle d'âge (horloge de la base), remise à « a_envoyer » et inscription au journal d'audit.
+    async renvoyer(r, appelant, options) {
+      return avecClient(app, r.tenantId, async (c) => {
+        const ligne = (await c.query("SELECT cree_le < now() - make_interval(days => $3::int) AS ancienne FROM boite_envoi WHERE tenant_id = $1 AND id = $2 AND etat = 'echec' FOR UPDATE", [r.tenantId, r.id, CONSERVATION_IDEMPOTENCE_JOURS])).rows[0];
+        if (!ligne) return false;
+        if (ligne["ancienne"] === true && !options?.confirmerAnciennete) throw new ErreurApi("regle_metier", MESSAGE_TROP_ANCIENNE);
+        await c.query("UPDATE boite_envoi SET etat = 'a_envoyer', nombre_essais = 0, prochain_essai = NULL WHERE tenant_id = $1 AND id = $2 AND etat = 'echec'", [r.tenantId, r.id]);
+        await c.query("SELECT public.audit_ajouter($1::uuid, $2, 'modification'::public.action_audit, 'boite_envoi', $3, NULL, $4::jsonb)", [r.tenantId, appelant.acteur, r.id, JSON.stringify({ action: "renvoi", ligne: r.id, confirmation_anciennete: ligne["ancienne"] === true })]);
+        return true;
+      }, appelant);
+    },
   };
 }

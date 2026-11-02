@@ -6,7 +6,7 @@ import { brancherErreurs } from "../plugins/erreurs.js";
 import { routeCanaux } from "./canaux.js";
 
 const TENANT = randomUUID();
-function monter(equipe = true, acteur: string | undefined = "agent-essai", maintenant: () => number = Date.now) {
+function monter(equipe = true, acteur: string | null = "agent-essai", maintenant: () => number = Date.now) {
   const magasin = magasinEnMemoire(maintenant);
   const serveur = Fastify();
   brancherErreurs(serveur);
@@ -42,7 +42,7 @@ describe("échecs de la boîte d'envoi (équipe)", () => {
   });
 
   it("[C-403] [A-091] sans acteur identifié, renvoyer est refusé et la ligne reste en échec", async () => {
-    const { magasin, serveur, ref } = monter(true, undefined);
+    const { magasin, serveur, ref } = monter(true, null);
     await magasin.conclure(ref, { etat: "echec", erreur: "reseau" });
     const r = await serveur.inject({ method: "POST", url: `/api/console/v1/canaux/echecs/${ref.tenantId}/${ref.id}/renvoyer` });
     expect(r.statusCode).toBe(403);

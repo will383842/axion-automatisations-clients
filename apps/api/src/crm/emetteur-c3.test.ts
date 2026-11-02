@@ -80,13 +80,21 @@ describe("faits C3 envoyés au CRM", () => {
     expect(b.lignes.size).toBe(0);
   });
 
-  it("[C-344] chaque fait envoyé laisse une ligne au journal du canal, sans corps", async () => {
+  it("[C-346] @isolation un fait pour un client différent de celui de l'émetteur est refusé, rien n'est déposé", async () => {
+    const b = banc(TENANT);
+    await expect(b.emetteur.impayeSignale(intention("i1"), AUTRE, 3)).rejects.toThrow(/client/);
+    await expect(b.emetteur.clientCree(intention("i2"), AUTRE, "crm-0001")).rejects.toThrow(/client/);
+    expect(b.lignes.size).toBe(0);
+    expect(b.journal).toHaveLength(0);
+  });
+
+  it("[C-344] chaque fait laisse une ligne au journal du canal (en attente de validation de la transaction), sans corps", async () => {
     const b = banc();
     await b.emetteur.clientCree(intention("j1"), TENANT, "crm-0001");
     await b.emetteur.contratResilie(intention("j2"), TENANT, "2026-12-31");
     expect(b.journal).toHaveLength(2);
     for (const ligne of b.journal) {
-      expect(ligne).toMatchObject({ canal: "c3", sens: "sortant", resultat: "depose", id_trace: "trace-0001" });
+      expect(ligne).toMatchObject({ canal: "c3", sens: "sortant", resultat: "en_attente_de_validation", id_trace: "trace-0001" });
       expect(JSON.stringify(ligne)).not.toMatch(/crm-0001|payload|corps/);
     }
   });

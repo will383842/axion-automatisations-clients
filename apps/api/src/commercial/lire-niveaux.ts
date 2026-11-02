@@ -76,6 +76,7 @@ export type NiveauxLus = { niveaux: NiveauxConnus; formulesActives: string[] | n
 
 export async function lireNiveaux(client: Requeteur, tenantId: string, instance: { organisationId: string; automatisationId: string | null }, options: OptionsNiveaux): Promise<NiveauxLus> {
   // Le préréglage est la version de DÉPART de l'instance, que l'appelant (équipe) fournit : jamais « la dernière publiée ».
+  if (options.versionMetier !== undefined && !options.metierId) throw new ErreurPlan("metier_obligatoire");
   if (options.metierId && !(Number.isSafeInteger(options.versionMetier) && (options.versionMetier ?? 0) >= 1)) throw new ErreurPlan("version_metier_obligatoire");
   let grille: Grille | null = null;
   let metier: Entrees["metier"] = null;

@@ -55,4 +55,4 @@ T2-07 finit les entités de la base commune : la console ne garde que des **mét
   7. `propositions_automatisations` : palier comparé à `propositions.nombre_paliers`, `audit_id` de la même organisation.
   8. `borne()` de `garde-colonnes.test.ts` à durcir.
   9. `instances.etat` : retirer la valeur par défaut `active`.
-  Les dettes de T2-08 elles-mêmes (source « metier », garantie, délai, seuil, motif, version de départ lue par l'équipe) sont dans l'ADR 0058, avec le même propriétaire.
+  Les dettes de T2-08 elles-mêmes (source « metier », garantie, délai, seuil, motif, version de départ lue par l'équipe) : propriétaire T2-52, sauf B-515 et `verifierEcriture`/`imposee` (T4-30).

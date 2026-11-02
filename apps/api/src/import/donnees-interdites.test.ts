@@ -41,3 +41,33 @@ describe("détection des données interdites à l'import", () => {
     await expect(verifierImport(client, "", ["IBAN"])).rejects.toThrow(/acteur/);
   });
 });
+
+// Tests ordinaires (sans grappe) des garanties de minimisation côté import ; la preuve de bout en bout est dans tests/minimisation/*.int.test.ts.
+describe("minimisation à l'import : un refus ne garde rien", () => {
+  const enregistrer = () => {
+    const textes: string[] = [];
+    return { textes, client: { query: async (t: string) => (textes.push(t), { rows: [], rowCount: 1 }) } };
+  };
+  it("[A-033] un refus d'import ne laisse aucun contenu : une seule écriture, la trace sans contenu", async () => {
+    const { textes, client } = enregistrer();
+    await expect(verifierImport(client, "equipe-bertin", ["IBAN", "nom"])).rejects.toMatchObject({ motif: "donnees_interdites" });
+    expect(textes).toHaveLength(1);
+    expect(textes[0]).toMatch(/^INSERT INTO trace\.evenements/);
+  });
+  it("[A-198] la plateforme ne garde aucun contenu en transit : un import accepté n'écrit rien lors de la vérification", async () => {
+    const { textes, client } = enregistrer();
+    await verifierImport(client, "equipe-bertin", ["nom", "prenom"]);
+    expect(textes).toEqual([]);
+  });
+  it("[C-027] le refus s'inscrit dans la base du client (schéma trace), pas dans la console", async () => {
+    const { textes, client } = enregistrer();
+    await expect(verifierImport(client, "equipe-bertin", ["mot de passe"])).rejects.toThrow();
+    expect(textes.every((t) => /trace\.evenements/.test(t) && !/public\./.test(t))).toBe(true);
+  });
+  it("[C-043] la vérification ne supprime ni ne modifie jamais de données existantes", async () => {
+    const { textes, client } = enregistrer();
+    await expect(verifierImport(client, "equipe-bertin", ["iban"])).rejects.toThrow();
+    expect(textes.join(" ")).not.toMatch(/\b(DELETE|UPDATE|TRUNCATE|DROP)\b/i);
+  });
+});
+

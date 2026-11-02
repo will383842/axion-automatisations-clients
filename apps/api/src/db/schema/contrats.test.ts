@@ -63,16 +63,27 @@ describe("contrats, devis, factures, apporteurs : schéma et migration 0009", ()
 
   it("[A-133] @argent la TVA est toujours ajoutée, de 1 à 2000 points, calculée en numeric ; l'instance entre dans la clé d'abonnement et est exigée", () => {
     expect(migration).toContain(`CHECK ("factures"."taux_tva_points_de_base" BETWEEN 1 AND 2000)`);
-    expect(migration).toContain(`floor(("factures"."montant_ht_centimes"::numeric * "factures"."taux_tva_points_de_base" + 5000) / 10000)`);
+    // Le Hub fait foi (arrondi compris, peut-être par ligne) : la base ne recalcule pas la TVA, elle garde le total et le signe.
+    expect(migration).not.toContain("factures_tva_arrondie");
+    expect(migration).not.toContain("floor((");
+    expect(migration).toContain(`CHECK ("factures"."montant_ttc_centimes" = "factures"."montant_ht_centimes" + "factures"."montant_tva_centimes")`);
     expect(migration).toContain(`CHECK ("factures"."nature" NOT IN ('abonnement', 'complement_prorata') OR "factures"."instance_id" IS NOT NULL)`);
     expect(migration).toContain(`CHECK ("factures"."facture_origine_id" IS DISTINCT FROM "factures"."id")`);
   });
 
+  it("[A-133] @argent le Hub fait foi : aucune règle de statut ni d'avoir de la facture n'est imposée par la base (copie libre), seules les colonnes reçues sont figées", () => {
+    expect(migration).not.toContain("creation_facture");
+    expect(migration).not.toContain("transitions_facture");
+    expect(migration).not.toMatch(/factures_figer_copie[\s\S]*nature = 'avoir' AND a\.facture_origine_id/);
+    expect(migration).not.toContain("creation_devis");
+    expect(migration).not.toContain("brouillon_sans_envoi");
+  });
+
   it("[A-133] @argent chaque table à transitions a un déclencheur BEFORE UPDATE (course en lecture validée), sans droit pour PUBLIC et avec un chemin de recherche fixé", () => {
-    for (const [declencheur, table, fonction] of [["factures_transition", "factures", "factures_garder_transition"], ["contrats_revocation", "contrats", "contrats_garder_revocation"], ["devis_transition", "devis", "devis_garder_transition"]] as const) {
+    for (const [declencheur, table, fonction] of [["factures_copie_figee", "factures", "factures_figer_copie"], ["contrats_revocation", "contrats", "contrats_garder_revocation"], ["devis_transition", "devis", "devis_garder_transition"]] as const) {
       expect(migration, declencheur).toContain(`CREATE TRIGGER ${declencheur} BEFORE UPDATE ON "public"."${table}" FOR EACH ROW EXECUTE FUNCTION public.${fonction}()`);
     }
-    for (const f of ["factures_garder_transition", "factures_verifier_origine", "contrats_garder_revocation", "devis_garder_transition", "instances_exiger_sous_traitance", "echeances_verifier_facture"]) {
+    for (const f of ["factures_figer_copie", "factures_verifier_origine", "contrats_garder_revocation", "devis_garder_transition", "instances_exiger_sous_traitance", "echeances_verifier_facture"]) {
       expect(migration, f).toMatch(new RegExp(`CREATE FUNCTION public\\.${f}\\(\\) RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS`));
       expect(migration, f).toContain(`REVOKE ALL ON FUNCTION public.${f}() FROM PUBLIC`);
     }

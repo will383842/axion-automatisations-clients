@@ -275,44 +275,75 @@ describe("contrats, devis, factures et activation, avec le socle", { timeout: 30
     await expect(mep()).rejects.toMatchObject({ code: "23505" });
   });
 
-  it("[A-133] @argent transitions de facture : née émise ; payée et annulée sont définitives ; annulée seulement après un avoir (42501)", async () => {
+  it("[A-133] @argent le Hub fait foi : une copie arrive dans l'état du Hub (émise, impayée, payée ou annulée) ; les quatre statuts se changent librement, avec l'auteur du changement", async () => {
     const A = randomUUID();
     await creerOrg(A);
     const periode = (n: number) => ({ periode_debut: `2026-0${n}-01`, periode_fin: `2026-0${n}-28` });
-    for (const statut of ["payee", "impayee", "annulee"]) await expect(facture(A, { statut, ...periode(1) }), statut).rejects.toMatchObject({ code: "42501" });
-    const f = await facture(A, periode(2));
-    expect((await changerStatut(A, f["id"], "impayee")).rowCount).toBe(1);
-    await expect(changerStatut(A, f["id"], "emise")).rejects.toMatchObject({ code: "42501" });
-    await expect(changerStatut(A, f["id"], "impayee")).rejects.toMatchObject({ code: "42501" }); // impayee vers impayee
-    expect((await changerStatut(A, f["id"], "payee")).rowCount).toBe(1);
-    for (const statut of ["emise", "impayee", "annulee"]) await expect(changerStatut(A, f["id"], statut), `payee vers ${statut}`).rejects.toMatchObject({ code: "42501" });
-    const g = await facture(A, periode(3));
-    await expect(changerStatut(A, g["id"], "annulee")).rejects.toMatchObject({ code: "42501" }); // pas d'avoir : pas d'annulation
-    await avoir(A, g["id"]);
-    expect((await changerStatut(A, g["id"], "annulee")).rowCount).toBe(1);
-    for (const statut of ["emise", "impayee", "payee"]) await expect(changerStatut(A, g["id"], statut), `annulee vers ${statut}`).rejects.toMatchObject({ code: "42501" });
-    const h = await facture(A, periode(4));
-    await expect(changerStatut(A, h["id"], "emise")).rejects.toMatchObject({ code: "42501" }); // emise vers emise
-    const i = await facture(A, periode(5));
-    await changerStatut(A, i["id"], "impayee");
-    await avoir(A, i["id"]);
-    expect((await changerStatut(A, i["id"], "annulee")).rowCount).toBe(1); // impayee vers annulee, avoir présent
-    // Un avoir d'une autre facture ne vaut pas avoir pour celle-ci.
-    const j = await facture(A, periode(6));
-    const autre = await facture(A, periode(7));
-    await avoir(A, autre["id"]);
-    await expect(changerStatut(A, j["id"], "annulee")).rejects.toMatchObject({ code: "42501" });
+    // Une facture peut être reçue déjà payée, impayée ou annulée : la base ne refuse pas la copie d'une vraie facture.
+    for (const [i, statut] of ["emise", "impayee", "payee", "annulee"].entries()) expect(await code(facture(A, { statut, ...periode(i + 1) })), `copie ${statut}`).toBe("ok");
+    // paiement.rejete : payée vers impayée ; plus aucun statut n'est définitif ; annulée sans avoir.
+    const f = await facture(A, periode(5));
+    for (const statut of ["payee", "impayee", "payee", "payee", "annulee", "emise", "impayee", "annulee", "payee"]) expect((await changerStatut(A, f["id"], statut)).rowCount, `vers ${statut}`).toBe(1);
+    const g = await facture(A, periode(6));
+    expect((await changerStatut(A, g["id"], "annulee")).rowCount).toBe(1); // annulée sans avoir
+    // Rien n'est libre sans appelant nommé ni sans l'auteur du changement.
+    await expect(changerStatut(A, f["id"], "impayee", null)).rejects.toMatchObject({ code: "42501" });
+    await expect(majFacture(A, f["id"], "statut = 'impayee'")).rejects.toMatchObject({ code: "42501" });
+    await expect(majFacture(A, f["id"], "statut = 'impayee', statut_par = 'systeme'")).rejects.toMatchObject({ code: "42501" });
+    expect((await ecrire(app, A, (c) => c.query("SELECT statut, statut_par FROM factures WHERE id = $1", [f["id"]]))).rows[0]).toEqual({ statut: "payee", statut_par: "agent-essai" });
   });
 
-  it("[A-133] @argent course (lecture validée) : une facture payée par une écriture concurrente ne devient pas annulée ; la seconde écriture attend, puis est refusée (42501)", async () => {
+  it("[A-133] @argent chaque changement de statut d'une facture est inscrit au journal d'audit, avec l'ancien et le nouveau statut", async () => {
     const A = randomUUID();
     await creerOrg(A);
     const f = await facture(A);
-    await avoir(A, f["id"]);
+    await changerStatut(A, f["id"], "payee");
+    await changerStatut(A, f["id"], "impayee");
+    const { rows } = await migration.query("SELECT action::text AS action, ancienne->>'statut' AS avant, nouvelle->>'statut' AS apres, acteur FROM journal_audit WHERE tenant_id = $1 AND entite = 'factures' AND coalesce(nouvelle->>'id', ancienne->>'id') = $2 ORDER BY id", [A, f["id"]]);
+    expect(rows.map((r) => [r["avant"], r["apres"], r["acteur"]])).toEqual([[null, "emise", "agent-essai"], ["emise", "payee", "agent-essai"], ["payee", "impayee", "agent-essai"]]);
+  });
+
+  it("[A-133] @argent le déclencheur fige les colonnes reçues (montants, taux, numéro, identifiant du Hub, PDF, empreinte, nature, période) même si le droit de colonne était élargi", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    const f = await facture(A);
+    // Transaction du propriétaire avec une politique d'essai (annulée en fin d'essai) : aucun droit de colonne n'est touché pour les autres essais. Le changement de statut, permis, accompagne chaque colonne : seul le déclencheur peut refuser.
+    const cx = await migration.connect();
+    try {
+      await cx.query("BEGIN");
+      await cx.query("SELECT set_config('app.tenant_id', $1, true), set_config('app.acteur', 'agent-essai', true)", [A]);
+      await cx.query("CREATE POLICY essai_figees ON public.factures FOR ALL TO console_proprietaire USING (true) WITH CHECK (true)");
+      for (const colonne of ["montant_ht_centimes = 1", "montant_tva_centimes = 1", "montant_ttc_centimes = 1", "taux_tva_points_de_base = 1000", "numero = 'AXI-FACT-X'", "hub_id = 'hub-x'", "pdf_ref = 'x.pdf'", `empreinte_sha256 = '${"b".repeat(64)}'`, "nature = 'mise_en_place'", "periode_debut = '2026-02-02'", "periode_fin = '2026-03-01'", "auteur = 'autre'"]) {
+        await cx.query("SAVEPOINT s");
+        await expect(cx.query(`UPDATE public.factures SET statut = 'impayee', statut_par = 'agent-essai', ${colonne} WHERE id = $1`, [f["id"]]), colonne).rejects.toMatchObject({ code: "42501" });
+        await cx.query("ROLLBACK TO SAVEPOINT s");
+      }
+      expect((await cx.query("UPDATE public.factures SET statut = 'payee', statut_par = 'agent-essai' WHERE id = $1", [f["id"]])).rowCount).toBe(1); // le statut, lui, passe
+    } finally {
+      await cx.query("ROLLBACK").catch(() => undefined);
+      cx.release();
+    }
+  });
+
+  it("[A-133] @argent le montant d'une facture reçue ne se modifie pas (42501) et reste celui du Hub", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    const f = await facture(A);
+    await expect(majFacture(A, f["id"], "montant_ht_centimes = 1")).rejects.toMatchObject({ code: "42501" });
+    expect((await ecrire(app, A, (c) => c.query("SELECT montant_ht_centimes::int AS ht FROM factures WHERE id = $1", [f["id"]]))).rows[0]).toEqual({ ht: 10000 });
+  });
+
+  it("[A-133] @argent deux connexions concurrentes sur la même facture : la seconde attend, puis écrit sur la version validée (payée vers annulée, sans avoir) ; le dernier mot est celui du Hub", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    const f = await facture(A);
     const [premiere, seconde] = await course(A, (c) => c.query("UPDATE factures SET statut = 'payee', statut_par = 'agent-essai' WHERE id = $1", [f["id"]]), (c) => c.query("UPDATE factures SET statut = 'annulee', statut_par = 'agent-essai' WHERE id = $1", [f["id"]]));
-    expect(premiere).toBe("ok");
-    expect(seconde).toBe("42501");
-    expect((await ecrire(app, A, (c) => c.query("SELECT statut FROM factures WHERE id = $1", [f["id"]]))).rows[0]).toEqual({ statut: "payee" });
+    expect([premiere, seconde]).toEqual(["ok", "ok"]);
+    expect((await ecrire(app, A, (c) => c.query("SELECT statut FROM factures WHERE id = $1", [f["id"]]))).rows[0]).toEqual({ statut: "annulee" });
+    // Un changement concurrent de montant n'est jamais accepté, même derrière un changement de statut.
+    const [p2, s2] = await course(A, (c) => c.query("UPDATE factures SET statut = 'impayee', statut_par = 'agent-essai' WHERE id = $1", [f["id"]]), (c) => c.query("UPDATE factures SET montant_ht_centimes = 1 WHERE id = $1", [f["id"]]));
+    expect([p2, s2]).toEqual(["ok", "42501"]);
+    expect((await ecrire(app, A, (c) => c.query("SELECT montant_ht_centimes::int AS ht FROM factures WHERE id = $1", [f["id"]]))).rows[0]).toEqual({ ht: 10000 });
   });
 
   it("[C-030] course : une double révocation concurrente d'un contrat est refusée (42501) ; la première date reste", async () => {
@@ -340,46 +371,44 @@ describe("contrats, devis, factures et activation, avec le socle", { timeout: 30
     expect((await ecrire(app, A, (c) => c.query("SELECT statut FROM devis WHERE id = $1", [d["id"]]))).rows[0]).toEqual({ statut: "annule" });
   });
 
-  it("[A-154] @argent transitions de devis : brouillon vers envoye ou annule ; envoye vers accepte, refuse, expire ou annule ; accepte, refuse, expire et annule sont définitifs (42501)", async () => {
+  it("[A-154] @argent le Hub fait foi : un devis arrive dans l'état du Hub ; brouillon, envoyé, accepté, refusé et expiré se changent librement (signature retirée comprise)", async () => {
     const A = randomUUID();
     await creerOrg(A);
-    const envoye = async () => {
-      const d = await devisBrouillon(A);
-      await majDevis(A, d["id"], "statut = 'envoye', date_envoi = now()");
-      return d["id"];
-    };
-    const d0 = await devisBrouillon(A);
-    for (const statut of ["accepte", "refuse", "expire"]) await expect(majDevis(A, d0["id"], `statut = '${statut}'`), `brouillon vers ${statut}`).rejects.toMatchObject({ code: "42501" });
-    await expect(majDevis(A, d0["id"], "statut = 'brouillon'")).rejects.toMatchObject({ code: "42501" });
-    for (const statut of ["accepte", "refuse", "expire"]) {
-      const id = await envoye();
-      await expect(majDevis(A, id, "statut = 'brouillon'"), "envoye vers brouillon").rejects.toMatchObject({ code: "42501" });
-      expect((await majDevis(A, id, `statut = '${statut}'`)).rowCount).toBe(1);
-      for (const suite of ["brouillon", "envoye", "accepte", "refuse", "expire"]) await expect(majDevis(A, id, `statut = '${suite}'`), `${statut} vers ${suite}`).rejects.toMatchObject({ code: "42501" });
-      await expect(majDevis(A, id, ANNULATION), `${statut} vers annule`).rejects.toMatchObject({ code: "42501" });
+    const DATE = "2026-01-02T10:00:00Z";
+    for (const statut of ["brouillon", "envoye", "accepte", "refuse", "expire"]) expect(await code(devisBrouillon(A, { statut, date_envoi: statut === "brouillon" ? null : DATE })), `copie ${statut}`).toBe("ok");
+    await expect(devisBrouillon(A, { statut: "envoye" })).rejects.toMatchObject({ code: "23514" }); // envoyé sans date d'envoi
+    const statuts = ["brouillon", "envoye", "accepte", "refuse", "expire"];
+    for (const depart of statuts) {
+      const d = await devisBrouillon(A, { statut: "envoye", date_envoi: DATE });
+      if (depart !== "envoye") expect((await majDevis(A, d["id"], `statut = '${depart}'`)).rowCount, `envoye vers ${depart}`).toBe(1);
+      for (const arrivee of statuts) expect((await majDevis(A, d["id"], `statut = '${arrivee}'`)).rowCount, `${depart} vers ${arrivee}`).toBe(1);
     }
-    const e = await envoye();
-    expect((await majDevis(A, e, ANNULATION)).rowCount).toBe(1); // envoye vers annule
+    // signature.retiree : un devis accepté revient à « envoyé » (le Hub donne un nouveau lien).
+    const s = await devisBrouillon(A, { statut: "accepte", date_envoi: DATE });
+    expect((await majDevis(A, s["id"], "statut = 'envoye'")).rowCount).toBe(1);
+    // Toujours sous un appelant nommé.
+    await expect(majDevis(A, s["id"], "statut = 'accepte'", null)).rejects.toMatchObject({ code: "42501" });
+    // L'annulation vient du seul fait devis.annule : elle se pose au nom de l'appelant, de tout statut.
+    const e = await devisBrouillon(A, { statut: "accepte", date_envoi: DATE });
+    expect((await majDevis(A, e["id"], ANNULATION)).rowCount).toBe(1);
   });
 
-  it("[A-154] @argent un devis naît en brouillon ; annulé, il l'est pour toujours (statut et colonnes d'annulation figés)", async () => {
+  it("[A-154] @argent un devis annulé l'est pour toujours (statut et colonnes d'annulation figés) ; seule la pose de l'annulation est ouverte", async () => {
     const A = randomUUID();
     await creerOrg(A);
-    for (const statut of ["envoye", "accepte", "annule"]) await expect(devisBrouillon(A, { statut, date_envoi: "2026-01-02T10:00:00Z", motif_annulation: "x", annule_le: "2026-01-03T10:00:00Z", annule_par: "agent-essai" }), statut).rejects.toMatchObject({ code: "42501" });
     const d = await devisBrouillon(A);
     expect((await majDevis(A, d["id"], ANNULATION)).rowCount).toBe(1);
+    for (const statut of ["brouillon", "envoye", "accepte", "refuse", "expire"]) await expect(majDevis(A, d["id"], `statut = '${statut}'`), `annule vers ${statut}`).rejects.toMatchObject({ code: "42501" });
     await expect(majDevis(A, d["id"], "statut = 'brouillon', motif_annulation = NULL, annule_le = NULL, annule_par = NULL")).rejects.toMatchObject({ code: "42501" });
-    await expect(majDevis(A, d["id"], "statut = 'envoye'")).rejects.toMatchObject({ code: "42501" });
     await expect(majDevis(A, d["id"], "motif_annulation = NULL")).rejects.toMatchObject({ code: "42501" });
     await expect(majDevis(A, d["id"], "motif_annulation = 'autre motif'")).rejects.toMatchObject({ code: "42501" });
     const lu = (await ecrire(app, A, (c) => c.query("SELECT statut, motif_annulation FROM devis WHERE id = $1", [d["id"]]))).rows[0];
     expect(lu).toEqual({ statut: "annule", motif_annulation: "erreur de saisie" });
   });
 
-  it("[A-154] un devis naît brouillon sans date d'envoi ; la date se pose une fois, avec le passage à envoyé ; plan et code d'automatisation ne sont jamais vides", async () => {
+  it("[A-154] la date d'envoi d'un devis passe de NULL à une valeur avec le statut envoyé, jamais réécrite ; plan et code d'automatisation ne sont jamais vides", async () => {
     const A = randomUUID();
     await creerOrg(A);
-    await expect(devisBrouillon(A, { date_envoi: "2026-01-02T10:00:00Z" })).rejects.toMatchObject({ code: "42501" }); // brouillon avec date
     const d = await devisBrouillon(A);
     await expect(majDevis(A, d["id"], "statut = 'envoye'")).rejects.toMatchObject({ code: "23514" }); // envoyé sans date
     await expect(majDevis(A, d["id"], "date_envoi = now()")).rejects.toMatchObject({ code: "42501" }); // date sans envoi
@@ -392,23 +421,23 @@ describe("contrats, devis, factures et activation, avec le socle", { timeout: 30
     await expect(facture(A, { nature: "complement_prorata", plan: "", periode_debut: "2026-03-01", periode_fin: "2026-03-28" })).rejects.toMatchObject({ code: "23514" });
   });
 
-  it("[A-133] @argent la TVA est toujours ajoutée : taux de 1 à 2000 points, arrondi au centime le plus proche (moitié vers le haut), total cohérent, colonnes figées", async () => {
+  it("[A-133] @argent la TVA est toujours ajoutée : taux de 1 à 2000 points, total cohérent, TVA positive ; l'arrondi est celui du Hub (un centime d'écart avec le calcul est accepté)", async () => {
     const A = randomUUID();
     await creerOrg(A);
     const periode = (n: number) => ({ periode_debut: `2026-${String(n).padStart(2, "0")}-01`, periode_fin: `2026-${String(n).padStart(2, "0")}-28` });
     // Jamais d'exonération (taux 0), jamais au-dessus de 20 % (2001, 5000) : refusés même si la TVA et le total sont cohérents.
     for (const [i, taux] of [0, 2001, 5000, -1].entries()) await expect(facture(A, { ...periode(i + 1), ...montants(10000, taux) }), `taux ${taux}`).rejects.toMatchObject({ code: "23514" });
-    await expect(facture(A, { ...periode(5), montant_tva_centimes: 1999, montant_ttc_centimes: 11999 })).rejects.toMatchObject({ code: "23514" }); // TVA mal arrondie
     await expect(facture(A, { ...periode(6), montant_ttc_centimes: 12001 })).rejects.toMatchObject({ code: "23514" }); // total incohérent
-    await expect(facture(A, { ...periode(7), montant_tva_centimes: -2000, montant_ttc_centimes: 8000 })).rejects.toMatchObject({ code: "23514" });
+    await expect(facture(A, { ...periode(7), montant_tva_centimes: -2000, montant_ttc_centimes: 8000 })).rejects.toMatchObject({ code: "23514" }); // TVA négative
     for (const colonne of ["taux_tva_points_de_base", "montant_tva_centimes", "montant_ttc_centimes"]) await expect(facture(A, { ...periode(8), [colonne]: null }), colonne).rejects.toMatchObject({ code: "23502" });
-    // 5 centimes à 10 % : 0,5 → 1 ; 4 centimes à 12,49 % : 0,4996 → 0 ; 15 centimes à 10 % : 1,5 → 2 ; 1 centime à 20 % : 0,2 → 0 ; le plafond de 20 % est inclus.
-    expect(await code(facture(A, { ...periode(9), ...montants(5, 1000) }))).toBe("ok");
-    expect(await code(facture(A, { ...periode(10), ...montants(4, 1249) }))).toBe("ok");
-    expect(await code(facture(A, { ...periode(11), ...montants(15, 1000) }))).toBe("ok");
-    expect(await code(facture(A, { ...periode(12), ...montants(1, 2000) }))).toBe("ok");
-    expect(await code(facture(A, { ...periode(1), plan: "avance", ...montants(100, 1) }))).toBe("ok");
-    await expect(facture(A, { ...periode(2), plan: "avance", ...montants(5, 1000), montant_tva_centimes: 0, montant_ttc_centimes: 5 })).rejects.toMatchObject({ code: "23514" });
+    // Le Hub peut arrondir par ligne : la TVA à un centime du calcul d'ensemble est acceptée, dans un sens comme dans l'autre.
+    expect(await code(facture(A, { ...periode(9), ...montants(10000, 2000), montant_tva_centimes: 2001, montant_ttc_centimes: 12001 }))).toBe("ok");
+    expect(await code(facture(A, { ...periode(10), ...montants(10000, 2000), montant_tva_centimes: 1999, montant_ttc_centimes: 11999 }))).toBe("ok");
+    expect(await code(facture(A, { ...periode(11), ...montants(5, 1000), montant_tva_centimes: 0, montant_ttc_centimes: 5 }))).toBe("ok");
+    // Les calculs exacts passent toujours ; le plafond de 20 % est inclus.
+    expect(await code(facture(A, { ...periode(12), ...montants(15, 1000) }))).toBe("ok");
+    expect(await code(facture(A, { ...periode(1), plan: "avance", ...montants(1, 2000) }))).toBe("ok");
+    expect(await code(facture(A, { ...periode(2), plan: "avance", ...montants(100, 1) }))).toBe("ok");
     expect([tva(5, 1000), tva(4, 1249), tva(15, 1000), tva(1, 2000)]).toEqual([1, 0, 2, 0]);
   });
 
@@ -482,7 +511,7 @@ describe("contrats, devis, factures et activation, avec le socle", { timeout: 30
   });
 
   it("[C-030] aucune fonction de déclencheur de T2-05 n'est exécutable par PUBLIC, toutes fixent leur search_path ; l'activation surveille aussi l'organisation", async () => {
-    const noms = ["instances_exiger_sous_traitance", "echeances_verifier_facture", "factures_garder_transition", "factures_verifier_origine", "contrats_garder_revocation", "devis_garder_transition"];
+    const noms = ["instances_exiger_sous_traitance", "echeances_verifier_facture", "factures_figer_copie", "factures_verifier_origine", "contrats_garder_revocation", "devis_garder_transition"];
     const { rows } = await migration.query(
       `SELECT p.proname, p.proconfig, has_function_privilege('console_equipe', p.oid, 'EXECUTE') AS equipe, has_function_privilege('console_app', p.oid, 'EXECUTE') AS app,
               EXISTS (SELECT 1 FROM aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a WHERE a.grantee = 0) AS public_execute
@@ -491,10 +520,10 @@ describe("contrats, devis, factures et activation, avec le socle", { timeout: 30
     );
     expect(rows.map((r) => r["proname"])).toEqual([...noms].sort());
     for (const r of rows) expect(r, String(r["proname"])).toMatchObject({ proconfig: ["search_path=pg_catalog, pg_temp"], equipe: false, app: false, public_execute: false });
-    const defs = (await migration.query("SELECT tgname, pg_get_triggerdef(oid) AS def FROM pg_trigger WHERE NOT tgisinternal AND tgname = ANY($1)", [["instances_sous_traitance", "factures_transition", "factures_origine", "contrats_revocation", "devis_transition", "echeances_facture"]])).rows;
-    expect(defs.map((d) => d["tgname"]).sort()).toEqual(["contrats_revocation", "devis_transition", "echeances_facture", "factures_origine", "factures_transition", "instances_sous_traitance"]);
+    const defs = (await migration.query("SELECT tgname, pg_get_triggerdef(oid) AS def FROM pg_trigger WHERE NOT tgisinternal AND tgname = ANY($1)", [["instances_sous_traitance", "factures_copie_figee", "factures_origine", "contrats_revocation", "devis_transition", "echeances_facture"]])).rows;
+    expect(defs.map((d) => d["tgname"]).sort()).toEqual(["contrats_revocation", "devis_transition", "echeances_facture", "factures_copie_figee", "factures_origine", "instances_sous_traitance"]);
     expect(String(defs.find((d) => d["tgname"] === "instances_sous_traitance")?.["def"])).toMatch(/UPDATE OF etat, organisation_id/);
-    for (const t of ["factures_transition", "contrats_revocation", "devis_transition"]) expect(String(defs.find((d) => d["tgname"] === t)?.["def"]), t).toMatch(/BEFORE UPDATE ON public\.\w+ FOR EACH ROW/);
+    for (const t of ["factures_copie_figee", "contrats_revocation", "devis_transition"]) expect(String(defs.find((d) => d["tgname"] === t)?.["def"]), t).toMatch(/BEFORE UPDATE ON public\.\w+ FOR EACH ROW/);
     expect(String(defs.find((d) => d["tgname"] === "factures_origine")?.["def"])).toMatch(/BEFORE INSERT ON public\.factures/);
   });
 

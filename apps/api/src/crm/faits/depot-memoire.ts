@@ -1,5 +1,4 @@
-import { empreinteEmail } from "../../../../../packages/contrats/src/c3/evenements-crm-vers-console.js";
-import type { DepotC3, EcartPropose, OrganisationLue, ResultatFait, TxC3 } from "./types.js";
+import type { AlerteC3, DepotC3, EcartPropose, Exclusion, OrganisationLue, ResultatFait, TxC3 } from "./types.js";
 
 // Dépôt en mémoire pour les essais : même contrat que l'adaptateur SQL, annulation complète si la transaction échoue.
 export function depotEnMemoire() {
@@ -7,7 +6,9 @@ export function depotEnMemoire() {
     orgs: [] as OrganisationLue[],
     contacts: [] as { orgId: string; email: string }[],
     faits: new Map<string, ResultatFait | null>(),
-    exclusions: [] as { orgId: string; empreinte: string }[],
+    // Par empreinte et par portée (crmCompanyId du sujet, ou null = plateforme) : aucun lien avec les contacts.
+    exclusions: [] as { crmCompanyId: string | null; empreinte: string; genre: string }[],
+    alertes: [] as { id: string; eventId: string; alerte: AlerteC3; confirmee: boolean }[],
     liens: [] as { orgId: string; crmCompanyId: string; etat: "absorbe"; absorbePar: string }[],
     ecarts: [] as (EcartPropose & { orgId: string })[],
     copies: [] as { orgId: string; copie: object }[],
@@ -33,11 +34,13 @@ export function depotEnMemoire() {
       const o = etat.orgs.find((x) => x.id === orgId);
       if (o) o.crmCompanyId = gardee;
     },
-    async exclure(empreinte) {
-      const clients = [...new Set(etat.contacts.filter((c) => empreinteEmail(c.email) === empreinte).map((c) => c.orgId))];
-      for (const orgId of clients) if (!etat.exclusions.some((x) => x.orgId === orgId && x.empreinte === empreinte)) etat.exclusions.push({ orgId, empreinte });
-      return clients.length;
+    async exclure(e: Exclusion) {
+      const portee = e.genre === "opposition" ? null : e.crmCompanyId;
+      if (!etat.exclusions.some((x) => x.crmCompanyId === portee && x.empreinte === e.empreinte)) etat.exclusions.push({ crmCompanyId: portee, empreinte: e.empreinte, genre: e.genre });
     },
+    async rangerAlertes(eventId, alertes) { for (const alerte of alertes) etat.alertes.push({ id: `${eventId}#${etat.alertes.length}`, eventId, alerte, confirmee: false }); },
+    async alertesNonConfirmees(eventId) { return etat.alertes.filter((a) => a.eventId === eventId && !a.confirmee).map(({ id, alerte }) => ({ id, alerte })); },
+    async confirmerAlerte(id) { const a = etat.alertes.find((x) => x.id === id); if (a) a.confirmee = true; },
     async gardeeDe(crm) { return etat.liens.find((l) => l.crmCompanyId === crm)?.absorbePar ?? null; },
   };
   const depot: DepotC3 = {
@@ -61,7 +64,12 @@ export function depotEnMemoire() {
     copies: () => etat.copies,
     apporteurs: () => etat.apporteurs,
     liens: () => etat.liens,
-    exclusions: (orgId: string) => etat.exclusions.filter((x) => x.orgId === orgId).map((x) => x.empreinte),
+    // Empreintes exclues pour un client : les globales et celles de ses fiches du CRM (actuelle et absorbées), qu'il ait des contacts ou non.
+    exclusions: (orgId: string) => {
+      const ids = new Set([etat.orgs.find((o) => o.id === orgId)?.crmCompanyId, ...etat.liens.filter((l) => l.orgId === orgId).map((l) => l.crmCompanyId)]);
+      return etat.exclusions.filter((x) => x.crmCompanyId === null || ids.has(x.crmCompanyId)).map((x) => x.empreinte);
+    },
+    alertesRangees: () => etat.alertes,
     contacts: (orgId: string) => etat.contacts.filter((c) => c.orgId === orgId).map((c) => c.email),
     // Tout ce qui est rangé hors contacts : sert à vérifier qu'aucune adresse en clair n'est conservée.
     tout: () => ({ ...etat, contacts: [] }),

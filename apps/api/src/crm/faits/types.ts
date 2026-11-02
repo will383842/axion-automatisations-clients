@@ -6,9 +6,9 @@ export interface OrganisationLue {
   siren: string | null;
   crmCompanyId: string | null;
 }
-export type MotifATrancher = "siren_absent_ressemblance" | "fiche_absorbee";
+export type MotifATrancher = "siren_absent_ressemblance" | "fiche_absorbee" | "lien_crm_different" | "identifiant_crm_incoherent";
 export interface EcartPropose {
-  champ: "raison_sociale";
+  champ: "raison_sociale" | "lien_crm";
   valeurHub: string;
   valeurCrm: string;
 }
@@ -24,10 +24,22 @@ export interface TxC3 {
   signalerATrancher(orgId: string | null, motif: MotifATrancher): Promise<void>;
   noterApporteur(orgId: string, apporteurId: string): Promise<void>;
   absorber(orgId: string, absorbee: string, gardee: string): Promise<void>;
-  // Ajoute l'empreinte aux exclusions de chaque client dont un contact la porte ; renvoie le nombre de clients touchés.
-  exclure(empreinte: string, motif: "desabonnement" | "demande_client"): Promise<number>;
+  // Exclusion DURABLE par empreinte, indépendante de tout contact : un fait reçu avant l'import garde son effet.
+  // Portée : le client du sujet (crmCompanyId), ou toute la plateforme (genre « opposition »). Idempotent.
+  exclure(e: Exclusion): Promise<void>;
+  // Alertes à envoyer, rangées dans la transaction du fait (boîte d'envoi) ; confirmées après envoi réussi.
+  rangerAlertes(eventId: string, alertes: AlerteC3[]): Promise<void>;
+  alertesNonConfirmees(eventId: string): Promise<{ id: string; alerte: AlerteC3 }[]>;
+  confirmerAlerte(id: string): Promise<void>;
   // Lien CRM absorbé : renvoie l'identifiant de la fiche gardée, sinon null.
   gardeeDe(crmCompanyId: string): Promise<string | null>;
+}
+export type GenreExclusion = "desabonnement" | "opposition";
+export interface Exclusion {
+  empreinte: string;
+  genre: GenreExclusion;
+  // Client du sujet du fait ; ignoré pour le genre « opposition », globale à la plateforme.
+  crmCompanyId: string;
 }
 export interface DepotC3 {
   transaction<T>(fn: (tx: TxC3) => Promise<T>): Promise<T>;

@@ -9,7 +9,16 @@ export interface DepsRecepteurC3 {
 }
 export type ResultatTraitement = { doublon: true } | { doublon: false; resultat: ResultatFait };
 
-// Traite un fait du CRM (appelé par la tâche BullMQ, jobId = event_id). Le fait, son effet et son résultat sont écrits dans une seule transaction.
+// Rejoue les alertes rangées mais non confirmées : une panne d'envoi n'en perd aucune (au moins une fois).
+async function envoyerAlertes(deps: DepsRecepteurC3, eventId: string): Promise<void> {
+  const enAttente = await deps.depot.transaction((tx) => tx.alertesNonConfirmees(eventId));
+  for (const { id, alerte } of enAttente) {
+    await deps.alertes.signaler(alerte);
+    await deps.depot.transaction((tx) => tx.confirmerAlerte(id));
+  }
+}
+
+// Traite un fait du CRM (appelé par la tâche BullMQ, jobId = event_id). Le fait, son effet, ses alertes et son résultat sont écrits dans une seule transaction.
 export function creerRecepteurC3(deps: DepsRecepteurC3) {
   return {
     async traiter(brut: unknown): Promise<ResultatTraitement> {
@@ -25,12 +34,13 @@ export function creerRecepteurC3(deps: DepsRecepteurC3) {
           case "consentement.retire":
           case "effacement.demande": i = await retraitDePersonne(tx, e); break;
         }
+        await tx.rangerAlertes(e.event_id, i.alertes);
         await tx.marquerTraite(e.event_id, i.resultat);
         return i;
       });
+      // Les alertes partent après la validation (une alerte ne précède jamais un fait annulé) ; un doublon rejoue celles non confirmées.
+      await envoyerAlertes(deps, e.event_id);
       if (!issue) return { doublon: true };
-      // Les alertes partent après la validation : une alerte ne précède jamais un fait annulé.
-      for (const a of issue.alertes) await deps.alertes.signaler(a);
       return { doublon: false, resultat: issue.resultat };
     },
   };

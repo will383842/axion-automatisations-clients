@@ -10,6 +10,11 @@ const nettoyer = (s: string) => s.trim().toLowerCase();
 // C-726 : ce fait ne crée AUCUNE organisation. Il lie celle que « Nouveau client » (T3-29) a préparée.
 export async function devenueCliente(tx: TxC3, e: Pour<"entreprise.devenue_cliente">): Promise<Issue> {
   const p = e.payload;
+  // Le sujet et le contenu doivent désigner la même fiche du CRM : sinon le fait est incohérent, rien n'est lié.
+  if (e.subject_ref.crmCompanyId !== p.crmCompanyId) {
+    await tx.signalerATrancher(null, "identifiant_crm_incoherent");
+    return { resultat: "a_trancher", alertes: [{ type: "ecart_propose", reference: e.subject_ref.crmCompanyId }] };
+  }
   const parCrm = await tx.organisationParCrm(p.crmCompanyId);
   if (parCrm) return { resultat: "traite", alertes: [] };
   const parSiren = await tx.organisationsParSiren(p.siren);
@@ -18,7 +23,14 @@ export async function devenueCliente(tx: TxC3, e: Pour<"entreprise.devenue_clien
     await tx.signalerATrancher(null, "siren_absent_ressemblance");
     return { resultat: "a_trancher", alertes: [] };
   }
-  await tx.lierCrm(parSiren[0]!.id, p.crmCompanyId);
+  const org = parSiren[0]!;
+  // Un lien CRM existant vers une AUTRE fiche n'est jamais remplacé : l'équipe tranche (proposition d'écart).
+  if (org.crmCompanyId !== null && org.crmCompanyId !== p.crmCompanyId) {
+    await tx.proposerEcart(org.id, { champ: "lien_crm", valeurHub: org.crmCompanyId, valeurCrm: p.crmCompanyId });
+    await tx.signalerATrancher(org.id, "lien_crm_different");
+    return { resultat: "a_trancher", alertes: [{ type: "ecart_propose", reference: p.crmCompanyId }] };
+  }
+  await tx.lierCrm(org.id, p.crmCompanyId);
   return { resultat: "traite", alertes: [] };
 }
 

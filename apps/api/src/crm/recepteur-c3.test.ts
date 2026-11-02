@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import Fastify from "fastify";
 import { describe, expect, it } from "vitest";
 import { empreinteEmail, identifiantEvenementC3 } from "../../../../packages/contrats/src/c3/evenements-crm-vers-console.js";
+import { EN_TETES, signer } from "../../../../packages/contrats/src/commun/signature.js";
 import { ROUTES_C3 } from "../../../../packages/contrats/src/c3/lecture-entreprise.js";
 import { brancherErreurs } from "../plugins/erreurs.js";
 import { creerEnvoisCommerciaux } from "../envois/exclusions.js";
@@ -87,6 +88,32 @@ describe("réception des faits du CRM : liaison", () => {
   });
 });
 
+describe("réception des faits du CRM : liens existants", () => {
+  it("[C-331] un lien CRM existant vers une autre fiche n'est jamais remplacé : à trancher, écart proposé", async () => {
+    const { depot, alertes, r } = monter();
+    depot.ajouterOrganisation({ id: ORG, raisonSociale: "Lemoine Rénovation", siren: SIREN, crmCompanyId: "crm-ancienne" });
+    expect(await r.traiter(devenue())).toMatchObject({ resultat: "a_trancher" });
+    expect(depot.organisations()[0]?.crmCompanyId).toBe("crm-ancienne");
+    expect(depot.ecarts()).toEqual([{ orgId: ORG, champ: "lien_crm", valeurHub: "crm-ancienne", valeurCrm: "crm-lemoine" }]);
+    expect(alertes).toContainEqual({ type: "ecart_propose", reference: "crm-lemoine" });
+  });
+
+  it("[C-331] un sujet qui n'est pas la fiche du contenu est refusé : à trancher, rien n'est lié", async () => {
+    const { depot, r } = monter();
+    depot.ajouterOrganisation({ id: ORG, raisonSociale: "Lemoine Rénovation", siren: SIREN, crmCompanyId: null });
+    const f = evt("entreprise.devenue_cliente", { crmCompanyId: "crm-lemoine", siren: SIREN, raisonSociale: "Lemoine Rénovation", adresse: ADRESSE, contacts: [] }, "crm-autre");
+    expect(await r.traiter(f)).toMatchObject({ resultat: "a_trancher" });
+    expect(depot.organisations()[0]?.crmCompanyId).toBeNull();
+  });
+
+  it("[C-331] un fait dont le sujet et le contenu concordent et dont le lien est le même reste traité", async () => {
+    const { depot, r } = monter();
+    depot.ajouterOrganisation({ id: ORG, raisonSociale: "Lemoine Rénovation", siren: SIREN, crmCompanyId: "crm-lemoine" });
+    expect(await r.traiter(devenue())).toMatchObject({ resultat: "traite" });
+    expect(depot.ecarts()).toEqual([]);
+  });
+});
+
 describe("réception des faits du CRM : mise à jour et apporteur", () => {
   it("[C-725] une mise à jour du CRM ne change pas la raison sociale du Hub, elle propose un écart", async () => {
     const { depot, r } = monter();
@@ -139,6 +166,7 @@ describe("réception des faits du CRM : consentement et effacement", () => {
     depot.ajouterOrganisation({ id: ORG, raisonSociale: "Lemoine Rénovation", siren: SIREN, crmCompanyId: "crm-lemoine" });
     depot.ajouterContact(ORG, "camille.test@exemple.fr");
     depot.ajouterOrganisation({ id: AUTRE, raisonSociale: "Garage Fontaine", siren: "732829320", crmCompanyId: "crm-garage" });
+    depot.ajouterContact(AUTRE, "camille.test@exemple.fr");
     await r.traiter(retrait());
     const envoyes: string[] = [];
     const envois = creerEnvoisCommerciaux({ exclusions: { estExclue: async (c, e) => depot.exclusions(c).includes(e) }, transport: { envoyer: async (m) => void envoyes.push(m.destinataire) } });
@@ -174,6 +202,61 @@ describe("réception des faits du CRM : consentement et effacement", () => {
     expect(alertes.map((a) => a.type)).toContain("effacement_demande");
   });
 
+  it("[C-458] retrait avant import : l'opposition reçue avant l'existence du contact est retrouvée à l'import", async () => {
+    const { depot, r } = monter();
+    await r.traiter(retrait());
+    depot.ajouterOrganisation({ id: ORG, raisonSociale: "Lemoine Rénovation", siren: SIREN, crmCompanyId: null });
+    expect(depot.exclusions(ORG)).toEqual([]);
+    await r.traiter(devenue());
+    depot.ajouterContact(ORG, "camille.test@exemple.fr");
+    expect(depot.exclusions(ORG)).toEqual([empreinte]);
+  });
+
+  it("[C-458] le retrait de consentement est propre au client du sujet, l'effacement demandé vaut pour toute la plateforme", async () => {
+    const { depot, r } = monter();
+    depot.ajouterOrganisation({ id: ORG, raisonSociale: "Lemoine Rénovation", siren: SIREN, crmCompanyId: "crm-lemoine" });
+    depot.ajouterOrganisation({ id: AUTRE, raisonSociale: "Garage Fontaine", siren: "732829320", crmCompanyId: "crm-garage" });
+    await r.traiter(retrait());
+    expect(depot.exclusions(ORG)).toEqual([empreinte]);
+    expect(depot.exclusions(AUTRE)).toEqual([]);
+    await r.traiter(retrait("effacement.demande"));
+    expect(depot.exclusions(AUTRE)).toEqual([empreinte]);
+  });
+
+  it("[C-458] [C-457] l'exclusion suit la fiche après une fusion", async () => {
+    const { depot, r } = monter();
+    depot.ajouterOrganisation({ id: ORG, raisonSociale: "Lemoine Rénovation", siren: SIREN, crmCompanyId: "crm-lemoine" });
+    await r.traiter(retrait());
+    await r.traiter(evt("fiche.fusionnee", { crmCompanyIdAbsorbee: "crm-lemoine", crmCompanyIdGardee: "crm-gardee" }, "crm-lemoine"));
+    expect(depot.exclusions(ORG)).toEqual([empreinte]);
+  });
+
+  it("[C-458] signaler lève : le rejeu du même fait renvoie les alertes, une seule fois chacune", async () => {
+    const depot = depotEnMemoire();
+    depot.ajouterOrganisation({ id: ORG, raisonSociale: "Lemoine Rénovation", siren: SIREN, crmCompanyId: "crm-lemoine" });
+    const recues: string[] = [];
+    let panne = true;
+    const r = creerRecepteurC3({ depot, alertes: { signaler: async (a) => { if (panne) throw new Error("panne"); recues.push(a.type); } } });
+    const f = retrait("effacement.demande");
+    await expect(r.traiter(f)).rejects.toThrow("panne");
+    expect(depot.exclusions(ORG)).toEqual([empreinte]);
+    panne = false;
+    expect(await r.traiter(f)).toEqual({ doublon: true });
+    expect(recues.sort()).toEqual(["effacement_demande", "exclusion_a_reporter_dans_le_hub"]);
+    await r.traiter(f);
+    expect(recues).toHaveLength(2);
+  });
+
+  it("[C-458] atomicité : un effet qui échoue après rangerFait ne laisse ni le fait ni l'exclusion ni l'alerte", async () => {
+    const depot = depotEnMemoire();
+    const casse = { ...depot, transaction: <T,>(fn: (tx: Parameters<Parameters<typeof depot.transaction>[0]>[0]) => Promise<T>) => depot.transaction((tx) => fn({ ...tx, marquerTraite: async () => { throw new Error("effet en échec"); } })) };
+    const r = creerRecepteurC3({ depot: casse, alertes: { signaler: async () => undefined } });
+    await expect(r.traiter(retrait())).rejects.toThrow("effet en échec");
+    expect(depot.faitsRanges()).toBe(0);
+    expect(depot.tout().exclusions).toEqual([]);
+    expect(depot.alertesRangees()).toEqual([]);
+  });
+
   it("[C-458] le même retrait reçu deux fois n'exclut qu'une fois", async () => {
     const { depot, r } = monter();
     depot.ajouterOrganisation({ id: ORG, raisonSociale: "Lemoine Rénovation", siren: SIREN, crmCompanyId: "crm-lemoine" });
@@ -189,13 +272,15 @@ describe("route C3 du CRM", () => {
   const MAINTENANT = Math.floor(Date.now() / 1000);
   const CLE = { kid: "crm-essai", secret: Buffer.alloc(32, 7) };
   const monterRoute = (actif: boolean) => {
-    const ajouts: { donnees: unknown; opts: { jobId?: string } | undefined }[] = [];
+    const ajouts: { donnees: unknown; opts: { jobId?: string; removeOnComplete?: { age: number }; removeOnFail?: { age: number } } | undefined }[] = [];
     const serveur = Fastify();
     brancherErreurs(serveur);
     routeCrm(serveur, { entrant: { cles: { clesAcceptees: async () => [CLE] }, memoire: { set: async () => "OK" }, actif: () => actif, maintenant: () => MAINTENANT }, file: { add: async (_n, donnees, opts) => void ajouts.push({ donnees, opts }) } });
-    const envoyer = (corps: string) =>
-      serveur.inject({ method: "POST", url: ROUTES_C3.crmVersConsole.chemin, payload: corps, headers: { "content-type": "application/json", "idempotency-key": randomUUID(), "x-axion-key": CLE.kid } });
-    return { ajouts, envoyer, serveur };
+    const base = { "content-type": "application/json", "idempotency-key": randomUUID(), [EN_TETES.cle]: CLE.kid, [EN_TETES.horodatage]: String(MAINTENANT) };
+    const envoyer = (corps: string) => serveur.inject({ method: "POST", url: ROUTES_C3.crmVersConsole.chemin, payload: corps, headers: { ...base, [EN_TETES.signature]: signer(CLE.secret.toString("base64"), String(MAINTENANT), "POST", ROUTES_C3.crmVersConsole.chemin, corps) } });
+    const envoyerFausse = (corps: string) => serveur.inject({ method: "POST", url: ROUTES_C3.crmVersConsole.chemin, payload: corps, headers: { ...base, [EN_TETES.signature]: `v1=${"0".repeat(64)}` } });
+    const envoyerSansSignature = (corps: string) => serveur.inject({ method: "POST", url: ROUTES_C3.crmVersConsole.chemin, payload: corps, headers: base });
+    return { ajouts, envoyer, envoyerFausse, envoyerSansSignature };
   };
 
   it("[C-331] la porte du canal C3 est fermée par défaut : un fait signé n'est pas rangé", async () => {
@@ -204,9 +289,25 @@ describe("route C3 du CRM", () => {
     expect(ajouts).toEqual([]);
   });
 
-  it("[C-331] un fait sans signature valide est refusé et n'entre pas dans la file", async () => {
-    const { ajouts, envoyer } = monterRoute(true);
-    expect((await envoyer(JSON.stringify(devenue()))).statusCode).toBe(401);
+  it("[C-331] un fait sans signature est refusé et n'entre pas dans la file", async () => {
+    const { ajouts, envoyerSansSignature } = monterRoute(true);
+    expect((await envoyerSansSignature(JSON.stringify(devenue()))).statusCode).toBe(401);
     expect(ajouts).toEqual([]);
+  });
+
+  it("[C-331] un en-tête de signature de bon format mais faux est refusé (401) avant la file", async () => {
+    const { ajouts, envoyerFausse } = monterRoute(true);
+    expect((await envoyerFausse(JSON.stringify(devenue()))).statusCode).toBe(401);
+    expect(ajouts).toEqual([]);
+  });
+
+  it("[C-331] un fait bien signé entre dans la file sans nom ni e-mail de contact, avec une durée de conservation", async () => {
+    const { ajouts, envoyer } = monterRoute(true);
+    const f = devenue();
+    expect((await envoyer(JSON.stringify(f))).statusCode).toBe(200);
+    expect(ajouts).toHaveLength(1);
+    expect(JSON.stringify(ajouts[0]?.donnees)).not.toContain("camille.test@exemple.fr");
+    expect(JSON.stringify(ajouts[0]?.donnees)).not.toContain("Camille Test");
+    expect(ajouts[0]?.opts).toMatchObject({ jobId: f.event_id, removeOnComplete: { age: expect.any(Number) }, removeOnFail: { age: expect.any(Number) } });
   });
 });

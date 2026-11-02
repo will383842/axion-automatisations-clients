@@ -117,3 +117,35 @@ describe("migrations d'un module : contournements du filtre textuel", () => {
     expect(verifierMigrationModule(sql, "essai")).toEqual([]);
   });
 });
+
+// Audit B1/M1 : le texte caché dans un corps de fonction ou une chaîne $…$ est contrôlé comme le reste, commentaires retirés. Une migration de module ne détruit jamais de données.
+describe("migrations d'un module : charges de l'audit (M1)", () => {
+  const charges: [string, string][] = [
+    ["R1 : RESET ROLE et ALTER ROLE cachés dans un corps de fonction", "CREATE FUNCTION f() RETURNS int LANGUAGE sql AS $f$ RESET/**/ROLE; ALTER/**/ROLE cli_aaaaaaaaaaaa_app PASSWORD 'connu'; SELECT 1 $f$; CREATE TABLE t (x int DEFAULT f()); INSERT INTO t DEFAULT VALUES;"],
+    ["R1-bis : RESET \"role\" entre guillemets", 'CREATE FUNCTION f() RETURNS int LANGUAGE sql AS $f$ RESET/**/"role"; SELECT 1 $f$; CREATE TABLE t (x int DEFAULT f()); INSERT INTO t DEFAULT VALUES;'],
+    ["R2 : schéma commun avec commentaire avant le point", "CREATE FUNCTION f() RETURNS int LANGUAGE sql AS $f$ SELECT count(*)::int FROM commun/**/.personnes $f$;"],
+    ["R4 : DROP TABLE et DELETE FROM dans un corps de fonction", "CREATE FUNCTION f() RETURNS int LANGUAGE sql AS $f$ DROP/**/TABLE essai_notes; DELETE/**/FROM essai_notes; SELECT 1 $f$;"],
+    ["R5 : TRUNCATE et SET SESSION AUTHORIZATION après un -- dans une chaîne", "CREATE FUNCTION f() RETURNS int LANGUAGE plpgsql AS $f$ BEGIN PERFORM '--'; TRUNCATE essai_notes; SET/**/SESSION/**/AUTHORIZATION postgres; RETURN 1; END $f$;"],
+    ["DROP TABLE seul", "DROP TABLE essai_notes;"],
+    ["DROP TABLE avec commentaire entre les mots", "CREATE FUNCTION f() RETURNS int LANGUAGE sql AS $$ DROP /* x */ TABLE essai_notes $$;"],
+    ["ALTER TABLE … DROP COLUMN", "ALTER TABLE essai_notes DROP COLUMN texte;"],
+    ["ALTER TABLE … DROP sans le mot COLUMN", "ALTER TABLE essai_notes DROP texte;"],
+    ["DROP COLUMN avec retour à la ligne et commentaire", "ALTER TABLE essai_notes\n  DROP --x\n  COLUMN texte;"],
+    ["DROP SCHEMA dans un corps de fonction", "CREATE FUNCTION f() RETURNS int LANGUAGE sql AS $f$ DROP/**/SCHEMA a_essai CASCADE $f$;"],
+    ["TRUNCATE dans un bloc $…$ nommé", "COMMENT ON TABLE essai_notes IS $x$ TRUNCATE/**/essai_notes $x$;"],
+    ["CREATE USER", "CREATE USER pirate PASSWORD 'x';"],
+    ["ALTER USER caché dans un corps de fonction", "CREATE FUNCTION f() RETURNS int LANGUAGE sql AS $f$ ALTER/**/USER cli_aaaaaaaaaaaa_app PASSWORD 'x' $f$;"],
+    ["SET LOCAL ROLE", "CREATE FUNCTION f() RETURNS int LANGUAGE sql AS $f$ SET/**/LOCAL/**/ROLE postgres $f$;"],
+    ["SET \"role\" entre guillemets", 'CREATE FUNCTION f() RETURNS int LANGUAGE sql AS $f$ SET "role" TO postgres $f$;'],
+    ["commentaire de ligne caché derrière un -- dans une chaîne", "CREATE FUNCTION f() RETURNS int LANGUAGE sql AS $f$ SELECT '--'; RESET --c\n ROLE $f$;"],
+  ];
+  for (const [nom, sql] of charges) {
+    it(`[A-219] @isolation charge de l'audit refusée : ${nom}`, () => {
+      expect(verifierMigrationModule(sql, "essai").length).toBeGreaterThan(0);
+    });
+  }
+  it("[A-219] une migration qui garde ON DELETE CASCADE, DROP CONSTRAINT et un commentaire apostrophé dans un bloc $…$ reste acceptée", () => {
+    const sql = "CREATE TABLE essai_t (id int PRIMARY KEY, n int REFERENCES essai_t (id) ON DELETE CASCADE);\nALTER TABLE essai_t DROP CONSTRAINT essai_t_n_fkey;\nALTER TABLE essai_t ALTER COLUMN n DROP NOT NULL;\nCOMMENT ON TABLE essai_t IS $$l'état des notes$$;";
+    expect(verifierMigrationModule(sql, "essai")).toEqual([]);
+  });
+});

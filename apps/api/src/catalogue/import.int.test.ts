@@ -19,7 +19,7 @@ function secret(): string {
   if (!ligne) throw new Error("mot de passe de test introuvable");
   return ligne.slice("SOCLE_PG_MOT_DE_PASSE=".length);
 }
-const equipe = new pg.Pool({ ...cible("pgbouncer", 6432, process.env["SOCLE_PG_PGBOUNCER"]), user: "console_equipe", database: "console", password: createHash("sha256").update(`${secret()}/console_equipe`).digest("hex"), max: 5, connectionTimeoutMillis: 10_000 });
+const equipe = new pg.Pool({ ...cible("pgbouncer", 6432, process.env["SOCLE_PG_PGBOUNCER"]), user: "console_equipe", database: "console", password: createHash("sha256").update(`${secret()}/console_equipe`).digest("hex"), max: 2, connectionTimeoutMillis: 10_000 });
 equipe.on("error", () => undefined);
 afterAll(() => equipe.end());
 

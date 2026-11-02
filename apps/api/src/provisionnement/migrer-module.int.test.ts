@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -9,11 +10,21 @@ import { migrerBase, roleMigrationModule } from "../donnees/migrer-base.js";
 import { sqlPg } from "./adaptateur-sql.js";
 import { adminPg, nomBaseDe, nomsRoles } from "./etapes-base.js";
 
-// Étape 6 sur une grappe jetable (T235_PG_ADMIN_URL : adresse DIRECTE du rôle provisionneur, init.sql joué). La base est créée par la vraie recette (adminPg) mais
+// Étape 6 sur une grappe jetable (T235_PG_ADMIN_URL : adresse DIRECTE du rôle provisionneur, init.sql joué ; sans elle, calculée sur le socle : socket Unix de l'hôte posée par compose.zz-essai-donnees.yml). La base est créée par la vraie recette (adminPg) mais
 // n'est PAS fermée : la fermeture retire au provisionneur le droit de prendre le rôle propriétaire (dette : T2-38 fixe qui lance les migrations après la fermeture).
-const ADMIN = process.env["T235_PG_ADMIN_URL"];
+const docker = (...a: string[]) => execFileSync("docker", a, { encoding: "utf8" }).trim();
+const conteneurDonnees = () => {
+  const id = docker("ps", "-q", "--filter", "label=com.docker.compose.project=socle", "--filter", "label=com.docker.compose.service=donnees");
+  if (!id) throw new Error("conteneur donnees introuvable : le socle doit tourner (ops/socle/lancer.sh, fragment d'essai)");
+  return id;
+};
+const adresseAdmin = () => {
+  const mdp = docker("exec", conteneurDonnees(), "sh", "-c", 'printf %s/provisionneur "$SOCLE_PG_MOT_DE_PASSE" | sha256sum | cut -c1-64');
+  return `postgresql://provisionneur:${mdp}@localhost/postgres?host=%2Ftmp%2Fsocle-donnees-socket`;
+};
+const ADMIN = process.env["T235_PG_ADMIN_URL"] ?? adresseAdmin();
 const ESSAI = fileURLToPath(new URL("../../../../tests/modules/essai/migrations", import.meta.url));
-const vers = (base: string) => { const u = new URL(ADMIN ?? "postgres://x@localhost/postgres"); u.pathname = `/${base}`; return u.toString(); };
+const vers = (base: string) => { const u = new URL(ADMIN); u.pathname = `/${base}`; return u.toString(); };
 const pools: pg.Pool[] = [];
 const pool = (base: string) => { const p = new pg.Pool({ connectionString: vers(base), max: 1 }); pools.push(p); return p; };
 afterAll(async () => { await Promise.all(pools.map((p) => p.end().catch(() => undefined))); });
@@ -49,11 +60,11 @@ const dossierAvec = (sql: string) => {
   return d;
 };
 
-// Un .int.test.ts ne tourne que sous SOCLE_INTEGRATION=1 : une variable manquante FAIT ÉCHOUER l'essai, jamais un saut silencieux.
+// Un .int.test.ts ne tourne que sous SOCLE_INTEGRATION=1 : une grappe introuvable FAIT ÉCHOUER l'essai, jamais un saut silencieux.
 describe("migrations d'un module (grappe jetable)", () => { // fiche: T2-35
-  it("la variable de connexion de la grappe jetable est fournie (échec, pas saut)", () => {
-    expect(ADMIN, "T235_PG_ADMIN_URL manque : le job socle-integration doit la fournir").toBeTruthy();
-  });
+  it("la grappe jetable répond (échec, pas saut)", async () => {
+    expect((await pool("postgres").query("SELECT current_user AS u")).rows[0]?.u).toBe("provisionneur");
+  }, 30_000);
   it("[A-219] les migrations du module d'essai sont appliquées dans a_<code>, par le rôle de migration du module, et rejouables", async () => {
     const c = await clientNonFerme();
     await migrerBase(c.base, 1, { url: vers(c.base), dossier: ESSAI, module: "essai" });

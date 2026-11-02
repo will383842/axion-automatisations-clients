@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { createHash, createHmac, pbkdf2Sync, randomBytes, randomUUID } from "node:crypto";
 import pg from "pg";
 import { afterAll, describe, expect, it } from "vitest";
@@ -5,11 +6,23 @@ import { sqlPg } from "./adaptateur-sql.js";
 import { adminPg, nomBaseDe, nomsRoles, type Admin } from "./etapes-base.js";
 
 // Dettes de T2-34 n° 9 et n° 8 (propriétaire T2-35) : essais sur une grappe jetable où init.sql a été joué.
-// T235_PG_ADMIN_URL = adresse DIRECTE du rôle provisionneur vers la base d'administration ; T235_PGBOUNCER_URL = adresse de PgBouncer (même grappe), facultative.
-// Un .int.test.ts ne tourne que sous SOCLE_INTEGRATION=1 : une variable manquante FAIT ÉCHOUER l'essai, jamais un saut silencieux (le job socle-integration doit les fournir : dette de spec/preuves.md).
+// T235_PG_ADMIN_URL = adresse DIRECTE du rôle provisionneur vers la base d'administration ; T235_PGBOUNCER_URL = adresse de PgBouncer (même grappe) ; sans elles, calculées sur le socle.
+// Un .int.test.ts ne tourne que sous SOCLE_INTEGRATION=1 : une grappe introuvable FAIT ÉCHOUER l'essai, jamais un saut silencieux.
 // Aucun secret dans le dépôt : mots de passe tirés au hasard à chaque essai.
-const ADMIN = process.env["T235_PG_ADMIN_URL"];
-const BOUNCER = process.env["T235_PGBOUNCER_URL"];
+// Adresses : les variables restent prioritaires ; sinon calculées sur la grappe jetable du socle (socket Unix de l'hôte posée par compose.zz-essai-donnees.yml, IP de PgBouncer). Échec, jamais saut.
+const docker = (...a: string[]) => execFileSync("docker", a, { encoding: "utf8" }).trim();
+const conteneur = (service: string) => {
+  const id = docker("ps", "-q", "--filter", "label=com.docker.compose.project=socle", "--filter", `label=com.docker.compose.service=${service}`);
+  if (!id) throw new Error(`conteneur ${service} introuvable : le socle doit tourner (ops/socle/lancer.sh, fragment d'essai)`);
+  return id;
+};
+const adresseAdmin = () => {
+  const mdp = docker("exec", conteneur("donnees"), "sh", "-c", 'printf %s/provisionneur "$SOCLE_PG_MOT_DE_PASSE" | sha256sum | cut -c1-64');
+  return `postgresql://provisionneur:${mdp}@localhost/postgres?host=%2Ftmp%2Fsocle-donnees-socket`;
+};
+const adresseBouncer = () => `postgresql://x@${docker("inspect", "-f", '{{(index .NetworkSettings.Networks "socle_interne").IPAddress}}', conteneur("pgbouncer-donnees"))}:6432/postgres`;
+const ADMIN = process.env["T235_PG_ADMIN_URL"] ?? adresseAdmin();
+const BOUNCER = process.env["T235_PGBOUNCER_URL"] ?? adresseBouncer();
 const empreinte = (mdp: string) => {
   const sel = randomBytes(16);
   const sale = pbkdf2Sync(mdp, sel, 4096, 32, "sha256");
@@ -46,10 +59,11 @@ async function creerClient(): Promise<{ id: string; base: string }> {
 afterAll(async () => { await Promise.all(pools.map((p) => p.end().catch(() => undefined))); });
 
 describe("fermeture des bases sur une grappe jetable", () => { // fiche: T2-35
-  it("les variables de connexion de la grappe jetable et de PgBouncer sont fournies (échec, pas saut)", () => {
-    expect(ADMIN, "T235_PG_ADMIN_URL manque : le job socle-integration doit la fournir").toBeTruthy();
-    expect(BOUNCER, "T235_PGBOUNCER_URL manque : le job socle-integration doit la fournir").toBeTruthy();
-  });
+  it("la grappe jetable et PgBouncer répondent (échec, pas saut)", async () => {
+    expect((await admin_.query("SELECT current_user AS u")).rows[0]?.u).toBe("provisionneur");
+    const c = new pg.Client({ connectionString: BOUNCER });
+    await c.connect().then(() => c.end(), (e: { code?: string }) => { expect(["28P01", "08P01"]).toContain(e.code); });
+  }, 30_000);
   it("[A-216] @isolation le rôle _app d'un autre client ne se connecte pas à cli_<id>, le sien oui", async () => {
     const a = await creerClient();
     const b = await creerClient();

@@ -1,6 +1,7 @@
 import { is, sql } from "drizzle-orm";
 import { check, getTableConfig, integer, PgDialect, PgTable, pgTable, text, uuid } from "drizzle-orm/pg-core";
 import { describe, expect, it } from "vitest";
+import * as cli from "./schema-cli/index.ts";
 import * as schema from "./schema.ts";
 
 // Garde « aucun secret en base » (T2-06) : aucune colonne du schéma ne porte un nom de secret. Un secret vit dans le coffre ; la base ne garde qu'une référence.
@@ -20,6 +21,12 @@ describe("garde des colonnes : aucun secret en base", () => {
   it("[LOT2-garde] aucune colonne du schéma réel n'est nommée comme un secret", () => {
     expect(tablesDuSchema().length).toBeGreaterThan(10);
     expect(colonnesInterdites(tablesDuSchema())).toEqual([]);
+  });
+
+  it("[C-034] aucune colonne des tables de schema-cli (bases des clients) n'est nommée comme un secret", () => {
+    const tablesCli = Object.values(cli).filter((v) => is(v, PgTable)) as PgTable[];
+    expect(tablesCli.length).toBe(9);
+    expect(colonnesInterdites(tablesCli)).toEqual([]);
   });
 
   it("[LOT2-garde] la garde des colonnes refuse une colonne nommée comme un secret", () => {

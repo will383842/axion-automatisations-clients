@@ -1,0 +1,31 @@
+# 0058 · Héritage des valeurs et plan commercial d'une instance
+
+Date : 02/11/2026 · Statut : proposé (T2-08) · Contrat touché : aucun · Migration : aucune (la fiche l'interdit).
+
+> Risque haut : le plan fixe ce que le client paie. Tous les montants sont en centimes entiers, hors taxes, sans flottant. Cet ADR ne contient aucun prix.
+
+## Contexte
+T2-08 calcule le plan commercial d'une instance à partir de niveaux de valeurs (grille, conditions par défaut, préréglage du métier, conditions du client, réglages de l'instance) et l'enregistre dans `plans_commerciaux` (ADR 0052, migration 0008). La fonction de résolution est dans `packages/reglages-heritage` (B-515) ; `apps/api/src/commercial` la réexporte et ne l'écrit pas une seconde fois.
+
+## Décision
+1. **Niveaux** (du plus général au plus précis) : plateforme (la grille de prix, puis les conditions par défaut, qui l'emportent sur la grille, C-138), métier (préréglage), client, instance. Le niveau « automatisation » est réservé à T4-30. L'instance ne surcharge que garantie, délai et seuil, jamais un montant.
+2. **Formule.** Elle vient de l'instance (A-006). Elle est comparée aux `formules_actives` de la grille la plus récente, **lues dans la même requête** que la grille : si une grille existe et que la formule n'y figure pas, refus `formule_non_proposee`. Sans grille, aucune liste ne s'applique. Une liste illisible refuse (`valeur_invalide:formules_actives`), elle n'est jamais prise pour « toutes les formules ». Une liste vide refuse toute formule.
+3. **Prix récurrent et formule `achat`.** Le prix récurrent résolu est enregistré tel quel, pour toute formule (la colonne est obligatoire). Aucun test n'affirme que deux formules ont le même prix : c'est un fait de ce calcul, pas une règle. Que l'achat porte un prix récurrent, zéro ou rien est une décision commerciale non tranchée : voir Dettes.
+4. **Le préréglage du métier est la version de départ de l'instance, jamais la dernière publiée.** `OptionsPlan` reçoit `metierId` **et** `versionMetier` ; la requête filtre sur cette version. Sans version : refus `version_metier_obligatoire`, avant toute lecture. Version inexistante ou en brouillon : refus `prereglage_introuvable`. Une version retirée depuis reste acceptée (c'est la base de l'instance).
+5. **Validité des conditions** : `valide_du` incluse, `valide_au` **exclue**. Le jour de passation, seule la condition qui commence ce jour-là s'applique : plus de `valeur_ambigue`. Une fenêtre où `valide_du = valide_au` est donc vide (la contrainte de la base l'accepte, car elle écrit `>=`). Le jour commercial est celui d'**Europe/Paris** (`dateParis`), pas celui d'UTC : entre 22 h et minuit en été, UTC retarde d'un jour.
+6. **Bornes des colonnes `integer`** : `engagement_mois` et `maintenance_incluse_mois` vont de 0 à 2147483647 ; au-delà, `ErreurPlan` (`valeur_invalide:<clé>`), jamais une erreur PostgreSQL brute. La période n'a que trois valeurs (1, 6, 12).
+7. **Arrondi** : `floor(montant × points de base / 10000)` en bigint ; le client ne gagne jamais un centime d'arrondi. Remise de 100 % ou plus refusée.
+8. **Taille de la PR.** Le code hors tests fait 341 lignes ajoutées (règle : moins de 400 hors tests et fichiers générés). Avec les tests la PR en compte plus de 800 : un essai d'intégration de 185 lignes (la grille, le métier, le jour de passation et l'isolation contre un vrai PostgreSQL), des tests de requêtes sans base, et les tests du paquet partagé. Elle n'est pas coupée : la fonction partagée, le calcul pur et sa lecture ne se prouvent que ensemble.
+
+## Conséquences
+- Aucune migration, aucun changement de contrat.
+- Les essais d'intégration (`plan.int.test.ts`, job `socle-integration`) sont la preuve des lectures ; `plan.requetes.test.ts` vérifie le texte et les valeurs des requêtes sans base et ne remplace pas cette preuve.
+
+## Dettes
+Propriétaire de toutes : **T2-52** (migration de durcissement du lot 2, à ouvrir après T2-11 ; voir ADR 0055), sauf les deux dernières (T4-30).
+- **Source « métier » enregistrée comme « défaut »** : l'énumération `source_valeur` (0008) ne connaît que grille, défaut, client, instance. Un tarif, des frais ou une remise venus du préréglage du métier sont donc écrits avec la source `defaut` : la trace est perdue dans la base (elle reste dans `valeurs` du plan préparé). Critère de test : après l'ajout de la valeur `metier` à l'énumération, un plan dont l'engagement vient d'un préréglage écrit `source_engagement = 'metier'`.
+- **Garantie, délai, seuil et motif non enregistrés** : `plans_commerciaux` n'a aucune colonne pour eux (le motif est exigé de l'appelant puis perdu, le journal d'audit ne le garde pas). Les valeurs sont calculées et visibles dans `valeurs`, pas écrites. Critère de test : après ajout des colonnes, `enregistrerPlan` puis lecture rendent garantie, délai, seuil et motif de l'appel.
+- **Version de départ fournie par l'appelant** : `console_app` ne lit pas `prereglage_depart_id` ni `version_prereglage_depart` (C-676, migration 0007, origine fermée). `preparerPlan` ne les lit donc pas elle-même ; l'équipe passe `metierId` et `versionMetier`. Critère de test : une lecture côté équipe (rôle `console_equipe`) fournit la version de départ d'une instance, `console_app` reste refusé sur ces colonnes (42501).
+- **Prix récurrent d'une instance `achat`** (décision 3) : règle à trancher avec l'architecte avant les échéances. Critère de test : un plan `achat` écrit la valeur décidée (prix récurrent zéro, ou refus), avec un essai nommé sur cette règle.
+- **B-515 absent de `spec/req-ids.json`** : le fichier est interdit à cette PR, je ne l'ai pas modifié. Les commentaires et les tests `[B-515]` citent un numéro que la garde de couverture ne connaît pas ; l'ajout est à faire par le propriétaire du fichier. Propriétaire : T4-30.
+- **`verifierEcriture` n'est appelée nulle part et l'indicateur `imposee` n'a aucun effet dans le commercial** : `lireNiveaux` ne pose jamais `imposee`, et l'écriture d'une condition du client ne passe pas par `verifierEcriture`. Une valeur imposée au niveau plateforme ne serait donc pas protégée côté commercial. Propriétaire : **T4-30**. Critère de test : une valeur imposée à la plateforme n'est pas remplacée par une condition du client dans `preparerPlan`, et l'écriture de cette condition est refusée (`valeur_imposee:<clé>:global`).

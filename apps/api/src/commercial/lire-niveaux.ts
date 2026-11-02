@@ -34,7 +34,7 @@ export function assemblerNiveaux(e: Entrees): NiveauxConnus {
   const ambigusDefaut = new Set<string>();
   for (const c of e.defauts) for (const [cle, valeur] of Object.entries(c.valeur)) if (estHeritable(cle)) poser(global, cle, { valeur, origine: "defaut" }, ambigusDefaut);
   const metier: Record<string, ValeurNiveau> = {};
-  for (const [cle, valeur] of Object.entries(e.metier?.donnees ?? {})) if (estHeritable(cle)) metier[cle] = { valeur, version: e.metier?.version };
+  for (const [cle, valeur] of Object.entries(e.metier?.donnees ?? {})) if (estHeritable(cle)) metier[cle] = e.metier ? { valeur, version: e.metier.version } : { valeur };
   // Conditions du client : une clé inconnue ou rangée sous un autre type est une erreur, pas une valeur ignorée.
   const client: Record<string, ValeurNiveau> = {};
   const ambigusClient = new Set<string>();

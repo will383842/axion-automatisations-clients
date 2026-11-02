@@ -6,9 +6,6 @@ import { avecClient } from "../db/client-actif.js";
 import { enregistrerPlan, ErreurPlan, preparerPlan } from "./plan.js";
 
 // Plan commercial calculé (T2-08) contre un vrai PostgreSQL : socle lancé par ops/socle/lancer.sh (job socle-integration). Instances d'essai à l'état pause, montants fictifs.
-const docker = (...args: string[]) => execFileSync("docker", args, { encoding: "utf8" }).trim();
-const conteneur = (service: string) =>
-  docker("ps", "-q", "--filter", "label=com.docker.compose.project=socle", "--filter", `label=com.docker.compose.service=${service}`);
 // Les essais tournent en parallèle sur une base partagée : identifiants de client tirés au hasard.
 const docker = (...args: string[]) => execFileSync("docker", args, { encoding: "utf8" }).trim();
 const conteneur = (service: string) =>
@@ -30,10 +27,6 @@ const DIRECT = cible("postgres", 5432, process.env["SOCLE_PG_DIRECT"]);
 const PGBOUNCER = cible("pgbouncer", 6432, process.env["SOCLE_PG_PGBOUNCER"]);
 const motDePasseDe = (role: string) => createHash("sha256").update(`${SECRET}/${role}`).digest("hex");
 const ouverts: { end(): Promise<void> }[] = [];
-function pool(voie: { host: string; port: number }, user: string, max: number): pg.Pool {
-  const p = new pg.Pool({ ...voie, user, database: "console", password: motDePasseDe(user), max, connectionTimeoutMillis: 10_000 });
-const ouverts: { end(): Promise<void> }[] = [];
-const motDePasseDe = (role: string) => createHash("sha256").update(`${SECRET}/${role}`).digest("hex");
 const app = new pg.Pool({ ...PGBOUNCER, user: "console_app", database: "console", password: motDePasseDe("console_app"), max: 10, connectionTimeoutMillis: 10_000 });
 app.on("error", () => undefined);
 ouverts.push(app);

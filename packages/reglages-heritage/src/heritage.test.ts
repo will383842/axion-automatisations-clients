@@ -24,16 +24,14 @@ const TOUS: NiveauxConnus = {
 describe("résolution des valeurs par niveau", () => {
   it("[A-160] @argent la valeur de l'instance l'emporte sur celle du client, qui l'emporte sur le métier, l'automatisation, le global", () => {
     expect(NIVEAUX).toEqual(["global", "automatisation", "metier", "client", "instance"]);
-    const retirer = (n: string) => Object.fromEntries(Object.entries(TOUS).filter(([k]) => k !== n)) as NiveauxConnus;
     let niveaux: NiveauxConnus = TOUS;
-    for (const attendu of ["instance", "client", "metier", "automatisation", "global"]) {
+    for (const attendu of ["instance", "client", "metier", "automatisation", "global"] as const) {
       const r = resoudre("remise", niveaux);
       expect(r?.source).toBe(attendu);
-      expect(r?.valeur).toBe(TOUS[attendu as keyof NiveauxConnus]?.["remise"]?.valeur);
-      expect(r?.version).toBe(TOUS[attendu as keyof NiveauxConnus]?.["remise"]?.version);
-      niveaux = (({ [attendu]: _, ...reste }) => reste)(niveaux as Record<string, unknown>) as NiveauxConnus;
+      expect(r?.valeur).toBe(TOUS[attendu]?.["remise"]?.valeur);
+      expect(r?.version).toBe(TOUS[attendu]?.["remise"]?.version);
+      niveaux = Object.fromEntries(Object.entries(niveaux).filter(([nom]) => nom !== attendu)) as NiveauxConnus;
     }
-    expect(retirer("instance").instance).toBeUndefined();
     expect(resoudre("remise", {})).toBeNull();
   });
 

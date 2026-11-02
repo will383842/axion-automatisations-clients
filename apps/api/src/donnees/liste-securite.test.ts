@@ -78,6 +78,27 @@ describe("liste blanche : filtre d'établissement", () => {
     expect(refuse(`SELECT (SELECT count(*)::int FROM commun.personnes WHERE ${f}) AS id`)).not.toThrow();
   });
 
+  it("[B-173] @isolation le modèle n'admet qu'un seul FROM : ni virgule, ni JOIN, ni table dérivée, filtre dans toute sous-requête, colonne qualifiée", () => {
+    const f = "{{filtre}}";
+    for (const sql of [
+      `SELECT p.id FROM commun.personnes p, commun.listes_prospects l WHERE ${f}`,
+      `SELECT p.id FROM commun.personnes p JOIN commun.listes_prospects l ON true WHERE ${f}`,
+      `SELECT p.id FROM commun.personnes p CROSS JOIN commun.listes_prospects l WHERE ${f}`,
+      `SELECT x.id FROM (SELECT l.nom AS id, e.id etablissement_id FROM commun.listes_prospects l, commun.etablissements e) x WHERE ${f}`,
+      `SELECT x.id FROM (SELECT l.nom AS id FROM commun.listes_prospects l WHERE ${f}) x`,
+      `SELECT (SELECT id FROM commun.personnes WHERE ${f}) AS id, (SELECT count(*)::int FROM commun.personnes) AS total`,
+      `SELECT p.id, p.etablissement_id FROM commun.personnes p WHERE ${f}`,
+    ]) expect(refuse(sql, { colonnes: ["id", "total"] }), sql).toThrow();
+    // Le témoin OR reste refusé.
+    expect(refuse(`SELECT id FROM commun.personnes WHERE ${f} AND (nom = 'a' OR nom = 'b')`)).toThrow();
+  });
+
+  it("[B-173] formes valides conservées : un FROM, une sous-requête de projection filtrée, tables qualifiées", () => {
+    const f = "{{filtre}}";
+    expect(refuse(`SELECT p.id FROM commun.personnes p WHERE ${f} ORDER BY p.id LIMIT $1`)).not.toThrow();
+    expect(refuse(`SELECT (SELECT count(*)::int FROM commun.personnes WHERE ${f}) AS id, (SELECT count(*)::int FROM commun.index_fichiers WHERE ${f}) AS total`, { colonnes: ["id", "total"] })).not.toThrow();
+  });
+
   it("[B-173] OR n'est permis nulle part dans une requête filtrée par établissement", () => {
     expect(refuse("SELECT id FROM commun.personnes WHERE {{filtre}} AND (nom = 'a' OR nom = 'b')")).toThrow();
   });

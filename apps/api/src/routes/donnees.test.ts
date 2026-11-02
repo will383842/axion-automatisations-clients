@@ -118,6 +118,13 @@ describe("route des données : équipe", () => {
     expect((await (await avec(SESSION_EQUIPE, undefined)).s.inject({ method: "POST", url: "/api/v1/donnees/compterPersonnes", payload: {} })).statusCode).toBe(403);
     expect((await (await avec(SESSION_EQUIPE, "admin", false)).s.inject({ method: "POST", url: "/api/v1/donnees/compterPersonnes", payload: {} })).statusCode).toBe(403);
   });
+  it("[B-070] @isolation par défaut refus : un rôle d'équipe inconnu (admin, vide, autre casse) est refusé avant le service", async () => {
+    for (const r of ["admin", "", "Administrateur", "root"]) {
+      const { s, vus } = await avec(SESSION_EQUIPE, r);
+      expect((await s.inject({ method: "POST", url: "/api/v1/donnees/compterPersonnes", payload: {} })).statusCode, r).toBe(403);
+      expect(vus).toEqual([]);
+    }
+  });
   it("[B-070] un rôle d'équipe autre (administrateur) passe, et un client n'a pas besoin de rôle d'équipe", async () => {
     const a = await avec(SESSION_EQUIPE, "administrateur");
     expect((await a.s.inject({ method: "POST", url: "/api/v1/donnees/compterPersonnes", payload: {} })).statusCode).toBe(200);

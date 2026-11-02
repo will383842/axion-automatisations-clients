@@ -150,6 +150,7 @@ describe("gestionnaire du Worker : une intention occupée est une remise, pas un
     await appeler(g, j); // ne lève pas : le travail est rendu à l'équipe, pas perdu
     expect(escalades).toEqual([[expect.objectContaining({ instanceId: "inst-1" }), "e1", "intention_en_cours_sans_issue"]]);
     expect(j.data["essais"]).toBeUndefined();
+    expect(j.data["remise"]).toBeUndefined(); // les données du travail sont remises à zéro après l'escalade
     expect(j.reports).toHaveLength(0);
   });
 

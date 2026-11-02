@@ -51,6 +51,28 @@ function couperUneFois(b: ReturnType<typeof banc>) {
 // Un processus mort laisse son bail : la reprise attend qu'il expire (fin de l'étape + marge de 60 s).
 const apresCoupure = (b: ReturnType<typeof banc>) => b.horloge.regler(b.horloge.maintenant() + 181_000);
 
+describe("fenêtre d'occupation", () => {
+  it("[A-324] delaiEtapeMs vaut le délai complet de l'étape (120 s), même quand 100 s sont déjà écoulées avant l'effet (par la machine)", async () => {
+    const relevés: number[] = [];
+    const b = banc({ e: async () => undefined }, "idempotent_par_cle", { delai: 120 });
+    // Étape de 120 s ; l'horloge factice avance de 100 s avant l'effet : le temps restant serait 20 s, la fenêtre doit rester 120 s.
+    const module = defineAutomation({
+      ...manifesteExemple,
+      etapes: [{ nom: "lente", delaiMaxSecondes: 120, executer: async (ctx) => { b.horloge.regler(b.horloge.maintenant() + 100_000); await ctx.effet("envoyer", "msg-1", { objet: "x" }); } }],
+      connecteurs: [{ famille: "messagerie", actions: ["envoyer", "classer"], portees: ["envoi"], garantie: "idempotent_par_cle" }],
+    });
+    const boite = new BoiteEnMemoire();
+    const ecrire = boite.ecrire.bind(boite);
+    boite.ecrire = async (intention, bail, maintenant) => {
+      relevés.push(bail.delaiEtapeMs);
+      return ecrire(intention, bail, maintenant);
+    };
+    const machine = new Machine({ module, ports: { journal: b.journal, boite, connecteurs: b.connecteur, console: b.console, horloge: b.horloge } });
+    expect((await b.horloge.piloter(machine.lancer("inst-1", "exec-1"))).statut).toBe("terminee");
+    expect(relevés).toEqual([120_000]);
+  });
+});
+
 describe("reprise", () => {
   it("[A-315] une exécution coupée après l'étape 2 reprend à l'étape 3", async () => {
     const vues: string[] = [];

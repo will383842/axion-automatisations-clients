@@ -95,9 +95,10 @@ describe("fermeture des bases sur une grappe jetable", () => { // fiche: T2-35
     const ra = nomsRoles(a.id);
     const rb = nomsRoles(b.id);
     expect(await connecter(a.base, ra.app, MDP[ra.app]!, BOUNCER)).toBe("ok");
-    // Refus précis : mot de passe ou entrée refusés par PgBouncer (28P01) ou protocole refusé (08P01) ; jamais un autre code (ex. grappe injoignable).
-    expect(["28P01", "08P01"]).toContain(await connecter(a.base, rb.app, MDP[rb.app]!, BOUNCER));
-    expect(["28P01", "08P01"]).toContain(await connecter(b.base, ra.app, MDP[ra.app]!, BOUNCER));
+    // Refus précis : mot de passe ou entrée refusés par PgBouncer (28P01), protocole refusé (08P01) ou CONNECT refusé par le serveur et relayé (42501, constaté sur le socle) ; jamais un autre code (ex. grappe injoignable).
+    const REFUS = ["28P01", "08P01", "42501"];
+    expect(REFUS).toContain(await connecter(a.base, rb.app, MDP[rb.app]!, BOUNCER));
+    expect(REFUS).toContain(await connecter(b.base, ra.app, MDP[ra.app]!, BOUNCER));
   }, 60_000);
 
   it("[A-216] un secret désaccordé après la fermeture ne peut plus être corrigé par le provisionneur (échec, décision humaine)", async () => {

@@ -37,7 +37,8 @@ export async function deposer(tx: TransactionOuverte, depot: Depot, schemas: Sch
   // Hors transaction, set_config(..., true) de avecClient n'a plus d'effet : le client n'est plus fixé et le dépôt est refusé.
   const tenant = (await tx.query("SELECT NULLIF(current_setting('app.tenant_id', true), '') AS tenant")).rows[0]?.["tenant"] as string | null | undefined;
   if (!tenant) throw new Error("dépôt refusé : aucune transaction de client ouverte");
-  const cle = cleDIntention(depot.destination, depot.intention);
+  // La clé dépend du client lu dans la transaction : deux clients de même intention n'ont jamais la même Idempotency-Key ni le même jobId.
+  const cle = cleDIntention(depot.destination, JSON.stringify([tenant, depot.intention]));
   const empreinte = createHash("sha256").update(JSON.stringify(depot.corps)).digest("hex");
   const id = randomUUID();
   const inseree = await tx.query(

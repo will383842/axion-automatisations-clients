@@ -175,12 +175,12 @@ describe("migrations d'un module (grappe jetable)", () => { // fiche: T2-35
     } finally { await pool("postgres").query(`ALTER ROLE ${etranger} NOLOGIN PASSWORD NULL`); }
   }, 90_000);
 
-  it("[A-219] la règle pg_hba du rôle _mod_ est unique, locale (socket), en scram-sha-256, vers les bases cli_<12 hex>, avant le refus par défaut", async () => {
+  it("[A-219] la règle pg_hba du rôle _mod_ est unique, locale (socket), en scram-sha-256, (base bornée par CONNECT), avant le refus par défaut", async () => {
     const mdp = 'PGPASSWORD=$(printf %s/donnees-postgres "$SOCLE_PG_MOT_DE_PASSE" | sha256sum | cut -c1-64)';
     const requete = "SELECT rule_number || '|' || type || '|' || database::text || '|' || user_name::text || '|' || auth_method FROM pg_hba_file_rules WHERE error IS NULL ORDER BY rule_number";
     const lignes = docker("exec", conteneurDonnees(), "sh", "-c", `${mdp} psql -w -U postgres -d postgres -tAXc "${requete}"`).split("\n").map((l) => l.replaceAll('"', ""));
     const mods = lignes.filter((l) => l.includes("_mod_"));
-    expect(mods.map((l) => l.split("|").slice(1).join("|"))).toEqual(["local|{/^cli_[0-9a-f]{12}$}|{/^cli_[0-9a-f]{12}_mod_[a-z][a-z0-9_]{1,30}$}|scram-sha-256"]);
+    expect(mods.map((l) => l.split("|").slice(1).join("|"))).toEqual(["local|{all}|{/^cli_[0-9a-f]{12}_mod_[a-z][a-z0-9_]*$}|scram-sha-256"]);
     const numero = (l: string | undefined) => Number(l?.split("|")[0]);
     const refusLocal = lignes.find((l) => l.split("|").slice(1).join("|") === "local|{all}|{all}|reject");
     expect(numero(mods[0])).toBeLessThan(numero(refusLocal));

@@ -63,7 +63,7 @@ GRANT EXECUTE ON FUNCTION provisionnement.fermer_client(text) TO provisionneur;
 -- Règles d'accès (pg_hba), remplacées pour le démarrage du vrai serveur. Aucune règle « trust », aucune connexion sans mot de passe.
 --  · les rôles des clients n'entrent QUE par la socket partagée avec PgBouncer (volume donnees-socket, monté dans ce seul service et dans pgbouncer-donnees) : jamais en TCP ;
 --  · postgres : socket et boucle locale ; provisionneur : socket seulement (le provisionnement T2-34 ajoutera sa règle réseau) ; pgbouncer_auth : socket, base postgres seulement ;
---  · un rôle de migration de module (cli_<12 hex>_mod_<code>, NOLOGIN sauf pendant une migration de T2-35) : socket seulement, bases cli_<12 hex> seulement, une seule règle ; l'identifiant de la base est borné par le droit CONNECT que seul le provisionneur lui donne sur la base de son client ;
+--  · un rôle de migration de module (cli_<12 hex>_mod_<code>, NOLOGIN sauf pendant une migration de T2-35) : socket seulement, une seule règle ; la base est bornée par le droit CONNECT que seul le provisionneur lui donne sur la base de son client (pas de virgule dans un jeton pg_hba : elle sépare les éléments d'une liste, d'où « * » et non « {1,30} », la longueur du code étant contrôlée côté TypeScript) ;
 --  · tout le reste est refusé.
 SELECT current_setting('hba_file') AS hba \gset
 COPY (SELECT unnest(ARRAY[
@@ -71,7 +71,7 @@ COPY (SELECT unnest(ARRAY[
   'local postgres pgbouncer_auth scram-sha-256',
   'local all provisionneur scram-sha-256',
   'local all /^cli_[0-9a-f]{12}_(app|lecture)$ scram-sha-256',
-  'local /^cli_[0-9a-f]{12}$ /^cli_[0-9a-f]{12}_mod_[a-z][a-z0-9_]{1,30}$ scram-sha-256',
+  'local all /^cli_[0-9a-f]{12}_mod_[a-z][a-z0-9_]*$ scram-sha-256',
   'local all all reject',
   'host all postgres 127.0.0.1/32 scram-sha-256',
   'host all postgres ::1/128 scram-sha-256',

@@ -15,7 +15,7 @@ export class BoitePostgres implements BoiteEnvoi {
   #baux = new Map<string, Bail>();
   #connues = new Map<string, Omit<Intention, "etat" | "bail">>();
   // Clés dont l'appel a fini sur un échec connu dans ce processus : l'effet n'a pas eu lieu, un nouvel essai ici n'est pas « occupé ».
-  #rendues = new Set<string>();
+  #rendues = new Map<string, number>();  // clé -> fin du bail rendu : passé cet instant, la fenêtre d'âge a de toute façon fini
 
   // graceMs : la marge après le délai de l'étape (60 s par défaut), réglable pour les tests.
   constructor(
@@ -36,19 +36,41 @@ export class BoitePostgres implements BoiteEnvoi {
       return { creee: ajout.rowCount === 1, etat: x.rows[0]!.etat, garantie: x.rows[0]!.garantie, creeLe: new Date(x.rows[0]!.cree_le).getTime() };
     });
     // Une même clé reprise avec une autre action : l'action connue de ce processus l'emporte (la table ne garde pas l'action), le noyau refuse alors « cle_en_conflit ».
+    // Mémoire bornée : seules les intentions encore « ecrite » en base se retiennent, les baux échus et les échecs anciens se purgent.
+    this.#purger(maintenant);
     const connue = this.#connues.get(i.cle);
-    if (!connue) this.#connues.set(i.cle, i);
+    if (!connue && lue.etat === "ecrite") this.#connues.set(i.cle, i);
     const actuel = this.#baux.get(i.cle);
     const bailAutre = actuel !== undefined && actuel.proprietaire !== bail.proprietaire && actuel.jusqua > maintenant;
     // Fenêtre = délai de l'étape + marge : le bail demandé court jusqu'à (fin d'étape + DELAI_GRACE_MS), la marge réglée la remplace.
     const fenetre = bail.jusqua - maintenant - DELAI_GRACE_MS + (this.options.graceMs ?? DELAI_GRACE_MS);
     const recente = !lue.creee && maintenant - lue.creeLe < fenetre && !this.#rendues.has(i.cle) && !(actuel && actuel.proprietaire === bail.proprietaire);
     const occupee = lue.etat === "ecrite" && (bailAutre || recente);
+    // Fin de l'occupation : la plus tardive des deux causes (bail d'un autre dans ce processus, âge de l'intention en base).
+    const libreA = Math.max(bailAutre ? actuel!.jusqua : 0, recente ? lue.creeLe + fenetre : 0);
     if (lue.etat === "ecrite" && !occupee) {
       this.#baux.set(i.cle, bail);
       this.#rendues.delete(i.cle);
     }
-    return { intention: { ...i, action: connue?.action ?? i.action, garantie: lue.garantie, etat: lue.etat, ...(this.#baux.has(i.cle) ? { bail: this.#baux.get(i.cle)! } : {}) } as Intention, creee: lue.creee, occupee };
+    return { intention: { ...i, action: connue?.action ?? i.action, garantie: lue.garantie, etat: lue.etat, ...(this.#baux.has(i.cle) ? { bail: this.#baux.get(i.cle)! } : {}) } as Intention, creee: lue.creee, occupee, ...(occupee ? { libreA } : {}) };
+  }
+
+  // Pour les tests : de quoi la boîte se souvient.
+  get tailles() {
+    return { connues: this.#connues.size, rendues: this.#rendues.size, baux: this.#baux.size };
+  }
+
+  #purger(maintenant: number) {
+    for (const [cle, bail] of this.#baux) {
+      if (bail.jusqua <= maintenant) this.#baux.delete(cle);
+    }
+    // Un échec connu ne sert plus une fois la fenêtre passée : l'âge de l'intention fait alors foi.
+    for (const [cle, fin] of this.#rendues) {
+      if (fin <= maintenant) this.#rendues.delete(cle);
+    }
+    for (const cle of this.#connues.keys()) {
+      if (!this.#baux.has(cle) && !this.#rendues.has(cle)) this.#connues.delete(cle);
+    }
   }
 
   async lire(cle: string) {
@@ -70,8 +92,8 @@ export class BoitePostgres implements BoiteEnvoi {
   }
   async liberer(cle: string, proprietaire: string) {
     if (this.#baux.get(cle)?.proprietaire !== proprietaire) return;
+    this.#rendues.set(cle, this.#baux.get(cle)!.jusqua);
     this.#baux.delete(cle);
-    this.#rendues.add(cle);
   }
 
   async #changer(cle: string, proprietaire: string, etat: "faite" | "a_trancher") {

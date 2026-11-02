@@ -10,7 +10,7 @@ import { HorlogeSysteme } from "../noyau/horloge.ts";
 import { Machine } from "../noyau/machine.ts";
 import { BoitePostgres } from "../noyau/postgres/boite-envoi.ts";
 import { JournalPostgres } from "../noyau/postgres/journal-etapes.ts";
-import { decider, ErreurConnecteur } from "../noyau/politique-erreurs.ts";
+import { decider, ErreurConnecteur, erreurSysteme } from "../noyau/politique-erreurs.ts";
 import { CoupureProcessus, type Connecteurs, type Console, type Horloge } from "../noyau/ports.ts";
 import type { Cellule } from "./cellule.ts";
 import type { Semaphore } from "./semaphore.ts";
@@ -30,6 +30,8 @@ export interface Dependances {
   executer(travail: Travail): Promise<void>;
   // Erreur d'identification hors de la machine : la console met l'instance en pause (A-322).
   mettreEnPause?(instanceId: string): Promise<void>;
+  // Une intention reste occupée après 3 fenêtres : le travail est rendu à l'équipe (« à trancher » au journal et à la console), jamais perdu en silence.
+  escalader?(travail: Travail, etape: string, code: string): Promise<void>;
   delaiRemiseMs?: number;
 }
 
@@ -79,8 +81,19 @@ const horlogeSysteme = new HorlogeSysteme();
 
 export type Gestionnaire = (job: Pick<Job, "data" | "updateData" | "moveToDelayed">, token?: string) => Promise<void>;
 
-const PG_PASSAGERES = new Set(["57P01", "57P03", "40001", "40P01"]);
-const RESEAU = new Set(["ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "EPIPE", "ENOTFOUND", "EAI_AGAIN", "EHOSTUNREACH", "ENETUNREACH"]);
+// Un autre lancement tient l'intention (souvent : plantage, BullMQ redonne le travail avant la fin de la fenêtre). Ce n'est pas un échec : ni essai consommé, ni attente exponentielle.
+export class RemiseIntention extends Error {
+  constructor(
+    readonly libreA: number,
+    readonly etape: string,
+  ) {
+    super("intention_en_cours");
+  }
+}
+
+// Remises successives tolérées avant l'escalade (3 fenêtres d'occupation).
+export const REMISES_MAX = 3;
+const compte = (v: unknown) => (Number.isInteger(v) && (v as number) > 0 ? (v as number) : 0);
 
 // Seule une ErreurConnecteur définitive (ou le bac fermé) abandonne le travail. Tout le reste (base ou Redis injoignable, PgBouncer qui redémarre,
 // coupure du processus, erreur inattendue) est passager : l'exécution reprendra, sous le plafond de 5 essais.
@@ -88,9 +101,8 @@ export function normaliserErreur(e: unknown): ErreurConnecteur {
   if (e instanceof ErreurConnecteur) return e;
   if (e instanceof BacFerme) return new ErreurConnecteur("definitive", "bac_ferme");
   if (e instanceof CoupureProcessus) return new ErreurConnecteur("passagere", "coupure_processus");
-  const code = typeof (e as { code?: unknown } | null)?.code === "string" ? (e as { code: string }).code : "";
-  if (code.startsWith("08") || PG_PASSAGERES.has(code)) return new ErreurConnecteur("passagere", "base_injoignable");
-  if (RESEAU.has(code)) return new ErreurConnecteur("passagere", "reseau");
+  const systeme = erreurSysteme(e);
+  if (systeme) return systeme;
   return new ErreurConnecteur("passagere", "erreur_inattendue");
 }
 
@@ -102,8 +114,19 @@ export function creerGestionnaire(config: Pick<ConfigExecuteur, "delaiRemiseMs">
     try {
       r = await traiter(travail, { ...d, delaiRemiseMs: config.delaiRemiseMs });
     } catch (e) {
-      const dejaFaits = Number((job.data as { essais?: unknown }).essais);
-      const essais = (Number.isInteger(dejaFaits) && dejaFaits > 0 ? dejaFaits : 0) + 1;
+      if (e instanceof RemiseIntention) {
+        // Une remise, pas un essai : le compte des essais ne bouge pas, le compteur de remises est à part et borné.
+        const remises = compte((job.data as { remises?: unknown }).remises);
+        if (remises >= REMISES_MAX) {
+          if (!d.escalader) throw new UnrecoverableError("intention_en_cours_sans_issue");
+          await d.escalader(travail, e.etape, "intention_en_cours_sans_issue");
+          return;
+        }
+        await job.updateData({ ...(job.data as object), remises: remises + 1 });
+        await job.moveToDelayed(Date.now() + Math.max(e.libreA - horloge.maintenant(), config.delaiRemiseMs), token);
+        throw new DelayedError();
+      }
+      const essais = compte((job.data as { essais?: unknown }).essais) + 1;
       // Délai calculé par la politique ; BullMQ ne fait que garder le travail jusque-là.
       const p = planifierReprise(normaliserErreur(e), essais, horloge);
       if (p.action === "pause") {
@@ -164,7 +187,15 @@ export function executerAvecMoteur(b: BrancheMoteur): Dependances["executer"] {
     const r = await new Machine({ module: b.module, ports, reporter: true }).lancer(travail.instanceId, travail.id);
     if (r.statut === "reportee") throw r.cause;
     // Hors de la machine : seul un travail qui n'a ni fini ni échoué est relancé par BullMQ.
-    if (r.statut === "en_cours") throw new ErreurConnecteur("passagere", "intention_en_cours");
+    if (r.statut === "en_cours") throw new RemiseIntention(r.libreA ?? b.horloge.maintenant(), r.etape ?? "");
+  };
+}
+
+// Escalade : l'étape est inscrite « à trancher » au journal et la console est prévenue (code fermé, aucun contenu).
+export function escaladerAvecMoteur(b: BrancheMoteur): NonNullable<Dependances["escalader"]> {
+  return async (travail, etape, code) => {
+    await new JournalPostgres(b.pool, travail.clientId).inscrire({ instanceId: travail.instanceId, executionId: travail.id, etape, statut: "a_trancher", essai: REMISES_MAX, a: new Date(b.horloge.maintenant()).toISOString() });
+    await b.console.envoyer({ type: "a_trancher", instanceId: travail.instanceId, executionId: travail.id, etape, code });
   };
 }
 

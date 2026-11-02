@@ -21,8 +21,22 @@ export type Decision =
   | { action: "pause"; code: string }
   | { action: "echec"; classe: ClasseErreur; code: string };
 
+const PG_PASSAGERES = new Set(["57P01", "57P03", "53300", "40001", "40P01"]);
+const RESEAU = new Set(["ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "EPIPE", "ENOTFOUND", "EAI_AGAIN", "EHOSTUNREACH", "ENETUNREACH"]);
+
+// Une panne de base ou de réseau n'est jamais une faute de l'outil : passagère, quel que soit l'endroit où elle sort (boîte, journal, connecteur).
+export function erreurSysteme(e: unknown): ErreurConnecteur | undefined {
+  const code = typeof (e as { code?: unknown } | null)?.code === "string" ? (e as { code: string }).code : "";
+  if (code.startsWith("08") || PG_PASSAGERES.has(code)) return new ErreurConnecteur("passagere", "base_injoignable");
+  if (RESEAU.has(code)) return new ErreurConnecteur("passagere", "reseau");
+  return undefined;
+}
+
 export function classer(erreur: unknown): { classe: ClasseErreur; code: string; attenteJusqua?: number } {
-  if (!(erreur instanceof ErreurConnecteur)) return { classe: "definitive", code: "erreur_inconnue" };
+  if (!(erreur instanceof ErreurConnecteur)) {
+    const systeme = erreurSysteme(erreur);
+    return systeme ? { classe: systeme.classe, code: systeme.code } : { classe: "definitive", code: "erreur_inconnue" };
+  }
   const code = CODE.test(erreur.code) ? erreur.code : "erreur_inconnue";
   return { classe: erreur.classe, code, ...(erreur.attenteJusqua === undefined ? {} : { attenteJusqua: erreur.attenteJusqua }) };
 }

@@ -12,7 +12,7 @@ export class Machine {
   // reporter : une erreur passagère n'est pas rejouée ici mais rendue à l'appelant (statut « reportee », cause), qui compte les essais et choisit l'attente (ADR 0102, plafond total de 5).
   constructor(private o: { module: Module; ports: Ports; reporter?: boolean }) {}
 
-  async lancer(instanceId: string, executionId: string): Promise<{ statut: Statut; etape?: string; cause?: unknown }> {
+  async lancer(instanceId: string, executionId: string): Promise<{ statut: Statut; etape?: string; cause?: unknown; libreA?: number }> {
     const { module, ports } = this.o;
     const { console, journal, horloge } = ports;
     const voulu = await console.lireEtatVoulu(instanceId);
@@ -43,7 +43,7 @@ export class Machine {
           await inscrire("faite");
           break;
         }
-        if (issue instanceof IntentionEnCours) return { statut: "en_cours", etape: decl.nom }; // un autre lancement tient l'appel : ni journal, ni événement
+        if (issue instanceof IntentionEnCours) return { statut: "en_cours", etape: decl.nom, libreA: issue.libreA }; // un autre lancement tient l'appel : ni journal, ni événement
         if (issue instanceof ATrancher) {
           await inscrire("a_trancher");
           return { statut: "a_trancher", etape: decl.nom };

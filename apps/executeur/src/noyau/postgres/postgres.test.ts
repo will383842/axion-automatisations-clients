@@ -159,7 +159,7 @@ describe("deux travailleurs sur la même base (bail non partagé en base, ADR 01
       second = await b.processus().lancer();
     };
     expect((await premier.lancer()).statut).toBe("terminee");
-    expect(second).toEqual({ statut: "en_cours", etape: "e1" });
+    expect(second).toMatchObject({ statut: "en_cours", etape: "e1", libreA: expect.any(Number) });
     expect(verifs).toEqual([]);
     expect(b.connecteur.appels).toHaveLength(1);
     expect(b.moteur.etat.intentions.map((i) => i.etat)).toEqual(["faite"]);

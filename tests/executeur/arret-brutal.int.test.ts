@@ -170,6 +170,10 @@ describe("arrêt brutal du travailleur, avec le socle", { timeout: 300_000 }, ()
       for (const id of executions) {
         await avecClient(app as never, tenant, (c) => c.query("INSERT INTO executions (tenant_id, id, instance_id, automatisation, debut) VALUES ($1, $2, $3, 'accuse-reception', now())", [tenant, id, instance]));
       }
+      // Graine écrite au journal : un échec se rejoue avec GRAINE_C470=<graine>.
+      let graine = Number(process.env["GRAINE_C470"] ?? Math.floor(Math.random() * 2_147_483_647)) || 470;
+      writeSync(2, `C-470 : graine ${graine}\n`);
+      const alea = () => (graine = (graine * 1_103_515_245 + 12_345) % 2_147_483_648) / 2_147_483_648;
       const lenteurMs = 250;
       const travail = { tenant, instance, executions, graph: graph.url, lenteurMs, pg: { host: PGBOUNCER.host, port: PGBOUNCER.port, mdp: MOT_DE_PASSE } };
       const bloquees = async () => new Set((await avecClient(app as never, tenant, (c) => c.query<{ cle_intention: string }>("SELECT cle_intention FROM intentions WHERE etat = 'ecrite'"))).rows.map((r) => r.cle_intention));
@@ -180,9 +184,9 @@ describe("arrêt brutal du travailleur, avec le socle", { timeout: 300_000 }, ()
       let avant = await bloquees();
       for (let vie = 0; vie < 6; vie++) {
         const t = lancerTravailleur(travail);
-        const atteint = await Promise.race([t.attendreEcrites(1 + Math.floor(Math.random() * 5)), t.fini.then(() => false)]);
+        const atteint = await Promise.race([t.attendreEcrites(1 + Math.floor(alea() * 5)), t.fini.then(() => false)]);
         if (!atteint) break;
-        await new Promise((ok) => setTimeout(ok, Math.floor(Math.random() * 120)));
+        await new Promise((ok) => setTimeout(ok, Math.floor(alea() * 120)));
         if (t.enfant.exitCode === null) {
           t.enfant.kill("SIGKILL");
           morts++;

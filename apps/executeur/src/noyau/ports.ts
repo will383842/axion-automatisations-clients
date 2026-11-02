@@ -40,8 +40,9 @@ export interface Bail {
   jusqua: number;
 }
 export interface BoiteEnvoi {
+  // libreA : si occupée, l'instant où l'occupation finit au plus tard.
   // Atomique : crée l'intention, ou rend celle qui existe (creee = false). occupee = vrai si un autre propriétaire tient un bail vivant ; sinon le bail est repris.
-  ecrire(intention: Omit<Intention, "etat" | "bail">, bail: Bail, maintenant: number): Promise<{ intention: Intention; creee: boolean; occupee: boolean }>;
+  ecrire(intention: Omit<Intention, "etat" | "bail">, bail: Bail, maintenant: number): Promise<{ intention: Intention; creee: boolean; occupee: boolean; libreA?: number }>;
   lire(cle: string): Promise<Intention | undefined>;
   // Comparer-et-échanger : seulement depuis « ecrite », pour le propriétaire du bail ; rend faux sinon.
   marquerFaite(cle: string, proprietaire: string): Promise<boolean>;

@@ -8,7 +8,7 @@ import { ConnecteurFactice, ConsoleFactice, HorlogeFactice, JournalEnMemoire, Bo
 import { ErreurConnecteur } from "../noyau/politique-erreurs.ts";
 import { FauxMoteur } from "../noyau/postgres/faux-moteur.ts";
 import { Cellule } from "./cellule.ts";
-import { creerGestionnaire, executerAvecMoteur, mettreEnPauseAvecMoteur, type Travail } from "./travailleur.ts";
+import { creerGestionnaire, escaladerAvecMoteur, executerAvecMoteur, RemiseIntention, mettreEnPauseAvecMoteur, type Travail } from "./travailleur.ts";
 
 const CLIENT = randomUUID();
 const INSTANCE = randomUUID();
@@ -73,7 +73,7 @@ describe("executerAvecMoteur avec un faux moteur", () => {
     const t2 = autre.travail();
     const cle = deriverCleIntention({ instanceId: INSTANCE, executionId: t2.id, etape: "e1", action: "envoyer", element: "msg-1" });
     autre.moteur.etat.intentions.push({ cle, executionId: t2.id, garantie: "verifiable_apres_coup", etat: "ecrite", creeLe: autre.horloge.maintenant() });
-    await expect(autre.executer(t2)).rejects.toMatchObject({ classe: "passagere", code: "intention_en_cours" });
+    await expect(autre.executer(t2)).rejects.toBeInstanceOf(RemiseIntention);
     expect(autre.connecteur.appels).toEqual([]);
   });
 
@@ -175,5 +175,20 @@ describe("travailleur complet avec un faux moteur", () => {
     }
     expect(b.connecteur.effetsReels).toBe(1);
     expect(b.moteur.etat.intentions.map((i) => i.etat)).toEqual(["faite"]);
+  });
+
+  it("[A-318] après 3 remises, l'escalade inscrit l'étape « à trancher » au journal et prévient la console, sans envoi", async () => {
+    const b = banc(envoyer, "verifiable_apres_coup");
+    const t = b.travail();
+    const cle = deriverCleIntention({ instanceId: INSTANCE, executionId: t.id, etape: "e1", action: "envoyer", element: "msg-1" });
+    b.moteur.etat.intentions.push({ cle, executionId: t.id, garantie: "verifiable_apres_coup", etat: "ecrite", creeLe: b.horloge.maintenant() });
+    const brancheur = { pool: b.moteur.pool(), module: b.module, console: b.console, connecteurs: b.connecteur, horloge: b.horloge };
+    const g = creerGestionnaire({ delaiRemiseMs: 5_000 }, { cellule: new Cellule("c1", [INSTANCE]), semaphore: { acquerir: async () => true, prolonger: async () => true, liberer: async () => undefined, bailMs: 60_000 } as never, executer: b.executer, escalader: escaladerAvecMoteur(brancheur) }, (x) => (x.data as { travail: Travail }).travail, b.horloge);
+    const j = job(t);
+    j.data["remises"] = 3;
+    await b.horloge.piloter(g(j as never, "jeton"));
+    expect(b.moteur.etat.journal.map((e) => e.cle)).toContain("a_trancher-3");
+    expect(b.console.evenements).toContainEqual(expect.objectContaining({ type: "a_trancher", etape: "e1", code: "intention_en_cours_sans_issue" }));
+    expect(b.connecteur.appels).toEqual([]);
   });
 });

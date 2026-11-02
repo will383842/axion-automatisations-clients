@@ -3,7 +3,8 @@ import { assemblerNiveaux, type Entrees } from "./lire-niveaux.ts";
 import { calculerPlan, ErreurPlan } from "./plan.ts";
 
 // Montants FICTIFS en centimes ; jamais un tarif réel.
-const GRILLE = { fraisMiseEnPlaceCentimes: 5000, tarifMensuelCentimes: 1000, maintenanceIncluseMois: 3 };
+const FORMULES = ["abonnement", "achat", "installation_maintenance"];
+const GRILLE = { fraisMiseEnPlaceCentimes: 5000, tarifMensuelCentimes: 1000, maintenanceIncluseMois: 3, formulesActives: FORMULES };
 const DEFAUTS = [
   { type: "engagement", valeur: { engagement_mois: 12, suite_maintenance: "arret" } },
   { type: "periode", valeur: { periode_facturation_mois: 1, mode_avance: "aucune" } },
@@ -12,7 +13,10 @@ const DEFAUTS = [
   { type: "seuil_alerte", valeur: { seuil_alerte_bps: 8000 } },
 ];
 const base = (extra: Partial<Entrees> = {}): Entrees => ({ grille: GRILLE, defauts: DEFAUTS, metier: null, client: [], instance: {}, ...extra });
-const plan = (extra: Partial<Entrees> = {}, formule = "abonnement") => calculerPlan(assemblerNiveaux(base(extra)), formule);
+const plan = (extra: Partial<Entrees> = {}, formule = "abonnement") => {
+  const e = base(extra);
+  return calculerPlan(assemblerNiveaux(e), formule, e.grille ? e.grille.formulesActives : null);
+};
 
 describe("plan commercial calculé", () => {
   it("[C-138] @argent le plan d'une instance prend la grille, puis les conditions par défaut, puis celles du client", () => {
@@ -72,7 +76,7 @@ describe("plan commercial calculé", () => {
     const abonnement = plan({ client }, "abonnement");
     const achat = plan({ client }, "achat");
     expect([abonnement.formule, achat.formule]).toEqual(["abonnement", "achat"]);
-    expect(abonnement.prixRecurrentMensuelHtCentimes).toBe(achat.prixRecurrentMensuelHtCentimes);
+    // Le prix récurrent résolu est enregistré tel quel, pour toute formule (colonne obligatoire) : ce n'est PAS une règle d'égalité (voir ADR 0058, dette).
     expect(abonnement.sources.formule).toBe("instance");
     expect(() => plan({}, "formule_inconnue")).toThrow(ErreurPlan);
   });
@@ -103,6 +107,24 @@ describe("plan commercial calculé", () => {
   it("[A-160] @argent mêmes entrées, même plan", () => {
     const entrees = base({ client: [{ type: "frais", valeur: { frais_mise_en_place_centimes: 10, tarif_mensuel_centimes: 20 } }, { type: "remise", valeur: { remise_bps: 25 } }] });
     const renverse = { ...entrees, defauts: [...entrees.defauts].reverse() };
-    expect(JSON.stringify(calculerPlan(assemblerNiveaux(renverse), "abonnement"))).toBe(JSON.stringify(calculerPlan(assemblerNiveaux(entrees), "abonnement")));
+    expect(JSON.stringify(calculerPlan(assemblerNiveaux(renverse), "abonnement", FORMULES))).toBe(JSON.stringify(calculerPlan(assemblerNiveaux(entrees), "abonnement", FORMULES)));
+  });
+
+  it("[C-138] @argent une formule absente des formules actives de la grille est refusée ; sans grille, aucune liste ne s'applique", () => {
+    const refus = (formule: string, actives: string[]) => expect(() => calculerPlan(assemblerNiveaux(base()), formule, actives)).toThrow(expect.objectContaining({ motif: "formule_non_proposee" }));
+    refus("achat", ["abonnement"]);
+    refus("abonnement", []);
+    expect(calculerPlan(assemblerNiveaux(base()), "achat", ["achat"]).formule).toBe("achat");
+    expect(calculerPlan(assemblerNiveaux(base({ grille: null, defauts: [...DEFAUTS, { type: "frais", valeur: { frais_mise_en_place_centimes: 1, tarif_mensuel_centimes: 2 } }, { type: "engagement", valeur: { maintenance_incluse_mois: 0 } }] })), "achat", null).formule).toBe("achat");
+  });
+
+  it("[A-160] @argent engagement, maintenance incluse et période respectent la borne des colonnes integer (2147483647), en ErreurPlan", () => {
+    const MAX32 = 2147483647;
+    expect(plan({ client: [{ type: "engagement", valeur: { engagement_mois: MAX32, maintenance_incluse_mois: MAX32 } }] }).engagementMois).toBe(MAX32);
+    for (const cle of ["engagement_mois", "maintenance_incluse_mois"]) {
+      expect(() => plan({ client: [{ type: "engagement", valeur: { [cle]: MAX32 + 1 } }] }), cle).toThrow(expect.objectContaining({ motif: `valeur_invalide:${cle}` }));
+    }
+    expect(() => plan({ grille: { ...GRILLE, maintenanceIncluseMois: MAX32 + 1 } })).toThrow(ErreurPlan);
+    for (const p of [0, 2, 13, 2147483648]) expect(() => plan({ client: [{ type: "periode", valeur: { periode_facturation_mois: p } }] }), String(p)).toThrow(ErreurPlan);
   });
 });

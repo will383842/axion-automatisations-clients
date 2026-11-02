@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import type { OptionsBao } from "../coffre/coffre.js";
 import { creerEnveloppe } from "../coffre/enveloppe.js";
-import { balayer, type ElementChiffre, type SourceChiffres } from "./balayage-chiffres.js";
+import { balayer, sourceColonnesSql, type ElementChiffre, type SourceChiffres } from "./balayage-chiffres.js";
 import { contexteChamp, contexteFichier, creerColonnesChiffrees, lierContexte, lireEnveloppeChamp, serialiserEnveloppe } from "./colonnes-chiffrees.js";
 
 // Faux transit avec rotation et réenveloppement. `rewrapFautif` : rend un chiffré qui ne se déchiffre pas en la même donnée.
@@ -181,5 +181,18 @@ describe("balayage des colonnes et fichiers chiffrés", () => {
       await expect(balayer({ colonnes: f.colonnes, sources: { champs: c.source } }, T, mauvais)).rejects.toThrow("balayage_invalide");
     }
     expect(c.etat.lectures).toEqual([]);
+  });
+
+  it("[A-243] source SQL : identifiants validés, valeurs paramétrées, remplacement par comparaison avec l'ancienne valeur", async () => {
+    const requetes: { texte: string; valeurs: unknown[] }[] = [];
+    const sql = { query: async (texte: string, valeurs: unknown[] = []) => (requetes.push({ texte, valeurs }), { rows: [{ id: "1" }] }) };
+    for (const [table, colonnes] of [["personnes; DROP TABLE x", ["a"]], ["commun.personnes", ["a b"]], ["commun.personnes", []]] as const) {
+      expect(() => sourceColonnesSql(sql, table, [...colonnes])).toThrow("balayage_invalide");
+    }
+    const source = sourceColonnesSql(sql, "commun.personnes", ["courriel_chiffre"]);
+    expect(await source.remplacer(T, "courriel_chiffre:0b1c2d3e-0000-4000-8000-000000000001", Uint8Array.of(1), Uint8Array.of(2))).toBe(true);
+    expect(requetes[0]?.texte).toMatch(/UPDATE commun\.personnes SET courriel_chiffre = \$3 WHERE id = \$1::uuid AND courriel_chiffre = \$2/);
+    expect(requetes[0]?.texte).not.toMatch(/DELETE|TRUNCATE|DROP/i);
+    await expect(source.remplacer(T, "autre_colonne:x", Uint8Array.of(1), Uint8Array.of(2))).rejects.toThrow("balayage_invalide");
   });
 });

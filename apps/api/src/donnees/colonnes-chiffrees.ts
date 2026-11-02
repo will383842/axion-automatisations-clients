@@ -10,15 +10,14 @@ import { creerEnveloppe, type Enveloppe, type OptionsEnveloppe } from "../coffre
 // Normalisation avant empreinte (étape 4) :
 //   e-mail    : tous les espaces retirés, minuscules ; exactement un « @ » entre deux parties non vides.
 //   téléphone : espaces, points, tirets et parenthèses retirés ; « 00 » → « + » ; un « 0 » initial → « +33 » ; résultat E.164 : + puis 8 à 15 chiffres, le premier non nul.
-// Contexte lié au chiffré : le clair chiffré est précédé de son contexte (u16 + octets), vérifié en temps constant au déchiffrement.
-//   champ   : « <table>.<colonne>:<idLigne> » (ex. personnes.courriel_chiffre:<uuid>) ; fichier : « fichier:<cle> ».
-//   La colonne ne contient ni « : » ni le préfixe « fichier » : un champ ne peut jamais se lire comme un fichier, ni l'inverse.
-//   Un chiffré copié sur une autre ligne, une autre colonne ou une autre clé d'objet du même client est donc refusé.
-//   Le durcissement définitif (contexte dans les données associées de l'enveloppe) est la dette LOT2-dette-T2-33-aad-contexte.
+// Contexte lié au chiffré : « <table>.<colonne>:<idLigne> » pour un champ, « fichier:<cle> » pour un objet. La colonne ne contient ni « : » ni le préfixe « fichier ».
+//   Format 2 (écrit désormais) : le contexte est dans les données associées (AAD) de l'enveloppe, le clair est la valeur seule.
+//   Format 1 (anciens chiffrés de T2-33) : le contexte précède le clair (u16 + octets), vérifié en temps constant. Il reste LU pendant la transition ;
+//   le balayage (balayage-chiffres.ts) reprend chaque ancien chiffré au format 2, après quoi la lecture du format 1 pourra être retirée.
 // Empreinte : HMAC-SHA256 en 32 octets (colonne bytea, octet_length = 32), version de clé épinglée à 1 : une rotation de la clé de recherche ne change pas l'index.
-// Format du bytea : 0x01 | version de clé (u32) | longueur de la clé de données chiffrée (u16) | clé de données chiffrée | nonce (12) | chiffré | étiquette (16).
+// Format du bytea : 0x01 ou 0x02 (voir ci-dessus) | version de clé (u32) | longueur de la clé de données chiffrée (u16) | clé de données chiffrée | nonce (12) | chiffré | étiquette (16).
 
-const FORMAT = 1;
+const FORMAT = 2;
 const ENTETE = 7;
 const FORME_CLE_CHIFFREE = /^vault:v(\d+):[A-Za-z0-9+/]+={0,2}$/;
 const FORME_HMAC = /^vault:v(\d+):([A-Za-z0-9+/]{43}=)$/;
@@ -77,10 +76,18 @@ export function normaliserTelephone(valeur: string): string {
   return t;
 }
 
-export function serialiserEnveloppe(e: Enveloppe): Buffer {
+export type FormatChamp = 1 | 2;
+
+export function formatChamp(octets: Uint8Array): FormatChamp {
+  const f = octets[0];
+  if (f !== 1 && f !== 2) throw illisible();
+  return f;
+}
+
+export function serialiserEnveloppe(e: Enveloppe, format: FormatChamp = FORMAT): Buffer {
   const cle = Buffer.from(e.cleChiffree, "utf8");
   const entete = Buffer.alloc(ENTETE);
-  entete.writeUInt8(FORMAT, 0);
+  entete.writeUInt8(format, 0);
   entete.writeUInt32BE(e.version, 1);
   entete.writeUInt16BE(cle.length, 5);
   return Buffer.concat([entete, cle, e.chiffre]);
@@ -88,7 +95,7 @@ export function serialiserEnveloppe(e: Enveloppe): Buffer {
 
 export function lireEnveloppeChamp(octets: Uint8Array): Enveloppe {
   const b = Buffer.from(octets);
-  if (b.length < ENTETE || b.readUInt8(0) !== FORMAT) throw illisible();
+  if (b.length < ENTETE || (b.readUInt8(0) !== 1 && b.readUInt8(0) !== 2)) throw illisible();
   const version = b.readUInt32BE(1);
   const fin = ENTETE + b.readUInt16BE(5);
   const cleChiffree = b.subarray(ENTETE, fin).toString("utf8");
@@ -100,23 +107,37 @@ export function lireEnveloppeChamp(octets: Uint8Array): Enveloppe {
 
 export function creerColonnesChiffrees(o: OptionsEnveloppe) {
   const enveloppe = creerEnveloppe(o);
+  const chiffrerLie = async (tenantId: string, clair: Buffer, contexte: string): Promise<Buffer> => serialiserEnveloppe(await enveloppe.chiffrer(tenantId, clair, contexte));
+  // Lit les deux formats. Le Buffer rendu contient le clair : l'appelant le remet à zéro.
+  const dechiffrerLie = async (tenantId: string, octets: Uint8Array, contexte: string): Promise<Buffer> => {
+    const e = lireEnveloppeChamp(octets);
+    if (formatChamp(octets) === 2) return enveloppe.dechiffrer(tenantId, e, contexte);
+    return delierContexte(contexte, await enveloppe.dechiffrer(tenantId, e));
+  };
+  // Rechiffre seulement la clé de données avec la version courante ; le chiffré des données ne change pas (le format est gardé).
+  const reenvelopper = async (tenantId: string, octets: Uint8Array): Promise<Buffer> => {
+    const e = lireEnveloppeChamp(octets);
+    const r = (await appeler(o, "POST", `transit/rewrap/cli-${validerTenant(tenantId)}`, { ciphertext: e.cleChiffree })) as { data?: { ciphertext?: unknown } } | undefined;
+    const nouvelle = typeof r?.data?.ciphertext === "string" ? r.data.ciphertext : "";
+    const m = FORME_CLE_CHIFFREE.exec(nouvelle);
+    if (!m) throw new ErreurCoffre("coffre_indisponible");
+    return serialiserEnveloppe({ chiffre: e.chiffre, cleChiffree: nouvelle, version: Number(m[1]) }, formatChamp(octets));
+  };
   return {
     async chiffrerChamp(tenantId: string, valeur: string, contexte: ContexteChamp): Promise<Buffer> {
-      const lie = lierContexte(contexteChamp(contexte), Buffer.from(valeur, "utf8"));
+      const clair = Buffer.from(valeur, "utf8");
       try {
-        return serialiserEnveloppe(await enveloppe.chiffrer(tenantId, lie));
+        return await chiffrerLie(tenantId, clair, contexteChamp(contexte));
       } finally {
-        lie.fill(0);
+        clair.fill(0);
       }
     },
     async dechiffrerChamp(tenantId: string, octets: Uint8Array, contexte: ContexteChamp): Promise<string> {
-      const attendu = contexteChamp(contexte);
-      const charge = await enveloppe.dechiffrer(tenantId, lireEnveloppeChamp(octets));
-      const clair = delierContexte(attendu, charge);
+      const clair = await dechiffrerLie(tenantId, octets, contexteChamp(contexte));
       try {
         return clair.toString("utf8");
       } finally {
-        charge.fill(0);
+        clair.fill(0);
       }
     },
     // HMAC-SHA256 par une clé propre au client (transit cli-<id>-recherche, non exportable, créée au provisionnement) : jamais un hachage nu.
@@ -136,14 +157,27 @@ export function creerColonnesChiffrees(o: OptionsEnveloppe) {
     async pivoterCle(tenantId: string): Promise<void> {
       await appeler(o, "POST", `transit/keys/cli-${validerTenant(tenantId)}/rotate`, {});
     },
-    // Rechiffre seulement la clé de données avec la version courante ; le chiffré des données ne change pas.
-    async reenvelopper(tenantId: string, octets: Uint8Array): Promise<Buffer> {
-      const e = lireEnveloppeChamp(octets);
-      const r = (await appeler(o, "POST", `transit/rewrap/cli-${validerTenant(tenantId)}`, { ciphertext: e.cleChiffree })) as { data?: { ciphertext?: unknown } } | undefined;
-      const nouvelle = typeof r?.data?.ciphertext === "string" ? r.data.ciphertext : "";
-      const m = FORME_CLE_CHIFFREE.exec(nouvelle);
-      if (!m) throw new ErreurCoffre("coffre_indisponible");
-      return serialiserEnveloppe({ chiffre: e.chiffre, cleChiffree: nouvelle, version: Number(m[1]) });
+    reenvelopper,
+    // Reprise d'un chiffré par le balayage. Rien n'est rendu avant d'avoir relu le résultat et trouvé la même donnée ; l'appelant ne remplace
+    // l'ancien qu'avec ce résultat. Format 2 : réenveloppement (clé de données seule) ; format 1 : rechiffrement au format 2 (contexte dans l'AAD).
+    async reprendre(tenantId: string, octets: Uint8Array, contexte: string): Promise<{ octets: Buffer; etat: "a_jour" | "reenveloppe" | "migre" }> {
+      const ancien = await dechiffrerLie(tenantId, octets, contexte);
+      let nouveau: Buffer | undefined;
+      let relu: Buffer | undefined;
+      try {
+        let etat: "a_jour" | "reenveloppe" | "migre" = "migre";
+        if (formatChamp(octets) === 2) {
+          nouveau = await reenvelopper(tenantId, octets);
+          if (lireEnveloppeChamp(nouveau).version <= lireEnveloppeChamp(octets).version) return { octets: Buffer.from(octets), etat: "a_jour" };
+          etat = "reenveloppe";
+        } else nouveau = await chiffrerLie(tenantId, ancien, contexte);
+        relu = await dechiffrerLie(tenantId, nouveau, contexte);
+        if (relu.length !== ancien.length || !timingSafeEqual(relu, ancien)) throw illisible();
+        return { octets: nouveau, etat };
+      } finally {
+        ancien.fill(0);
+        relu?.fill(0);
+      }
     },
   };
 }

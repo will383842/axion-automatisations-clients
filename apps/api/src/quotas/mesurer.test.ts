@@ -47,6 +47,16 @@ describe("quotas : mesure réelle", () => {
     expect(SQL_TAILLE_BASE).toMatch(/^SELECT pg_database_size\(current_database\(\)\)/);
   });
 
+  it("[A-247] la connexion de mesure est toujours fermée, y compris sur erreur", async () => {
+    let fermetures = 0;
+    const ouvrirOk = async (): Promise<Connexion> => ({ async requete() { return [{ octets: 1 }]; }, async fermer() { fermetures++; } });
+    await tailleBaseParLecture(ouvrirOk)(BASE.nomBase);
+    expect(fermetures).toBe(1);
+    const ouvrirKo = async (): Promise<Connexion> => ({ async requete() { throw new Error("panne"); }, async fermer() { fermetures++; } });
+    await expect(tailleBaseParLecture(ouvrirKo)(BASE.nomBase)).rejects.toThrow("panne");
+    expect(fermetures).toBe(2);
+  });
+
   it("[A-247] les personnes sont comptées par la requête de la liste blanche, en équipe, métadonnées seulement", async () => {
     const vus: { session: SessionDonnees; nom: string }[] = [];
     const service = { async executer(session: SessionDonnees, nom: string) { vus.push({ session, nom }); return [{ total: 17 }]; } };

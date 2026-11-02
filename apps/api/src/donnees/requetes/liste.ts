@@ -42,11 +42,17 @@ const mot = (nom: string) => new RegExp(`(?<![A-Za-z0-9_])"?${nom}"?(?![A-Za-z0-
 
 // Analyse stricte (liste blanche de formes) d'une requête filtrée par établissement (B-173). Le texte est découpé en jetons (chaînes et identifiants entre guillemets = un jeton opaque),
 // puis : un seul SELECT de premier niveau ; aucun mot de la liste noire (IS, NOT, OR, UNION…) ; {{filtre}} seulement comme conjonct AND de premier niveau d'un WHERE,
-// suivi de AND, ORDER BY, LIMIT ou de la fin. Seule exception : une sous-requête de PROJECTION « (SELECT … WHERE {{filtre}} …) » d'un SELECT sans FROM, jamais ailleurs.
+// suivi de AND, ORDER BY, LIMIT ou de la fin. Seule exception : une sous-requête de PROJECTION « (SELECT … WHERE {{filtre}} …) » dans un SELECT de premier niveau SANS FROM (contrôlé en fin d'analyse), jamais ailleurs. Fonctions : liste fermée ; alias de table seul : refusé.
 const MOTS_REFUSES = new Set(["IS", "NOT", "OR", "UNION", "INTERSECT", "EXCEPT", "EXISTS", "BETWEEN", "CASE", "WITH", "INTO", "FOR", "VALUES", "LATERAL", "DISTINCT_FROM", "UPDATE", "DELETE", "INSERT", "TRUNCATE", "DROP", "ALTER", "CREATE", "GRANT", "COPY", "CALL", "DO", "SET"]);
 // Dans un FROM : un seul nom de table (alias permis), jamais de jointure, de virgule ni de table dérivée (le filtre ne porterait alors que sur une des tables).
 const MOTS_JOINTURE = new Set(["JOIN", "CROSS", "NATURAL", "INNER", "LEFT", "RIGHT", "FULL", "OUTER", "ON", "USING", "TABLESAMPLE", "ROWS"]);
 const CLAUSES = new Set(["FROM", "WHERE", "GROUP", "HAVING", "ORDER", "LIMIT", "OFFSET", "WINDOW", "FETCH"]);
+// Liste FERMÉE des fonctions admises dans une requête filtrée (agrégats et scalaires sans accès à d'autres lignes ni à d'autres tables). Tout autre « nom( » est refusé :
+// table_to_xml, query_to_xml, row_to_json, to_jsonb, pg_… lisent des lignes entières ou exécutent du SQL en dehors du filtre.
+const FONCTIONS_SURES = new Set(["COUNT", "SUM", "MIN", "MAX", "AVG", "COALESCE", "NULLIF", "LOWER", "UPPER", "DATE_TRUNC", "ROUND", "ABS", "LENGTH", "GREATEST", "LEAST"]);
+// Mots qui peuvent précéder une parenthèse sans être une fonction.
+const MOTS_AVANT_PARENTHESE = new Set(["AND", "IN", "ANY", "AS", "WHERE", "FROM", "SELECT", "LIMIT", "BY", "ON"]);
+const sansGuillemets = (j: string) => j.replace(/^"|"$/g, "").toLowerCase();
 function jetons(cle: string, sql: string): string[] {
   const texte = sql;
   if (/--|\/\*|;|\\|\$(?!\d)/.test(texte.replace(/'(?:[^']|'')*'|"(?:[^"]|"")*"/g, " "))) throw new Error(`commentaire, point-virgule ou syntaxe interdite : ${cle}`);
@@ -59,8 +65,11 @@ function validerFormeFiltree(cle: string, sql: string): void {
   const mot = (j: string | undefined) => (j !== undefined && /^[A-Za-z_]/.test(j) ? j.toUpperCase() : "");
   if (mot(t[0]) !== "SELECT") throw new Error(`requête filtrée : seul un SELECT simple est permis : ${cle}`);
   // Chaque niveau de parenthèses a sa pile : dernier mot-clé de clause vu, et SELECT déjà ouvert ?
-  type Niveau = { selectEstSousRequete: boolean; projection?: boolean; clause: string; fromVu: boolean; filtre?: boolean };
-  const pile: Niveau[] = [{ selectEstSousRequete: false, clause: "SELECT", fromVu: false }];
+  type Niveau = { selectEstSousRequete: boolean; projection?: boolean; clause: string; fromVu: boolean; filtre?: boolean; noms: Set<string>; usages: string[] };
+  const pile: Niveau[] = [{ selectEstSousRequete: false, clause: "SELECT", fromVu: false, noms: new Set(), usages: [] }];
+  // Un nom de table ou d'alias du FROM seul, hors de « nom.colonne », désigne la ligne entière (colonnes chiffrées comprises) : refusé à la fermeture du niveau.
+  const verifierLigneEntiere = (n: Niveau) => { if (n.usages.some((u) => n.noms.has(u))) throw new Error(`ligne entière en projection (alias de table seul) : ${cle}`); };
+  let sousRequetes = 0;
   let selectsPremierNiveau = 0;
   let filtresTrouves = 0;
   for (let i = 0; i < t.length; i++) {
@@ -70,18 +79,24 @@ function validerFormeFiltree(cle: string, sql: string): void {
     if (m && MOTS_REFUSES.has(m)) throw new Error(`mot interdit « ${m} » dans une requête filtrée : ${cle}`);
     if (niv.clause === "FROM" && (j === "," || j === "(" || MOTS_JOINTURE.has(m))) throw new Error(`le FROM n'admet qu'une table, sans jointure, virgule ni sous-requête : ${cle}`);
     if (j === "(") {
+      const avantParenthese = t[i - 1];
+      if (avantParenthese !== undefined && avantParenthese !== "(" && /^[A-Za-z_"]/.test(avantParenthese) && !MOTS_AVANT_PARENTHESE.has(mot(avantParenthese)) && t[i - 2] !== "::") {
+        if (t[i - 2] === "." || !FONCTIONS_SURES.has(mot(avantParenthese))) throw new Error(`fonction hors liste fermée « ${avantParenthese} » : ${cle}`);
+      }
       const sousRequete = mot(t[i + 1]) === "SELECT";
       if (sousRequete) {
         // Sous-requête : seulement dans la projection d'un SELECT de premier niveau sans FROM, un seul niveau de profondeur.
         const projection = pile.length === 1 && niv.clause === "SELECT" && !niv.fromVu;
-        pile.push({ selectEstSousRequete: true, projection, clause: "SELECT", fromVu: false });
+        sousRequetes++;
+        pile.push({ selectEstSousRequete: true, projection, clause: "SELECT", fromVu: false, noms: new Set(), usages: [] });
         i++; // saute le SELECT interne
-      } else pile.push({ selectEstSousRequete: false, clause: "EXPRESSION", fromVu: false });
+      } else pile.push({ selectEstSousRequete: false, clause: "EXPRESSION", fromVu: false, noms: new Set(), usages: [] });
       continue;
     }
     if (j === ")") {
       if (pile.length === 1) throw new Error(`parenthèse fermante en trop : ${cle}`);
       const fermee = pile.pop()!;
+      verifierLigneEntiere(fermee);
       // Toute sous-requête qui lit une table porte elle-même le filtre.
       if (fermee.selectEstSousRequete && fermee.fromVu && !fermee.filtre) throw new Error(`sous-requête sans filtre : ${cle}`);
       continue;
@@ -96,6 +111,10 @@ function validerFormeFiltree(cle: string, sql: string): void {
       if (niv.clause === "WHERE" && (m === "WHERE" || m === "FROM")) throw new Error(`clause mal placée : ${cle}`);
       niv.clause = m;
       continue;
+    }
+    if (/^[A-Za-z_"]/.test(j) && j !== EMPLACEMENT_FILTRE && !CLAUSES.has(m)) {
+      if (niv.clause === "FROM") { if (m !== "AS" && t[i + 1] !== ".") niv.noms.add(sansGuillemets(j)); }
+      else if (t[i - 1] !== "." && t[i - 1] !== "::" && t[i + 1] !== "." && t[i + 1] !== "(") niv.usages.push(sansGuillemets(j));
     }
     if (j === EMPLACEMENT_FILTRE) {
       filtresTrouves++;
@@ -118,6 +137,9 @@ function validerFormeFiltree(cle: string, sql: string): void {
     }
   }
   if (pile.length !== 1) throw new Error(`parenthèses déséquilibrées : ${cle}`);
+  verifierLigneEntiere(pile[0]!);
+  // Une sous-requête n'est permise que dans un SELECT sans FROM : avec un FROM, le filtre non qualifié d'une table sans etablissement_id se corrèle sur la requête extérieure.
+  if (pile[0]!.fromVu && sousRequetes > 0) throw new Error(`sous-requête interdite dans un SELECT qui a un FROM : ${cle}`);
   if (selectsPremierNiveau !== 1) throw new Error(`un seul SELECT de premier niveau permis : ${cle}`);
   if (filtresTrouves !== sql.split(EMPLACEMENT_FILTRE).length - 1) throw new Error(`filtre mal placé : ${cle}`);
   // Un SELECT de premier niveau qui lit une table doit porter lui-même le filtre (un filtre seulement dans une sous-requête ne protège rien).

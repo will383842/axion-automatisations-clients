@@ -40,7 +40,7 @@ export function creerServiceDonnees(ports: PortsDonnees, liste: Readonly<Record<
       const connexion = ports.ouvrir(nomBase, role);
       p = { connexion, dernierUsage: ports.maintenant().getTime() };
       pools.set(cle, p);
-      connexion.catch(() => pools.delete(cle));
+      connexion.catch(() => { if (pools.get(cle) === p) pools.delete(cle); });
     }
     p.dernierUsage = ports.maintenant().getTime();
     return p.connexion;

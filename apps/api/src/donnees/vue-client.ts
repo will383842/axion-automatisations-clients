@@ -9,6 +9,8 @@ export interface EvenementVue { tenantId: string; acteur: string; action: "vue_c
 export interface DepsVue {
   accordValide(tenantId: string, instant: Date): Promise<boolean>;
   tracer(evenement: EvenementVue): Promise<void>;
+  // Fin de l'intervention en cours : la vue ne dure jamais plus longtemps qu'elle.
+  finIntervention?(tenantId: string, instant: Date): Promise<Date | undefined>;
   maintenant(): Date;
 }
 
@@ -20,7 +22,9 @@ export async function ouvrirVueClient(d: DepsVue, session: SessionDonnees, tenan
   const maintenant = d.maintenant();
   // Ferme par défaut : un accord illisible vaut pas d'accord.
   if (!(await d.accordValide(id.data, maintenant).catch(() => false))) throw new ErreurApi("action_interdite", "Action interdite.");
-  const expireLe = new Date(maintenant.getTime() + DUREE_VUE_MS);
+  const fin = d.finIntervention ? await d.finIntervention(id.data, maintenant).catch(() => undefined) : undefined;
+  const plafond = maintenant.getTime() + DUREE_VUE_MS;
+  const expireLe = new Date(fin && fin.getTime() < plafond ? fin.getTime() : plafond);
   // Pas de trace, pas de vue.
   await d.tracer({ tenantId: id.data, acteur: session.acteur, action: "vue_client_ouverte", motif: m, expireLe, visibleDuClient: true }).catch(() => { throw new ErreurApi("erreur_interne", "Erreur interne."); });
   return { ...session, tenantId: id.data, vue: { tenantId: id.data, expireLe } };

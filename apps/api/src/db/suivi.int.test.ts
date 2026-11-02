@@ -136,7 +136,9 @@ describe("suivi, avec le socle", { timeout: 90_000 }, () => {
     await maj(A, "UPDATE demandes SET statut = 'close' WHERE id = $1", [d["id"]]);
     expect((await maj(A, "UPDATE demandes SET statut = 'en_cours' WHERE id = $1", [d["id"]])).rowCount).toBe(0);
     await expect(maj(A, "UPDATE demandes SET reference_texte = $2 WHERE id = $1", [d["id"], REF()])).rejects.toMatchObject({ code: "42501" });
-    await expect(maj(A, "UPDATE demandes SET statut = 'en_attente' WHERE id = $1", [d["id"]], null)).rejects.toMatchObject({ code: "42501" });
+    // Sans appelant : refusé par la politique d'acteur (sur une demande encore ouverte, car une demande close n'est déjà plus visible pour la mise à jour).
+    const ouverte = await demande(A);
+    await expect(maj(A, "UPDATE demandes SET statut = 'en_attente' WHERE id = $1", [ouverte["id"]], null)).rejects.toMatchObject({ code: "42501" });
     await expect(maj(A, "DELETE FROM demandes WHERE id = $1", [d["id"]])).rejects.toMatchObject({ code: "42501" });
     await expect(demande(A, { automatisation_id: randomUUID() })).rejects.toMatchObject({ code: "23503" });
   });
@@ -192,7 +194,7 @@ describe("suivi, avec le socle", { timeout: 90_000 }, () => {
     await creerOrg(B);
     expect((await ecrire(app, A, (c) => c.query("SELECT count(*)::int AS n FROM themes_client WHERE actif"))).rows[0]?.n).toBe(0);
     const theme = (T: string, extra: Record<string, unknown> = {}) =>
-      inserer(T, "themes_client", { organisation_id: T, logo_ref: "logos/lemoine-renovation.png", couleur_principale: "axion-primaire", couleur_accent: "axion-accent", police: "police-titre", ton: "formel", signature: "L'équipe Lemoine Rénovation", mentions_legales: "Mentions de l'atelier.", actif: false, ...extra });
+      inserer(T, "themes_client", { organisation_id: T, logo_ref: "logos/lemoine-renovation.png", couleur_principale: "couleur.action", couleur_accent: "couleur.teinte.vert.liseret", police: "police-titre", ton: "formel", signature: "L'équipe Lemoine Rénovation", mentions_legales: "Mentions de l'atelier.", actif: false, ...extra });
     const t1 = await theme(A);
     await theme(B, { actif: true });
     await maj(A, "UPDATE themes_client SET actif = true WHERE id = $1", [t1["id"]]);

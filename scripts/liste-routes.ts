@@ -1,4 +1,5 @@
 import { createRequire } from "node:module";
+import ts from "typescript";
 import { brancherErreurs } from "../apps/api/src/plugins/erreurs.js";
 import { routeATrancher } from "../apps/api/src/routes/a-trancher.js";
 import { routeCanaux } from "../apps/api/src/routes/canaux.js";
@@ -35,9 +36,41 @@ export const EXEMPTEES: Readonly<Record<string, string>> = {
 };
 const DECLARATION = /\[C-536\] @isolation (GET|POST|PUT|PATCH|DELETE) (\/[^\s"'`]*)/g;
 
-// Les routes déclarées par les textes de tests (« [C-536] @isolation <MÉTHODE> <chemin> »).
+const MODES_SAUTES = new Set(["skip", "todo", "skipIf", "runIf", "fails"]);
+const SUITES = new Set(["describe", "suite", "it", "test"]);
+const contientExpect = (noeud: ts.Node): boolean =>
+  (ts.isCallExpression(noeud) && ts.isIdentifier(noeud.expression) && noeud.expression.text === "expect") || ts.forEachChild(noeud, contientExpect) === true;
+
+// Les routes déclarées par les textes de tests : le titre d'un vrai it()/test() « [C-536] @isolation <MÉTHODE> <chemin> », ni sauté ni à écrire,
+// dont le corps contient au moins un expect(. Un commentaire, une chaîne isolée, it.skip, it.todo ou un test sans assertion ne déclarent rien.
 export function testsDeclares(textes: string[]): Set<string> {
-  return new Set(textes.flatMap((t) => [...t.matchAll(DECLARATION)].map((m) => `${m[1]} ${m[2]}`)));
+  const trouvees = new Set<string>();
+  const visiter = (noeud: ts.Node): void => {
+    if (ts.isCallExpression(noeud)) {
+      const appele = noeud.expression;
+      if (ts.isPropertyAccessExpression(appele) && ts.isIdentifier(appele.expression) && SUITES.has(appele.expression.text) && MODES_SAUTES.has(appele.name.text)) return;
+      const [titre, corps] = noeud.arguments;
+      if (ts.isIdentifier(appele) && (appele.text === "it" || appele.text === "test") && titre && (ts.isStringLiteral(titre) || ts.isNoSubstitutionTemplateLiteral(titre))
+        && corps && (ts.isArrowFunction(corps) || ts.isFunctionExpression(corps)) && contientExpect(corps.body)) {
+        for (const m of titre.text.matchAll(DECLARATION)) trouvees.add(`${m[1]} ${m[2]}`);
+      }
+    }
+    ts.forEachChild(noeud, visiter);
+  };
+  for (const texte of textes) visiter(ts.createSourceFile("essai.ts", texte, ts.ScriptTarget.Latest, true));
+  return trouvees;
+}
+
+// Nombre d'enregistrements de routes dans un texte de code : receveurs habituels (serveur, appli, app, fastify, s, instance) avec n'importe quel premier argument,
+// tout autre receveur dont le premier argument est un chemin, et .route(. Un écart avec la liste fait échouer la garde ; il se corrige à la main.
+const METHODES = "get|post|put|patch|delete|head|options|all";
+const FORMES = [
+  new RegExp(`\\b(?:serveur|appli|app|fastify|instance|s)\\.(?:${METHODES})(?:<[^(]*?>)?\\(`, "g"),
+  new RegExp(`\\b\\w+\\.(?:${METHODES})(?:<[^(]*?>)?\\(\\s*[\`"'](?:/|\\$\\{)`, "g"),
+  /\b\w+\.route(?:<[^(]*?>)?\(/g,
+];
+export function compterEnregistrements(source: string): number {
+  return new Set(FORMES.flatMap((f) => [...source.matchAll(f)].map((m) => m.index))).size;
 }
 export function routesSansTest(routes: RouteListee[], declares: Set<string>): string[] {
   return routes

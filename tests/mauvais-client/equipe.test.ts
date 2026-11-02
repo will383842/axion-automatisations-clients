@@ -49,7 +49,7 @@ beforeAll(async () => {
 async function jouer(methode: "GET" | "POST", url: string, id: string, sid?: string) {
   const avant = appels;
   const r = await appli.inject({ method: methode, url, headers: sid ? { cookie: `sid=${sid}` } : {}, payload: methode === "POST" ? { motif: "essai", tenantId: id } : undefined });
-  const corps = r.json() as { erreur?: { id_trace?: string } };
+  const corps = (r.body ? r.json() : {}) as { erreur?: { id_trace?: string } };
   if (corps.erreur) delete corps.erreur.id_trace;
   return { statut: r.statusCode, corps, appels: appels - avant };
 }

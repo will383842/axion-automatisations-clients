@@ -74,11 +74,19 @@ afterEach((contexte) => {
 
 const SHA = "a".repeat(64);
 const contrat = (A: string, extra: Record<string, unknown> = {}) =>
-  inserer(A, "contrats", { organisation_id: A, type: "sous_traitance_art28", date_signature: "2026-01-15", pdf_ref: `contrats/${A}/art28.pdf`, empreinte_sha256: SHA, ...extra });
+  inserer(A, "contrats", { organisation_id: A, type: "sous_traitance_art28", date_signature: "2026-01-15", pdf_ref: `contrats/${A}/art28.pdf`, empreinte_sha256: SHA, auteur: APPELANT.acteur, ...extra });
 const instance = (A: string, extra: Record<string, unknown> = {}) =>
   inserer(A, "instances", { organisation_id: A, code_automatisation: "relance-devis", formule: "abonnement", environnement: "production", ...extra });
+// TVA toujours ajoutée : arrondi au centime le plus proche, moitié vers le haut, comme la règle de la base.
+const tva = (ht: number, taux: number) => Math.floor((ht * taux + 5000) / 10000);
+const montants = (ht: number, taux = 2000) => ({ montant_ht_centimes: ht, taux_tva_points_de_base: taux, montant_tva_centimes: tva(ht, taux), montant_ttc_centimes: ht + tva(ht, taux) });
 const facture = (A: string, extra: Record<string, unknown> = {}) =>
-  inserer(A, "factures", { organisation_id: A, numero: `AXI-FACT-${randomUUID()}`, hub_id: randomUUID(), nature: "abonnement", plan: "essentiel", periode_debut: "2026-02-01", periode_fin: "2026-02-28", montant_ht_centimes: 10000, statut: "emise", pdf_ref: "factures/a.pdf", empreinte_sha256: SHA, ...extra });
+  inserer(A, "factures", { organisation_id: A, numero: `AXI-FACT-${randomUUID()}`, hub_id: randomUUID(), nature: "abonnement", plan: "essentiel", periode_debut: "2026-02-01", periode_fin: "2026-02-28", ...montants(10000), statut: "emise", pdf_ref: "factures/a.pdf", empreinte_sha256: SHA, auteur: APPELANT.acteur, ...extra });
+const avoir = (A: string, origine: unknown, extra: Record<string, unknown> = {}) => facture(A, { nature: "avoir", facture_origine_id: origine, ...extra });
+const majFacture = (A: string, id: unknown, set: string, appelant: typeof APPELANT | undefined = APPELANT) => ecrire(app, A, (c) => c.query(`UPDATE factures SET ${set} WHERE id = $1`, [id]), appelant);
+const majDevis = (A: string, id: unknown, set: string, appelant: typeof APPELANT | undefined = APPELANT) => ecrire(app, A, (c) => c.query(`UPDATE devis SET ${set} WHERE id = $1`, [id]), appelant);
+const devisBrouillon = (A: string, extra: Record<string, unknown> = {}) => inserer(A, "devis", { organisation_id: A, numero_hub: `DEV-${randomUUID()}`, pdf_ref: "devis/a.pdf", duree_validite_jours: 30, ...extra });
+const ANNULATION = `statut = 'annule', motif_annulation = 'erreur de saisie', annule_le = now(), annule_par = '${APPELANT.acteur}'`;
 const code = (p: Promise<unknown>) => p.then(() => "ok", (e: { code?: string }) => e.code);
 
 describe("contrats, devis, factures et activation, avec le socle", { timeout: 30_000 }, () => {
@@ -140,7 +148,9 @@ describe("contrats, devis, factures et activation, avec le socle", { timeout: 30
     await expect(d({ statut: "perdu" })).rejects.toMatchObject({ code: "22P02" });
     await d();
     await expect(d()).rejects.toMatchObject({ code: "23505" });
-    await expect(d({ numero_hub: "DEV-0002", statut: "annule" })).rejects.toMatchObject({ code: "23514" }); // annulé sans motif, date ni auteur
+    await expect(d({ numero_hub: "DEV-0002", statut: "annule" })).rejects.toMatchObject({ code: "42501" }); // un devis naît en brouillon (la base refuse avant la contrainte)
+    const b = await d({ numero_hub: "DEV-0003" });
+    await expect(majDevis(A, b["id"], `statut = 'annule', annule_par = '${APPELANT.acteur}'`)).rejects.toMatchObject({ code: "23514" }); // annulé sans motif ni date
   });
 
   it("[A-133] @argent deux factures d'abonnement pour la même période sont refusées ; un avoir passe", async () => {
@@ -148,7 +158,8 @@ describe("contrats, devis, factures et activation, avec le socle", { timeout: 30
     await creerOrg(A);
     await facture(A);
     await expect(facture(A)).rejects.toMatchObject({ code: "23505" });
-    expect(await code(facture(A, { nature: "avoir", montant_ht_centimes: 10000 }))).toBe("ok");
+    const origine = (await facture(A, { periode_debut: "2026-09-01", periode_fin: "2026-09-30" }))["id"];
+    expect(await code(avoir(A, origine))).toBe("ok");
     expect(await code(facture(A, { periode_debut: "2026-03-01", periode_fin: "2026-03-31" }))).toBe("ok");
     expect(await code(facture(A, { plan: "avance" }))).toBe("ok");
   });
@@ -166,7 +177,7 @@ describe("contrats, devis, factures et activation, avec le socle", { timeout: 30
     const A = randomUUID();
     await creerOrg(A);
     const f = await facture(A);
-    for (const colonne of ["montant_ht_centimes = 1", "numero = 'AXI-FACT-X'", "pdf_ref = 'x.pdf'", "nature = 'avoir'"]) {
+    for (const colonne of ["montant_ht_centimes = 1", "numero = 'AXI-FACT-X'", "pdf_ref = 'x.pdf'", "nature = 'avoir'", "taux_tva_points_de_base = 1", "montant_tva_centimes = 1", "montant_ttc_centimes = 1", "facture_origine_id = gen_random_uuid()"]) {
       await expect(ecrire(app, A, (c) => c.query(`UPDATE factures SET ${colonne} WHERE id = $1`, [f["id"]]), APPELANT), colonne).rejects.toMatchObject({ code: "42501" });
     }
     expect((await ecrire(app, A, (c) => c.query("UPDATE factures SET statut = 'payee' WHERE id = $1", [f["id"]]), APPELANT)).rowCount).toBe(1);
@@ -189,6 +200,190 @@ describe("contrats, devis, factures et activation, avec le socle", { timeout: 30
     for (const sql of ["INSERT INTO apporteurs_clients (tenant_id, id, organisation_id, apporteur_axion_ia_id, taux_points_de_base) VALUES ($1, gen_random_uuid(), $1, 'app-1', 500)", "UPDATE apporteurs_clients SET taux_points_de_base = 9000", "DELETE FROM apporteurs_clients"]) {
       await expect(ecrire(app, A, (c) => c.query(sql, sql.includes("$1") ? [A] : []), APPELANT), sql).rejects.toMatchObject({ code: "42501" });
     }
+  });
+
+  it("[A-133] @argent contrat, facture et devis annulé n'existent que sous un appelant : écriture sans appelant ou auteur falsifié refusés (42501)", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    const brut = (table: string, valeurs: Record<string, unknown>, appelant?: typeof APPELANT) => {
+      const v = { id: randomUUID(), tenant_id: A, ...valeurs };
+      return ecrire(app, A, (c) => c.query(`INSERT INTO ${table} (${Object.keys(v).join(", ")}) VALUES (${Object.keys(v).map((_, i) => `$${i + 1}`).join(", ")})`, Object.values(v)), appelant);
+    };
+    const contratBrut = { organisation_id: A, type: "contrat_service", date_signature: "2026-01-15", pdf_ref: "contrats/a.pdf", empreinte_sha256: SHA };
+    await expect(brut("contrats", { ...contratBrut, auteur: "agent-essai" })).rejects.toMatchObject({ code: "42501" }); // aucun appelant
+    await expect(brut("contrats", { ...contratBrut, auteur: "systeme" }, APPELANT)).rejects.toMatchObject({ code: "42501" }); // auteur différent de l'appelant
+    await expect(brut("contrats", { ...contratBrut, auteur: "  " }, APPELANT)).rejects.toMatchObject({ code: "42501" });
+    await expect(brut("contrats", contratBrut, APPELANT)).rejects.toMatchObject({ code: "23502" }); // auteur absent
+    const f = await facture(A);
+    await expect(facture(A, { auteur: "systeme" })).rejects.toMatchObject({ code: "42501" });
+    await expect(majFacture(A, f["id"], "statut = 'impayee'", undefined)).rejects.toMatchObject({ code: "42501" }); // aucun appelant
+    await expect(majFacture(A, f["id"], "statut = 'impayee', auteur = 'systeme'")).rejects.toMatchObject({ code: "42501" });
+    expect((await majFacture(A, f["id"], "statut = 'impayee', auteur = 'agent-essai'")).rowCount).toBe(1);
+    const d = await devisBrouillon(A);
+    await expect(majDevis(A, d["id"], ANNULATION, undefined)).rejects.toMatchObject({ code: "42501" });
+    await expect(majDevis(A, d["id"], "statut = 'annule', motif_annulation = 'erreur', annule_le = now(), annule_par = 'quelquun-d-autre'")).rejects.toMatchObject({ code: "42501" });
+    expect((await majDevis(A, d["id"], ANNULATION)).rowCount).toBe(1);
+  });
+
+  it("[A-133] @argent une facture annulée libère sa période et son automatisation : facture A, annulation, avoir, facture B du même plan et de la même période passent", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    const a = await facture(A);
+    await expect(facture(A)).rejects.toMatchObject({ code: "23505" }); // tant qu'elle n'est pas annulée, la période est prise
+    await majFacture(A, a["id"], "statut = 'annulee'");
+    expect(await code(avoir(A, a["id"]))).toBe("ok");
+    expect(await code(facture(A))).toBe("ok"); // la facture rectifiée
+    await expect(facture(A)).rejects.toMatchObject({ code: "23505" }); // la seconde active, elle, bloque
+    const mep = (extra: Record<string, unknown> = {}) => facture(A, { nature: "mise_en_place", plan: null, code_automatisation: "relance-devis", ...extra });
+    const m = await mep();
+    await majFacture(A, m["id"], "statut = 'annulee'");
+    expect(await code(mep())).toBe("ok");
+    await expect(mep()).rejects.toMatchObject({ code: "23505" });
+  });
+
+  it("[A-133] @argent transitions de facture : née émise ; payée et annulée sont définitives (42501)", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    const periode = (n: number) => ({ periode_debut: `2026-0${n}-01`, periode_fin: `2026-0${n}-28` });
+    for (const statut of ["payee", "impayee", "annulee"]) await expect(facture(A, { statut, ...periode(1) }), statut).rejects.toMatchObject({ code: "42501" });
+    const f = await facture(A, periode(2));
+    expect((await majFacture(A, f["id"], "statut = 'impayee', auteur = 'agent-essai'")).rowCount).toBe(1);
+    await expect(majFacture(A, f["id"], "statut = 'emise'")).rejects.toMatchObject({ code: "42501" });
+    expect((await majFacture(A, f["id"], "statut = 'payee'")).rowCount).toBe(1);
+    for (const statut of ["emise", "impayee", "annulee"]) await expect(majFacture(A, f["id"], `statut = '${statut}'`), `payee vers ${statut}`).rejects.toMatchObject({ code: "42501" });
+    const g = await facture(A, periode(3));
+    expect((await majFacture(A, g["id"], "statut = 'annulee'")).rowCount).toBe(1);
+    for (const statut of ["emise", "impayee", "payee"]) await expect(majFacture(A, g["id"], `statut = '${statut}'`), `annulee vers ${statut}`).rejects.toMatchObject({ code: "42501" });
+    const h = await facture(A, periode(4));
+    await expect(majFacture(A, h["id"], "statut = 'emise'")).rejects.toMatchObject({ code: "42501" }); // emise vers emise
+  });
+
+  it("[A-154] @argent un devis naît en brouillon ; annulé, il l'est pour toujours (statut et colonnes d'annulation figés)", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    for (const statut of ["envoye", "accepte", "annule"]) await expect(devisBrouillon(A, { statut, date_envoi: "2026-01-02T10:00:00Z", motif_annulation: "x", annule_le: "2026-01-03T10:00:00Z", annule_par: "agent-essai" }), statut).rejects.toMatchObject({ code: "42501" });
+    const d = await devisBrouillon(A);
+    expect((await majDevis(A, d["id"], ANNULATION)).rowCount).toBe(1);
+    await expect(majDevis(A, d["id"], "statut = 'brouillon', motif_annulation = NULL, annule_le = NULL, annule_par = NULL")).rejects.toMatchObject({ code: "42501" });
+    await expect(majDevis(A, d["id"], "statut = 'envoye'")).rejects.toMatchObject({ code: "42501" });
+    await expect(majDevis(A, d["id"], "motif_annulation = NULL")).rejects.toMatchObject({ code: "42501" });
+    await expect(majDevis(A, d["id"], "motif_annulation = 'autre motif'")).rejects.toMatchObject({ code: "42501" });
+    const lu = (await ecrire(app, A, (c) => c.query("SELECT statut, motif_annulation FROM devis WHERE id = $1", [d["id"]]))).rows[0];
+    expect(lu).toEqual({ statut: "annule", motif_annulation: "erreur de saisie" });
+  });
+
+  it("[A-154] un devis envoyé porte sa date d'envoi ; plan et code d'automatisation ne sont jamais vides", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    const d = await devisBrouillon(A);
+    await expect(majDevis(A, d["id"], "statut = 'envoye'")).rejects.toMatchObject({ code: "23514" });
+    expect((await majDevis(A, d["id"], "statut = 'envoye', date_envoi = now()")).rowCount).toBe(1);
+    await expect(facture(A, { plan: "  " })).rejects.toMatchObject({ code: "23514" });
+    await expect(facture(A, { nature: "mise_en_place", plan: null, code_automatisation: " " })).rejects.toMatchObject({ code: "23514" });
+    await expect(facture(A, { nature: "complement_prorata", plan: "", periode_debut: "2026-03-01", periode_fin: "2026-03-28" })).rejects.toMatchObject({ code: "23514" });
+  });
+
+  it("[A-133] @argent la TVA est toujours ajoutée : taux positif, arrondi au centime le plus proche (moitié vers le haut), total cohérent, colonnes figées", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    const periode = (n: number) => ({ periode_debut: `2026-${String(n).padStart(2, "0")}-01`, periode_fin: `2026-${String(n).padStart(2, "0")}-28` });
+    await expect(facture(A, { ...periode(1), taux_tva_points_de_base: 0, montant_tva_centimes: 0, montant_ttc_centimes: 10000 })).rejects.toMatchObject({ code: "23514" }); // jamais d'exonération
+    await expect(facture(A, { ...periode(2), montant_tva_centimes: 1999, montant_ttc_centimes: 11999 })).rejects.toMatchObject({ code: "23514" }); // TVA mal arrondie
+    await expect(facture(A, { ...periode(3), montant_ttc_centimes: 12001 })).rejects.toMatchObject({ code: "23514" }); // total incohérent
+    await expect(facture(A, { ...periode(4), montant_tva_centimes: -2000, montant_ttc_centimes: 8000 })).rejects.toMatchObject({ code: "23514" });
+    for (const colonne of ["taux_tva_points_de_base", "montant_tva_centimes", "montant_ttc_centimes"]) await expect(facture(A, { ...periode(5), [colonne]: null }), colonne).rejects.toMatchObject({ code: "23502" });
+    // 1 centime à 50 % : 0,5 → 1 ; à 49,99 % : 0,4999 → 0 ; 15 centimes à 10 % : 1,5 → 2.
+    expect(await code(facture(A, { ...periode(6), ...montants(1, 5000) }))).toBe("ok");
+    expect(await code(facture(A, { ...periode(7), ...montants(1, 4999) }))).toBe("ok");
+    expect(await code(facture(A, { ...periode(8), ...montants(15, 1000) }))).toBe("ok");
+    await expect(facture(A, { ...periode(9), ...montants(1, 5000), montant_tva_centimes: 0, montant_ttc_centimes: 1 })).rejects.toMatchObject({ code: "23514" });
+    expect(tva(15, 1000)).toBe(2);
+  });
+
+  it("[A-133] @argent bornes : un montant au-delà de 2^53 − 1, négatif ou un total qui dépasse est refusé (23514)", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    const MAX = 9007199254740991;
+    await expect(facture(A, { montant_ht_centimes: MAX + 1, taux_tva_points_de_base: 1, montant_tva_centimes: 900719925474, montant_ttc_centimes: MAX + 1 + 900719925474 })).rejects.toMatchObject({ code: "23514" });
+    await expect(facture(A, { montant_ht_centimes: MAX, taux_tva_points_de_base: 1, montant_tva_centimes: 900719925474, montant_ttc_centimes: MAX + 900719925474 })).rejects.toMatchObject({ code: "23514" }); // total au-delà
+    await expect(facture(A, { montant_ht_centimes: -1, taux_tva_points_de_base: 2000, montant_tva_centimes: 0, montant_ttc_centimes: -1 })).rejects.toMatchObject({ code: "23514" });
+    // Le plus grand total admis : la borne est incluse.
+    const ht = 9007199254740991 - 900719925474;
+    expect(await code(facture(A, { montant_ht_centimes: ht, taux_tva_points_de_base: 1, montant_tva_centimes: Math.floor((ht + 5000) / 10000), montant_ttc_centimes: ht + Math.floor((ht + 5000) / 10000) }))).toBe("ok");
+  });
+
+  it("[A-133] @argent un avoir renvoie à sa facture d'origine (même client) ; une facture qui n'est pas un avoir n'en a pas", async () => {
+    const A = randomUUID();
+    const B = randomUUID();
+    await creerOrg(A);
+    await creerOrg(B);
+    const fa = await facture(A);
+    const fb = await facture(B);
+    await expect(facture(A, { nature: "avoir", periode_debut: "2026-04-01", periode_fin: "2026-04-28" })).rejects.toMatchObject({ code: "23514" }); // avoir sans origine
+    await expect(facture(A, { facture_origine_id: fa["id"], periode_debut: "2026-05-01", periode_fin: "2026-05-28" })).rejects.toMatchObject({ code: "23514" }); // non-avoir avec origine
+    await expect(avoir(A, fb["id"], { periode_debut: "2026-06-01", periode_fin: "2026-06-28" })).rejects.toMatchObject({ code: "23503" }); // origine d'un autre client
+    await expect(avoir(A, randomUUID(), { periode_debut: "2026-06-01", periode_fin: "2026-06-28" })).rejects.toMatchObject({ code: "23503" });
+    expect(await code(avoir(A, fa["id"], { periode_debut: "2026-07-01", periode_fin: "2026-07-28" }))).toBe("ok");
+  });
+
+  it("[C-030] un contrat de sous-traitance révoqué (une fois, par l'appelant) n'autorise plus l'activation ; la révocation ne se défait pas", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    const c = await contrat(A);
+    const revoquer = (set: string, appelant: typeof APPELANT | undefined = APPELANT) => ecrire(app, A, (x) => x.query(`UPDATE contrats SET ${set} WHERE id = $1`, [c["id"]]), appelant);
+    const i = (await instance(A, { etat: "pause" }))["id"] as string;
+    await expect(revoquer("revoque_le = now(), revoque_par = 'agent-essai'", undefined)).rejects.toMatchObject({ code: "42501" });
+    await expect(revoquer("revoque_le = now(), revoque_par = 'quelquun-d-autre'")).rejects.toMatchObject({ code: "42501" });
+    await expect(revoquer("revoque_le = now()")).rejects.toMatchObject({ code: "23514" }); // date sans auteur
+    await expect(revoquer("date_signature = '2020-01-01'")).rejects.toMatchObject({ code: "42501" });
+    expect((await revoquer("revoque_le = now(), revoque_par = 'agent-essai'")).rowCount).toBe(1);
+    await expect(revoquer("revoque_le = NULL, revoque_par = NULL")).rejects.toMatchObject({ code: "42501" }); // pas de retour en arrière
+    await expect(revoquer("revoque_le = now(), revoque_par = 'agent-essai'")).rejects.toMatchObject({ code: "42501" }); // pas de seconde révocation
+    await expect(instance(A, { etat: "active" })).rejects.toMatchObject({ detail: "sous_traitance_absente" });
+    await expect(ecrire(app, A, (x) => x.query("UPDATE instances SET etat = 'active' WHERE id = $1", [i]), APPELANT)).rejects.toMatchObject({ detail: "sous_traitance_absente" });
+    await contrat(A); // un nouveau contrat signé rouvre l'activation
+    expect((await ecrire(app, A, (x) => x.query("UPDATE instances SET etat = 'active' WHERE id = $1", [i]), APPELANT)).rowCount).toBe(1);
+  });
+
+  it("[C-030] la fonction du déclencheur n'est pas exécutable par PUBLIC et fixe son search_path", async () => {
+    const { rows } = await migration.query("SELECT proconfig, has_function_privilege('console_equipe', oid, 'EXECUTE') AS equipe, has_function_privilege('console_app', oid, 'EXECUTE') AS app FROM pg_proc WHERE proname = 'instances_exiger_sous_traitance'");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ proconfig: ["search_path=pg_catalog, pg_temp"], equipe: false });
+  });
+
+  it("[A-147] @argent apporteurs : SIREN de neuf chiffres ; aucune commission due sans SIREN vérifié actif ; montant borné", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    const su = pool(DIRECT, "postgres", 2);
+    const ajouter = (extra: Record<string, unknown>) => {
+      const v = { tenant_id: A, id: randomUUID(), organisation_id: A, apporteur_axion_ia_id: `app-${randomUUID()}`, taux_points_de_base: 500, lu_le: new Date().toISOString(), ...extra };
+      // Le propriétaire est soumis à la politique FORCE : seul le superutilisateur écrit (synchronisation de T2-15 à venir). Le journal exige l'acteur et le client.
+      return (async () => {
+        const c = await su.connect();
+        try {
+          await c.query("BEGIN");
+          await c.query("SELECT set_config('app.acteur', 'essai-synchro', true), set_config('app.tenant_id', $1, true)", [A]);
+          await c.query(`INSERT INTO apporteurs_clients (${Object.keys(v).join(", ")}) VALUES (${Object.keys(v).map((_, i) => `$${i + 1}`).join(", ")})`, Object.values(v));
+          await c.query("COMMIT");
+          return "ok";
+        } catch (e) {
+          await c.query("ROLLBACK").catch(() => undefined);
+          return (e as { code?: string }).code;
+        } finally {
+          c.release();
+        }
+      })();
+    };
+    const verifie = { siren: "123456782", siren_actif_verifie_le: "2026-01-02T00:00:00Z" };
+    expect(await ajouter({ commissions_dues_centimes: 0 })).toBe("ok");
+    expect(await ajouter({ siren: "12345678" })).toBe("23514");
+    expect(await ajouter({ siren: "12345678a" })).toBe("23514");
+    expect(await ajouter({ commissions_dues_centimes: 100 })).toBe("23514");
+    expect(await ajouter({ commissions_dues_centimes: 100, siren: "123456782" })).toBe("23514"); // pas de vérification datée
+    expect(await ajouter({ commissions_dues_centimes: 100, siren_actif_verifie_le: "2026-01-02T00:00:00Z" })).toBe("23514");
+    expect(await ajouter({ commissions_dues_centimes: 100, ...verifie })).toBe("ok");
+    expect(await ajouter({ commissions_dues_centimes: -1, ...verifie })).toBe("23514");
+    expect(await ajouter({ commissions_dues_centimes: 9007199254740992, ...verifie })).toBe("23514");
   });
 
   it("[A-119] @isolation toutes les migrations appliquées, les invariants C5 ne trouvent aucun écart", async () => {

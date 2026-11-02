@@ -66,7 +66,7 @@ function ouTrouverDansFichiers(dossier: string, marqueur: string): string[] {
   });
 }
 
-describe.skipIf(!pret)("minimisation : aucun contenu de travail hors de la base du client", () => {
+describe.skipIf(!pret)("minimisation : aucun contenu de travail hors de la base du client", () => { // fiche: T2-48
   async function deposer(): Promise<Requeteur> {
     const client = await ouvrir(E["T247_CLIENT_URL"] as string);
     const etab = await client.query("INSERT INTO commun.etablissements (nom) VALUES ('Atelier Bertin') RETURNING id");

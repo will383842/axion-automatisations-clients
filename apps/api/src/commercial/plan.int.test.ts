@@ -107,13 +107,13 @@ async function catalogue(formulesActives: string[]) {
     return { automatisation: a, metier };
   });
 }
-// Condition par défaut de la plateforme (frais, 777 centimes fictifs) valable le seul jour du 1er janvier 2031 ; l'acteur « agent-essai » est celui du journal (la table n'a pas de colonne d'auteur).
+// Condition par défaut de la plateforme (frais, 777 centimes fictifs) valable le seul jour du 1er janvier 2031 ; l'auteur est obligatoire (colonne `auteur`).
 // Aucun rôle ne peut supprimer la ligne : elle n'est écrite qu'une fois, et un second passage la retrouve (deux défauts sur la même clé seraient ambigus).
 async function ecrireDefautPlateforme() {
   await ecrireEquipe(async (c) => {
     const existe = await c.query("SELECT 1 FROM conditions_par_defaut WHERE tenant_id = $1 AND type = 'frais' AND valide_du = '2031-01-01' AND valide_au = '2031-01-02'", [PLATEFORME_ID]);
     if (existe.rowCount) return;
-    await c.query("INSERT INTO conditions_par_defaut (id, tenant_id, type, valeur, valide_du, valide_au) VALUES ($1, $2, 'frais', $3, '2031-01-01', '2031-01-02')", [randomUUID(), PLATEFORME_ID, JSON.stringify({ frais_mise_en_place_centimes: 777 })]);
+    await c.query("INSERT INTO conditions_par_defaut (id, tenant_id, type, valeur, valide_du, valide_au, auteur) VALUES ($1, $2, 'frais', $3, '2031-01-01', '2031-01-02', 'agent-essai')", [randomUUID(), PLATEFORME_ID, JSON.stringify({ frais_mise_en_place_centimes: 777 })]);
   });
 }
 // Un client sans aucune condition, avec une instance à l'état pause rattachée à l'automatisation.

@@ -185,6 +185,15 @@ describe("deux travailleurs sur la même base (bail non partagé en base, ADR 01
     expect((await ecrire(0, 100_000)).occupee).toBe(true);
   });
 
+  it("[A-318] @anti-doublon la fenêtre est constante (délai de l'étape + marge) : un effet atteint tard dans l'étape voit l'intention de 135 s occupée", async () => {
+    const b = banc({ e1: envoyer }, "verifiable_apres_coup");
+    b.moteur.etat.intentions.push({ cle: cle(b), executionId: b.executionId, garantie: "verifiable_apres_coup", etat: "ecrite", creeLe: b.horloge.maintenant() - 135_000 });
+    const maintenant = b.horloge.maintenant();
+    // Étape de 120 s : l'autre lancement a posé son intention à +10 s, celui-ci atteint l'effet à +145 s : il reste 70 s à l'étape (bail à +70 s + marge incluse).
+    const r = await new BoitePostgres(b.moteur.pool(), TENANT).ecrire(intention(b), { proprietaire: "p", jusqua: maintenant + 70_000, delaiEtapeMs: 120_000 }, maintenant);
+    expect(r.occupee).toBe(true); // 135 s < 120 s + 60 s
+  });
+
   it("[A-318] une intention créée par cet appel n'est jamais occupée ; une intention déjà faite non plus", async () => {
     const b = banc({ e1: envoyer });
     const boite = new BoitePostgres(b.moteur.pool(), TENANT);

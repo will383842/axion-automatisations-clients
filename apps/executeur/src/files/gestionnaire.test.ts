@@ -167,3 +167,67 @@ describe("gestionnaire du Worker : une intention occupée est une remise, pas un
     expect(j.data["essais"]).toBe(2);
   });
 });
+
+describe("gestionnaire du Worker : la borne de 3 remises s'applique par occupation", () => {
+  const FENETRE_MS = 150_000;
+  // Scénario : chaque lancement lève une remise pour (etape, cle) ou réussit.
+  type Pas = { etape: string; cle: string } | "reussit" | "echoue";
+  const rejouer = (pas: Pas[], extra: Partial<Dependances> = {}) => {
+    const h = new HorlogeFactice();
+    let i = 0;
+    const executer = async () => {
+      const p = pas[i++]!;
+      if (p === "reussit") return;
+      if (p === "echoue") throw new ErreurConnecteur("passagere", "reseau");
+      throw new RemiseIntention(h.maintenant() + FENETRE_MS, p.etape, p.cle);
+    };
+    return { g: creerGestionnaire({ delaiRemiseMs: 5_000 }, deps(executer, extra), lire, h), j: fauxJob() };
+  };
+
+  it("[A-318] 4 occupations successives sur des étapes ou clés différentes, résolues chacune : aucune escalade", async () => {
+    const escalades: unknown[] = [];
+    const occupations = [
+      { etape: "e1", cle: "k1" },
+      { etape: "e2", cle: "k2" },
+      { etape: "e2", cle: "k3" },
+      { etape: "e3", cle: "k4" },
+    ];
+    const { g, j } = rejouer(occupations.flatMap((o) => [o, "reussit" as const]), { escalader: async (...a: unknown[]) => void escalades.push(a) } as never);
+    for (let i = 0; i < occupations.length; i++) {
+      await expect(appeler(g, j)).rejects.toBeInstanceOf(DelayedError); // remise sur l'occupation i
+      await appeler(g, j); // résolue : le lancement suivant réussit
+    }
+    expect(escalades).toEqual([]);
+  });
+
+  it("[A-318] quatre remises sur quatre clés différentes à la suite : le compte repart à 1 à chaque nouvelle clé", async () => {
+    const escalades: unknown[] = [];
+    const { g, j } = rejouer(["k1", "k2", "k3", "k4"].map((cle) => ({ etape: "e1", cle })), { escalader: async (...a: unknown[]) => void escalades.push(a) } as never);
+    for (let i = 0; i < 4; i++) {
+      await expect(appeler(g, j)).rejects.toBeInstanceOf(DelayedError);
+      expect((j.data["remise"] as { n: number }).n).toBe(1);
+    }
+    expect(escalades).toEqual([]);
+  });
+
+  it("[A-318] une erreur passagère entre deux occupations remet aussi le compte à zéro", async () => {
+    const { g, j } = rejouer([{ etape: "e1", cle: "k1" }, "echoue", { etape: "e1", cle: "k1" }]);
+    await expect(appeler(g, j)).rejects.toBeInstanceOf(DelayedError);
+    await expect(appeler(g, j)).rejects.toBeInstanceOf(DelayedError); // report d'une erreur passagère
+    expect(j.data["remise"]).toBeUndefined();
+    await expect(appeler(g, j)).rejects.toBeInstanceOf(DelayedError);
+    expect((j.data["remise"] as { n: number }).n).toBe(1);
+  });
+
+  it("[A-318] 3 remises sur la MÊME occupation puis escalade tracée", async () => {
+    const escalades: unknown[][] = [];
+    const occupee = { etape: "e1", cle: "k1" };
+    const { g, j } = rejouer([occupee, occupee, occupee, occupee], { escalader: async (...a: unknown[]) => void escalades.push(a) } as never);
+    for (let n = 1; n <= 3; n++) {
+      await expect(appeler(g, j)).rejects.toBeInstanceOf(DelayedError);
+      expect(j.data["remise"]).toMatchObject({ etape: "e1", cle: "k1", n });
+    }
+    await appeler(g, j); // 4e fois sur la même occupation : escalade, sans lever
+    expect(escalades).toEqual([[expect.objectContaining({ instanceId: "inst-1" }), "e1", "intention_en_cours_sans_issue"]]);
+  });
+});

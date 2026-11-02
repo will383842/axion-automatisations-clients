@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { CONSERVATION_IDEMPOTENCE_JOURS } from "../../../../packages/contrats/src/commun/signature.js";
+import { CONSERVATION_IDEMPOTENCE_JOURS, horodatageSuivant } from "../../../../packages/contrats/src/commun/signature.js";
 import { verifierAppelant, type Appelant } from "../db/client-actif.js";
 import { ErreurApi } from "../plugins/erreurs.js";
 import type { Canal } from "./journal-canal.js";
@@ -58,6 +58,26 @@ const ATTENTE_FERME_MS = 30_000;
 const PLAFOND_MS = 300_000;
 // Une réponse 4xx est définitive (jamais un nouvel essai), sauf celles qu'un autre essai peut changer : clé de signature en rotation, rejeu, horloge, débit.
 const PASSAGERES = new Set(["rejeu", "signature_invalide", "horodatage_hors_fenetre", "debit_depasse", "porte_fermee"]);
+// Réponse du Hub rangée en jsonb : au-delà, seule la marque de dépassement est gardée (jamais un texte tronqué en JSON invalide).
+export const REPONSE_MAX_OCTETS = 65_536;
+const MAX_HORODATAGES = 10_000;
+async function lireBornee(r: Response): Promise<unknown> {
+  const lecteur = r.body?.getReader();
+  if (!lecteur) return null;
+  const morceaux: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await lecteur.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > REPONSE_MAX_OCTETS) {
+      await lecteur.cancel().catch(() => undefined);
+      return { reponse_trop_grande: true };
+    }
+    morceaux.push(value);
+  }
+  try { return JSON.parse(Buffer.concat(morceaux).toString("utf8")); } catch { return null; }
+}
 const code = (v: unknown): string => {
   const c = (v as { erreur?: { code?: unknown } } | null)?.erreur?.code;
   return typeof c === "string" && /^[a-z0-9_.-]{1,64}$/.test(c) ? c : "reponse_inattendue";
@@ -67,6 +87,8 @@ export function creerExpediteur(d: DepsExpediteur) {
   const maintenant = d.maintenant ?? Date.now;
   const aleatoire = d.aleatoire ?? Math.random;
   const max = d.essaisMax ?? ESSAIS_MAX;
+  // Dernier horodatage signé par ligne : un deuxième essai dans la même seconde ne reprend pas la même signature (le Hub la prendrait pour un rejeu, 401).
+  const horodatages = new Map<string, string>();
   // Attente croissante avec aléa ; Retry-After (secondes) fait loi s'il est plus long.
   const attente = (essais: number, retryApres?: number) => Math.max(Math.round(Math.min(1000 * 2 ** (essais - 1), PLAFOND_MS) * (0.5 + aleatoire() / 2)), Math.min(retryApres ?? 0, 3600) * 1000);
 
@@ -76,13 +98,18 @@ export function creerExpediteur(d: DepsExpediteur) {
       if (!ligne) return "ignore";
       const corps = JSON.stringify(ligne.corps);
       let headers: Record<string, string>;
+      const horodatage = Number(horodatageSuivant(horodatages.get(ligne.id), maintenant() / 1000));
       try {
-        headers = await d.signeur.signerRequete(CANAL[ligne.destination], ligne.methode, ligne.route, corps, Math.floor(maintenant() / 1000));
+        headers = await d.signeur.signerRequete(CANAL[ligne.destination], ligne.methode, ligne.route, corps, horodatage);
       } catch (e) {
         if (!(e instanceof ErreurApi && e.code === "porte_fermee")) throw e;
         await d.magasin.reporter(ref, { prochainEssai: new Date(maintenant() + ATTENTE_FERME_MS), erreur: "porte_fermee", compter: false });
         return "ferme";
       }
+      // Noté dès la signature : une coupure réseau pendant l'envoi ne doit pas faire reprendre le même horodatage.
+      horodatages.delete(ligne.id);
+      horodatages.set(ligne.id, String(horodatage));
+      if (horodatages.size > MAX_HORODATAGES) horodatages.delete(horodatages.keys().next().value as string);
       let statut = 0;
       let retryApres: number | undefined;
       let reponse: unknown;
@@ -96,11 +123,12 @@ export function creerExpediteur(d: DepsExpediteur) {
         statut = r.status;
         const ra = Number(r.headers.get("retry-after"));
         retryApres = Number.isFinite(ra) && ra > 0 ? ra : undefined;
-        reponse = await r.json().catch(() => null);
+        reponse = await lireBornee(r).catch(() => null);
       } catch {
         statut = 0; // coupure réseau ou délai dépassé
       }
       if (statut >= 200 && statut < 300) {
+        horodatages.delete(ligne.id);
         await d.magasin.conclure(ref, { etat: "envoye", reponse });
         return "envoye";
       }

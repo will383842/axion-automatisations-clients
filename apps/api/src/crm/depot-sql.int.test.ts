@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
@@ -11,10 +12,25 @@ import { cibleDEnvoiCrm } from "./faits/fusion.js";
 import { creerRecepteurC3 } from "./recepteur-c3.js";
 
 // Adaptateur SQL du récepteur C3 sur la vraie base (socle lancé par ops/socle/lancer.sh, job socle-integration) : reprend les tests [C-331], [C-457] et [C-458] du dépôt en mémoire.
-const hote = (v: string | undefined, defaut: string) => ({ host: (v ?? defaut).split(":")[0] ?? "", port: Number((v ?? defaut).split(":")[1]) });
-const DIRECT = hote(process.env["SOCLE_PG_DIRECT"], "127.0.0.1:5432");
-const PGBOUNCER = hote(process.env["SOCLE_PG_PGBOUNCER"], "127.0.0.1:6432");
-const motDePasseDe = (role: string) => createHash("sha256").update(`${process.env["SOCLE_PG_MOT_DE_PASSE"] ?? ""}/${role}`).digest("hex");
+// Même repérage du socle que les autres essais : variables SOCLE_PG_* si présentes, sinon les conteneurs du projet « socle ».
+const docker = (...args: string[]) => execFileSync("docker", args, { encoding: "utf8" }).trim();
+const conteneur = (service: string) => docker("ps", "-q", "--filter", "label=com.docker.compose.project=socle", "--filter", `label=com.docker.compose.service=${service}`);
+function cible(service: string, port: number, surcharge: string | undefined): { host: string; port: number } {
+  if (surcharge) return { host: surcharge.split(":")[0] ?? "", port: Number(surcharge.split(":")[1]) };
+  const modele = '{{(index .NetworkSettings.Networks "socle_interne").IPAddress}}';
+  return { host: docker("inspect", "-f", modele, conteneur(service)), port };
+}
+function secret(): string {
+  if (process.env["SOCLE_PG_MOT_DE_PASSE"]) return process.env["SOCLE_PG_MOT_DE_PASSE"];
+  const variables = docker("inspect", "-f", "{{range .Config.Env}}{{println .}}{{end}}", conteneur("postgres")).split("\n");
+  const ligne = variables.find((l) => l.startsWith("SOCLE_PG_MOT_DE_PASSE="));
+  if (!ligne) throw new Error("mot de passe de test introuvable");
+  return ligne.slice("SOCLE_PG_MOT_DE_PASSE=".length);
+}
+const SECRET = secret();
+const DIRECT = cible("postgres", 5432, process.env["SOCLE_PG_DIRECT"]);
+const PGBOUNCER = cible("pgbouncer", 6432, process.env["SOCLE_PG_PGBOUNCER"]);
+const motDePasseDe = (role: string) => createHash("sha256").update(`${SECRET}/${role}`).digest("hex");
 const ouverts: pg.Pool[] = [];
 const pool = (voie: { host: string; port: number }, user: string) => {
   const p = new pg.Pool({ ...voie, user, database: "console", password: motDePasseDe(user), max: 8, connectionTimeoutMillis: 10_000 });

@@ -65,11 +65,11 @@ describe("vérification des requêtes entrantes", () => {
     expect(r.json().corps).toEqual({ a: 1, b: 2 });
   });
 
-  it("[A-345] une signature de plus de 5 minutes est refusée en horodatage_perime", async () => {
+  it("[A-345] [T2-16b] une signature de plus de 5 minutes est refusée par le refus neutre (signature_invalide, jamais horodatage_perime)", async () => {
     const { serveur } = monter();
     for (const ecart of [-301, 301]) {
       const r = await serveur.inject(requete("/api/hub/v1/ecrire", { horodatage: MAINTENANT + ecart }));
-      expect([r.statusCode, code(r)]).toEqual([401, "horodatage_perime"]);
+      expect([r.statusCode, code(r)]).toEqual([401, "signature_invalide"]);
     }
     expect((await serveur.inject(requete("/api/hub/v1/ecrire", { horodatage: MAINTENANT - 300 }))).statusCode).toBe(200);
   });
@@ -82,12 +82,12 @@ describe("vérification des requêtes entrantes", () => {
     }
   });
 
-  it("[A-345] une requête déjà vue est refusée en rejeu", async () => {
+  it("[A-345] [T2-16b] une requête déjà vue hors de la route des faits du Hub est refusée par le refus neutre (jamais rejeu)", async () => {
     const { serveur } = monter();
     const q = requete("/api/hub/v1/ecrire");
     expect((await serveur.inject(q)).statusCode).toBe(200);
     const r = await serveur.inject(q);
-    expect([r.statusCode, code(r)]).toEqual([401, "rejeu"]);
+    expect([r.statusCode, code(r)]).toEqual([401, "signature_invalide"]);
   });
 
   it("[A-345] @isolation un corps rejoué vers une autre route est refusé", async () => {

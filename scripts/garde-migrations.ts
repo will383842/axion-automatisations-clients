@@ -187,7 +187,8 @@ export function gardeMigrations(racine: string, fonctions: readonly FonctionPerm
   const utilisees = new Set<FonctionPermise>();
   const erreurs = readdirSync(apps, { withFileTypes: true })
     .filter((a) => a.isDirectory())
-    .flatMap((a) => verifierDossier(join(apps, a.name, "drizzle"), racine, fonctions, utilisees));
+    // drizzle : console et moteur ; drizzle-cli : modèle des bases des clients (T2-32).
+    .flatMap((a) => ["drizzle", "drizzle-cli"].flatMap((d) => verifierDossier(join(apps, a.name, d), racine, fonctions, utilisees)));
   // Une entrée qui ne correspond à aucune instruction est une exception morte : elle ne doit pas rester dans la liste.
   const mortes = fonctions.filter((f) => !utilisees.has(f)).map((f) => `scripts/garde-migrations-fonctions.json : entrée sans instruction correspondante : ${f.fichier} ${f.nom}`);
   return [...erreurs, ...mortes];

@@ -30,6 +30,7 @@ function banc(corps: Record<string, Corps>, garantie: Garantie = "idempotent_par
   // Un « processus » = de nouveaux adaptateurs sur la même base : rien ne reste en mémoire d'un processus à l'autre.
   const processus = (mortApres?: number) => {
     moteur.redemarrer(mortApres);
+    moteur.maintenant = horloge.maintenant();
     const pool = moteur.pool();
     const ports = { journal: new JournalPostgres(pool, TENANT), boite: new BoitePostgres(pool, TENANT), connecteurs: connecteur, console, horloge };
     return { ports, lancer: () => horloge.piloter(new Machine({ module, ports }).lancer(INSTANCE, executionId)) };
@@ -100,9 +101,8 @@ describe("boîte d'envoi sur PostgreSQL", () => {
 
   it("[A-316] @anti-doublon une transaction d'intention qui échoue : le connecteur n'est jamais appelé", async () => {
     const b = banc({ e1: envoyer });
-    b.moteur.mortSur = "INSERT INTO intentions";
     const { lancer } = b.processus();
-    b.moteur.mortSur = "INSERT INTO intentions"; // processus() remet le faux à neuf : la mort est réarmée
+    b.moteur.mortSur = "INSERT INTO intentions"; // redemarrer() ne remet que mortApres : mortSur s'arme après processus()
     await expect(lancer()).rejects.toBeInstanceOf(CoupureProcessus);
     expect(b.connecteur.appels).toEqual([]);
     expect(b.moteur.etat.intentions).toEqual([]);
@@ -141,6 +141,76 @@ describe("boîte d'envoi sur PostgreSQL", () => {
   });
 });
 
+describe("deux travailleurs sur la même base (bail non partagé en base, ADR 0102)", () => {
+  const cle = (b: ReturnType<typeof banc>) => deriverCleIntention({ instanceId: INSTANCE, executionId: b.executionId, etape: "e1", action: "envoyer", element: "msg-1" });
+  const intention = (b: ReturnType<typeof banc>, action = "envoyer") => ({ cle: cle(b), instanceId: INSTANCE, executionId: b.executionId, etape: "e1", element: "msg-1", action, garantie: "idempotent_par_cle" as const });
+
+  it("[A-318] @anti-doublon le 2e travailleur arrive pendant que le 1er envoie encore : intention récente = occupée, ni vérification ni second envoi", async () => {
+    const b = banc({ e1: envoyer }, "verifiable_apres_coup");
+    b.connecteur.dedupliquer = false;
+    const premier = b.processus();
+    const verifs: string[] = [];
+    const verifier = b.connecteur.verifier.bind(b.connecteur);
+    b.connecteur.verifier = async (a, k) => (verifs.push(k), verifier(a, k));
+    let second: Awaited<ReturnType<typeof premier.lancer>> | undefined;
+    b.connecteur.surAppel = async () => {
+      // Le 1er est en plein envoi (intention écrite, pas faite) : un 2e processus reprend le même travail.
+      b.connecteur.surAppel = undefined;
+      second = await b.processus().lancer();
+    };
+    expect((await premier.lancer()).statut).toBe("terminee");
+    expect(second).toEqual({ statut: "en_cours", etape: "e1" });
+    expect(verifs).toEqual([]);
+    expect(b.connecteur.appels).toHaveLength(1);
+    expect(b.moteur.etat.intentions.map((i) => i.etat)).toEqual(["faite"]);
+  });
+
+  it("[A-318] @anti-doublon une intention plus vieille que le délai de l'étape + la marge n'est plus occupée : reprise par vérification", async () => {
+    const b = banc({ e1: envoyer }, "verifiable_apres_coup");
+    b.moteur.etat.intentions.push({ cle: cle(b), executionId: b.executionId, garantie: "verifiable_apres_coup", etat: "ecrite", creeLe: b.horloge.maintenant() - 181_000 });
+    b.connecteur.verification = "trouvee";
+    expect((await b.processus().lancer()).statut).toBe("terminee");
+    expect(b.connecteur.appels).toEqual([]);
+  });
+
+  it("[A-318] la marge est configurable au constructeur (pour les tests) et part du délai de l'étape", async () => {
+    const b = banc({ e1: envoyer }, "verifiable_apres_coup");
+    const ecrire = (grace: number, age: number) => {
+      b.moteur.etat.intentions = [{ cle: cle(b), executionId: b.executionId, garantie: "verifiable_apres_coup", etat: "ecrite", creeLe: b.horloge.maintenant() - age }];
+      const maintenant = b.horloge.maintenant();
+      return new BoitePostgres(b.moteur.pool(), TENANT, { graceMs: grace }).ecrire(intention(b), { proprietaire: "p", jusqua: maintenant + 120_000 + 60_000 }, maintenant);
+    };
+    expect((await ecrire(60_000, 150_000)).occupee).toBe(true); // 150 s < 120 s + 60 s
+    expect((await ecrire(0, 150_000)).occupee).toBe(false); // 150 s > 120 s + 0
+    expect((await ecrire(0, 100_000)).occupee).toBe(true);
+  });
+
+  it("[A-318] une intention créée par cet appel n'est jamais occupée ; une intention déjà faite non plus", async () => {
+    const b = banc({ e1: envoyer });
+    const boite = new BoitePostgres(b.moteur.pool(), TENANT);
+    const bail = { proprietaire: "p", jusqua: b.horloge.maintenant() + 180_000 };
+    expect(await boite.ecrire(intention(b), bail, b.horloge.maintenant())).toMatchObject({ creee: true, occupee: false });
+    await boite.marquerFaite(cle(b), "p");
+    expect(await new BoitePostgres(b.moteur.pool(), TENANT).ecrire(intention(b), bail, b.horloge.maintenant())).toMatchObject({ creee: false, occupee: false });
+  });
+
+  it("[A-312] lire() rend l'exécution de l'intention, même écrite par un autre processus", async () => {
+    const b = banc({ e1: envoyer });
+    await b.processus().lancer();
+    const lue = await new BoitePostgres(b.moteur.pool(), TENANT).lire(cle(b));
+    expect(lue).toMatchObject({ executionId: b.executionId, etat: "faite", garantie: "idempotent_par_cle", etape: "", action: "" });
+  });
+
+  it("[A-317] une même clé reprise avec une autre action garde l'action connue du processus", async () => {
+    const b = banc({ e1: envoyer });
+    const boite = new BoitePostgres(b.moteur.pool(), TENANT);
+    const bail = { proprietaire: "p", jusqua: b.horloge.maintenant() + 180_000 };
+    await boite.ecrire(intention(b), bail, b.horloge.maintenant());
+    const r = await boite.ecrire(intention(b, "classer"), { ...bail, proprietaire: "q" }, b.horloge.maintenant());
+    expect(r.intention.action).toBe("envoyer");
+  });
+});
+
 describe("arrêt brutal simulé", () => {
   it("[C-470] @anti-doublon arrêt brutal tiré au sort 50 fois : aucun message en double", async () => {
     let graine = 470;
@@ -149,21 +219,34 @@ describe("arrêt brutal simulé", () => {
       for (let tour = 0; tour < 17; tour++) {
         const b = banc({ e1: envoyer, e2: async (ctx) => void (await ctx.effet("classer", "msg-2", {})) }, garantie);
         // Le processus meurt après un nombre tiré au sort de requêtes, puis un autre le remplace, autant de fois qu'il faut.
+        let dernier = "aucune";
         for (let vie = 0; vie < 40; vie++) {
           const { lancer } = b.processus(vie < 5 ? Math.floor(alea() * 40) : undefined);
           try {
             const r = await lancer();
+            dernier = r.statut;
             if (r.statut === "terminee" || r.statut === "a_trancher") break;
+            apresMort(b); // en_cours : l'autre processus est tenu pour mort après la fenêtre
           } catch (e) {
             if (!(e instanceof CoupureProcessus)) throw e;
+            dernier = "coupure";
             apresMort(b);
           }
         }
-        const parCle = new Map<string, number>();
-        for (const a of b.connecteur.appels) parCle.set(a.cle, (parCle.get(a.cle) ?? 0) + 1);
-        if (garantie === "idempotent_par_cle") expect(b.connecteur.effetsReels).toBeLessThanOrEqual(2);
-        else for (const [, n] of parCle) expect(n).toBe(1);
-        for (const i of b.moteur.etat.intentions) expect(["faite", "a_trancher", "ecrite"]).toContain(i.etat);
+        expect(dernier, `garantie ${garantie}, tour ${tour} : la dernière vie doit finir`).toMatch(/^(terminee|a_trancher)$/);
+        const appelsParCle = new Map<string, number>();
+        for (const a of b.connecteur.appels) appelsParCle.set(a.cle, (appelsParCle.get(a.cle) ?? 0) + 1);
+        for (const [etape, element, action] of [["e1", "msg-1", "envoyer"], ["e2", "msg-2", "classer"]] as const) {
+          const cle = deriverCleIntention({ instanceId: INSTANCE, executionId: b.executionId, etape, action, element });
+          const appels = appelsParCle.get(cle) ?? 0;
+          // Au plus un effet par clé : un connecteur qui dédoublonne par clé peut être rappelé, les autres jamais.
+          const effets = garantie === "idempotent_par_cle" ? Math.min(appels, 1) : appels;
+          expect(effets, `${garantie} ${etape} : effets`).toBeLessThanOrEqual(1);
+          const etat = b.moteur.etat.intentions.find((i) => i.cle === cle)?.etat;
+          // Une clé jamais appelée ne peut pas être « faite » : elle est à trancher (ou son étape n'a pas été atteinte).
+          if (appels === 0 && etat !== undefined) expect(etat, `${garantie} ${etape} jamais appelée`).toBe("a_trancher");
+          if (dernier === "terminee") expect(etat).toBe("faite");
+        }
       }
     }
   });

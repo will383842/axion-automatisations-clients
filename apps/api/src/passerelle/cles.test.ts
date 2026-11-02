@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { beforeEach, describe, expect, it } from "vitest";
-import { creerCles, ErreurPasserelle, MODELES_PERMIS } from "./cles.js";
+import { creerCles, ErreurPasserelle, MODELES_PERMIS, ROUTES_CLIENT } from "./cles.js";
 
 const A = "3f2b8c1e-5a4d-4e6f-9b7a-1c2d3e4f5a6b";
 const B = "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d";
@@ -51,6 +51,12 @@ describe("passerelle : clés virtuelles des clients", () => {
     const a = f.etat.appels[0] as Appel;
     expect(a.url).toBe(`${URL_P}/key/generate`);
     expect(JSON.parse(a.corps)).toMatchObject({ key_alias: `cli-${A}`, metadata: { tenant_id: A }, models: ["claude-standard"] });
+  });
+  it("[A-058] @isolation la clé d'un client n'ouvre que les routes d'appel de modèle (chat et plongements) : allowed_routes exact, rien sur /key, /v2/key ni /spend", async () => {
+    await f.cles.creerCleClient(A, { modelesPermis: ["claude-standard"] });
+    const routes = (JSON.parse((f.etat.appels[0] as Appel).corps) as { allowed_routes?: string[] }).allowed_routes;
+    expect(routes).toEqual(ROUTES_CLIENT);
+    expect(routes?.some((r) => /^\/(v2\/)?(key|spend|user|team|global|model)/.test(r) || r.includes("*"))).toBe(false);
   });
   it("[A-058] la valeur de la clé va au coffre ; le résultat ne porte que la référence", async () => {
     const r = await f.cles.creerCleClient(A, { modelesPermis: [...MODELES_PERMIS] });

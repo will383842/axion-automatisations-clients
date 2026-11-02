@@ -32,6 +32,8 @@ Les secrets de l'équipe vivent dans Bitwarden ou sous `technique/` d'OpenBao, J
 | `EQUIPE_ADRESSE_WILL` | aucun | environnement cloud (adresse de l'équipe pour les e-mails de service ; une adresse, pas un secret) | sans objet |
 | `RETENTION_PURGE_ACTIVE` | aucun | environnement cloud (interrupteur du retrait des exécutions anciennes et de la proposition de suppression des notes à Will, fermé par défaut ; aucune note n'est effacée automatiquement) | sans objet |
 | `RETENTION_OUVERTE_PAR` | aucun | environnement cloud (date d'ouverture du retrait, posée par Will ; exigée en production si l'interrupteur est ouvert) | sans objet |
+| `CONTRACTER_OUVERT` | aucun | environnement cloud (interrupteur des migrations « contracter » des bases des clients, fermé par défaut, y compris en production ; ouvert par Will seul, lot 8a) | sans objet |
+| `VERSION_STRUCTURE_CODE` | aucun | environnement cloud (version de structure des bases attendue par le code déployé ; absente = inconnue, contracter refusé) | sans objet |
 | `PLAFOND_CLE_CLIENT_MICROCENTIMES` | aucun | environnement cloud | sans objet |
 | `PLAFOND_PASSERELLE_JOUR_MICROCENTIMES` | aucun | environnement cloud | sans objet |
 | `SEUIL_RYTHME_ANORMAL` | aucun | environnement cloud | sans objet |

@@ -49,7 +49,7 @@ async function clientNonFerme() {
   await dans.query(`GRANT ${nomsRoles(id).proprietaire} TO CURRENT_USER WITH SET TRUE`);
   // Comme après la fermeture : le propriétaire possède la base (il y crée donc le schéma du module).
   const p = nomsRoles(id).proprietaire;
-  await pool("postgres").query(`ALTER DATABASE ${base} OWNER TO ${p}; SET ROLE ${p}; GRANT CONNECT ON DATABASE ${base} TO provisionneur; RESET ROLE`);
+  await pool("postgres").query(`ALTER DATABASE ${base} OWNER TO ${p}; SET ROLE ${p}; REVOKE ALL ON DATABASE ${base} FROM PUBLIC; GRANT CONNECT ON DATABASE ${base} TO provisionneur; RESET ROLE`);
   // modele_v1 (init.sql) est vide : les schémas commun et trace viennent des migrations du modèle, jouées par le propriétaire comme le fait la recette (étape 6).
   await migrerBase(base, lireEntrees(DOSSIER_CLI).length, { url: vers(base) });
   await dans.query(`SET ROLE ${p}`);
@@ -135,16 +135,65 @@ describe("migrations d'un module (grappe jetable)", () => { // fiche: T2-35
     try {
       const identite = (await mod.client.query("SELECT session_user AS s, current_user AS c")).rows[0];
       expect(identite).toEqual({ s: roleMigrationModule(c.base, "essai"), c: roleMigrationModule(c.base, "essai") });
-      await expect(mod.client.query(chargeR1(reinit).replace("ROLE_APP", c.roles.app))).rejects.toMatchObject({ code: "42501" });
+      // F1 : le refus 42501 est celui de l'ALTER ROLE (message vérifié) ; le témoin positif ci-dessous prouve que la même charge SANS l'ALTER ROLE passe.
+      await expect(mod.client.query(chargeR1(reinit).replace("ROLE_APP", c.roles.app))).rejects.toMatchObject({ code: "42501", message: expect.stringMatching(/alter role|permission denied/i) });
     } finally { await mod.fermer(); await admin.end(); }
     expect(await instantane(c)).toEqual(avant);
     // Le mot de passe « connu » n'ouvre rien : le rôle _app n'a pas changé de mot de passe.
     const u = new URL(vers(c.base)); u.username = c.roles.app; u.password = "connu";
     const k = new pg.Client({ connectionString: u.toString() });
     k.on("error", () => undefined);
-    await expect(k.connect()).rejects.toBeTruthy();
+    // F1 : refus d'authentification (28P01), pas une autre panne de connexion.
+    await expect(k.connect()).rejects.toMatchObject({ code: "28P01" });
     await k.end().catch(() => undefined);
   }
+  it("[A-219] @isolation témoin positif : la charge R1 SANS l'ALTER ROLE passe sur la connexion du rôle du module (le refus vient donc bien de l'ALTER ROLE)", async () => {
+    const c = await clientNonFerme();
+    const admin = new pg.Client({ connectionString: vers(c.base) });
+    await admin.connect();
+    const mod = await ouvrirConnexionModule(admin, vers(c.base), c.base, "essai");
+    try {
+      await expect(mod.client.query(chargeR1("SELECT 1").replace("ALTER ROLE ROLE_APP PASSWORD 'connu';", ""))).resolves.toBeTruthy();
+    } finally { await mod.fermer(); await admin.end(); }
+  }, 60_000);
+  // F5 : mutation de preuve de A-219. Avec l'ancien SET ROLE sur la session du PROVISIONNEUR, la charge R1 réussit : l'essai R1 ci-dessus rougirait. Cet essai rejoue la mutation à chaque passage de la CI.
+  it("[A-219] @isolation mutation de preuve : sous SET ROLE du propriétaire sur la session du provisionneur, la charge R1 réussit (l'essai R1 rougirait)", async () => {
+    const c = await clientNonFerme();
+    const admin = new pg.Client({ connectionString: vers(c.base) });
+    await admin.connect();
+    try {
+      await admin.query(`GRANT ${c.roles.proprietaire} TO CURRENT_USER WITH SET TRUE`);
+      await admin.query(`SET ROLE ${c.roles.proprietaire}`);
+      await expect(admin.query(chargeR1("RESET ROLE").replace("ROLE_APP", c.roles.app).replace("SET search_path = a_essai;", "")), "la charge R1 aurait dû réussir sous l'ancien SET ROLE").resolves.toBeTruthy();
+    } finally { await admin.query("RESET ROLE").catch(() => undefined); await admin.end(); }
+  }, 60_000);
+  it("[A-219] @isolation F3 : un droit TEMP ou CREATE du rôle du module sur la base fait refuser l'ouverture avant toute migration", async () => {
+    const c = await clientNonFerme();
+    await c.dans.query("RESET ROLE");
+    await pool("postgres").query(`SET ROLE ${c.roles.proprietaire}; GRANT TEMPORARY ON DATABASE ${c.base} TO PUBLIC; RESET ROLE`);
+    const admin = new pg.Client({ connectionString: vers(c.base) });
+    await admin.connect();
+    try {
+      await expect(ouvrirConnexionModule(admin, vers(c.base), c.base, "essai")).rejects.toThrow(/hors de a_essai/);
+      // Aucun rôle laissé LOGIN : le refus survient avant le ALTER ROLE … LOGIN.
+      expect((await pool("postgres").query("SELECT rolcanlogin FROM pg_roles WHERE rolname = $1", [roleMigrationModule(c.base, "essai")])).rows[0]?.rolcanlogin).toBe(false);
+    } finally { await admin.end(); }
+  }, 60_000);
+  it("[A-219] @isolation F2 : l'ALTER ROLE … LOGIN envoie une empreinte SCRAM, jamais le mot de passe en clair, et le rôle est NOLOGIN après la fermeture", async () => {
+    const c = await clientNonFerme();
+    const texte: string[] = [];
+    const admin = new pg.Client({ connectionString: vers(c.base) });
+    await admin.connect();
+    const origine = admin.query.bind(admin) as (...a: unknown[]) => unknown;
+    (admin as unknown as { query: unknown }).query = (...a: unknown[]) => { if (typeof a[0] === "string") texte.push(a[0]); return origine(...a); };
+    const mod = await ouvrirConnexionModule(admin, vers(c.base), c.base, "essai");
+    try {
+      const alter = texte.find((t) => /ALTER ROLE .* LOGIN/.test(t));
+      expect(alter).toMatch(/PASSWORD 'SCRAM-SHA-256\$4096:/);
+    } finally { await mod.fermer(); await admin.end(); }
+    expect((await pool("postgres").query("SELECT rolcanlogin FROM pg_roles WHERE rolname = $1", [roleMigrationModule(c.base, "essai")])).rows[0]?.rolcanlogin).toBe(false);
+  }, 60_000);
+
   it("[A-219] @isolation la charge R1 (RESET ROLE caché dans une fonction) rejouée sans le filtre est refusée par PostgreSQL et ne change aucun rôle _app", async () => { await rejouerR1("RESET ROLE"); }, 60_000);
   it("[A-219] @isolation la variante RESET \"role\" de la charge R1 est refusée par PostgreSQL et ne change aucun rôle _app", async () => { await rejouerR1('RESET "role"'); }, 60_000);
 

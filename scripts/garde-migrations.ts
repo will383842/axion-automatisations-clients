@@ -29,6 +29,13 @@ function chargerFonctions(): FonctionPermise[] {
 // Liste réelle, lue une fois : elle fait partie du dépôt, jamais d'une option d'appel du programme.
 export const FONCTIONS_PERMISES: readonly FonctionPermise[] = Object.freeze(chargerFonctions());
 
+// Phase « contracter » (T2-38) : seule exception à « pas de DROP », et seulement dans un dossier drizzle-cli/. Le marqueur est la PREMIÈRE ligne non vide du fichier, seule sur sa ligne :
+// un « -- phase: contracter » plus bas, dans une chaîne ou dans un commentaire de bloc, n'exempte rien.
+export function estPhaseContracter(texte: string): boolean {
+  const premiere = texte.split(/\r?\n/).find((l) => l.trim() !== "");
+  return premiere !== undefined && /^--[ \t]*phase:[ \t]*contracter[ \t]*$/.test(premiere);
+}
+
 // Nœud de l'arbre → étiquette du refus.
 const NOEUDS = new Map([
   ["DropStmt", "DROP"], ["DropOwnedStmt", "DROP"], ["DropRoleStmt", "DROP"], ["DropdbStmt", "DROP"], ["DropTableSpaceStmt", "DROP"], ["DropSubscriptionStmt", "DROP"], ["DropUserMappingStmt", "DROP"],
@@ -37,16 +44,17 @@ const NOEUDS = new Map([
   ["AlterFunctionStmt", "ALTER FUNCTION"], ["DoStmt", "DO"], ["CreateFunctionStmt", "CREATE FUNCTION"], ["CallStmt", "CALL"], ["ExecuteStmt", "EXECUTE"], ["TransactionStmt", "COMMIT/ROLLBACK"],
 ]);
 
-function etiquettes(noeud: unknown, trouvees: string[]): void {
-  if (Array.isArray(noeud)) return noeud.forEach((n) => etiquettes(n, trouvees));
+// `contracter` : seuls DROP d'un objet (DropStmt) et ALTER TABLE … DROP sont levés ; DROP ROLE, DATABASE, OWNED, RENAME, TRUNCATE, SET… restent refusés.
+function etiquettes(noeud: unknown, trouvees: string[], contracter = false): void {
+  if (Array.isArray(noeud)) return noeud.forEach((n) => etiquettes(n, trouvees, contracter));
   if (typeof noeud !== "object" || noeud === null) return;
   for (const [cle, valeur] of Object.entries(noeud)) {
     const etiquette = NOEUDS.get(cle);
-    if (etiquette) trouvees.push(etiquette);
+    if (etiquette && !(contracter && cle === "DropStmt")) trouvees.push(etiquette);
     if (cle === "AlterTableCmd") {
       const sousType = (valeur as { subtype?: string }).subtype ?? "";
       if (sousType === "AT_AlterColumnType") trouvees.push("ALTER … TYPE");
-      else if (sousType.startsWith("AT_Drop")) trouvees.push("DROP");
+      else if (sousType.startsWith("AT_Drop") && !contracter) trouvees.push("DROP");
     }
     // ALTER FUNCTION … OWNER TO : un autre propriétaire change qui exécute une fonction SECURITY DEFINER.
     if (cle === "AlterOwnerStmt" && /^OBJECT_(FUNCTION|PROCEDURE|ROUTINE)$/.test((valeur as { objectType?: string }).objectType ?? "")) trouvees.push("ALTER FUNCTION");
@@ -58,7 +66,7 @@ function etiquettes(noeud: unknown, trouvees: string[]): void {
       const nom = (valeur as { funcname?: { String?: { sval?: string } }[] }).funcname?.at(-1)?.String?.sval;
       if (nom?.toLowerCase() === "set_config") trouvees.push("set_config");
     }
-    etiquettes(valeur, trouvees);
+    etiquettes(valeur, trouvees, contracter);
   }
 }
 
@@ -90,7 +98,7 @@ function racineFonction(stmt: unknown): Fonction | undefined {
 // Drizzle découpe le fichier sur ce marqueur et envoie chaque morceau séparément : la garde analyse les mêmes morceaux.
 const MARQUEUR = "--> statement-breakpoint";
 
-function analyserMorceau(nom: string, texte: string, fonctions: readonly FonctionPermise[], utilisees?: Set<FonctionPermise>): string[] {
+function analyserMorceau(nom: string, texte: string, fonctions: readonly FonctionPermise[], utilisees?: Set<FonctionPermise>, contracter = false): string[] {
   let stmts: { stmt?: unknown; stmt_location?: number }[];
   try {
     stmts = parseSync(texte).stmts;
@@ -102,7 +110,7 @@ function analyserMorceau(nom: string, texte: string, fonctions: readonly Fonctio
     while (/\s/.test(texte[debut] ?? "x")) debut++;
     const ligne = texte.slice(0, debut).split("\n").length;
     let trouvees: string[] = [];
-    etiquettes(s.stmt, trouvees);
+    etiquettes(s.stmt, trouvees, contracter);
     const fonction = racineFonction(s.stmt);
     if (fonction && !fonction.estProcedure) {
       const empreinte = empreinteDe(texteInstruction(texte, s));
@@ -120,8 +128,10 @@ function analyserMorceau(nom: string, texte: string, fonctions: readonly Fonctio
   });
 }
 
-export function analyserSql(nom: string, texte: string, fonctions: readonly FonctionPermise[] = FONCTIONS_PERMISES, utilisees?: Set<FonctionPermise>): string[] {
-  return texte.split(MARQUEUR).flatMap((morceau) => (morceau.trim() ? analyserMorceau(nom, morceau, fonctions, utilisees) : []));
+// `permettreContracter` : vrai seulement pour un fichier de drizzle-cli/ ; le marqueur est alors lu sur le fichier entier (tous ses morceaux).
+export function analyserSql(nom: string, texte: string, fonctions: readonly FonctionPermise[] = FONCTIONS_PERMISES, utilisees?: Set<FonctionPermise>, permettreContracter = false): string[] {
+  const contracter = permettreContracter && estPhaseContracter(texte);
+  return texte.split(MARQUEUR).flatMap((morceau) => (morceau.trim() ? analyserMorceau(nom, morceau, fonctions, utilisees, contracter) : []));
 }
 
 // Aide à l'écriture de la liste fermée : nom et empreinte de chaque fonction d'un fichier (node scripts/garde-migrations.ts --empreintes <fichier.sql>).
@@ -173,7 +183,7 @@ export function verifierDossier(dossier: string, base = dossier, fonctions: read
     const erreurs = presents.filter((f) => !listes.has(f)).map((f) => `${nom(f)} : fichier SQL absent du journal`);
     for (const f of listes) {
       if (!presents.includes(f)) erreurs.push(`${nom(f)} : fichier du journal introuvable`);
-      else erreurs.push(...analyserSql(nom(f), readFileSync(f, "utf8"), fonctions, utilisees));
+      else erreurs.push(...analyserSql(nom(f), readFileSync(f, "utf8"), fonctions, utilisees, basename(dossier) === "drizzle-cli"));
     }
     return erreurs;
   } catch (e) {

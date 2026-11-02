@@ -140,6 +140,7 @@ export function creerGestionnaire(config: Pick<ConfigExecuteur, "delaiRemiseMs">
         if (remises >= REMISES_MAX) {
           if (!d.escalader) throw new UnrecoverableError("intention_en_cours_sans_issue");
           await d.escalader(travail, e.etape, "intention_en_cours_sans_issue");
+          await job.updateData(sansRemise(job.data)); // l'occupation est rendue à l'équipe : le compteur repart de zéro
           return;
         }
         await job.updateData({ ...(job.data as object), remise: { etape: e.etape, cle: e.cle, libreA: e.libreA, n: remises + 1 } satisfies Remise });

@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { Readable } from "node:stream";
 import { appeler, ErreurCoffre, validerTenant, type OptionsBao } from "../coffre/coffre.js";
 import { calculerRetention } from "../../../../ops/sauvegardes/retention.js";
+import { nomBaseDe } from "../provisionnement/etapes-base.js";
 import { chiffrerFlux } from "./chiffrement-flux.js";
 
 // Sauvegarde de nuit d'UNE base client (T2-39, A-238, A-239, A-244, C-047) : pg_dump en flux → chiffrement par blocs → cible.
@@ -35,12 +36,22 @@ export interface DepsDump {
 const SAUVEGARDEES = new Set(["active", "gelee", "exportee", "a_l_ecart"]);
 export const aSauvegarder = (b: BaseADumper) => SAUVEGARDEES.has(b.etat);
 
+// Le nom de base va tel quel dans --dbname (qui accepte une chaîne de connexion entière) : il doit être EXACTEMENT celui de ce client (ADR 0046),
+// sinon le dump d'une autre base serait rangé sous la clé de ce client. Aucune valeur n'est citée dans l'erreur.
+export function nomBaseConforme(b: BaseADumper): boolean {
+  try { return typeof b.nomBase === "string" && /^cli_[0-9a-f]{12}$/.test(b.nomBase) && b.nomBase === nomBaseDe(b.tenantId); } catch { return false; }
+}
+
 const idCourt = (tenantId: string) => validerTenant(tenantId).replaceAll("-", "").slice(0, 12);
 export const cheminDump = (tenantId: string, date: string) => `clients/${idCourt(tenantId)}/${date}.dump.enc`;
 
 // BullMQ refuse « : » dans un jobId : « dump-<base>-<date> » (même base, même nuit → une seule tâche).
-export async function planifierNuit(file: { add: (nom: string, donnees: unknown, opts: { jobId: string }) => Promise<unknown> }, bases: BaseADumper[], date: string): Promise<void> {
-  for (const b of bases.filter(aSauvegarder)) await file.add("dump-client", { tenantId: b.tenantId, nomBase: b.nomBase, date }, { jobId: `dump-${b.nomBase}-${date}` });
+// Une base dont le nom n'est pas celui de son client est écartée (journal fixe, sans valeur) ; les autres partent quand même.
+export async function planifierNuit(file: { add: (nom: string, donnees: unknown, opts: { jobId: string }) => Promise<unknown> }, bases: BaseADumper[], date: string, journal: (evenement: "nom_base_refusee") => void = () => {}): Promise<void> {
+  for (const b of bases.filter(aSauvegarder)) {
+    if (!nomBaseConforme(b)) { journal("nom_base_refusee"); continue; }
+    await file.add("dump-client", { tenantId: b.tenantId, nomBase: b.nomBase, date }, { jobId: `dump-${b.nomBase}-${date}` });
+  }
 }
 
 // pg_dump du rôle propriétaire, en connexion DIRECTE à la grappe (pas PgBouncer). Les paramètres de connexion et le mot de passe viennent de l'environnement
@@ -70,6 +81,7 @@ async function cleDeDonnees(bao: OptionsBao, tenantId: string): Promise<{ cle: B
 
 export async function dumperClient(deps: DepsDump, base: BaseADumper, date: string): Promise<{ chemin: string; empreinte: string; octets: number }> {
   if (!aSauvegarder(base)) throw new Error("base_non_sauvegardee");
+  if (!nomBaseConforme(base)) throw new Error("nom_base_invalide");
   const chemin = cheminDump(base.tenantId, date);
   const { cle, cleChiffree, versionCle } = await cleDeDonnees(deps.bao, base.tenantId);
   const hash = createHash("sha256");

@@ -45,8 +45,21 @@ const nonce = (prefixe: Buffer, i: number) => {
 };
 const associees = (tenantId: string, entete: Buffer, dernier: boolean) => Buffer.concat([Buffer.from(tenantId), Buffer.from([0]), entete, Buffer.from([dernier ? 1 : 0])]);
 
-// Chiffre « source » ; produit l'en-tête puis les blocs. La clé est lue, jamais modifiée ni gardée : l'appelant la remet à zéro.
-export async function* chiffrerFlux(source: AsyncIterable<Buffer>, cle: Buffer, e: Pick<Entete, "versionCle" | "cleChiffree">, tenantId: string, tailleBloc = TAILLE_BLOC): AsyncGenerator<Buffer> {
+// Chiffre « source » ; produit l'en-tête puis les blocs. La clé est copiée dès l'appel (la copie est remise à zéro à la fin du flux) : l'appelant peut remettre la sienne à zéro quand il veut.
+export function chiffrerFlux(source: AsyncIterable<Buffer>, cleAppelant: Buffer, e: Pick<Entete, "versionCle" | "cleChiffree">, tenantId: string, tailleBloc = TAILLE_BLOC): AsyncGenerator<Buffer> {
+  // Copie IMMÉDIATE (pas au premier bloc) : l'appelant peut remettre sa clé à zéro sans effet sur ce flux. Une clé de mauvaise taille ou nulle est refusée.
+  if (cleAppelant.length !== 32 || cleAppelant.every((o) => o === 0)) throw new Error("cle_invalide");
+  const cle = Buffer.from(cleAppelant);
+  return chiffrerBlocs(source, cle, e, tenantId, tailleBloc);
+}
+async function* chiffrerBlocs(source: AsyncIterable<Buffer>, cle: Buffer, e: Pick<Entete, "versionCle" | "cleChiffree">, tenantId: string, tailleBloc: number): AsyncGenerator<Buffer> {
+  try {
+    yield* blocs(source, cle, e, tenantId, tailleBloc);
+  } finally {
+    cle.fill(0);
+  }
+}
+async function* blocs(source: AsyncIterable<Buffer>, cle: Buffer, e: Pick<Entete, "versionCle" | "cleChiffree">, tenantId: string, tailleBloc: number): AsyncGenerator<Buffer> {
   const prefixe = randomBytes(4);
   const entete = encoderEntete(e, prefixe, tailleBloc);
   yield entete;

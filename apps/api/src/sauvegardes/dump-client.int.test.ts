@@ -10,6 +10,7 @@ import { lireYaml } from "../../../../scripts/garde-compose.js";
 import { appeler, type OptionsBao } from "../coffre/coffre.js";
 import { creerEnveloppe } from "../coffre/enveloppe.js";
 import { journalEchecs } from "../provisionnement/journal-echecs.js";
+import { nomBaseDe } from "../provisionnement/etapes-base.js";
 import { dechiffrerFlux } from "./chiffrement-flux.js";
 import { dumperClient, type Cible } from "./dump-client.js";
 
@@ -60,7 +61,7 @@ async function baseClient() {
   const id = docker("run", "-d", "--rm", "-e", `POSTGRES_PASSWORD=${motDePasse}`, image("ops/socle/compose.donnees.yml", "donnees"), "postgres");
   lances.push(id);
   await attendre(() => { docker("exec", id, "pg_isready", "-h", "127.0.0.1", "-U", "postgres"); return true; }, "PostgreSQL");
-  const tenantId = randomUUID(); const nomBase = `cli_${tenantId.replaceAll("-", "")}`; const marqueur = `MARQUEUR-${randomBytes(12).toString("hex")}`;
+  const tenantId = randomUUID(); const nomBase = nomBaseDe(tenantId); const marqueur = `MARQUEUR-${randomBytes(12).toString("hex")}`;
   const sql = (base: string, requete: string) => docker("exec", "-e", `PGPASSWORD=${motDePasse}`, id, "psql", "-h", "127.0.0.1", "-U", "postgres", "-d", base, "-c", requete);
   sql("postgres", `CREATE DATABASE ${nomBase}`);
   sql(nomBase, `CREATE TABLE notes (texte text); INSERT INTO notes VALUES ('${marqueur}')`);

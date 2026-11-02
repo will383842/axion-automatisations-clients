@@ -1,8 +1,9 @@
-import { bigint, check, date, foreignKey, integer, jsonb, pgEnum, text, unique, uuid } from "drizzle-orm/pg-core";
+import { bigint, check, date, foreignKey, integer, jsonb, pgEnum, text, unique, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { z } from "zod";
 import { tableClient } from "./aides.ts";
 import { instances, organisations } from "./clients.ts";
+import { factures } from "./contrats.ts";
 import { sourceCondition, typeCondition } from "./canaux.ts";
 
 // Plan commercial (C5, lot 2) : abonnements, plans, phases, échéances, conditions du client (ADR 0052). Aucun calcul ici (héritage : T2-08).
@@ -158,6 +159,9 @@ export const echeances = tableClient(
     contraintes: (t) => [
       foreignKey({ name: "echeances_plan_fk", columns: [t["tenantId"] as never, t["planId"] as never], foreignColumns: [plansCommerciaux.tenantId, plansCommerciaux.id] }),
       unique("echeances_tenant_id_plan_id_debut_periode_unique").on(t["tenantId"] as never, t["planId"] as never, t["debutPeriode"] as never),
+      // Facture de l'échéance (T2-05) : même client, période couverte (déclencheur echeances_verifier_facture) et une seule échéance par facture.
+      foreignKey({ name: "echeances_facture_fk", columns: [t["tenantId"] as never, t["factureId"] as never], foreignColumns: [factures.tenantId, factures.id] }),
+      uniqueIndex("echeances_facture_unique").on(t["tenantId"] as never, t["factureId"] as never).where(sql`${t["factureId"]} IS NOT NULL`),
       check("echeances_auteur_non_vide", sql`length(btrim(${t["auteur"]})) > 0`),
       check("echeances_emission_datee", sql`${t["statut"]} NOT IN ('emise', 'payee') OR ${t["dateEmission"]} IS NOT NULL`),
       check("echeances_periode_ordonnee", sql`${t["finPeriode"]} > ${t["debutPeriode"]}`),

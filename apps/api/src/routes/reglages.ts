@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest, preHandlerAsyncHookHandler } from "fastify";
 import { z } from "zod";
 import { ErreurApi } from "../plugins/erreurs.js";
-import type { VersionReglage } from "../reglages/versions.js";
+import type { RetourReglage, VersionReglage } from "../reglages/versions.js";
 
 // Versions des réglages d'une instance (A-175, A-176), sans écran (lot 3). Le client actif et l'auteur viennent de la session de l'équipe (T1A-08),
 // fournie par l'appelant : jamais d'un paramètre ni du corps. Non branchée dans serveur.ts tant qu'une tâche ne câble pas les routes de l'équipe.
@@ -11,7 +11,7 @@ export interface DepsReglages {
   contexte(requete: FastifyRequest): Promise<Contexte>;
   historique(c: Contexte, instance: string): Promise<VersionReglage[]>;
   modifier(c: Contexte, instance: string, donnees: unknown, motif: string): Promise<VersionReglage>;
-  revenir(c: Contexte, instance: string, numero: number, motif?: string): Promise<VersionReglage>;
+  revenir(c: Contexte, instance: string, numero: number, motif?: string): Promise<RetourReglage>;
 }
 
 const Params = z.strictObject({ id: z.uuid() });
@@ -35,6 +35,7 @@ export function routeReglages(serveur: FastifyInstance, d: DepsReglages): void {
   serveur.post(`${base}/revenir`, o, async (req, rep) => {
     const { id } = lire(Params, req.params);
     const c = lire(Retour, req.body);
-    return rep.status(201).send(await d.revenir(await d.contexte(req), id, c.numero, c.motif));
+    const r = await d.revenir(await d.contexte(req), id, c.numero, c.motif);
+    return rep.status(r.cree ? 201 : 200).send(r); // retour sans effet (déjà la version active) : 200 et cree:false, jamais 201
   });
 }

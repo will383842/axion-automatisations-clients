@@ -19,6 +19,9 @@ export interface VersionReglage {
   active: boolean;
 }
 
+// Résultat d'un retour arrière : cree=false quand la version active portait déjà ces données (rien n'a été écrit).
+export type RetourReglage = VersionReglage & { cree: boolean };
+
 const NUMERO_MAX = 2_147_483_647; // colonne integer
 const MOTIF_MAX = 500;
 const estObjet = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -60,7 +63,7 @@ async function verrouiller(client: PoolClient, instance: string): Promise<void> 
   if (!(await client.query("SELECT 1 FROM instances WHERE id = $1 FOR UPDATE", [instance])).rows[0]) throw new ErreurApi("introuvable", "Instance introuvable.");
 }
 
-export async function revenirDans(client: PoolClient, instance: string, numero: number, auteur: string, motif?: string): Promise<VersionReglage> {
+export async function revenirDans(client: PoolClient, instance: string, numero: number, auteur: string, motif?: string): Promise<RetourReglage> {
   if (!Number.isSafeInteger(numero) || numero < 1) throw new ErreurApi("schema_invalide", "Numéro de version invalide.");
   // Verrou d'abord : toute lecture (version visée, version active) se fait sous le verrou de l'instance, jamais avant.
   await verrouiller(client, instance);
@@ -69,11 +72,11 @@ export async function revenirDans(client: PoolClient, instance: string, numero: 
   if (!ancienne) throw new ErreurApi("introuvable", "Version introuvable.");
   // Idempotence : si la version active porte déjà ces données, on la renvoie sans rien écrire (double clic, rejeu).
   const active = (await client.query("SELECT id, numero, donnees, auteur, motif_changement AS motif, active FROM configurations WHERE instance_id = $1 AND active", [instance])).rows[0] as VersionReglage | undefined;
-  if (active && isDeepStrictEqual(active.donnees, ancienne.donnees)) return active;
-  return modifierDans(client, instance, ancienne.donnees, auteur, motif ?? `retour à la version ${numero}`);
+  if (active && isDeepStrictEqual(active.donnees, ancienne.donnees)) return { ...active, cree: false };
+  return { ...(await modifierDans(client, instance, ancienne.donnees, auteur, motif ?? `retour à la version ${numero}`)), cree: true };
 }
 
-export function revenir(pool: Pool, tenantId: string, instance: string, numero: number, auteur: string, motif?: string): Promise<VersionReglage> {
+export function revenir(pool: Pool, tenantId: string, instance: string, numero: number, auteur: string, motif?: string): Promise<RetourReglage> {
   return avecClient(pool, tenantId, (c) => revenirDans(c, instance, numero, auteur, motif), { acteur: auteur });
 }
 

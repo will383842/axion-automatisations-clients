@@ -128,9 +128,9 @@ describe("versions des réglages", () => {
     const b = base();
     await ecrire(b, 1); await ecrire(b, 2);
     const premier = await revenir(b.pool, TENANT, INSTANCE, 1, "agent-essai");
-    expect(premier.numero).toBe(3);
+    expect(premier).toMatchObject({ numero: 3, cree: true });
     const second = await revenir(b.pool, TENANT, INSTANCE, 1, "agent-essai");
-    expect(second).toMatchObject({ numero: 3, active: true, donnees: { relance_jours: 1 } });
+    expect(second).toMatchObject({ numero: 3, cree: false, active: true, donnees: { relance_jours: 1 } });
     expect(b.lignes.map((l) => l.numero)).toEqual([1, 2, 3]);
     expect(b.lignes.filter((l) => l.active).map((l) => l.numero)).toEqual([3]);
   });

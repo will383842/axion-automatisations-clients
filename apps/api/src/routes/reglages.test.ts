@@ -8,7 +8,7 @@ import { routeReglages, type Contexte } from "./reglages.js";
 const INSTANCE = "22222222-2222-4222-8222-222222222222";
 const SESSION: Contexte = { tenantId: "11111111-1111-4111-8111-111111111111", acteur: "agent-essai" };
 const v = { id: "a", numero: 1, donnees: {}, auteur: "agent-essai", motif: "m", active: true };
-function serveur(equipe = true) {
+function serveur(equipe = true, rejeu = false) {
   const appels: unknown[][] = [];
   const app = Fastify();
   brancherErreurs(app);
@@ -18,7 +18,7 @@ function serveur(equipe = true) {
     exigerEquipe: exigerEquipe as never, contexte,
     async historique(c, i) { appels.push(["historique", c, i]); return [v]; },
     async modifier(c, i, d, m) { appels.push(["modifier", c, i, d, m]); return v; },
-    async revenir(c, i, n, m) { appels.push(["revenir", c, i, n, m]); return v; },
+    async revenir(c, i, n, m) { appels.push(["revenir", c, i, n, m]); return { ...v, cree: !rejeu }; },
   });
   routeAnnulation(app, { exigerEquipe: exigerEquipe as never, contexte, async annuler(c, id) { appels.push(["annuler", c, id]); return { entite: "configurations", entite_id: "a" }; } });
   return { app, appels };
@@ -34,6 +34,16 @@ describe("routes des versions de réglages", () => {
     expect((await app.inject({ method: "POST", url: "/api/console/v1/journal/42/annuler" })).statusCode).toBe(200);
     expect(appels.map((a) => a[0])).toEqual(["historique", "modifier", "revenir", "annuler"]);
     expect(appels.every((a) => a[1] === SESSION)).toBe(true);
+  });
+
+  it("[A-176] un retour arrière sans effet répond 200 avec cree:false, un retour réel répond 201 avec cree:true", async () => {
+    const url = `/api/console/v1/instances/${INSTANCE}/reglages/revenir`;
+    const sans = await serveur(true, true).app.inject({ method: "POST", url, payload: { numero: 2 } });
+    expect(sans.statusCode).toBe(200);
+    expect(sans.json()).toMatchObject({ cree: false });
+    const reel = await serveur().app.inject({ method: "POST", url, payload: { numero: 2 } });
+    expect(reel.statusCode).toBe(201);
+    expect(reel.json()).toMatchObject({ cree: true });
   });
 
   it("[A-119] un client ou un auteur fourni dans le corps est refusé, rien n'est écrit", async () => {

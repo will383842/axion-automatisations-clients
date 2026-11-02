@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Pool } from "pg";
 import { avecClient, avecEquipe } from "../db/client-actif.js";
+import { fermerPerimeesSql } from "./appliquer.js";
 import { maitreDe, type Systeme, type TypeInformation } from "./maitres.js";
 
 // Contrôle de cohérence de nuit (C-364) : compare les trois listes (console, Hub, CRM) et RANGE des propositions dans « à trancher ».
@@ -24,7 +25,8 @@ export interface Ecart {
   type: TypeEcart;
   information: TypeInformation;
   maitre: Systeme;
-  // Clé anti-doublon : type + identifiants (un écart déjà ouvert n'est pas recréé).
+  // Clé anti-doublon : type + identifiants + valeur proposée (un écart déjà ouvert n'est pas recréé ; si la valeur proposée change, la clé change
+  // et l'ancienne ligne est fermée par la nuit). Une clé ne cite jamais un autre client que celui de sa ligne.
   cle: string;
   // Clients de la console concernés (une ligne « à trancher » par client) ; vide : aucun client de la console, l'écart reste au rapport.
   tenantIds: string[];
@@ -50,7 +52,8 @@ export function comparer(e: EntreeComparaison): Ecart[] {
 
   // Présent deux fois : plusieurs fiches pour un même SIREN (CRM, puis Hub).
   for (const [siren, fiches] of grouper(e.crm.filter((f) => !f.absorbeePar), (f) => f.siren)) {
-    if (fiches.length > 1) sortie.push(ecart("double_crm", "prospect", "crm", [siren, ...fiches.map((f) => f.crmCompanyId)], tenantsDe(siren), { action: "demander_fusion_crm", cible: "crm", avant: { fiches: fiches.map((f) => f.crmCompanyId).sort().join(",") }, apres: { gardee: fiches.map((f) => f.crmCompanyId).sort()[0] ?? null } }));
+    // La fiche gardée n'est pas choisie ici (aucune fusion sans choix explicite de l'équipe) : gardee reste null. Dette : voir appliquer.ts (T2-14).
+    if (fiches.length > 1) sortie.push(ecart("double_crm", "prospect", "crm", [siren, ...fiches.map((f) => f.crmCompanyId)], tenantsDe(siren), { action: "demander_fusion_crm", cible: "crm", avant: { fiches: fiches.map((f) => f.crmCompanyId).sort().join(",") }, apres: { gardee: null } }));
   }
   for (const [siren, fiches] of grouper(e.hub, (f) => f.siren)) {
     if (fiches.length > 1) sortie.push(ecart("double_hub", "statut_client", "hub", [siren, ...fiches.map((f) => f.axiCli)], tenantsDe(siren), A_EXAMINER("hub")));
@@ -71,7 +74,7 @@ export function comparer(e: EntreeComparaison): Ecart[] {
     if (!h && o.statut !== "prospect" && !o.siren) sortie.push(ecart("sans_siren", "statut_client", "hub", [o.tenantId], [o.tenantId], A_EXAMINER("console")));
     if (!c && o.siren) sortie.push(ecart("absent_crm", "prospect", "crm", [o.tenantId], [o.tenantId], { action: "creer_fiche_crm", cible: "crm", avant: {}, apres: { siren: o.siren } }));
     // C-095 : le statut du client vient de la console ; la correction vise toujours le Hub.
-    if (h && h.statut !== VERS_C1[o.statut]) sortie.push(ecart("statut_diverge", "statut_client", "hub", [o.tenantId, h.axiCli], [o.tenantId], { action: "aligner_statut_hub", cible: "hub", avant: { statut: h.statut }, apres: { statut: VERS_C1[o.statut] } }));
+    if (h && h.statut !== VERS_C1[o.statut]) sortie.push(ecart("statut_diverge", "statut_client", "hub", [o.tenantId, h.axiCli, VERS_C1[o.statut]], [o.tenantId], { action: "aligner_statut_hub", cible: "hub", avant: { statut: h.statut }, apres: { statut: VERS_C1[o.statut] } }));
     const lie = o.crmCompanyId ? e.crm.find((f) => f.crmCompanyId === o.crmCompanyId) : undefined;
     if (lie?.absorbeePar) sortie.push(ecart("fiche_absorbee", "prospect", "crm", [o.tenantId, lie.crmCompanyId], [o.tenantId], { action: "relier_fiche_gardee", cible: "console", avant: { crmCompanyId: lie.crmCompanyId }, apres: { crmCompanyId: lie.absorbeePar } }));
   }
@@ -83,9 +86,11 @@ export function comparer(e: EntreeComparaison): Ecart[] {
   }
 
   // ADR 0040 : un numéro de devis ou de facture n'est plus unique globalement ; deux clients ne doivent pourtant pas le porter.
+  // Une ligne par client sous son propre tenantId, avec une clé propre « nature:numéro » : la ligne d'un client ne cite jamais l'autre.
   for (const [k, lignes] of grouper(e.numeros, (n) => `${n.nature}:${n.numero}`)) {
-    const tenants = [...new Set(lignes.map((l) => l.tenantId))];
-    if (tenants.length > 1) sortie.push(ecart("numero_en_double", lignes[0]!.nature === "devis" ? "devis" : "factures", "hub", [k, ...tenants], tenants, { action: "a_examiner", cible: "console", avant: { numero: lignes[0]!.numero }, apres: {} }));
+    const tenants = [...new Set(lignes.map((l) => l.tenantId))].sort();
+    if (tenants.length < 2) continue;
+    for (const t of tenants) sortie.push(ecart("numero_en_double", lignes[0]!.nature === "devis" ? "devis" : "factures", "hub", [k], [t], { action: "a_examiner", cible: "console", avant: { numero: lignes[0]!.numero }, apres: {} }));
   }
   return sortie;
 }
@@ -93,20 +98,36 @@ export function comparer(e: EntreeComparaison): Ecart[] {
 export interface LigneACreer { source: "hub" | "crm"; motif: "incoherence_nuit"; donneesComparaison: { cle: string; type: TypeEcart; proposition: Proposition } }
 export interface Ecrivain {
   ouvertes(tenantId: string): Promise<Set<string>>;
+  // Ferme (decision « resolu:nuit ») les lignes ouvertes de la nuit dont la clé n'est plus produite ; rend leur nombre.
+  fermerPerimees(tenantId: string, clesProduites: Set<string>): Promise<number>;
   inserer(tenantId: string, ligne: LigneACreer): Promise<void>;
 }
-export interface RapportNuit { crees: number; dejaOuverts: number; sansClient: Ecart[] }
+export interface RapportNuit { crees: number; dejaOuverts: number; fermees: number; sansClient: Ecart[] }
 
+// Anti-doublon : la lecture des lignes ouvertes puis l'insertion ne sont pas atomiques ; deux nuits lancées en parallèle pourraient créer deux fois la même ligne.
+// Dette : aucun index unique partiel n'existe sur a_trancher. Migration future, propriétaire : T2-52 (fiche ouverte). Elle ajoute un index unique partiel
+// (tenant_id, donnees_comparaison->>'cle') WHERE motif = 'incoherence_nuit' AND etat = 'ouvert', puis cette écriture passe en INSERT ... ON CONFLICT DO NOTHING.
+// Critère : un essai d'intégration lance deux nuits en parallèle sur la même entrée et trouve une seule ligne ouverte par clé.
+// Ligne écartée (état tranché) : elle n'est pas « ouverte », donc un écart qui persiste est recréé chaque nuit. Choix voulu : une incohérence non réglée reste
+// visible, la nuit ne la tait pas. Une mise en sommeil demanderait une colonne : T2-52, critère : un écart écarté avec motif ne revient pas avant la date choisie.
+// Rattrapage : la comparaison est rejouable sans effet de bord (les lignes déjà créées sont vues comme ouvertes) ; une nuit interrompue est donc reprise
+// par la nouvelle tentative de la tâche (3 essais, attente croissante) ou, à défaut, par la nuit suivante.
 export async function lancerNuit(d: { lire: () => Promise<EntreeComparaison>; ecrivain: Ecrivain }): Promise<RapportNuit> {
-  const rapport: RapportNuit = { crees: 0, dejaOuverts: 0, sansClient: [] };
-  const ouvertes = new Map<string, Set<string>>();
-  for (const x of comparer(await d.lire())) {
+  const rapport: RapportNuit = { crees: 0, dejaOuverts: 0, fermees: 0, sansClient: [] };
+  const entree = await d.lire();
+  const parTenant = new Map<string, Ecart[]>(entree.organisations.map((o) => [o.tenantId, []]));
+  for (const x of comparer(entree)) {
     if (x.tenantIds.length === 0) { rapport.sansClient.push(x); continue; }
-    for (const t of x.tenantIds) {
-      if (!ouvertes.has(t)) ouvertes.set(t, await d.ecrivain.ouvertes(t));
-      if (ouvertes.get(t)!.has(x.cle)) { rapport.dejaOuverts += 1; continue; }
+    for (const t of x.tenantIds) parTenant.set(t, [...(parTenant.get(t) ?? []), x]);
+  }
+  for (const [t, ecarts] of parTenant) {
+    // Une ligne ouverte dont la clé n'est plus produite est périmée (écart disparu ou valeur proposée changée) : fermée avant toute création.
+    rapport.fermees += await d.ecrivain.fermerPerimees(t, new Set(ecarts.map((x) => x.cle)));
+    const ouvertes = await d.ecrivain.ouvertes(t);
+    for (const x of ecarts) {
+      if (ouvertes.has(x.cle)) { rapport.dejaOuverts += 1; continue; }
       await d.ecrivain.inserer(t, { source: x.source, motif: "incoherence_nuit", donneesComparaison: { cle: x.cle, type: x.type, proposition: x.proposition } });
-      ouvertes.get(t)!.add(x.cle);
+      ouvertes.add(x.cle);
       rapport.crees += 1;
     }
   }
@@ -114,9 +135,11 @@ export async function lancerNuit(d: { lire: () => Promise<EntreeComparaison>; ec
 }
 
 // Tâche BullMQ de nuit : l'identifiant est la date, relancer le même jour ne crée pas une seconde tâche.
-export async function planifierNuit(file: { add(nom: string, donnees: { date: string }, opts: { jobId: string }): Promise<unknown> }, date: string): Promise<void> {
+// Trois essais, attente croissante (60 s, puis 120 s) : une panne passagère du Hub ou du CRM ne fait pas perdre la nuit.
+export interface OptionsNuit { jobId: string; attempts: number; backoff: { type: "exponential"; delay: number } }
+export async function planifierNuit(file: { add(nom: string, donnees: { date: string }, opts: OptionsNuit): Promise<unknown> }, date: string): Promise<void> {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("date invalide (AAAA-MM-JJ)");
-  await file.add("coherence-nuit", { date }, { jobId: date });
+  await file.add("coherence-nuit", { date }, { jobId: date, attempts: 3, backoff: { type: "exponential", delay: 60_000 } });
 }
 
 // Lecture de la console : équipe, transaction en lecture seule.
@@ -136,6 +159,9 @@ export function ecrivainSql(pool: Pool, acteur = "controle-nuit"): Ecrivain {
   return {
     async ouvertes(tenantId) {
       return avecClient(pool, tenantId, async (c) => new Set((await c.query("SELECT donnees_comparaison->>'cle' AS cle FROM a_trancher WHERE motif = 'incoherence_nuit' AND etat = 'ouvert'")).rows.map((r) => String(r.cle))));
+    },
+    async fermerPerimees(tenantId, produites) {
+      return avecClient(pool, tenantId, (c) => fermerPerimeesSql(c, acteur, [...produites]), { acteur });
     },
     async inserer(tenantId, l) {
       await avecClient(pool, tenantId, async (c) => {

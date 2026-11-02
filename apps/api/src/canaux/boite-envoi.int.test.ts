@@ -99,7 +99,7 @@ describe("boîte d'envoi avec le socle", { timeout: 30_000 }, () => {
     await magasin.prendre(ref, maintenant);
     await magasin.conclure(ref, { etat: "echec", erreur: "reseau" });
     expect((await magasin.echecs()).find((e) => e.id === d.id)).toMatchObject({ tenantId: A, nombreEssais: 2, derniereErreur: "reseau" });
-    expect(await magasin.renvoyer(ref)).toBe(true);
+    expect(await magasin.renvoyer(ref, APPELANT)).toBe(true);
     const apres = await magasin.prendre(ref, new Date());
     expect([apres?.cle, apres?.nombreEssais]).toEqual([d.cle, 1]);
   });
@@ -113,5 +113,23 @@ describe("boîte d'envoi avec le socle", { timeout: 30_000 }, () => {
     await magasin.prendre(ref, new Date(Date.now() - 300_000));
     expect(await magasin.reprendre(new Date(Date.now() - 120_000))).toBeGreaterThanOrEqual(1);
     expect((await magasin.prendre(ref, new Date()))?.cle).toBe(d.cle);
+  });
+
+  it("[C-403] [C-535] renvoyer écrit l'acteur au journal d'audit et refuse une ligne de plus de 30 jours sans confirmation", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    const magasin = magasinPg(app, equipe);
+    const poser = async (n: string, jours: number) => {
+      const d = await avecClient(app, A, (c) => deposer(transactionOuverte(c), intention(n)));
+      await avecClient(app, A, (c) => c.query("UPDATE boite_envoi SET etat = 'echec', derniere_erreur = 'reseau', cree_le = now() - make_interval(days => $3) WHERE tenant_id = $1 AND id = $2", [A, d.id, jours]));
+      return { tenantId: A, id: d.id };
+    };
+    const vieille = await poser("vieille", 31);
+    await expect(magasin.renvoyer(vieille, APPELANT)).rejects.toThrow(/30 jours/);
+    expect(await magasin.renvoyer(vieille, APPELANT, { confirmerAnciennete: true })).toBe(true);
+    const recente = await poser("recente", 29);
+    expect(await magasin.renvoyer(recente, APPELANT)).toBe(true);
+    const lignes = await avecClient(app, A, async (c) => (await c.query("SELECT acteur, entite_id FROM public.journal_audit WHERE tenant_id = $1 AND entite = 'boite_envoi' AND action = 'modification' AND nouvelle->>'action' = 'renvoi'", [A])).rows);
+    expect(lignes.map((l) => [l["acteur"], l["entite_id"]]).sort()).toEqual([["agent-essai", vieille.id], ["agent-essai", recente.id]].sort());
   });
 });

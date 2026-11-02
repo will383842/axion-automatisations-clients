@@ -109,7 +109,7 @@ describe("expéditeur", () => {
     hub.couper();
     for (let i = 0; i < 5; i++) { await expediteur.executer(ref); horloge.t += 5_000; }
     hub.rouvrir();
-    expect(await magasin.renvoyer(ref)).toBe(true);
+    expect(await magasin.renvoyer(ref, { acteur: "agent-essai" })).toBe(true);
     const ligne = magasin.lignes().find((l) => l.id === ref.id)!;
     expect([ligne.etat, ligne.cle, ligne.nombreEssais]).toEqual(["a_envoyer", cle, 0]);
     expect(await expediteur.executer(ref)).toBe("envoye");

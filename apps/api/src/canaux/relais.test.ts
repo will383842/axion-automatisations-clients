@@ -68,7 +68,7 @@ describe("relais de la boîte d'envoi", () => {
     await m.relais.balayer();
     await m.files.hub.vider();
     await m.magasin.conclure(ref, { etat: "echec", erreur: "porte_fermee" });
-    await m.magasin.renvoyer(ref);
+    await m.magasin.renvoyer(ref, { acteur: "agent-essai" });
     await m.relais.balayer();
     await m.files.hub.vider();
     expect(m.envoyes).toEqual(["1", "1"]);

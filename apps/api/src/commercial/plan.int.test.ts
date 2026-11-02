@@ -6,6 +6,7 @@ import pg from "pg";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { automatisationFictive, GRILLE_FICTIVE } from "../catalogue/fixtures.js";
 import { avecClient } from "../db/client-actif.js";
+import { PLATEFORME_ID } from "../db/schema/aides.js";
 import { migrer } from "../db/migrer.js";
 import { enregistrerPlan, ErreurPlan, preparerPlan } from "./plan.js";
 
@@ -106,6 +107,15 @@ async function catalogue(formulesActives: string[]) {
     return { automatisation: a, metier };
   });
 }
+// Condition par défaut de la plateforme (frais, 777 centimes fictifs) valable le seul jour du 1er janvier 2031 ; l'acteur « agent-essai » est celui du journal (la table n'a pas de colonne d'auteur).
+// Aucun rôle ne peut supprimer la ligne : elle n'est écrite qu'une fois, et un second passage la retrouve (deux défauts sur la même clé seraient ambigus).
+async function ecrireDefautPlateforme() {
+  await ecrireEquipe(async (c) => {
+    const existe = await c.query("SELECT 1 FROM conditions_par_defaut WHERE tenant_id = $1 AND type = 'frais' AND valide_du = '2031-01-01' AND valide_au = '2031-01-02'", [PLATEFORME_ID]);
+    if (existe.rowCount) return;
+    await c.query("INSERT INTO conditions_par_defaut (id, tenant_id, type, valeur, valide_du, valide_au) VALUES ($1, $2, 'frais', $3, '2031-01-01', '2031-01-02')", [randomUUID(), PLATEFORME_ID, JSON.stringify({ frais_mise_en_place_centimes: 777 })]);
+  });
+}
 // Un client sans aucune condition, avec une instance à l'état pause rattachée à l'automatisation.
 async function clientCatalogue(automatisationId: string, formule: string) {
   const A = randomUUID();
@@ -170,13 +180,13 @@ describe("plan commercial calculé, contre PostgreSQL", () => {
     const cat = await catalogue(["abonnement"]);
     const a = await clientCatalogue(cat.automatisation, "abonnement");
     const preparer = (date: string) => avecClient(app, a.A, (c) => preparerPlan(c, a.A, a.instance, { metierId: cat.metier, versionMetier: 1, date }), APPELANT);
-    // Grille seule, le jour où la fenêtre du défaut est ouverte.
-    expect((await preparer("2031-01-01")).sources.fraisMiseEnPlace).toBe("grille");
+    // Une vraie ligne du niveau plateforme, écrite par l'équipe, bornée à une fenêtre que personne n'utilise (le jour du 1er janvier 2031).
+    await ecrireDefautPlateforme();
     // Le défaut de la plateforme l'emporte sur la grille.
     const defaut = await preparer("2031-01-01");
     expect(defaut.sources.fraisMiseEnPlace).toBe("defaut");
     expect(defaut.fraisMiseEnPlaceHtCentimes).toBe(777);
-    // valide_au est EXCLUE : le lendemain, la grille reprend.
+    // valide_au est EXCLUE : le lendemain, seule la grille s'applique.
     expect((await preparer("2031-01-02")).sources.fraisMiseEnPlace).toBe("grille");
     // La condition du client l'emporte sur le défaut.
     await a.condition("frais", { frais_mise_en_place_centimes: 100 });

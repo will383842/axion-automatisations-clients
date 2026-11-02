@@ -14,7 +14,13 @@ export type Trouvaille = { type: "e-mail" | "IBAN" | "téléphone" | "IPv4" | "l
 
 const COURRIEL = /[A-Za-z0-9._%+-]+@([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,})/g;
 const IBAN = /\b[A-Z]{2}\d{2}(?:\s?[A-Z0-9]{4}){2,7}(?:\s?[A-Z0-9]{1,3})?\b/g;
-const TELEPHONE = /(?<![\d+])(?:(?:\+|00)33[\s.-]?|0)[1-9](?:[\s.-]?\d{2}){4}(?!\d)/g;
+// Téléphone (T1B-12). Début et fin de mot exigés : une suite de chiffres collée à une lettre, un point ou un chiffre
+// (empreinte, durée, octets, fraction d'horodatage, numéro de version) n'est pas un numéro.
+// Le deux-points, le tiret et le « + » ne sont PAS dans la garde : « tel:+33… », « Tél:06… » restent signalés.
+const TEL_INDICATIF = /(?<![\w.])(?:\+|00)33[\s.-]?[1-9](?:[\s.-]?\d{2}){4}(?!\w)/g;
+const TEL_ZERO = /(?<![\w.+])0[1-9](?:[\s.-]?\d{2}){4}(?!\w)/g;
+// Les 10 chiffres collés ne comptent que si la ligne parle de téléphone.
+const MOT_TELEPHONE = /t[eé]l|phone|mobile|portable|appel/i;
 const IPV4 = /(?<![\d.])(?:\d{1,3}\.){3}\d{1,3}(?![\d.])/g;
 
 function ibanValide(brut: string): boolean {
@@ -41,7 +47,10 @@ export function scannerTexte(fichier: string, texte: string): Trouvaille[] {
       if (!DOMAINES_PERMIS.includes(d) && !d.endsWith(".test")) ajouter("e-mail");
     }
     for (const m of l.matchAll(IBAN)) if (ibanValide(m[0])) ajouter("IBAN");
-    for (const m of l.matchAll(TELEPHONE)) {
+    const parle = MOT_TELEPHONE.test(l);
+    const zero = [...l.matchAll(TEL_ZERO)].filter((m) => parle || /\D/.test(m[0]));
+    const telephones = [...l.matchAll(TEL_INDICATIF), ...zero];
+    for (const m of telephones) {
       const n = nationalTel(m[0]);
       if (!PLAGES_TELEPHONE_FICTION.some((p) => n.startsWith(p))) ajouter("téléphone");
     }

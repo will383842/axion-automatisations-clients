@@ -79,6 +79,7 @@ afterAll(() => {
 // (la MÊME que celle du dépôt chiffré, pour que la sauvegarde suivante reste lisible) et crée un jeton limité à la lecture de ce chemin.
 // Le jeton racine et la part ne quittent jamais ce processus ; le jeton de lecture va dans un fichier 0600 du conteneur postgres (entrée standard, pas d'argument).
 let baoPret: Promise<{ phrase: string }> | undefined;
+let jetonBao = "";
 const preparerOpenBao = () => {
   baoPret ??= (async () => {
     const bao = conteneur("openbao");
@@ -105,15 +106,20 @@ const preparerOpenBao = () => {
     await reessayer(() => exec(racine, "", "secrets", "enable", "-path=technique", "-version=2", "kv"), "montage technique/");
     const phrase = dans("postgres", "cat", "/cles/phrase").trim();
     await reessayer(() => exec(racine, JSON.stringify({ phrase }), "kv", "put", "-mount=technique", "sauvegardes", "-"), "écriture de technique/sauvegardes");
-    exec(racine, 'path "technique/data/sauvegardes" { capabilities = ["read"] }', "policy", "write", "sauvegardes", "-");
-    const jeton = exec(racine, "", "token", "create", "-policy=sauvegardes", "-no-default-policy", "-orphan", "-field=token").trim();
+    // La VRAIE politique versionnée (C-523), pas une copie : lecture seule du seul chemin technique/data/sauvegardes.
+    exec(racine, readFileSync(join(process.cwd(), "ops/socle/openbao/politiques/sauvegardes-lecture.hcl"), "utf8"), "policy", "write", "sauvegardes-lecture", "-");
+    const jeton = exec(racine, "", "token", "create", "-policy=sauvegardes-lecture", "-no-default-policy", "-orphan", "-field=token").trim();
+    // Un second secret, hors du chemin autorisé : le jeton ne doit pas pouvoir le lire (essai du test C-523).
+    await reessayer(() => exec(racine, JSON.stringify({ valeur: "autre" }), "kv", "put", "-mount=technique", "autre-secret", "-"), "écriture de technique/autre-secret");
+    jetonBao = jeton;
     expect(jeton.length).toBeGreaterThan(10);
     sortie("docker", ["exec", "-i", conteneur("postgres"), "sh", "-c", `umask 077 && cat > ${JETON_DANS_POSTGRES} && printf '%s' s.faux > ${JETON_DANS_POSTGRES}-faux`], { input: jeton });
     return { phrase };
   })();
   return baoPret;
 };
-const ENV_BAO = ["-e", "SAUVEGARDE_ESSAI=0", "-e", "BAO_ADDR=http://openbao:8200", "-e", `BAO_JETON_FICHIER=${JETON_DANS_POSTGRES}`];
+// OpenBao du socle d'essai parle en HTTP simple : BAO_ESSAI_SANS_TLS=1 l'admet (avec SAUVEGARDE_ESSAI=1 seulement : le script refuse sinon) ; sans lui, http:// est refusé (T1B-04).
+const ENV_BAO = ["-e", "SAUVEGARDE_ESSAI=1", "-e", "BAO_ESSAI_SANS_TLS=1", "-e", "BAO_ADDR=http://openbao:8200", "-e", `BAO_JETON_FICHIER=${JETON_DANS_POSTGRES}`];
 
 describe("sauvegardes (archivage continu, complète de nuit, restauration)", () => {
   it("[C-045] l'archivage continu est actif et un segment de journal arrive sur la cible", async () => {
@@ -217,10 +223,19 @@ describe("sauvegardes (archivage continu, complète de nuit, restauration)", () 
     const lue = sortie("docker", ["exec", ...ENV_BAO, conteneur("postgres"), "/opt/sauvegardes/lire-phrase-chiffrement.sh"]).trim();
     expect(lue).toBe(phrase);
     // Un jeton refusé par OpenBao ne donne aucune phrase.
-    const refus = spawnSync("docker", ["exec", "-e", "SAUVEGARDE_ESSAI=0", "-e", "BAO_ADDR=http://openbao:8200", "-e", `BAO_JETON_FICHIER=${JETON_DANS_POSTGRES}-faux`, conteneur("postgres"), "/opt/sauvegardes/lire-phrase-chiffrement.sh"], { encoding: "utf8" });
+    const refus = spawnSync("docker", ["exec", "-e", "SAUVEGARDE_ESSAI=1", "-e", "BAO_ESSAI_SANS_TLS=1", "-e", "BAO_ADDR=http://openbao:8200", "-e", `BAO_JETON_FICHIER=${JETON_DANS_POSTGRES}-faux`, conteneur("postgres"), "/opt/sauvegardes/lire-phrase-chiffrement.sh"], { encoding: "utf8" });
     expect(refus.status).not.toBe(0);
     expect(refus.stdout).toBe("");
-    // Une adresse HTTPS n'est pas prise en charge : refus net, jamais de repli sur le fichier d'essai.
+    expect(refus.stderr).toMatch(/OpenBao a refusé la lecture/);
+    // BAO_ESSAI_SANS_TLS=1 hors essai (SAUVEGARDE_ESSAI=0) : refusé net, le repli en clair n'existe pas.
+    const horsEssai = spawnSync("docker", ["exec", "-e", "SAUVEGARDE_ESSAI=0", "-e", "BAO_ESSAI_SANS_TLS=1", "-e", "BAO_ADDR=http://openbao:8200", "-e", `BAO_JETON_FICHIER=${JETON_DANS_POSTGRES}`, conteneur("postgres"), "/opt/sauvegardes/lire-phrase-chiffrement.sh"], { encoding: "utf8" });
+    expect(horsEssai.status).not.toBe(0);
+    expect(horsEssai.stdout).toBe("");
+    expect(horsEssai.stderr).toMatch(/BAO_ESSAI_SANS_TLS n'est admis qu'avec SAUVEGARDE_ESSAI=1/);
+    // Sans BAO_ESSAI_SANS_TLS, http:// est refusé (seul HTTPS passe) ; https:// sans autorité de certification est refusé aussi : jamais de repli sur le fichier d'essai.
+    const http = spawnSync("docker", ["exec", "-e", "SAUVEGARDE_ESSAI=0", "-e", "BAO_ADDR=http://openbao:8200", "-e", `BAO_JETON_FICHIER=${JETON_DANS_POSTGRES}`, conteneur("postgres"), "/opt/sauvegardes/lire-phrase-chiffrement.sh"], { encoding: "utf8" });
+    expect(http.status).not.toBe(0);
+    expect(http.stdout).toBe("");
     const https = spawnSync("docker", ["exec", "-e", "SAUVEGARDE_ESSAI=0", "-e", "BAO_ADDR=https://openbao:8200", "-e", `BAO_JETON_FICHIER=${JETON_DANS_POSTGRES}`, conteneur("postgres"), "/opt/sauvegardes/lire-phrase-chiffrement.sh"], { encoding: "utf8" });
     expect(https.status).not.toBe(0);
     expect(https.stdout).toBe("");
@@ -229,6 +244,64 @@ describe("sauvegardes (archivage continu, complète de nuit, restauration)", () 
     sortie("docker", ["exec", ...ENV_BAO, conteneur("postgres"), "/opt/sauvegardes/sauvegarder-nuit.sh"]);
     expect(completes().length).toBe(avant + 1);
   }, 300_000);
+
+  it("[C-523] le jeton de sauvegarde lit technique/data/sauvegardes et rien d'autre", async () => {
+    await preparerOpenBao();
+    const avec = (...args: string[]) =>
+      spawnSync("docker", ["exec", "-i", "-e", "BAO_ADDR=http://127.0.0.1:8200", "-e", "BAO_TOKEN", conteneur("openbao"), "bao", ...args], {
+        encoding: "utf8",
+        input: JSON.stringify({ phrase: "intrus" }),
+        env: { ...process.env, BAO_TOKEN: jetonBao },
+      });
+    expect(avec("kv", "get", "-mount=technique", "-field=phrase", "sauvegardes").status).toBe(0);
+    // Ni écrire sur ce chemin, ni lister, ni lire un autre chemin, ni toucher à la politique.
+    expect(avec("kv", "put", "-mount=technique", "sauvegardes", "-").status).not.toBe(0);
+    expect(avec("kv", "list", "-mount=technique", "/").status).not.toBe(0);
+    expect(avec("kv", "get", "-mount=technique", "autre-secret").status).not.toBe(0);
+    expect(avec("kv", "metadata", "get", "-mount=technique", "sauvegardes").status).not.toBe(0);
+    expect(avec("policy", "write", "sauvegardes-lecture", "-").status).not.toBe(0);
+    // La phrase n'a pas été remplacée par la tentative d'écriture.
+    const { phrase } = await preparerOpenBao();
+    expect(avec("kv", "get", "-mount=technique", "-field=phrase", "sauvegardes").stdout.trim()).toBe(phrase);
+  });
+
+  it("[C-593] aucun rôle applicatif ni equipe n'est superutilisateur ni membre de pg_read_server_files", () => {
+    // Seul « postgres » (maintenance) est superutilisateur : la limite est écrite dans le README.
+    const autres = sql("postgres", "select rolname from pg_roles r where (r.rolsuper or pg_has_role(r.oid, 'pg_read_server_files', 'member')) and r.rolname <> 'postgres' and r.rolname !~ '^pg_' order by 1");
+    expect(autres).toBe("");
+    const applicatifs = sql("postgres", "select count(*) from pg_roles where rolname ~ '(_app|_equipe|_migration|_purge)$'");
+    expect(Number(applicatifs)).toBeGreaterThanOrEqual(6);
+  });
+
+  it("[C-593] la configuration refuse un hôte SFTP dont l'empreinte diffère de celle épinglée", () => {
+    const sftp = (...c: string[]) => dans("sftp-essai", ...c);
+    const vraies = sftp("sh", "-c", "cat /etc/ssh/ssh_host_*_key.pub").trim().split("\n").filter(Boolean);
+    expect(vraies.length).toBeGreaterThan(0);
+    sftp("sh", "-c", "rm -f /tmp/faux /tmp/faux.pub && ssh-keygen -q -t ed25519 -N '' -f /tmp/faux");
+    const fausse = sftp("cat", "/tmp/faux.pub").trim();
+    const ecrire = (chemin: string, cles: string[]) =>
+      sortie("docker", ["exec", "-i", conteneur("postgres"), "sh", "-c", `umask 077 && cat > ${chemin}`], { input: cles.map((c) => `sftp-essai ${c.split(" ").slice(0, 2).join(" ")}`).join("\n") + "\n" });
+    ecrire("/dev/shm/known-hosts-bon", vraies);
+    ecrire("/dev/shm/known-hosts-faux", [fausse]);
+    const info = (fichier: string) =>
+      spawnSync(
+        "docker",
+        ["exec", "-e", "PGBACKREST_REPO1_SFTP_HOST_KEY_CHECK_TYPE=strict", "-e", `PGBACKREST_REPO1_SFTP_KNOWN_HOST=${fichier}`, conteneur("postgres"), "pgbackrest", "repo-ls"],
+        { encoding: "utf8" },
+      );
+    try {
+      // Témoin : l'empreinte épinglée est acceptée.
+      const bon = info("/dev/shm/known-hosts-bon");
+      expect(bon.status, bon.stderr + bon.stdout).toBe(0);
+      // Une autre empreinte : refus (« info » rend 0 même cible illisible ; « repo-ls » échoue).
+      const faux = info("/dev/shm/known-hosts-faux");
+      expect(faux.status).not.toBe(0);
+      // La cause : c'est bien la clé d'hôte qui est refusée, pas une autre panne (cible muette, fichier absent).
+      expect(faux.stderr + faux.stdout).toMatch(/host.?key|known.?host|fingerprint|mismatch/i);
+    } finally {
+      spawnSync("docker", ["exec", conteneur("postgres"), "rm", "-f", "/dev/shm/known-hosts-bon", "/dev/shm/known-hosts-faux"]);
+    }
+  });
 
   it("[A-196] sans phrase lisible, la sauvegarde de nuit s'arrête avant toute commande pgBackRest : aucune sauvegarde en clair ou sans clé", () => {
     const avant = completes();

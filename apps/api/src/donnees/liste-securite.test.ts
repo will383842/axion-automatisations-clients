@@ -68,6 +68,7 @@ describe("liste blanche : filtre d'établissement", () => {
       `SELECT id FROM commun.personnes WHERE ${f}; SELECT id FROM commun.personnes`,
       `SELECT id FROM commun.personnes UNION SELECT id FROM commun.personnes WHERE ${f}`,
       `SELECT id FROM commun.personnes ORDER BY id`,
+      `SELECT 1 AS id WHERE id IN (SELECT id FROM commun.exclusions WHERE ${f})`,
     ]) expect(refuse(sql), sql).toThrow();
   });
 

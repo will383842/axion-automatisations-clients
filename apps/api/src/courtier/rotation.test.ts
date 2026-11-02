@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { adminRotationPg, creerRotation, DELAI_GRACE_MS, deposerRotation, idTacheRotation, periodeDe, PERIODE_DEFAUT_JOURS, type PortsRotation } from "./rotation.js";
+import { adminRotationPg, creerRotation, DELAI_GRACE_MS, ESSAIS_ROTATION, sessionsPg, deposerRotation, idTacheRotation, periodeDe, PERIODE_DEFAUT_JOURS, type PortsRotation } from "./rotation.js";
 import type { SessionEquipe } from "../gel/gel.js";
 
 const T = randomUUID();
@@ -9,7 +9,7 @@ const BASE = `cli_${ID}`;
 const MDP = ["premier-mot-de-passe", "second-mot-de-passe", "troisieme-mot-de-passe"];
 const session = (o: Partial<SessionEquipe> = {}): SessionEquipe => ({ acteur: "equipe-1", role: "administrateur", clientActifId: T, reauthentifie: true, ...o });
 
-function monter(o: { etat?: string; rolePresent?: boolean; echecRole?: boolean } = {}) {
+function monter(o: { etat?: string; rolePresent?: boolean; echecRole?: boolean; echecCoupure?: boolean; echecAlerte?: boolean } = {}) {
   let maintenant = Date.parse("2027-01-10T10:00:00Z");
   let n = 0;
   const coffre = new Map<string, string>();
@@ -18,8 +18,11 @@ function monter(o: { etat?: string; rolePresent?: boolean; echecRole?: boolean }
   const evenements: string[] = [];
   const journal: Record<string, unknown>[] = [];
   const taches: { nom: string; donnees: unknown; options: Record<string, unknown> }[] = [];
+  const alertes: Record<string, unknown>[] = [];
   let pris = false;
   const p: PortsRotation = {
+    sessions: () => ({ couper: async (b, r) => { if (o.echecCoupure) throw new Error("bouncer injoignable"); evenements.push(`couper:${b}:${r}`); } }),
+    alerte: { envoyer: async (e) => { if (o.echecAlerte) throw new Error("récepteur absent"); alertes.push(e); } },
     base: async () => ({ etat: (o.etat ?? "active") as "active", grappe: "donnees-1", nomBase: `cli_${T.replaceAll("-", "")}` }),
     admin: () => ({
       async changerMotDePasse(r, empreinte, version, validJusqua) {
@@ -40,7 +43,7 @@ function monter(o: { etat?: string; rolePresent?: boolean; echecRole?: boolean }
     periodeJours: PERIODE_DEFAUT_JOURS,
   };
   const file = { async add(nom: string, donnees: unknown, options: Record<string, unknown>) { taches.push({ nom, donnees, options }); } };
-  return { p, file, coffre, role, evenements, journal, taches, avancer: (ms: number) => { maintenant += ms; }, bloquer: () => { pris = true; } };
+  return { p, file, coffre, role, alertes, evenements, journal, taches, avancer: (ms: number) => { maintenant += ms; }, bloquer: () => { pris = true; } };
 }
 
 describe("rotation des mots de passe", () => {
@@ -145,5 +148,63 @@ describe("rotation des mots de passe", () => {
     expect(e).toMatchObject({ code: "role_echoue" });
     expect(`${(e as Error).message}${JSON.stringify(echec.journal)}`).not.toContain(MDP[0]!);
     expect(`${(e as Error).message}`).not.toContain("SCRAM");
+  });
+
+  it("[A-169] la rotation immédiate coupe les sessions ouvertes (PgBouncer puis base) après le changement de mot de passe ; la rotation planifiée ne les coupe pas", async () => {
+    const m = monter();
+    await creerRotation(m.p).immediate(T, "poste perdu", session(), m.file);
+    const i = m.evenements.findIndex((e) => e.startsWith("role:"));
+    expect(m.evenements[i + 1]).toBe(`couper:cli_${ID}:cli_${ID}_app`);
+    expect(m.journal).toContainEqual(expect.objectContaining({ evenement: "sessions_coupees", tenantId: T }));
+    const plan = monter();
+    await creerRotation(plan.p).pourBase(T, plan.file);
+    expect(plan.evenements.some((e) => e.startsWith("couper:"))).toBe(false);
+    // Coupure impossible : l'échec est visible (code seul), tracé, jamais passé sous silence.
+    const panne = monter({ echecCoupure: true });
+    const e = await creerRotation(panne.p).immediate(T, "poste perdu", session(), panne.file).catch((x: unknown) => x as Error);
+    expect(e).toMatchObject({ code: "coupure_echouee" });
+    expect(panne.journal).toContainEqual(expect.objectContaining({ evenement: "sessions_non_coupees", tenantId: T }));
+    expect(`${(e as Error).message}${JSON.stringify(panne.journal)}`).not.toContain(MDP[0]!);
+  });
+
+  it("[A-169] l'adaptateur coupe KILL puis RESUME sur la seule base, et les sessions du rôle app et des rôles humains rattachés à lecture", async () => {
+    const ordres: { cible: string; texte: string; valeurs?: unknown[] }[] = [];
+    const sql = (cible: string, echec = false) => ({ requete: async (texte: string, valeurs?: unknown[]) => { ordres.push({ cible, texte, valeurs }); if (echec && texte.startsWith("SELECT pg_terminate")) throw new Error("grappe injoignable"); return [] as never; } });
+    await sessionsPg(sql("grappe"), sql("bouncer")).couper(`cli_${ID}`, `cli_${ID}_app`);
+    expect(ordres.filter((o) => o.cible === "bouncer").map((o) => o.texte)).toEqual([`KILL cli_${ID}`, `RESUME cli_${ID}`]);
+    const terminer = ordres.find((o) => o.texte.startsWith("SELECT pg_terminate_backend"))!;
+    expect(terminer.texte).toMatch(/pg_stat_activity/);
+    expect(terminer.texte).toMatch(/usename = \$1/);
+    expect(terminer.texte).toMatch(/pg_auth_members/);
+    expect(terminer.valeurs).toEqual([`cli_${ID}_app`, `cli_${ID}_lecture`]);
+    // Même si la base ne répond pas, PgBouncer reprend (RESUME) : la base n'est jamais laissée en pause.
+    ordres.length = 0;
+    await expect(sessionsPg(sql("grappe", true), sql("bouncer")).couper(`cli_${ID}`, `cli_${ID}_app`)).rejects.toThrow();
+    expect(ordres.filter((o) => o.cible === "bouncer").map((o) => o.texte)).toEqual([`KILL cli_${ID}`, `RESUME cli_${ID}`]);
+    // Noms piégés : refus avant tout ordre.
+    ordres.length = 0;
+    for (const [b, r] of [["postgres", "postgres"], [`cli_${ID}; SHUTDOWN`, `cli_${ID}_app`], [`cli_${ID}`, "provisionneur"], [`cli_${ID}`, `cli_${ID}_proprietaire`], [`cli_${ID}`, `cli_000000000000_app`]] as const) {
+      await expect(sessionsPg(sql("grappe"), sql("bouncer")).couper(b, r)).rejects.toThrow();
+    }
+    expect(ordres).toEqual([]);
+  });
+
+  it("[A-169] l'échec définitif d'une rotation après 5 essais déclenche une alerte sans valeur secrète ; pas avant", async () => {
+    expect(ESSAIS_ROTATION).toBe(5);
+    const m = monter();
+    const rot = creerRotation(m.p);
+    const tache = (n: number) => ({ name: "rotation", data: { tenantId: T }, attemptsMade: n, opts: { attempts: ESSAIS_ROTATION } });
+    const erreur = Object.assign(new Error(`échec avec ${MDP[0]}`), { code: "role_echoue" });
+    for (const n of [1, 2, 3, 4]) await rot.surEchec(tache(n), erreur);
+    expect(m.alertes).toEqual([]);
+    await rot.surEchec(tache(5), erreur);
+    expect(m.alertes).toEqual([{ evenement: "rotation_echec_definitif", tenantId: T, base: BASE, essais: 5, code: "role_echoue" }]);
+    expect(JSON.stringify([m.alertes, m.journal])).not.toContain(MDP[0]!);
+    // Une autre tâche (reconnexion) ne déclenche pas l'alerte de rotation ; un récepteur absent est tracé, la panne reste visible.
+    await rot.surEchec({ ...tache(5), name: "reconnecter" }, erreur);
+    expect(m.alertes).toHaveLength(1);
+    const sans = monter({ echecAlerte: true });
+    await expect(creerRotation(sans.p).surEchec(tache(5), erreur)).rejects.toMatchObject({ code: "alerte_non_envoyee" });
+    expect(sans.journal).toContainEqual(expect.objectContaining({ evenement: "alerte_non_envoyee", tenantId: T }));
   });
 });

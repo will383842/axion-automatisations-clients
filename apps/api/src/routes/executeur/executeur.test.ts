@@ -2,12 +2,13 @@ import { randomBytes, randomUUID } from "node:crypto";
 import Fastify from "fastify";
 import { describe, expect, it } from "vitest";
 import { EN_TETES, signer } from "../../../../../packages/contrats/src/commun/signature.js";
-import type { CleEchange, Sens } from "../../coffre/cles-echanges.js";
+import type { CleEchange } from "../../coffre/cles-echanges.js";
 import { ErreurCoffre } from "../../coffre/coffre.js";
 import { emettreJetonInstance } from "../../executeur/jeton-instance.js";
 import type { InstanceResolue } from "../../executeur/portees.js";
 import { brancherErreurs } from "../../plugins/erreurs.js";
-import { routeExecuteur, type DepsExecuteur } from "./index.js";
+import { construireServeur } from "../../serveur.js";
+import { executeurOuvert, routeExecuteur, type DepsExecuteur } from "./index.js";
 
 // Clés générées au lancement : jamais écrites ni affichées.
 const MAINTENANT = 1_800_000_000;
@@ -24,8 +25,8 @@ function monter(o: { actif?: boolean; instances?: Record<string, Partial<Instanc
   const appels: string[] = [];
   const vus = new Set<string>();
   const cles = {
-    async cleActive(canal: string, _s: Sens) { appels.push(`active:${canal}`); return kv.get(canal)![0]!; },
-    async clesAcceptees(canal: string, _s: Sens) {
+    async cleActive(canal: string) { appels.push(`active:${canal}`); return kv.get(canal)![0]!; },
+    async clesAcceptees(canal: string) {
       appels.push(`acceptees:${canal}`);
       if (canal === "ji" && o.panneJi) throw new ErreurCoffre("coffre_indisponible");
       const k = kv.get(canal);
@@ -86,7 +87,7 @@ describe("API de l'exécuteur : signature de la cellule", () => {
     const r = await requete({});
     expect(r.statusCode).toBe(503);
     expect(r.json().erreur.code).toBe("porte_fermee");
-    expect(appels).toEqual([]);
+    expect(appels.filter((a) => a.startsWith("acceptees"))).toEqual([]);
   });
 
   it("[A-339] une requête signée déjà vue est refusée comme un rejeu, et une panne de la mémoire ferme la porte (503)", async () => {
@@ -204,5 +205,14 @@ describe("API de l'exécuteur : réponses", () => {
     const m = monter();
     const lire = async (etat: string, n: number) => { m.instances[X]!.etat = etat as InstanceResolue["etat"]; return (await m.requete({ route: "etat-voulu", jeton: null, suffixe: `?n=${n}` })).json().etat; };
     expect([await lire("active", 1), await lire("pause", 2), await lire("erreur", 3), await lire("livree", 4)]).toEqual(["actif", "pause", "pause", "arrete"]);
+  });
+});
+
+describe("API de l'exécuteur : interrupteur", () => {
+  it("[A-339] EXECUTEUR_API_OUVERTE est fermé par défaut et la route n'existe pas sans dépendances", async () => {
+    expect([{}, { EXECUTEUR_API_OUVERTE: "" }, { EXECUTEUR_API_OUVERTE: "0" }, { EXECUTEUR_API_OUVERTE: "oui" }].map(executeurOuvert)).toEqual([false, false, false, false]);
+    expect([{ EXECUTEUR_API_OUVERTE: "1" }, { EXECUTEUR_API_OUVERTE: "true" }].map(executeurOuvert)).toEqual([true, true]);
+    const r = await construireServeur().inject({ method: "GET", url: `${PREFIXE}/${X}/etat-voulu` });
+    expect(r.statusCode).toBe(404);
   });
 });

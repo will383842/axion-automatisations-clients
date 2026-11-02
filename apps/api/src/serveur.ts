@@ -13,6 +13,7 @@ import { PREFIXE } from "./files/files.js";
 import { executerTache, type Resultat } from "./provisionnement/machine.js";
 import { routeProvisionnement, type DepsRoutesProvisionnement } from "./routes/provisionnement.js";
 import { routeCrm, type DepsCrm } from "./routes/crm.js";
+import { routeExecuteur, type DepsExecuteur } from "./routes/executeur/index.js";
 import { routeSante } from "./routes/sante.js";
 
 // journal : flux qui masque les secrets (plugins/journal.ts) ; les sérialiseurs (journal/serialiseur-req.ts) retirent la partie « ?… » de l'adresse, l'hôte et l'IP (base: {} retire aussi le nom de la machine). Sans flux, aucun journal n'est écrit (interrupteur fermé).
@@ -35,7 +36,7 @@ export function creerTravailleurProvisionnement(o: {
 }
 
 // `provisionnement` : routes de reprise fournies par l'appelant ; absent, la route n'existe pas (fermé par défaut).
-export function construireServeur(options: { config?: Config; pool?: pg.Pool; journal?: { write(ligne: string): void }; provisionnement?: DepsRoutesProvisionnement; crm?: DepsCrm } = {}) {
+export function construireServeur(options: { config?: Config; pool?: pg.Pool; journal?: { write(ligne: string): void }; provisionnement?: DepsRoutesProvisionnement; crm?: DepsCrm; executeur?: DepsExecuteur } = {}) {
   // id_trace : toujours choisi par le serveur, l'en-tête du client est ignoré.
   const serveur = Fastify({ genReqId: () => randomUUID(), requestIdHeader: false, ...(options.journal ? { logger: { level: "info", stream: options.journal, base: {}, serializers: serialiseursJournal } } : {}) });
   brancherErreurs(serveur);
@@ -45,6 +46,8 @@ export function construireServeur(options: { config?: Config; pool?: pg.Pool; jo
   // Récepteur C3 : branché seulement si le dépôt, la file et l'entrant sont fournis ; la porte du canal reste fermée par défaut (503).
   // Le démarrage réel (Valkey, travailleur) reste la dette LOT2-dette-T2-14-cablage (propriétaire T2-21).
   if (options.crm) routeCrm(serveur, options.crm);
+  // API de l'exécuteur (C4) : absente sans dépendances ; fournie, la porte reste fermée tant que actif() rend faux (EXECUTEUR_API_OUVERTE, fermé par défaut).
+  if (options.executeur) routeExecuteur(serveur, options.executeur);
   return serveur;
 }
 

@@ -9,15 +9,18 @@ export type EtatVoulu = "actif" | "pause" | "arrete";
 // État console → état voulu (C4) : une erreur met en pause, une instance livrée s'arrête.
 export const ETAT_VOULU_DE: Readonly<Record<"active" | "pause" | "erreur" | "livree", EtatVoulu>> = Object.freeze({ active: "actif", pause: "pause", erreur: "pause", livree: "arrete" });
 
-export interface InstanceResolue { tenantId: string; celluleCode: string | null }
+export type EtatConsole = keyof typeof ETAT_VOULU_DE;
+// Relue à CHAQUE requête : le jeton d'instance n'est ni révocable ni anti-rejeu, la base seule dit l'état, l'arrêt des envois et la cellule.
+export interface InstanceResolue { tenantId: string; celluleCode: string | null; etat: EtatConsole; arretEnvois: boolean; version: number }
 
 // Lecture seule par le pool de l'équipe. instances.id n'est pas unique seul (dette) : zéro ou plusieurs lignes = introuvable, sans distinction.
 export async function resoudreInstance(poolEquipe: Pool, instanceId: string): Promise<InstanceResolue | null> {
   if (typeof instanceId !== "string" || !UUID.test(instanceId)) return null;
-  const { rows } = await avecEquipe(poolEquipe, (c) => c.query("SELECT tenant_id, cellule_code FROM instances WHERE id = $1 LIMIT 2", [instanceId]));
+  const { rows } = await avecEquipe(poolEquipe, (c) => c.query("SELECT tenant_id, cellule_code, etat, arret_envois, version_etat_voulu FROM instances WHERE id = $1 LIMIT 2", [instanceId]));
   if (rows.length !== 1) return null;
-  const ligne = rows[0] as { tenant_id: string; cellule_code: string | null };
-  return { tenantId: ligne.tenant_id, celluleCode: ligne.cellule_code };
+  const ligne = rows[0] as { tenant_id: string; cellule_code: string | null; etat: string; arret_envois: boolean; version_etat_voulu: number };
+  if (!Object.hasOwn(ETAT_VOULU_DE, ligne.etat)) return null;
+  return { tenantId: ligne.tenant_id, celluleCode: ligne.cellule_code, etat: ligne.etat as EtatConsole, arretEnvois: ligne.arret_envois, version: ligne.version_etat_voulu };
 }
 
 // Attribution (ou retrait, avec null) d'une cellule : sous le client de l'instance, journalisée par l'acteur. Rend vrai si une ligne a changé.

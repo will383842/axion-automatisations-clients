@@ -2,7 +2,7 @@ import Fastify from "fastify";
 import { describe, expect, it } from "vitest";
 import { brancherErreurs } from "../plugins/erreurs.js";
 import { routeDonnees } from "./donnees.js";
-import type { SessionDonnees } from "../donnees/service.js";
+import { creerServiceDonnees, type PortsDonnees, type SessionDonnees } from "../donnees/service.js";
 
 const A = "11111111-1111-4111-8111-111111111111";
 const B = "22222222-2222-4222-8222-222222222222";
@@ -29,5 +29,66 @@ describe("route des données client", () => {
     const { s, vus } = await appli();
     expect((await s.inject({ method: "POST", url: "/api/v1/donnees/a%20b;drop", payload: {} })).statusCode).toBe(400);
     expect(vus).toEqual([]);
+  });
+});
+
+// Niveau route, avec le vrai service et des ports en mémoire : la session décide, quoi que la requête nomme (preuves de T2-37b ; le détail du service est dans service.test.ts).
+const ETAB_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const ETAB_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const T0 = new Date("2026-11-02T10:00:00Z");
+async function appliService(session: SessionDonnees, maintenant = T0) {
+  const ouvertures: string[] = [];
+  const requetes: { texte: string; valeurs: unknown[] }[] = [];
+  const ports: PortsDonnees = {
+    async base(tenantId) { return { nomBase: `cli_${tenantId.slice(0, 4)}`, etat: "active" }; },
+    async ouvrir(nomBase) { ouvertures.push(nomBase); return { async requete(texte, valeurs) { requetes.push({ texte, valeurs }); return texte.includes("commun.etablissements") ? [{ id: ETAB_A }] : [{ total: 1 }]; }, async fermer() {} }; },
+    maintenant: () => maintenant,
+  };
+  const service = creerServiceDonnees(ports);
+  const s = Fastify();
+  brancherErreurs(s);
+  routeDonnees(s, { session: async () => session, executer: (se, nom, p) => service.executer(se, nom, p) });
+  await s.ready();
+  const poster = (nom: string, payload: unknown = {}) => s.inject({ method: "POST", url: `/api/v1/donnees/${nom}?tenantId=${B}`, headers: { "x-tenant": B }, payload: payload as never });
+  return { poster, ouvertures, requetes };
+}
+const clientA: SessionDonnees = { tenantId: A, role: "client", acteur: "u1", etablissements: [ETAB_A] };
+
+describe("route des données client : la session décide", () => {
+  it("[A-170] la route n'ouvre que la base de la session, même si la requête nomme un autre client", async () => {
+    const { poster, ouvertures } = await appliService(clientA);
+    expect((await poster("compterPersonnes", { tenantId: B })).statusCode).toBe(200);
+    expect(ouvertures).toEqual(["cli_1111"]);
+  });
+
+  it("[B-172] la route refuse un nom hors liste blanche sans ouvrir de base", async () => {
+    const { poster, ouvertures } = await appliService(clientA);
+    expect((await poster("supprimerTout")).statusCode).toBe(400);
+    expect(ouvertures).toEqual([]);
+  });
+
+  it("[B-173] @isolation un établissement nommé dans le corps ne remplace pas ceux de la session", async () => {
+    const { poster, requetes } = await appliService(clientA);
+    await poster("compterPersonnes", { etablissements: [ETAB_B], etablissement_id: ETAB_B });
+    expect(requetes.at(-1)?.valeurs).toEqual([[ETAB_A]]);
+  });
+
+  it("[B-070] @isolation l'équipe sans vue ne lit pas le contenu : 403, aucune requête envoyée", async () => {
+    const { poster, requetes } = await appliService({ tenantId: B, role: "equipe", acteur: "e1", etablissements: [] });
+    expect((await poster("listerListesProspects")).statusCode).toBe(403);
+    expect(requetes).toEqual([]);
+  });
+
+  it("[C-006] @isolation une vue ouverte pour un autre client n'ouvre pas le contenu de celui de la session", async () => {
+    const { poster, requetes } = await appliService({ tenantId: B, role: "equipe", acteur: "e1", etablissements: [], vue: { tenantId: A, expireLe: new Date(T0.getTime() + 3_600_000) } });
+    expect((await poster("listerListesProspects")).statusCode).toBe(403);
+    expect(requetes).toEqual([]);
+  });
+
+  it("[A-005] @isolation la vue « comme le client » est refusée dès son expiration", async () => {
+    const vue = { tenantId: B, expireLe: new Date(T0.getTime() + 60 * 60_000) };
+    const session: SessionDonnees = { tenantId: B, role: "equipe", acteur: "e1", etablissements: [], vue };
+    expect((await (await appliService(session, new Date(T0.getTime() + 59 * 60_000))).poster("listerListesProspects")).statusCode).toBe(200);
+    expect((await (await appliService(session, new Date(T0.getTime() + 61 * 60_000))).poster("listerListesProspects")).statusCode).toBe(403);
   });
 });

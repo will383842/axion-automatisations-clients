@@ -10,7 +10,7 @@ import { migrate } from "drizzle-orm/node-postgres/migrator";
 import pg from "pg";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { avecClient, securiserPartitions } from "../../db/connexion.ts";
-import { ConnecteurFactice, ConsoleFactice, CoupureProcessus, HorlogeFactice, Machine, type ContexteEtape } from "../index.ts";
+import { ConnecteurFactice, ConsoleFactice, CoupureProcessus, HorlogeSysteme, Machine, type ContexteEtape } from "../index.ts";
 import { BoitePostgres } from "./boite-envoi.ts";
 import { CurseursPostgres } from "./curseurs.ts";
 import { JournalPostgres } from "./journal-etapes.ts";
@@ -79,7 +79,8 @@ function banc(garantie: Garantie, corps: Record<string, (ctx: ContexteEtape) => 
     etapes: Object.entries(corps).map(([nom, executer]) => ({ nom, executer })),
     connecteurs: [{ famille: "messagerie", actions: ["envoyer", "classer"], portees: ["envoi"], garantie }],
   });
-  const horloge = new HorlogeFactice();
+  // Horloge réelle : avec la base, un temps factice avancerait pendant l'attente des requêtes et couperait l'étape (délai de 120 s) à tort.
+  const horloge = new HorlogeSysteme();
   const connecteur = new ConnecteurFactice();
   connecteur.dedupliquer = garantie === "idempotent_par_cle";
   const console = new ConsoleFactice({ reglages: { actionsAutomatiquesAutorisees: ["envoyer", "classer"], objetAccuse: "Accusé" } });
@@ -89,7 +90,7 @@ function banc(garantie: Garantie, corps: Record<string, (ctx: ContexteEtape) => 
     const ecrire = boite.ecrire.bind(boite);
     boite.ecrire = (...a: Parameters<typeof ecrire>) => ecrire(...a).catch((e: unknown) => (writeSync(2, `BOITE ${String((e as Error).message)}\n`), Promise.reject(e)));
     const ports = { journal: new JournalPostgres(app, tenant), boite, connecteurs: connecteur, console, horloge };
-    return { ports, lancer: (executionId: string) => horloge.piloter(new Machine({ module, ports }).lancer(INSTANCE, executionId)) };
+    return { ports, lancer: (executionId: string) => new Machine({ module, ports }).lancer(INSTANCE, executionId) };
   };
   return { tenant, connecteur, processus };
 }

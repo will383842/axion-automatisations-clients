@@ -47,6 +47,9 @@ importers:
       '@aws-sdk/s3-request-presigner':
         specifier: ^3.1156.0
         version: 3.1156.0
+      '@axion-auto/reglages-heritage':
+        specifier: workspace:*
+        version: link:../../packages/reglages-heritage
       bullmq:
         specifier: ^6.4.2
         version: 6.4.2(ioredis@6.0.0)(pg@8.23.1)

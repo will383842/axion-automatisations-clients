@@ -1,0 +1,219 @@
+import { randomBytes, randomUUID } from "node:crypto";
+import Fastify from "fastify";
+import { describe, expect, it } from "vitest";
+import { EN_TETES, signer } from "../../../../packages/contrats/src/commun/signature.js";
+import type { CleEchange } from "../coffre/cles-echanges.js";
+import { brancherErreurs } from "../plugins/erreurs.js";
+import { brancherHub } from "../routes/hub.js";
+import { DELAI_TROU_MS, decider, verifierTrous, type Depot, type FaitRange, type Rattrapage } from "./recepteur-c2.js";
+
+// Clés de test générées au lancement : jamais écrites. Un secret par sens : le sens console → Hub ne doit jamais être accepté en réception.
+const MAINTENANT = 1_800_000_000;
+const HUB = { kid: "rec-hub-1", secret: randomBytes(32) } satisfies CleEchange;
+const EMISSION = { kid: "emi-hub-1", secret: randomBytes(32) } satisfies CleEchange;
+const CLIENT = "7a1c3e52-0b6d-4c8e-9f41-2d5b8a6c7e10";
+const AUTRE_CLIENT = "9b2d4f63-1c7e-4d9f-8a52-3e6c9b7d8f21";
+const SUJET = "AXI-CLI-000001";
+const MARQUEUR_URL = "https://documents.exemple.fr/marqueur-secret-0001.pdf";
+
+const facture = (sequence: number, extra: Record<string, unknown> = {}) => ({
+  event_id: randomUUID(),
+  schema_version: 1,
+  occurred_at: "2026-10-24T10:00:00Z",
+  emitted_at: "2026-10-24T10:00:01Z",
+  producer: "axion-ia-hub",
+  subject_ref: { axiCli: SUJET, consoleClientId: CLIENT },
+  sequence,
+  event_type: "facture.emise",
+  payload: {
+    numeroFacture: "AXI-FACT-000001",
+    nature: "abonnement",
+    debutPeriode: "2026-11-01",
+    finPeriode: "2026-11-30",
+    montantHtCentimes: 100,
+    montantTvaCentimes: 20,
+    montantTtcCentimes: 120,
+    dateEmission: "2026-10-24",
+    dateEcheance: "2026-11-23",
+    pdf: { url: MARQUEUR_URL, expireAt: "2026-10-25T10:00:00Z", sha256: "a".repeat(64) },
+  },
+  ...extra,
+});
+
+function depotEnMemoire(clientsConnus: string[] = [CLIENT]): Depot & { lignes: (FaitRange & { tenantId: string; recuLe: number; traite: boolean })[] } {
+  const lignes: (FaitRange & { tenantId: string; recuLe: number; traite: boolean })[] = [];
+  return {
+    lignes,
+    async organisationExiste(tenantId) {
+      return clientsConnus.includes(tenantId);
+    },
+    async ranger(tenantId, fait, recuLe) {
+      // Synchrone entre la recherche et l'ajout : même garantie qu'un INSERT … ON CONFLICT DO NOTHING.
+      const dejaLa = lignes.find((l) => l.tenantId === tenantId && l.eventId === fait.eventId);
+      if (dejaLa) return { neuf: false, traite: dejaLa.traite };
+      lignes.push({ ...fait, tenantId, recuLe, traite: false });
+      return { neuf: true, traite: false };
+    },
+    async etatSujet(tenantId, sujet) {
+      const duSujet = lignes.filter((l) => l.tenantId === tenantId && l.sujet === sujet);
+      const traitees = duSujet.filter((l) => l.traite).map((l) => l.sequence);
+      return {
+        derniereTraitee: traitees.length ? Math.max(...traitees) : null,
+        enAttente: duSujet.filter((l) => !l.traite).map((l) => ({ sequence: l.sequence, recuLe: l.recuLe })),
+      };
+    },
+  };
+}
+
+function monter(options: { actif?: boolean; clients?: string[] } = {}) {
+  const serveur = Fastify({ genReqId: () => randomUUID() });
+  brancherErreurs(serveur);
+  const depot = depotEnMemoire(options.clients);
+  const taches: { nom: string; donnees: unknown; jobId?: string }[] = [];
+  const rattrapages: Parameters<Rattrapage["demander"]>[0][] = [];
+  const lignes: object[] = [];
+  const vus = new Set<string>();
+  brancherHub(serveur, {
+    entrant: {
+      cles: { async clesAcceptees(c, s) { return c === "c2" && s === "reception" ? [HUB] : []; } },
+      memoire: { async set(k) { if (vus.has(k)) return null; vus.add(k); return "OK"; } },
+      actif: () => options.actif ?? true,
+      journal: { info: (o: object) => void lignes.push(o) },
+      maintenant: () => MAINTENANT,
+    },
+    recepteur: {
+      depot,
+      file: { name: "faits-c2", async add(nom, donnees, opts) { taches.push({ nom, donnees, ...(opts?.jobId ? { jobId: opts.jobId } : {}) }); } },
+      rattrapage: { async demander(d) { rattrapages.push(d); } },
+      maintenant: () => MAINTENANT * 1000,
+    },
+  });
+  return { serveur, depot, taches, rattrapages, lignes };
+}
+
+let compteur = 0;
+function poster(corps: unknown, cle: CleEchange = HUB) {
+  const texte = JSON.stringify(corps);
+  const h = String(MAINTENANT);
+  // Signature différente à chaque appel (anti-rejeu) : l'horodatage est fixe, donc le corps change par un espace final.
+  const charge = texte + " ".repeat(++compteur);
+  return {
+    method: "POST" as const,
+    url: "/api/hub/v1/faits",
+    headers: {
+      "content-type": "application/json",
+      [EN_TETES.cle]: cle.kid,
+      [EN_TETES.horodatage]: h,
+      [EN_TETES.signature]: signer(cle.secret.toString("base64"), h, "POST", "/api/hub/v1/faits", charge),
+    },
+    payload: charge,
+  };
+}
+
+describe("[C-338] réception des faits du Hub", () => {
+  it("[A-133] @anti-doublon le même fait facture.emise reçu 3 fois, dont 2 en parallèle, est rangé une seule fois", async () => {
+    const { serveur, depot, taches } = monter();
+    const fait = facture(1);
+    const [a, b] = await Promise.all([serveur.inject(poster(fait)), serveur.inject(poster(fait))]);
+    const c = await serveur.inject(poster(fait));
+    expect([a.statusCode, b.statusCode, c.statusCode]).toEqual([200, 200, 200]);
+    expect(depot.lignes).toHaveLength(1);
+    // Une seule tâche : jobId dérivé de l'identifiant du fait, jamais du contenu.
+    expect(new Set(taches.map((t) => t.jobId)).size).toBe(1);
+  });
+
+  it("[C-338] répond 200 pour un fait déjà traité, sans rien refaire", async () => {
+    const { serveur, depot, taches } = monter();
+    const fait = facture(1);
+    await serveur.inject(poster(fait));
+    for (const l of depot.lignes) l.traite = true;
+    const avant = taches.length;
+    const r = await serveur.inject(poster(fait));
+    expect(r.statusCode).toBe(200);
+    expect(depot.lignes).toHaveLength(1);
+    expect(taches.length).toBe(avant);
+  });
+
+  it("[C-338] un fait signé avec la clé du sens console → Hub, ou non signé, n'est jamais rangé", async () => {
+    const { serveur, depot } = monter();
+    expect((await serveur.inject(poster(facture(1), EMISSION))).statusCode).toBe(401);
+    const sansSignature = poster(facture(2));
+    delete (sansSignature.headers as Record<string, string>)[EN_TETES.signature];
+    expect((await serveur.inject(sansSignature)).statusCode).toBe(401);
+    expect(depot.lignes).toHaveLength(0);
+  });
+
+  it("[C-338] porte fermée : 503 et rien de rangé", async () => {
+    const { serveur, depot } = monter({ actif: false });
+    expect((await serveur.inject(poster(facture(1)))).statusCode).toBe(503);
+    expect(depot.lignes).toHaveLength(0);
+  });
+
+  it("[C-338] un fait d'un sujet inconnu, ou sans identifiant console, n'est pas rangé", async () => {
+    const { serveur, depot } = monter();
+    const inconnu = facture(1, { subject_ref: { axiCli: SUJET, consoleClientId: AUTRE_CLIENT } });
+    expect((await serveur.inject(poster(inconnu))).statusCode).toBe(404);
+    const sansId = facture(1, { subject_ref: { axiCli: SUJET } });
+    expect((await serveur.inject(poster(sansId))).statusCode).toBe(400);
+    expect(depot.lignes).toHaveLength(0);
+  });
+
+  it("[C-338] un payload qui ne respecte pas C2 est refusé (400) et rien n'est rangé", async () => {
+    const { serveur, depot } = monter();
+    const mauvais = facture(1);
+    (mauvais.payload as Record<string, unknown>)["montantHtCentimes"] = 1.5;
+    expect((await serveur.inject(poster(mauvais))).statusCode).toBe(400);
+    expect(depot.lignes).toHaveLength(0);
+  });
+
+  it("[LOT2-c2] un event_type inconnu est rangé et mis en file, jamais perdu", async () => {
+    const { serveur, depot, taches } = monter();
+    const r = await serveur.inject(poster(facture(1, { event_type: "piece.signee", payload: { x: 1 } })));
+    expect(r.statusCode).toBe(200);
+    expect(depot.lignes.map((l) => l.type)).toEqual(["piece.signee"]);
+    expect(taches).toHaveLength(1);
+  });
+
+  it("[LOT2-c2] l'URL signée du PDF n'est ni gardée ni journalisée", async () => {
+    const { serveur, depot, taches, lignes } = monter();
+    await serveur.inject(poster(facture(1)));
+    const tout = JSON.stringify({ depot: depot.lignes, taches, lignes });
+    expect(tout).not.toContain("marqueur-secret-0001");
+    expect(JSON.stringify(taches)).toContain("a".repeat(64));
+  });
+});
+
+describe("[LOT2-c2] ordre des faits et rattrapage", () => {
+  const il = (secondes: number) => MAINTENANT * 1000 - secondes * 1000;
+
+  it("[LOT2-c2] un fait hors séquence attend ; le suivant du sujet est traitable", () => {
+    expect(decider({ derniereTraitee: 1, enAttente: [{ sequence: 3, recuLe: il(5) }] }, MAINTENANT * 1000)).toEqual({ action: "attendre" });
+    expect(decider({ derniereTraitee: 1, enAttente: [{ sequence: 3, recuLe: il(5) }, { sequence: 2, recuLe: il(4) }] }, MAINTENANT * 1000)).toEqual({ action: "traiter", sequence: 2 });
+    expect(decider({ derniereTraitee: null, enAttente: [{ sequence: 0, recuLe: il(1) }] }, MAINTENANT * 1000)).toEqual({ action: "traiter", sequence: 0 });
+    expect(decider({ derniereTraitee: 4, enAttente: [] }, MAINTENANT * 1000)).toEqual({ action: "rien" });
+  });
+
+  it("[LOT2-c2] un trou de plus de 10 minutes déclenche un seul rattrapage, avec une intention stable", async () => {
+    const { depot, rattrapages } = monter();
+    const rattrapage: Rattrapage = { async demander(d) { rattrapages.push(d); } };
+    depot.lignes.push({ tenantId: CLIENT, eventId: randomUUID(), type: "facture.emise", sequence: 4, sujet: SUJET, recuLe: il(DELAI_TROU_MS / 1000 + 1), traite: false });
+    depot.lignes.push({ tenantId: CLIENT, eventId: randomUUID(), type: "facture.emise", sequence: 3, sujet: SUJET, recuLe: il(1), traite: true });
+    await verifierTrous({ depot, rattrapage }, CLIENT, SUJET, MAINTENANT * 1000);
+    await verifierTrous({ depot, rattrapage }, CLIENT, SUJET, MAINTENANT * 1000 + 60_000);
+    // Deux passes, une même intention : la boîte d'envoi (clé anti-doublon) n'en garde qu'une.
+    expect(new Set(rattrapages.map((r) => r.intention))).toEqual(new Set([`rattrapage:${SUJET}:4`]));
+    expect(rattrapages.every((r) => r.tenantId === CLIENT && r.sujet === SUJET)).toBe(true);
+  });
+
+  it("[LOT2-c2] un trou de moins de 10 minutes, ou comblé, ne déclenche aucun rattrapage", async () => {
+    const { depot, rattrapages } = monter();
+    const rattrapage: Rattrapage = { async demander(d) { rattrapages.push(d); } };
+    depot.lignes.push({ tenantId: CLIENT, eventId: randomUUID(), type: "facture.emise", sequence: 2, sujet: SUJET, recuLe: il(DELAI_TROU_MS / 1000 - 5), traite: false });
+    await verifierTrous({ depot, rattrapage }, CLIENT, SUJET, MAINTENANT * 1000);
+    // Le fait manquant (0 et 1) arrive : plus de trou, même si le fait 2 date de plus de 10 minutes.
+    depot.lignes.push({ tenantId: CLIENT, eventId: randomUUID(), type: "facture.emise", sequence: 0, sujet: SUJET, recuLe: il(1), traite: true });
+    depot.lignes.push({ tenantId: CLIENT, eventId: randomUUID(), type: "facture.emise", sequence: 1, sujet: SUJET, recuLe: il(1), traite: true });
+    await verifierTrous({ depot, rattrapage }, CLIENT, SUJET, MAINTENANT * 1000 + 3_600_000);
+    expect(rattrapages).toHaveLength(0);
+  });
+});

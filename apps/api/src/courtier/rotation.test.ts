@@ -89,6 +89,7 @@ describe("rotation des mots de passe", () => {
     await expect(rot.immediate(T, "incident", session({ clientActifId: randomUUID() }), m.file)).rejects.toMatchObject({ code: "action_interdite" });
     await expect(rot.immediate(T, "incident", session({ acteur: "systeme" }), m.file)).rejects.toMatchObject({ code: "action_interdite" });
     await expect(rot.immediate(T, "  ", session(), m.file)).rejects.toMatchObject({ code: "schema_invalide" });
+    for (const role of ["lecteur", "qualifieur"]) await expect(rot.immediate(T, "incident", session({ role }), m.file)).rejects.toMatchObject({ code: "action_interdite" });
     expect(m.evenements).toEqual([]);
     await rot.immediate(T, "poste perdu", session(), m.file);
     expect(m.evenements).toContain("coffre");

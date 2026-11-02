@@ -6,8 +6,11 @@ const lire = (chemin: string) => readFileSync(new URL(`../../../../${chemin}`, i
 describe("politiques et initialisation OpenBao du courtier", () => {
   it("[A-209] la politique donnees lit le secret app d'un client et jamais les autres genres ni le provisionneur", () => {
     const hcl = lire("ops/socle/openbao/donnees.hcl").replace(/^#.*$/gm, "");
-    expect(hcl).toContain('path "technique/data/donnees/cli_*/app"');
-    expect(hcl).not.toMatch(/proprietaire|provisionneur|pgbouncer-admin|technique\/data\/\*|technique\/data\/donnees\/cli_\*"/);
+    expect(hcl).toContain('path "technique/data/donnees/+/app"');
+    expect(hcl).toContain('path "technique/metadata/donnees/+/app"');
+    // Le joker * n'est valable qu'en dernier caractère d'un chemin OpenBao : un * au milieu ne couvre aucun secret.
+    for (const m of hcl.matchAll(/path "([^"]*)"/g)) expect(m[1]!.slice(0, -1)).not.toContain("*");
+    expect(hcl).not.toMatch(/proprietaire|provisionneur|pgbouncer-admin|technique\/data\/\*|technique\/data\/donnees\/\*|technique\/data\/donnees\/cli_/);
     for (const m of hcl.matchAll(/path "([^"]*)" \{\s*capabilities = \[([^\]]*)\]/g)) expect(m[2]).toBe('"read"');
     // courtier.hcl n'est pas touché : les tests C-012 et C-015 lui interdisent tout chemin technique/.
     expect(lire("ops/socle/openbao/politiques/courtier.hcl")).not.toMatch(/technique/);

@@ -94,6 +94,13 @@ describe("identifiants servis par le courtier", () => {
     await expect(limitesPg(sql)("provisionneur")).rejects.toThrow();
   });
 
+  it("[A-417] un statement_timeout à 0 (sans limite) n'est pas une limite posée", async () => {
+    for (const c of ["statement_timeout=0", "statement_timeout=0ms", "statement_timeout=-1"]) {
+      const sql = { requete: async () => [{ rolconnlimit: 8, rolconfig: [c] }] as never };
+      await expect(limitesPg(sql)(`cli_${idA}_app`)).resolves.toEqual({ statementTimeout: false, connectionLimit: 8 });
+    }
+  });
+
   it("[A-209] un secret qui ne correspond pas à la version du rôle n'est pas servi", async () => {
     const m = monter({ versionRole: 2 });
     await expect(identifiantsPourTache(m.p, A, "tache-1")).rejects.toMatchObject({ code: "secret_incoherent" });

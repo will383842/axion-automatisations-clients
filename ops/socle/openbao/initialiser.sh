@@ -34,6 +34,8 @@ bao secrets enable transit >/dev/null
 bao secrets enable -path=technique -version=2 kv >/dev/null
 # Clé de signature des modules (A-193) : jamais exportable, pas de copie transit ; le secours (A-303) se fait par instantané raft (ADR 0017).
 bao write -f transit/keys/modules-signature type=ed25519 exportable=false >/dev/null
+# Clé de signature des exports des clients (B-374) : même réglage, jamais exportable ; la clé publique se lit, la privée ne sort pas.
+bao write -f transit/keys/exports-signature type=ed25519 exportable=false >/dev/null
 for role in api courtier equipe signature echanges secours; do
   bao policy write "$role" - <"$dossier/politiques/$role.hcl" >/dev/null
   jeton="$(bao token create -policy="$role" -no-default-policy -orphan -period=768h -format=json | jq -r '.auth.client_token')"

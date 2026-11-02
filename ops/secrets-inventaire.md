@@ -64,6 +64,7 @@ Les secrets de l'équipe vivent dans Bitwarden ou sous `technique/` d'OpenBao, J
 | Nom | Catégorie | Lieu | Rotation |
 |---|---|---|---|
 | `clients/<client>/...` | client | OpenBao `clients/` | à la demande du client |
+| `technique/donnees/cli_<id>/<rôle>` | equipe | OpenBao `technique/` (mots de passe de la base d'un client, générés par le provisionnement, écrits sans relecture par le rôle OpenBao provisionneur) | à la demande, par le courtier (T2-36) |
 | `technique/echanges/<canal>/<kid>` | equipe | OpenBao `technique/` | deux clés actives, chevauchement de 24 h |
 | `modules-signature` | equipe | OpenBao transit (clé non exportable) | sur décision de l'architecte |
 | `PART` | equipe | collection « parts » du gestionnaire de mots de passe (2 parts), responsable du produit, personne de confiance, copie hors ligne : un lieu par part (voir la procédure) | au changement d'un détenteur |

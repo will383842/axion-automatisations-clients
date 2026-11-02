@@ -349,4 +349,13 @@ describe("fonctions permises : durcissement", () => {
       expect(erreurs.join("\n"), nomCas).not.toContain("CREATE FUNCTION");
     }
   });
+
+  it("[A-233] garde-migrations lit aussi drizzle-cli et refuse un DROP", () => {
+    const racine = mkdtempSync(join(tmpdir(), "garde-cli-"));
+    const dossier = join(racine, "apps/api/drizzle-cli");
+    mkdirSync(join(dossier, "meta"), { recursive: true });
+    writeFileSync(join(dossier, "meta/_journal.json"), JSON.stringify({ version: "7", dialect: "postgresql", entries: [{ idx: 0, version: "7", when: 1, tag: "0000_x", breakpoints: true }] }));
+    writeFileSync(join(dossier, "0000_x.sql"), "DROP TABLE commun.personnes;");
+    expect(gardeMigrations(racine, [])).toEqual(["apps/api/drizzle-cli/0000_x.sql:1: instruction interdite : DROP"]);
+  });
 });

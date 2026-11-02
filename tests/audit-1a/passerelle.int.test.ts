@@ -143,7 +143,7 @@ const lignesDeDepense = async (cle: string, empreinte: string) => {
   const r = await appeler(cle, "GET", `/spend/logs?api_key=${empreinte}&summarize=false`);
   let lignes: unknown = [];
   try { lignes = JSON.parse(r.texte); } catch { /* pas du JSON */ }
-  return { statut: r.statut, lignes: (Array.isArray(lignes) ? lignes : []) as Record<string, unknown>[] };
+  return { statut: r.statut, motif: r.statut === 200 ? "" : r.texte.replace(cleEquipe, "<clé d'équipe>").slice(0, 200), lignes: (Array.isArray(lignes) ? lignes : []) as Record<string, unknown>[] };
 };
 
 beforeAll(garder(async () => {
@@ -196,9 +196,11 @@ beforeAll(garder(async () => {
   }
   // La dépense est écrite par lots : on attend qu'elle apparaisse pour les deux clés.
   for (let i = 0; ; i++) {
-    const ecrites = async (cle: string) => (await lignesDeDepense(cleEquipe, empreinteDe(cle))).lignes.length;
-    if ((await ecrites(cleA)) >= 2 && (await ecrites(cleB)) >= 1) break;
-    if (i > 120) throw new Error("dépense jamais écrite par la passerelle d'essai");
+    const deA = await lignesDeDepense(cleEquipe, empreinteDe(cleA));
+    const deB = await lignesDeDepense(cleEquipe, empreinteDe(cleB));
+    if (deA.lignes.length >= 2 && deB.lignes.length >= 1) break;
+    // Diagnostic sans valeur secrète : statuts et nombres de lignes seulement.
+    if (i > 120) throw new Error(`dépense jamais écrite par la passerelle d'essai (statuts ${deA.statut}/${deB.statut}, lignes ${deA.lignes.length}/${deB.lignes.length}) ${deA.motif}`);
     await pause(1500);
   }
 }), 600_000);

@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
 import { lireYaml } from "../../../../scripts/garde-compose.js";
@@ -34,11 +34,14 @@ async function lancer(): Promise<OptionsBao> {
   return { url, jeton: r.auth.client_token };
 }
 
+// Écrit sur la sortie d'erreur : le rapport JSON de la CI avale console.log.
+const trace = (m: string) => writeSync(2, `${m}\n`);
+
 describe("colonnes et fichiers chiffrés, OpenBao réel", () => {
   it("[A-245] après destruction de la clé, champs et fichiers sont illisibles, y compris avec un cache chaud", async () => {
     let etape = "lancement";
     const debut = Date.now();
-    const marquer = (e: string) => { etape = e; console.log(`COLONNES-INT étape « ${e} » à ${Date.now() - debut} ms`); };
+    const marquer = (e: string) => { etape = e; trace(`COLONNES-INT étape « ${e} » à ${Date.now() - debut} ms`); };
     try {
       const bao = await lancer();
       marquer("clés");
@@ -70,10 +73,10 @@ describe("colonnes et fichiers chiffrés, OpenBao réel", () => {
       await expect(colonnes.dechiffrerChamp(A, champ)).rejects.toBeInstanceOf(ErreurCoffre);
       await expect(fichiers.lireFichier(A, "exports/a.bin")).rejects.toBeInstanceOf(ErreurCoffre);
       expect(await colonnes.dechiffrerChamp(B, champB)).toBe("essai@exemple.fr");
-      console.log(`COLONNES-INT terminé en ${Date.now() - debut} ms`);
+      trace(`COLONNES-INT terminé en ${Date.now() - debut} ms`);
     } catch (e) {
       // Seul le code ressort (ErreurCoffre : message = code) : aucun secret, pour lire l'échec dans le journal de la CI.
-      console.log(`COLONNES-INT échec à l'étape « ${etape} » : ${(e as Error).name} ${(e as Error).message.slice(0, 120)}`);
+      trace(`COLONNES-INT échec à l'étape « ${etape} » : ${(e as Error).name} ${(e as Error).message.slice(0, 120)}`);
       throw e;
     }
   }, 120_000);

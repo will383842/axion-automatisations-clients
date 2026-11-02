@@ -196,7 +196,7 @@ describe("[LOT2-c2] ordre des faits et rattrapage", () => {
   it("[LOT2-c2] un trou de plus de 10 minutes déclenche un seul rattrapage, avec une intention stable", async () => {
     const { depot, rattrapages } = monter();
     const rattrapage: Rattrapage = { async demander(d) { rattrapages.push(d); } };
-    depot.lignes.push({ tenantId: CLIENT, eventId: randomUUID(), type: "facture.emise", sequence: 4, sujet: SUJET, recuLe: il(DELAI_TROU_MS / 1000 + 1), traite: false });
+    depot.lignes.push({ tenantId: CLIENT, eventId: randomUUID(), type: "facture.emise", sequence: 5, sujet: SUJET, recuLe: il(DELAI_TROU_MS / 1000 + 1), traite: false });
     depot.lignes.push({ tenantId: CLIENT, eventId: randomUUID(), type: "facture.emise", sequence: 3, sujet: SUJET, recuLe: il(1), traite: true });
     await verifierTrous({ depot, rattrapage }, CLIENT, SUJET, MAINTENANT * 1000);
     await verifierTrous({ depot, rattrapage }, CLIENT, SUJET, MAINTENANT * 1000 + 60_000);

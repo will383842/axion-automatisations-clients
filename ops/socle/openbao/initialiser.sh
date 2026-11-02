@@ -49,19 +49,31 @@ masquer "$jeton"
 printf 'PROVISIONNEUR=%s\n' "$jeton" >>"$fichier"
 unset jeton
 
-# Courtier des bases (T2-36, A-209 et A-211) : politique et jeton à part (DONNEES), lus par le seul dossier apps/api/src/courtier. Le moteur database/ reste FERMÉ tant que le compte de gestion
+# Courtier des bases (T2-36, A-209) : politique et jeton à part (DONNEES) pour les secrets de l'exécuteur, lus par le seul dossier apps/api/src/courtier. Le moteur database/ reste FERMÉ tant que le compte de gestion
 # de la grappe « données » n'est pas fourni (secret technique/, jamais rangé sous clients/). Le mot de passe passe par l'entrée standard, jamais par un argument.
 bao policy write donnees - <"$dossier/donnees.hcl" >/dev/null
 jeton="$(bao token create -policy=donnees -no-default-policy -orphan -period=768h -format=json | jq -r '.auth.client_token')"
 masquer "$jeton"
 printf 'DONNEES=%s\n' "$jeton" >>"$fichier"
 unset jeton
+# Accès humain (T2-36b, A-211) : politique et jeton SÉPARÉS (HUMAINS). Lecture des identifiants dynamiques et révocation des baux des seuls rôles humain-lecture-cli_<id> ;
+# le joker * n'est valable qu'en dernier caractère d'un chemin. Aucun droit sur technique/, clients/ ni sur la configuration du moteur (les rôles se déclarent à la création du client).
+bao policy write humains - <<'POLITIQUE' >/dev/null
+path "database/creds/humain-lecture-cli_*" {
+  capabilities = ["read"]
+}
+path "sys/leases/revoke/database/creds/humain-lecture-cli_*" {
+  capabilities = ["update"]
+}
+POLITIQUE
+jeton="$(bao token create -policy=humains -no-default-policy -orphan -period=768h -format=json | jq -r '.auth.client_token')"
+masquer "$jeton"
+printf 'HUMAINS=%s\n' "$jeton" >>"$fichier"
+unset jeton
 if [ -n "${DONNEES_GESTION_UTILISATEUR:-}" ] && [ -n "${DONNEES_GESTION_MOT_DE_PASSE:-}" ] && [ -n "${DONNEES_HOTE:-}" ]; then
   bao secrets enable database >/dev/null
-  jq -n '{plugin_name: "postgresql-database-plugin", allowed_roles: "humain-lecture-cli", connection_url: ("postgresql://{{username}}:{{password}}@" + env.DONNEES_HOTE + ":5432/postgres"), username: env.DONNEES_GESTION_UTILISATEUR, password: env.DONNEES_GESTION_MOT_DE_PASSE}' | bao write database/config/donnees-1 - >/dev/null
-  # Rôle sans aucun droit par défaut : l'accord à la base d'UN client est posé par le provisionnement, pas ici.
-  creation='CREATE ROLE "{{name}}" WITH LOGIN PASSWORD '"'"'{{password}}'"'"' VALID UNTIL '"'"'{{expiration}}'"'"' NOBYPASSRLS;'
-  bao write database/roles/humain-lecture-cli db_name=donnees-1 "creation_statements=$creation" 'revocation_statements=DROP ROLE IF EXISTS "{{name}}";' default_ttl=1h max_ttl=1h >/dev/null
+  jq -n '{plugin_name: "postgresql-database-plugin", allowed_roles: "humain-lecture-cli_*", connection_url: ("postgresql://{{username}}:{{password}}@" + env.DONNEES_HOTE + ":5432/postgres?sslmode=verify-full"), username: env.DONNEES_GESTION_UTILISATEUR, password: env.DONNEES_GESTION_MOT_DE_PASSE}' | bao write database/config/donnees-1 - >/dev/null
+  # Un rôle dynamique PAR CLIENT (humain-lecture-cli_<id>, definitionRoleHumain) est déclaré par la création du client, jamais ici : aucun rôle sans droit, aucun rôle commun.
 fi
 unset DONNEES_GESTION_MOT_DE_PASSE
 

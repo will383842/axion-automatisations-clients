@@ -158,4 +158,11 @@ describe("interrupteurs des canaux", () => {
     expect(chargerConfig(prod({ VERSION_STRUCTURE_CODE: "5" }), dossier()).versionStructureCode).toBe(5);
     expect(refus(prod({ VERSION_STRUCTURE_CODE: "cinq" }))).toContain("VERSION_STRUCTURE_CODE");
   });
+
+  it("[C-047] le retrait des anciens dumps est fermé par défaut ; seules 1 et true l'ouvrent ; toute autre valeur est refusée", () => {
+    expect(chargerConfig({ NODE_ENV: "test" }, dossier()).sauvegardesRetraitActif).toBe(false);
+    expect(chargerConfig({ NODE_ENV: "test", SAUVEGARDES_RETRAIT_ACTIF: "" }, dossier()).sauvegardesRetraitActif).toBe(false);
+    expect(chargerConfig({ NODE_ENV: "test", SAUVEGARDES_RETRAIT_ACTIF: "true" }, dossier()).sauvegardesRetraitActif).toBe(true);
+    expect(refus({ NODE_ENV: "test", SAUVEGARDES_RETRAIT_ACTIF: "oui" })).toContain("SAUVEGARDES_RETRAIT_ACTIF");
+  });
 });

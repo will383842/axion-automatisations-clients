@@ -1,0 +1,63 @@
+# Archivage continu de la grappe « données » (T2-39, A-237, ADR 0009) : redéfinit le service donnees de compose.donnees.yml avec l'image pgBackRest et l'archivage,
+# vers un dépôt DISTINCT de celui de la grappe commune (compose.sauvegardes.yml) : cible SFTP d'essai à part, clé SSH à part, PHRASE à part (générée au lancement).
+# Les volumes portent d'autres noms : le dépôt de la grappe commune ne se restaure pas avec cette phrase, ni celui-ci avec la sienne. Essai seulement (comme T1A-14) ;
+# le branchement sur la vraie Storage Box (sous-compte propre, phrase dans OpenBao) est à faire en même temps que celui de la grappe commune (README, « Bases des clients »).
+services:
+  donnees:
+    image: ghcr.io/will383842/axion-automatisations-clients/postgres-sauvegardes-pitr:16-r41-r75@sha256:05c30a0b3fbdb098f11f0a843fd1e61ce5c2f0726dca84840d68fe92c37f453a
+    environment:
+      SAUVEGARDE_ESSAI: "1"
+      PGBACKREST_CONFIG: /dev/shm/pgbackrest.conf
+      PGBACKREST_STANZA: donnees
+      PGBACKREST_COMPRESS_TYPE: none
+      # P : réglages de la grappe (inchangés) puis archivage (archive_timeout = 300 s : un journal part au plus toutes les 5 minutes)
+      P: -c max_connections=263 -c superuser_reserved_connections=3 -c reserved_connections=10 -c archive_mode=on -c archive_timeout=300 -c wal_level=replica
+      C: archive_command=pgbackrest archive-push %p
+      # M : modèle (un seul fichier doit correspondre) · F : configuration en mémoire = phrase propre à ce dépôt + modèle
+      M: /opt/sauvegardes/pgbackrest-donnees*
+      F: set -- $$M; [ $$# -eq 1 ] && umask 277 && { printf '[global]\nrepo1-cipher-pass=%s\n' "$$(cat /cles/phrase)"; grep -v '^\[global\]$$' "$$1"; } >$$PGBACKREST_CONFIG
+    init: true
+    entrypoint: ['sh', '-c', 'eval "$$G"; eval "$$H"; eval "$$F" && exec docker-entrypoint.$$X postgres $$P -c "$$C"']
+    volumes:
+      - ../sauvegardes:/opt/sauvegardes:ro
+      - cles-sauvegarde-donnees:/cles:ro
+    depends_on:
+      sftp-essai-donnees:
+        condition: service_started
+  cle-essai-donnees:
+    image: ghcr.io/will383842/axion-automatisations-clients/postgres-sauvegardes-pitr:16-r41-r75@sha256:05c30a0b3fbdb098f11f0a843fd1e61ce5c2f0726dca84840d68fe92c37f453a
+    restart: "no"
+    user: "0:0"
+    # K : clé SSH · F : phrase PROPRE à ce dépôt (32 octets aléatoires) · E : droits (lisibles par postgres seul) · D : la clé publique seule va à la cible
+    environment:
+      K: ssh-keygen -q -t ed25519 -N "" -f /cles/id
+      F: openssl rand -hex 32 >/cles/phrase
+      E: chown postgres:postgres /cles /cles/id /cles/phrase
+      H: chmod 700 /cles /pub && chmod 600 /cles/id /cles/phrase
+      D: cp /cles/id.p* /pub/ && chmod 600 /pub/* && chown 1001:100 /depot
+    entrypoint: ['sh', '-c', 'eval "$$K&&$$F&&$$E&&$$H&&$$D" && exec sleep infinity']
+    volumes:
+      - cles-sauvegarde-donnees:/cles
+      - cle-publique-donnees:/pub
+      - depot-sauvegardes-donnees:/depot
+    networks: [interne]
+    healthcheck:
+      test: ["CMD-SHELL", "test -s /cles/phrase && test -s /pub/id.p*"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  sftp-essai-donnees:
+    image: atmoz/sftp:alpine@sha256:43dd1c023cf1bae487127d4b54660b0aee6e94c188a6599be36fb89ba115f961
+    restart: "no"
+    command: sauv::1001:100:depot
+    depends_on:
+      cle-essai-donnees:
+        condition: service_healthy
+    volumes:
+      - cle-publique-donnees:/home/sauv/.ssh/keys:ro
+      - depot-sauvegardes-donnees:/home/sauv/depot
+    networks: [interne]
+volumes:
+  cles-sauvegarde-donnees: {}
+  cle-publique-donnees: {}
+  depot-sauvegardes-donnees: {}

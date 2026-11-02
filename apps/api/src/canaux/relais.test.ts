@@ -17,7 +17,7 @@ function monter(ouvert: { hub: boolean; crm: boolean } = { hub: true, crm: true 
 }
 
 describe("relais de la boîte d'envoi", () => {
-  it("[A-088] @envoi le Hub coupé puis rétabli : tout est rejoué dans l'ordre", async () => {
+  it("[A-088] [C-483] @envoi le Hub coupé puis rétabli : rien perdu, tout rejoué dans l'ordre", async () => {
     const m = monter({ hub: false, crm: true });
     for (let n = 1; n <= 5; n++) m.magasin.deposer({ ...ligne(n), creeLe: new Date(m.horloge.t + n) });
     await m.relais.balayer();

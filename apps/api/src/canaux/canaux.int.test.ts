@@ -55,7 +55,8 @@ describe("anti-rejeu dans le vrai Valkey", () => {
     const { serveur, traites, requete } = monter(connexion);
     const q = requete();
     expect((await serveur.inject(q)).statusCode).toBe(200);
-    expect((await serveur.inject(q)).json().erreur.code).toBe("rejeu");
+    // Refus neutre (T2-16b, D3) : le rejeu n'a pas de code propre, seul le journal interne garde la cause.
+    expect((await serveur.inject(q)).json().erreur.code).toBe("signature_invalide");
     // Valkey devenu injoignable, sans toucher au service partagé : connexion coupée, puis serveur qui ne répond pas.
     connexion.client.disconnect();
     const coupe = await serveur.inject(requete());

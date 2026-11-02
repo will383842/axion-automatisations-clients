@@ -190,10 +190,11 @@ describe("suivi : instantané et journal Drizzle de la migration 0011", () => {
     for (const cle of Object.keys(s10).filter((k) => !["id", "prevId", "tables", "enums"].includes(k))) expect(s11[cle], cle).toEqual(s10[cle]);
   });
 
-  it("[A-119] le journal Drizzle est complet : douze entrées de 0000 à 0011, la dernière est 0011_suivi", () => {
+  it("[A-119] le journal Drizzle est complet : les entrées se suivent de 0000 à 0011 (0011_suivi à l'indice 11), puis les migrations suivantes sans trou", () => {
     const journal = JSON.parse(lire("../../../drizzle/meta/_journal.json")) as { entries: { idx: number; tag: string; when: number }[] };
-    expect(journal.entries.map((e) => e.idx)).toEqual(Array.from({ length: 12 }, (_, i) => i));
-    expect(journal.entries.at(-1)?.tag).toBe("0011_suivi");
+    expect(journal.entries.map((e) => e.idx)).toEqual(journal.entries.map((_, i) => i));
+    expect(journal.entries.length).toBeGreaterThanOrEqual(12);
+    expect(journal.entries[11]?.tag).toBe("0011_suivi");
     const quand = journal.entries.map((e) => e.when);
     expect(quand).toEqual([...quand].sort((a, b) => a - b));
   });

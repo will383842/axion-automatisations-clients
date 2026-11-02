@@ -1,4 +1,4 @@
-import type { AlerteC3, DepotC3, EcartPropose, Exclusion, OrganisationLue, ResultatFait, TxC3 } from "./types.js";
+import type { AlerteC3, DepotC3, EcartPropose, Exclusion, FaitCrm, OrganisationLue, ResultatFait, TxC3 } from "./types.js";
 
 // Dépôt en mémoire pour les essais : même contrat que l'adaptateur SQL, annulation complète si la transaction échoue.
 export function depotEnMemoire() {
@@ -6,6 +6,7 @@ export function depotEnMemoire() {
     orgs: [] as OrganisationLue[],
     contacts: [] as { orgId: string; email: string }[],
     faits: new Map<string, ResultatFait | null>(),
+    recus: new Map<string, unknown>(),
     // Par empreinte et par portée (crmCompanyId du sujet, ou null = plateforme) : aucun lien avec les contacts.
     exclusions: [] as { crmCompanyId: string | null; empreinte: string; genre: string }[],
     alertes: [] as { id: string; eventId: string; alerte: AlerteC3; confirmee: boolean }[],
@@ -20,6 +21,16 @@ export function depotEnMemoire() {
       if (etat.faits.has(f.eventId)) return false;
       etat.faits.set(f.eventId, null);
       return true;
+    },
+    async recevoir(f: FaitCrm) {
+      if (etat.recus.has(f.event_id)) return false;
+      etat.recus.set(f.event_id, structuredClone(f));
+      return true;
+    },
+    async contenu(id) { return structuredClone(etat.recus.get(id) ?? null); },
+    async alertesEnAttente(limite) { return etat.alertes.filter((a) => !a.confirmee).slice(0, limite).map(({ id, alerte }) => ({ id, alerte })); },
+    async importerContacts(orgId, contacts) {
+      for (const c of contacts) if (!etat.contacts.some((x) => x.orgId === orgId && x.email.toLowerCase() === c.email.toLowerCase())) etat.contacts.push({ orgId, email: c.email });
     },
     async marquerTraite(id, r) { etat.faits.set(id, r); },
     async organisationParCrm(id) { return etat.orgs.find((o) => o.crmCompanyId === id) ?? null; },
@@ -45,11 +56,11 @@ export function depotEnMemoire() {
   };
   const depot: DepotC3 = {
     async transaction(fn) {
-      const copie = structuredClone({ ...etat, faits: [...etat.faits] });
+      const copie = structuredClone({ ...etat, faits: [...etat.faits], recus: [...etat.recus] });
       try {
         return await fn(tx);
       } catch (e) {
-        Object.assign(etat, copie, { faits: new Map(copie.faits) });
+        Object.assign(etat, copie, { faits: new Map(copie.faits), recus: new Map(copie.recus) });
         throw e;
       }
     },
@@ -60,6 +71,7 @@ export function depotEnMemoire() {
     ajouterContact: (orgId: string, email: string) => void etat.contacts.push({ orgId, email }),
     organisations: () => etat.orgs,
     faitsRanges: () => etat.faits.size,
+    faitsRecus: () => etat.recus.size,
     ecarts: () => etat.ecarts,
     copies: () => etat.copies,
     apporteurs: () => etat.apporteurs,

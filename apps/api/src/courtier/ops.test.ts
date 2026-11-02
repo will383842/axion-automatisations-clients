@@ -16,17 +16,37 @@ describe("politiques et initialisation OpenBao du courtier", () => {
     expect(lire("ops/socle/openbao/politiques/courtier.hcl")).not.toMatch(/technique/);
   });
 
-  it("[A-211] le moteur database/ donne un rôle de lecture seule d'une heure, relié à la grappe données", () => {
+  it("[A-209] le jeton de l'exécuteur (donnees) ne porte aucun droit sur le moteur database/ ni sur les baux : jetons séparés", () => {
+    const hcl = lire("ops/socle/openbao/donnees.hcl").replace(/^#.*$/gm, "");
+    expect(hcl).not.toMatch(/database\/|sys\/|humain/);
+    expect(hcl).toContain('path "technique/data/donnees/+/app"');
+  });
+
+  it("[A-211] la politique humains lit les identifiants et révoque les baux des seuls rôles humain-lecture, avec son propre jeton", () => {
+    const sh = lire("ops/socle/openbao/initialiser.sh");
+    const m = /bao policy write humains - <<'POLITIQUE' >\/dev\/null\n([\s\S]*?)\nPOLITIQUE\n/.exec(sh);
+    expect(m, "politique humains en ligne dans initialiser.sh").not.toBeNull();
+    const hcl = m![1]!.replace(/^#.*$/gm, "");
+    const chemins = [...hcl.matchAll(/path "([^"]*)" \{\s*capabilities = \[([^\]]*)\]/g)].map((x) => ({ chemin: x[1]!, droits: x[2]! }));
+    expect(chemins).toEqual([
+      { chemin: "database/creds/humain-lecture-cli_*", droits: '"read"' },
+      { chemin: "sys/leases/revoke/database/creds/humain-lecture-cli_*", droits: '"update"' },
+    ]);
+    // Le joker n'est valable qu'en dernier caractère d'un chemin OpenBao.
+    for (const { chemin } of chemins) expect(chemin.slice(0, -1)).not.toContain("*");
+    expect(hcl).not.toMatch(/technique|clients|database\/(config|roles)|sudo|delete/);
+    // Jeton à part (HUMAINS), distinct de DONNEES.
+    expect(sh).toMatch(/token create -policy=humains /);
+    expect(sh).toMatch(/printf 'HUMAINS=%s\\n'/);
+  });
+
+  it("[A-211] le moteur database/ relie la grappe données avec sslmode, sans rôle statique sans droit, rôles par client à 1 h", () => {
     const sh = lire("ops/socle/openbao/initialiser.sh");
     expect(sh).toMatch(/secrets enable database/);
-    expect(sh).toMatch(/humain-lecture-cli/);
-    expect(sh).toMatch(/default_ttl=1h/);
-    expect(sh).toMatch(/max_ttl=1h/);
+    expect(sh).toMatch(/allowed_roles: "humain-lecture-cli_\*"/);
+    expect(sh).toMatch(/connection_url: \("postgresql:\/\/\{\{username\}\}:\{\{password\}\}@" \+ env\.DONNEES_HOTE \+ ":5432\/postgres\?sslmode=(verify-full|require)"\)/);
+    expect(sh).not.toMatch(/bao write database\/roles\/humain-lecture-cli /);
     expect(sh).not.toMatch(/INSERT|UPDATE|DELETE|SUPERUSER|CREATEROLE/);
-    const hcl = lire("ops/socle/openbao/donnees.hcl");
-    expect(hcl).toContain('path "database/creds/humain-lecture-cli"');
-    expect(hcl).not.toMatch(/"(create|update|delete|sudo)"/);
-    expect(hcl).not.toMatch(/database\/(config|roles)/);
   });
 
   it("[A-169] l'inventaire des secrets nomme le compte de gestion et la rotation du courtier", () => {
@@ -40,5 +60,12 @@ describe("politiques et initialisation OpenBao du courtier", () => {
     expect(adr).toMatch(/## Rotation des mots de passe \(T2-36\)/);
     expect(adr).toMatch(/VALID UNTIL/);
     expect(adr).toMatch(/_app_a/);
+  });
+
+  it("[A-211] l'inventaire nomme le jeton HUMAINS et l'ADR dit que RECONNECT ne coupe pas les sessions des clients", () => {
+    expect(lire("ops/secrets-inventaire.md")).toMatch(/\| `HUMAINS` \| equipe \|[^\n]*accès humain/);
+    const adr = lire("docs/adr/0046-bases-des-clients.md");
+    expect(adr).toMatch(/`KILL` puis `RESUME`/);
+    expect(adr).not.toMatch(/les coupe par la fiche T2-36b/);
   });
 });

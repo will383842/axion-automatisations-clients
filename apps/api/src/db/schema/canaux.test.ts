@@ -39,8 +39,8 @@ describe("tables des canaux : schéma et migration 0006", () => {
     expect(uniques(liensCrm)).toContainEqual(["tenant_id", "crm_company_id"]);
   });
 
-  it("[C-456] la file « à trancher » a les cinq motifs, deux états, et ne se ferme qu'avec une décision et son auteur", () => {
-    expect(motifATrancher.enumValues).toEqual(["siren_absent_ressemblance", "ressaisie_manuelle", "email_change", "fiche_absorbee", "incoherence_nuit"]);
+  it("[C-456] la file « à trancher » a les cinq motifs d'origine (puis deux de T2-17b, additifs), deux états, et ne se ferme qu'avec une décision et son auteur", () => {
+    expect(motifATrancher.enumValues).toEqual(["siren_absent_ressemblance", "ressaisie_manuelle", "email_change", "fiche_absorbee", "incoherence_nuit", "lien_crm_different", "identifiant_crm_incoherent"]);
     expect(etatATrancher.enumValues).toEqual(["ouvert", "tranche"]);
     expect(colonnes(aTrancher)).toEqual(expect.arrayContaining(["organisation_id", "source", "motif", "donnees_comparaison", "etat", "tranche_par", "decision"]));
     expect(contraintes(aTrancher)).toContain("a_trancher_cloture");

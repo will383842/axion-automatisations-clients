@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { afterAll, describe, expect, it } from "vitest";
-import { DOSSIER_CLI, lireEntrees, migrerBase, roleMigrationModule } from "../donnees/migrer-base.js";
+import { DOSSIER_CLI, lireEntrees, migrerBase, ouvrirConnexionModule, roleMigrationModule } from "../donnees/migrer-base.js";
 import { sqlPg } from "./adaptateur-sql.js";
 import { adminPg, nomBaseDe, nomsRoles } from "./etapes-base.js";
 import { ecrireEchec, journalEchecs } from "./journal-echecs.js";
@@ -121,5 +121,69 @@ describe("migrations d'un module (grappe jetable)", () => { // fiche: T2-35
     await expect(migrerBase(c.base, 1, { url: vers(c.base), dossier: d, module: "essai" })).rejects.toThrow(/refusées/);
     expect((await c.dans.query("SELECT count(*)::int AS n FROM pg_tables WHERE tablename = 'vole'")).rows[0]?.n).toBe(0);
     expect((await c.dans.query("SELECT count(*)::int AS n FROM pg_namespace WHERE nspname = 'a_essai'")).rows[0]?.n).toBe(0);
+  }, 60_000);
+  // Charge R1 de l'audit, rejouée SANS le filtre du texte : elle s'exécute telle quelle sur la connexion du rôle du module (celle que migrerBase ouvre), seule barrière testée ici : les droits PostgreSQL.
+  const chargeR1 = (reinit: string) => `SET search_path = a_essai; CREATE FUNCTION f() RETURNS int LANGUAGE sql AS $f$ ${reinit}; ALTER ROLE ROLE_APP PASSWORD 'connu'; SELECT 1 $f$; CREATE TABLE t (x int DEFAULT f()); INSERT INTO t DEFAULT VALUES;`;
+  const instantane = async (c: Awaited<ReturnType<typeof clientNonFerme>>) =>
+    (await c.dans.query("SELECT rolname, rolsuper, rolinherit, rolcreaterole, rolcreatedb, rolcanlogin, rolreplication, rolbypassrls, rolconnlimit, rolvaliduntil::text AS jusqua, (SELECT string_agg(g.rolname, ',' ORDER BY g.rolname) FROM pg_auth_members m JOIN pg_roles g ON g.oid = m.roleid WHERE m.member = r.oid) AS membre_de FROM pg_roles r WHERE rolname LIKE $1 ORDER BY rolname", [`${c.base}\\_%`])).rows.filter((r) => !String(r.rolname).includes("_mod_"));
+  async function rejouerR1(reinit: string) {
+    const c = await clientNonFerme();
+    const avant = await instantane(c);
+    const admin = new pg.Client({ connectionString: vers(c.base) });
+    await admin.connect();
+    const mod = await ouvrirConnexionModule(admin, vers(c.base), c.base, "essai");
+    try {
+      const identite = (await mod.client.query("SELECT session_user AS s, current_user AS c")).rows[0];
+      expect(identite).toEqual({ s: roleMigrationModule(c.base, "essai"), c: roleMigrationModule(c.base, "essai") });
+      await expect(mod.client.query(chargeR1(reinit).replace("ROLE_APP", c.roles.app))).rejects.toMatchObject({ code: "42501" });
+    } finally { await mod.fermer(); await admin.end(); }
+    expect(await instantane(c)).toEqual(avant);
+    // Le mot de passe « connu » n'ouvre rien : le rôle _app n'a pas changé de mot de passe.
+    const u = new URL(vers(c.base)); u.username = c.roles.app; u.password = "connu";
+    const k = new pg.Client({ connectionString: u.toString() });
+    k.on("error", () => undefined);
+    await expect(k.connect()).rejects.toBeTruthy();
+    await k.end().catch(() => undefined);
+  }
+  it("[A-219] @isolation la charge R1 (RESET ROLE caché dans une fonction) rejouée sans le filtre est refusée par PostgreSQL et ne change aucun rôle _app", async () => { await rejouerR1("RESET ROLE"); }, 60_000);
+  it("[A-219] @isolation la variante RESET \"role\" de la charge R1 est refusée par PostgreSQL et ne change aucun rôle _app", async () => { await rejouerR1('RESET "role"'); }, 60_000);
+
+  it("[A-219] @isolation un rôle _mod_ d'un autre client ne se connecte pas à la base du client, un rôle _mod_ NOLOGIN non plus", async () => {
+    const a = await clientNonFerme();
+    const b = await clientNonFerme();
+    const admin = new pg.Client({ connectionString: vers(a.base) });
+    await admin.connect();
+    // Témoin : le rôle du module de A, ouvert par migrerBase, se connecte bien à la base de A (la règle pg_hba existe).
+    const mod = await ouvrirConnexionModule(admin, vers(a.base), a.base, "essai");
+    try { expect((await mod.client.query("SELECT current_user AS u")).rows[0]?.u).toBe(roleMigrationModule(a.base, "essai")); } finally { await mod.fermer(); await admin.end(); }
+    // Un rôle _mod_ de B, LOGIN avec un mot de passe connu du test : atteint la base de A par pg_hba, mais PostgreSQL refuse le CONNECT.
+    const etranger = roleMigrationModule(b.base, "essai");
+    const mdp = randomBytes(24).toString("hex");
+    await pool("postgres").query(`CREATE ROLE ${etranger} LOGIN NOINHERIT PASSWORD '${mdp}'`);
+    const vers_ = (base: string, role: string, secret: string) => { const u = new URL(vers(base)); u.username = role; u.password = secret; return u.toString(); };
+    try {
+      const k = new pg.Client({ connectionString: vers_(a.base, etranger, mdp) });
+      k.on("error", () => undefined);
+      await expect(k.connect()).rejects.toMatchObject({ code: "42501" });
+      await k.end().catch(() => undefined);
+      // NOLOGIN et mot de passe NULL (état du rôle du module après toute migration) : aucune connexion, même vers sa propre base.
+      await pool("postgres").query(`ALTER ROLE ${roleMigrationModule(a.base, "essai")} NOLOGIN PASSWORD NULL`);
+      const n = new pg.Client({ connectionString: vers_(a.base, roleMigrationModule(a.base, "essai"), mdp) });
+      n.on("error", () => undefined);
+      await expect(n.connect()).rejects.toMatchObject({ code: expect.stringMatching(/^(28P01|28000)$/) });
+      await n.end().catch(() => undefined);
+    } finally { await pool("postgres").query(`ALTER ROLE ${etranger} NOLOGIN PASSWORD NULL`); }
+  }, 90_000);
+
+  it("[A-219] la règle pg_hba du rôle _mod_ est unique, locale (socket), en scram-sha-256, vers les bases cli_<12 hex>, avant le refus par défaut", async () => {
+    const mdp = 'PGPASSWORD=$(printf %s/donnees-postgres "$SOCLE_PG_MOT_DE_PASSE" | sha256sum | cut -c1-64)';
+    const requete = "SELECT rule_number || '|' || type || '|' || database::text || '|' || user_name::text || '|' || auth_method FROM pg_hba_file_rules WHERE error IS NULL ORDER BY rule_number";
+    const lignes = docker("exec", conteneurDonnees(), "sh", "-c", `${mdp} psql -w -U postgres -d postgres -tAXc "${requete}"`).split("\n").map((l) => l.replaceAll('"', ""));
+    const mods = lignes.filter((l) => l.includes("_mod_"));
+    expect(mods.map((l) => l.split("|").slice(1).join("|"))).toEqual(["local|{/^cli_[0-9a-f]{12}$}|{/^cli_[0-9a-f]{12}_mod_[a-z][a-z0-9_]{1,30}$}|scram-sha-256"]);
+    const numero = (l: string | undefined) => Number(l?.split("|")[0]);
+    const refusLocal = lignes.find((l) => l.split("|").slice(1).join("|") === "local|{all}|{all}|reject");
+    expect(numero(mods[0])).toBeLessThan(numero(refusLocal));
+    expect(lignes.filter((l) => l.split("|")[1] === "host" && l.includes("_mod_"))).toEqual([]);
   }, 60_000);
 });

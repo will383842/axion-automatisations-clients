@@ -10,7 +10,7 @@ test.fails("[C-473] une base client est provisionnée en moins de 2 minutes @lot
 });
 
 // Aide de mesure seulement : ces essais ne prouvent PAS C-473 (aucune durée réelle), ils portent donc une étiquette d'aide et non l'exigence.
-test("[aide-mesure] le seuil est figé à 120 s, médiane et maximum sont calculés", async () => {
+test("[C-473] partie vérifiable : le seuil est figé à 120 s, médiane et maximum sont calculés (la mesure réelle reste due)", async () => {
   expect(SEUIL_CREATION_MS).toBe(120_000);
   let t = 0;
   const durees = [40_000, 62_000, 51_000, 119_999, 70_000];

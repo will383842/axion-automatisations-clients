@@ -72,8 +72,8 @@ describe("activer une instance", () => {
 
 describe("activer une instance : fait C3", () => {
   const enregistreur = () => {
-    const faits: { i: { id: string; occurredAt: string }; t: string; code: string; date: string }[] = [];
-    const emetteur = { automatisationActivee: async (i: { id: string; occurredAt: string }, t: string, code: string, date: string) => void faits.push({ i, t, code, date }) };
+    const faits: { i: { id: string; occurredAt: string }; code: string; date: string }[] = [];
+    const emetteur = { automatisationActivee: async (i: { id: string; occurredAt: string }, code: string, date: string) => void faits.push({ i, code, date }) };
     return { faits, emetteur };
   };
 
@@ -88,7 +88,7 @@ describe("activer une instance : fait C3", () => {
     const { faits, emetteur } = enregistreur();
     const { client, appels } = faux({ contrat: true, jour: "2026-11-03" });
     await activerInstance(client, A, I, emetteur as never);
-    expect(faits).toEqual([{ i: { id: `activation:${I}:2026-11-03`, occurredAt: "2026-11-03T00:00:00Z" }, t: A, code: "tri-courriels", date: "2026-11-03" }]);
+    expect(faits).toEqual([{ i: { id: `activation:${I}:2026-11-03`, occurredAt: "2026-11-03T00:00:00Z" }, code: "tri-courriels", date: "2026-11-03" }]);
     const maj = appels.find((a) => a.texte.startsWith("UPDATE"));
     expect(maj?.texte).toMatch(/etat <> 'active'/);
     expect(maj?.texte).toMatch(/Europe\/Paris/);
@@ -105,7 +105,7 @@ describe("activer une instance : fait C3", () => {
   it("[C-346] @anti-doublon une activation rejouée un autre jour ne fait pas échouer la transaction (boîte d'envoi : même intention, autre corps refusée)", async () => {
     const deposees = new Map<string, string>();
     const emetteur = emetteurC3({
-      tenantId: A, idTrace: "trace-0001",
+      tenantId: A, idTrace: "trace-0001", tx: { query: async () => ({ rows: [{ tenant: A }] }) },
       deposer: async (d) => {
         const avant = deposees.get(d.intention);
         const corps = JSON.stringify(d.corps);

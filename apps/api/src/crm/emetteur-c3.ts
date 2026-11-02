@@ -8,41 +8,50 @@ import { statutCrmDepuisConsole, type StatutConsole } from "./statuts.ts";
 // l'appelant fournit `deposer`, lié à cette transaction (boite-envoi.deposer, T2-14). Aucun montant ne sort jamais (minimisation).
 export interface DepotC3 { destination: "crm"; route: string; methode: "POST"; corps: unknown; intention: string }
 export type Deposeur = (depot: DepotC3) => Promise<{ nouveau: boolean }>;
-export interface DepotsC3 { deposer: Deposeur; tenantId: string; journal?: Journal; idTrace: string }
+// `tx` est la transaction du changement (avecClient) : le client du fait est LU dans cette transaction (app.tenant_id), jamais passé par l'appelant.
+// `tenantId` est le client pour lequel l'émetteur a été construit : un émetteur réutilisé dans la transaction d'un autre client est refusé.
+export type LecteurTransaction = { query(texte: string, valeurs?: unknown[]): Promise<{ rows: Record<string, unknown>[] }> };
+export interface DepotsC3 { deposer: Deposeur; tx: LecteurTransaction; tenantId: string; journal?: Journal; idTrace: string }
 // `id` identifie le changement métier (même id = même fait) ; `occurredAt` est la date du changement : le corps reste identique au rejeu.
 export interface IntentionC3 { id: string; occurredAt: string; sequence?: number }
+// Le statut est un état qui se remplace : sans ordre, le CRM ne peut pas écarter un statut ancien arrivé en retard. La séquence est donc obligatoire.
+// C'est l'appelant (T2-15, branchement de clients/statut.ts) qui la fournit : compteur croissant par client, lu dans la transaction du changement (ADR 0059).
+export type IntentionStatut = IntentionC3 & { sequence: number };
 export interface ResultatFait { eventId: string; nouveau: boolean }
 export interface AbonnementResume { codeAutomatisation: string; palier: string; periodeMois: number; terme: string; prochaineEcheance: string }
 
 export function emetteurC3(d: DepotsC3) {
-  async function fait(type: string, i: IntentionC3, tenant: string, payload: unknown): Promise<ResultatFait> {
-    // Isolation : le fait ne peut concerner que le client de la transaction (celui de l'émetteur), jamais un autre.
-    if (tenant !== d.tenantId) throw new Error("fait C3 refusé : le client du fait n'est pas celui de l'émetteur");
+  async function fait(type: string, i: IntentionC3, payload: (tenant: string) => unknown): Promise<ResultatFait> {
+    // Isolation : le client est celui de la transaction en cours ; si ce n'est pas celui de l'émetteur, rien n'est déposé.
+    const lu = (await d.tx.query("SELECT NULLIF(current_setting('app.tenant_id', true), '') AS tenant")).rows[0]?.["tenant"] as string | null | undefined;
+    if (!lu) throw new Error("fait C3 refusé : aucune transaction de client ouverte");
+    if (lu !== d.tenantId) throw new Error("fait C3 refusé : le client de la transaction n'est pas celui de l'émetteur");
+    const tenant = lu;
     const eventId = identifiantEvenementC3(type, `${tenant}:${i.id}`);
     const corps = EvenementConsole.parse({
       event_id: eventId, schema_version: 1, occurred_at: i.occurredAt, emitted_at: i.occurredAt, sequence: i.sequence ?? 0,
-      producer: "axion-console", subject_ref: { consoleClientId: tenant }, event_type: type, payload,
+      producer: "axion-console", subject_ref: { consoleClientId: tenant }, event_type: type, payload: payload(tenant),
     });
-    const { nouveau } = await d.deposer({ destination: "crm", route: ROUTES_C3.consoleVersCrm.chemin, methode: "POST", corps, intention: `c3:${type}:${i.id}` });
+    const { nouveau } = await d.deposer({ destination: "crm", route: ROUTES_C3.consoleVersCrm.chemin, methode: "POST", corps, intention: `c3:${tenant}:${type}:${i.id}` });
     // Une ligne par fait, sans corps (C-344). Écrite avant la validation de la transaction : elle annonce un dépôt en attente, pas un envoi.
     journaliser(d.journal, { canal: "c3", sens: "sortant", route: ROUTES_C3.consoleVersCrm.chemin, cle: eventId, horodatage: undefined, resultat: nouveau ? "en_attente_de_validation" : "deja_depose", id_trace: d.idTrace });
     return { eventId, nouveau };
   }
   const c = (tenant: string) => ({ consoleClientId: tenant });
   return {
-    clientCree: (i: IntentionC3, t: string, crmCompanyId: string) => fait("client.cree", i, t, { ...c(t), crmCompanyId }),
+    clientCree: (i: IntentionC3, crmCompanyId: string) => fait("client.cree", i, (t) => ({ ...c(t), crmCompanyId })),
     // Part au passage de statut ; null quand le CRM n'a rien à recevoir (prospect, en_signature).
-    statutClient: async (i: IntentionC3, t: string, statut: StatutConsole): Promise<ResultatFait | null> => {
+    statutClient: async (i: IntentionStatut, statut: StatutConsole): Promise<ResultatFait | null> => {
       const { fait: valeur } = statutCrmDepuisConsole(statut);
-      return valeur === null ? null : fait("client.statut", i, t, { ...c(t), statut: valeur });
+      return valeur === null ? null : fait("client.statut", i, (t) => ({ ...c(t), statut: valeur }));
     },
     // Les champs sont recopiés un par un : un montant ou un prix fourni en trop ne sort jamais.
-    planResume: (i: IntentionC3, t: string, abonnements: readonly AbonnementResume[]) =>
-      fait("plan.resume", i, t, { ...c(t), abonnements: abonnements.map((a) => ({ codeAutomatisation: a.codeAutomatisation, palier: a.palier, periodeMois: a.periodeMois, terme: a.terme, prochaineEcheance: a.prochaineEcheance })) }),
-    renouvellementProche: (i: IntentionC3, t: string, dateRenouvellement: string) => fait("renouvellement.proche", i, t, { ...c(t), dateRenouvellement }),
-    impayeSignale: (i: IntentionC3, t: string, joursRetard: number) => fait("impaye.signale", i, t, { ...c(t), joursRetard }),
-    automatisationActivee: (i: IntentionC3, t: string, codeAutomatisation: string, dateActivation: string) => fait("automatisation.activee", i, t, { ...c(t), codeAutomatisation, dateActivation }),
-    contratResilie: (i: IntentionC3, t: string, dateResiliation: string) => fait("contrat.resilie", i, t, { ...c(t), dateResiliation }),
+    planResume: (i: IntentionC3, abonnements: readonly AbonnementResume[]) =>
+      fait("plan.resume", i, (t) => ({ ...c(t), abonnements: abonnements.map((a) => ({ codeAutomatisation: a.codeAutomatisation, palier: a.palier, periodeMois: a.periodeMois, terme: a.terme, prochaineEcheance: a.prochaineEcheance })) })),
+    renouvellementProche: (i: IntentionC3, dateRenouvellement: string) => fait("renouvellement.proche", i, (t) => ({ ...c(t), dateRenouvellement })),
+    impayeSignale: (i: IntentionC3, joursRetard: number) => fait("impaye.signale", i, (t) => ({ ...c(t), joursRetard })),
+    automatisationActivee: (i: IntentionC3, codeAutomatisation: string, dateActivation: string) => fait("automatisation.activee", i, (t) => ({ ...c(t), codeAutomatisation, dateActivation })),
+    contratResilie: (i: IntentionC3, dateResiliation: string) => fait("contrat.resilie", i, (t) => ({ ...c(t), dateResiliation })),
   };
 }
 export type EmetteurC3 = ReturnType<typeof emetteurC3>;

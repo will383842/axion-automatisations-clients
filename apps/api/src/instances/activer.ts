@@ -42,7 +42,7 @@ export async function activerInstance(client: Requeteur, tenantId: string, insta
     // Fait C3 déposé dans la même transaction : une activation annulée n'envoie rien (T2-18). Le jour est dans la clé : un autre jour, un autre fait.
     if (emetteur) {
       const jour = maj.rows[0]?.["jour"] as string;
-      await emetteur.automatisationActivee({ id: `activation:${instanceId}:${jour}`, occurredAt: `${jour}T00:00:00Z` }, tenantId, instance.rows[0]?.["code_automatisation"] as string, jour);
+      await emetteur.automatisationActivee({ id: `activation:${instanceId}:${jour}`, occurredAt: `${jour}T00:00:00Z` }, instance.rows[0]?.["code_automatisation"] as string, jour);
     }
   } catch (e) {
     if ((e as { code?: string }).code === "P0001" && (e as { detail?: string }).detail === MOTIF_SOUS_TRAITANCE_ABSENTE) throw new ErreurRegleMetier(MOTIF_SOUS_TRAITANCE_ABSENTE);

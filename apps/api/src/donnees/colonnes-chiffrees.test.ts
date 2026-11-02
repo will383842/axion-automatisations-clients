@@ -61,8 +61,7 @@ const A = randomUUID();
 const B = randomUUID();
 const MARQUEUR = `marqueur.${randomBytes(6).toString("hex")}@exemple.fr`;
 
-function monter(options: { permissif?: boolean } = {}) {
-  void options;
+function monter() {
   const bao = creerFauxTransit();
   const observees: Buffer[] = [];
   const base: OptionsBao & { observerCle: (b: Buffer) => void } = { url: "http://bao.test", jeton: `jeton-${randomBytes(6).toString("hex")}`, fetch: bao.fetch, observerCle: (b) => observees.push(b) };
@@ -159,7 +158,7 @@ describe("colonnes chiffrées par la clé du client", () => {
     expect(lireEnveloppeChamp(refait).version).toBe(2);
     expect(lireEnveloppeChamp(refait).chiffre.equals(lireEnveloppeChamp(ancien).chiffre)).toBe(true);
     expect(await colonnes.dechiffrerChamp(A, refait)).toBe(MARQUEUR);
-    await refus(colonnes.pivoterCle(B), "tenant_invalide".length ? undefined : undefined);
+    await refus(colonnes.pivoterCle(B));
   });
 
   it("[A-243] clé de données remise à zéro après usage, absente du chiffré et des erreurs", async () => {
@@ -184,8 +183,10 @@ describe("colonnes chiffrées par la clé du client", () => {
     await refus(colonnes.empreinteRecherche("systeme", MARQUEUR), "tenant_invalide");
     await refus(colonnes.dechiffrerChamp(B, await colonnes.chiffrerChamp(A, MARQUEUR)));
     await refus(colonnes.empreinteRecherche(B, MARQUEUR));
-    expect(bao.etat.appels.every((a) => !a.includes(`cli-${A}`) || a.includes("datakey") || a.includes("hmac") === false)).toBe(true);
-    expect(bao.etat.appels.filter((a) => a.includes("datakey") || a.includes("hmac")).filter((a) => a.includes(B))).toHaveLength(2);
+    // Les demandes pour B visent la clé de B (absente) ; aucune n'a été redirigée vers la clé de A ou une clé commune.
+    const sensibles = bao.etat.appels.filter((x) => /datakey|hmac|decrypt/.test(x));
+    expect(sensibles.filter((x) => x.includes(`cli-${B}`))).toHaveLength(3);
+    expect(sensibles.filter((x) => !x.includes(`cli-${B}`) && !x.includes(`cli-${A}`))).toEqual([]);
   });
 
   it("[A-243] un chiffré mal formé ou tronqué est refusé", async () => {

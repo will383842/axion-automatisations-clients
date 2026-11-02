@@ -14,3 +14,7 @@ path "transit/datakey/plaintext/cli-*" {
 path "transit/decrypt/cli-*" {
   capabilities = ["update"]
 }
+# Empreinte de recherche (T2-33) : HMAC par la clé cli-<id>-recherche du client, couverte par le préfixe cli-* (Vault ne connaît pas de joker au milieu d'un segment).
+path "transit/hmac/cli-*" {
+  capabilities = ["update"]
+}

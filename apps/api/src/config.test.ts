@@ -144,6 +144,21 @@ describe("interrupteurs des canaux", () => {
     expect(chargerConfig({ NODE_ENV: "test", RETENTION_PURGE_ACTIVE: "true" }, dossier()).retentionPurgeActive).toBe(true);
     refus({ NODE_ENV: "test", RETENTION_PURGE_ACTIVE: "oui" });
   });
+
+  it("[A-226] CONTRACTER_OUVERT est fermé par défaut, même en production, et ne s'ouvre que par true ou 1", () => {
+    expect(chargerConfig({ NODE_ENV: "development" }, dossier()).contracterOuvert).toBe(false);
+    expect(chargerConfig(prod(), dossier()).contracterOuvert).toBe(false);
+    expect(chargerConfig(prod({ CONTRACTER_OUVERT: "" }), dossier()).contracterOuvert).toBe(false);
+    expect(chargerConfig(prod({ CONTRACTER_OUVERT: "true" }), dossier()).contracterOuvert).toBe(true);
+    expect(refus(prod({ CONTRACTER_OUVERT: "oui" }))).toContain("CONTRACTER_OUVERT");
+  });
+
+  it("[A-230] la version de structure du code déployé est lue dans la configuration, absente par défaut", () => {
+    expect(chargerConfig({ NODE_ENV: "development" }, dossier()).versionStructureCode).toBeUndefined();
+    expect(chargerConfig(prod({ VERSION_STRUCTURE_CODE: "5" }), dossier()).versionStructureCode).toBe(5);
+    expect(refus(prod({ VERSION_STRUCTURE_CODE: "cinq" }))).toContain("VERSION_STRUCTURE_CODE");
+  });
+
   it("[C-047] le retrait des anciens dumps est fermé par défaut ; seules 1 et true l'ouvrent ; toute autre valeur est refusée", () => {
     expect(chargerConfig({ NODE_ENV: "test" }, dossier()).sauvegardesRetraitActif).toBe(false);
     expect(chargerConfig({ NODE_ENV: "test", SAUVEGARDES_RETRAIT_ACTIF: "" }, dossier()).sauvegardesRetraitActif).toBe(false);

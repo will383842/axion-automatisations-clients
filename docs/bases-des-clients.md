@@ -23,7 +23,18 @@ Chaque client a sa propre base `cli_<id>` sur la grappe « données » (ADR 0046
 - La garde `scripts/garde-migrations.ts` lit aussi `apps/*/drizzle-cli/` : aucun DROP, RENAME ni changement de type.
 
 ## Étendre puis contracter
-Une nouvelle version n'enlève rien : on ajoute d'abord (colonne, table), on bascule le code, et la suppression vient dans une version ultérieure, par une procédure d'équipe hors des migrations ordinaires (détail en T2-38).
+Une migration ne fait qu'ajouter (colonne, table, index). Le code accepte les versions N et N-1 : le service des données lit `public.version_structure` de la base et choisit la variante de la requête (`variantes: [{ depuis, sql }]`) ; version illisible = variante la plus ancienne.
+La suppression vient plus tard, dans un fichier dont la **première ligne** est `-- phase: contracter`. C'est la seule exception à « pas de DROP » (garde `scripts/garde-migrations.ts`), et seulement dans `apps/*/drizzle-cli/` : elle lève `DROP TABLE`, `DROP INDEX` et `ALTER TABLE … DROP COLUMN`, sans `CASCADE`, rien d'autre (ni `DROP POLICY`, `SCHEMA`, `FUNCTION`, `TRIGGER`, `DROP CONSTRAINT`, ni RENAME, ni TRUNCATE, ni DROP de rôle ou de base, ni fonction). Une migration de module ne contracte jamais.
+Un fichier contracter n'est appliqué que si les trois conditions sont vraies (`regles-versions.ts`) : l'interrupteur `CONTRACTER_OUVERT` est ouvert (fermé par défaut, même en production, Will seul l'ouvre au lot 8a) ; 100 % des bases du registre sont en N, quarantaine comprise ; le code déployé est en N+1 (`VERSION_STRUCTURE_CODE`). `migrerBase` prend la décision lui-même, par un lecteur d'état qui relit TOUTES les bases du registre (gelées ou en création comprises) : un booléen fourni par l'appelant ne suffit plus. De même `planifierVagues` refuse la version N+1 tant qu'une base reste en N-1. Chaque contracter appliqué est tracé au journal d'audit par l'appelant. La migration d'une base fermée n'est pas livrée par les vagues (dette de T2-52).
+
+## Vagues (`apps/api/src/donnees/vagues.ts`)
+- Ordre : **recette**, **bases internes AXION** (deux listes de configuration), **canari** (5 % des autres bases actives, arrondi au supérieur, minimum une), puis **lots de 50** (ordre des noms). Seules les bases actives encore en retard sont migrées.
+- Canari tiré avec une graine, écrite au journal avant la première vague. Rejouer une version relit la graine : en demander une autre est refusé, les vagues se rejouent à l'identique.
+- `deroulerVague` migre 5 bases en parallèle au plus, par `migrerBase`, sur les noms relus dans `bases_client` (une vague falsifiée est refusée avant toute migration).
+- Une base en échec reste dans sa version précédente : `versions_structure` reçoit `quarantaine`, l'alerte `migration_echec` part (identifiant console du client, jamais son nom), la vague continue. Aucun texte d'erreur n'est gardé.
+- Si plus de 2 % d'une vague échoue (seuil configurable), les vagues suivantes ne partent pas.
+- Reprise : après correction, `planifierVagues` avec la même version rend les mêmes vagues, réduites aux bases encore en retard.
+- La migration N+1 est refusée tant qu'une base reste en N-1. En production (`NODE_ENV=production`), `migrerBase` refuse une cible plus basse que la version appliquée : le retour arrière est celui du code seulement.
 
 ## Reste à faire (dettes, propriétaire T2-34)
 Les objets du modèle appartiennent à `modele_proprietaire`. Après `CREATE DATABASE … TEMPLATE`, la recette doit les passer au propriétaire du client (`REASSIGN OWNED BY modele_proprietaire TO cli_<id>_proprietaire`) avant `migrerBase`, sinon la pose des droits échoue avec un message clair.

@@ -178,4 +178,34 @@ describe("service des données client", () => {
     await service.executer(client(A), "compterPersonnes", {});
     expect(ouvertures).toEqual(["cli_1111#1", "cli_1111#2"]);
   });
+
+  it("[A-229] le service des données lit une base en N et une base en N-1 et choisit la variante de la requête", async () => {
+    const versions: Record<string, number> = { cli_1111: 2, cli_2222: 1 };
+    const vues: string[] = [];
+    const ports: PortsDonnees = {
+      async base(t) { return { nomBase: t === A ? "cli_1111" : "cli_2222", etat: "active" }; },
+      async ouvrir(base): Promise<Connexion> {
+        return {
+          async requete(texte) {
+            vues.push(`${base}|${texte}`);
+            if (texte.includes("version_structure")) return [{ v: versions[base] }];
+            return [{ n: 1 }];
+          },
+          async fermer() {},
+        };
+      },
+      maintenant: () => T0,
+    };
+    const requete = { ...LISTE_BLANCHE["compterPersonnes"]!, nom: "deuxVariantes", sql: "SELECT 1 AS n /* ancienne */", variantes: [{ depuis: 2, sql: "SELECT 2 AS n /* nouvelle */" }] };
+    const service = creerServiceDonnees(ports, { deuxVariantes: requete });
+    await service.executer(client(A), "deuxVariantes", {});
+    await service.executer(client(B), "deuxVariantes", {});
+    expect(vues.filter((v) => v.includes("nouvelle")).map((v) => v.split("|")[0])).toEqual(["cli_1111"]);
+    expect(vues.filter((v) => v.includes("ancienne")).map((v) => v.split("|")[0])).toEqual(["cli_2222"]);
+    // Une version illisible ou absente : variante la plus ancienne, jamais la nouvelle.
+    versions["cli_1111"] = Number.NaN;
+    vues.length = 0;
+    await service.executer(client(A), "deuxVariantes", {});
+    expect(vues.some((v) => v.includes("nouvelle"))).toBe(false);
+  });
 });

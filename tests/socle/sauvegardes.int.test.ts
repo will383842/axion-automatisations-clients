@@ -320,6 +320,9 @@ describe("sauvegardes (archivage continu, complète de nuit, restauration)", () 
       // Une autre empreinte d'hôte : la restauration est refusée et ne laisse aucun conteneur.
       const refus = spawnSync(script("restaurer.sh"), [], { encoding: "utf8", env: { ...env, SFTP_KNOWN_HOSTS: faux } });
       expect(refus.status).not.toBe(0);
+      // La CAUSE : la clé de l'hôte est refusée (pas une option manquante ni une autre panne).
+      expect(refus.stderr).toMatch(/host.?key|known.?host|fingerprint|mismatch/i);
+      expect(refus.stderr).not.toMatch(/requires option/);
       expect(sortie("docker", ["ps", "-aq", "--filter", "name=restauration-"]).trim().split("\n").filter(Boolean).filter((c) => !avant.includes(c))).toEqual([]);
       // L'empreinte épinglée et l'autorité du réseau interne : la restauration aboutit.
       strict = sortie(script("restaurer.sh"), [], { env: { ...env, SFTP_KNOWN_HOSTS: bons } }).trim().split("\n").pop() ?? "";

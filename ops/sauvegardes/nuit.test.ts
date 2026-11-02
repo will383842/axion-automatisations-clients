@@ -190,22 +190,27 @@ describe("sauvegarde de nuit : expiration automatique coupée, rythme, journal (
   });
 
   it("[C-049] le rythme : une complète par semaine (jour désigné ou aucune complète), des différences les autres nuits", () => {
-    const type = (infoJson: string, jour: string) => {
-      const b = banc();
-      writeFileSync(b.info, infoJson);
-      const r = lancer(b, "sauvegarder-nuit.sh", [], { SAUVEGARDE_JOUR_COMPLETE: jour });
-      expect(r.status, r.stderr).toBe(0);
-      return appels(b).find((a) => / backup(\s|$)/.test(a)) ?? "";
+    // Le script calcule le jour avec « date -u +%u » : le test lit la même commande, juste avant l'appel, et rejoue si minuit UTC passe pendant l'appel.
+    const jourDuScript = () => spawnSync("date", ["-u", "+%u"], { encoding: "utf8" }).stdout.trim();
+    const type = (infoJson: string, voulu: "jour-de-la-complete" | "autre-jour"): string => {
+      for (let essai = 0; essai < 3; essai++) {
+        const b = banc();
+        writeFileSync(b.info, infoJson);
+        const avant = jourDuScript();
+        const jour = voulu === "jour-de-la-complete" ? avant : avant === "7" ? "3" : String(Number(avant) + 1);
+        const r = lancer(b, "sauvegarder-nuit.sh", [], { SAUVEGARDE_JOUR_COMPLETE: jour });
+        expect(r.status, r.stderr).toBe(0);
+        if (jourDuScript() === avant) return appels(b).find((a) => / backup(\s|$)/.test(a)) ?? "";
+      }
+      throw new Error("le jour UTC a changé à chaque essai");
     };
-    const jourDeLaSemaine = new Date().getUTCDay() === 0 ? "7" : String(new Date().getUTCDay());
-    const autreJour = jourDeLaSemaine === "7" ? "3" : String(Number(jourDeLaSemaine) + 1);
     const avecComplete = infoAvecArret("2026-11-01T03:00:00Z");
-    expect(type(avecComplete, jourDeLaSemaine)).toMatch(/--type=full/);
-    expect(type(avecComplete, autreJour)).toMatch(/--type=diff/);
+    expect(type(avecComplete, "jour-de-la-complete")).toMatch(/--type=full/);
+    expect(type(avecComplete, "autre-jour")).toMatch(/--type=diff/);
     // Aucune complète : la première sauvegarde est complète, quel que soit le jour.
-    expect(type("[]", autreJour)).toMatch(/--type=full/);
+    expect(type("[]", "autre-jour")).toMatch(/--type=full/);
     // Chaque passage garde l'expiration automatique coupée, complète ou différence.
-    expect(type(avecComplete, autreJour)).toMatch(/--no-expire-auto/);
+    expect(type(avecComplete, "autre-jour")).toMatch(/--no-expire-auto/);
   });
 
   it("[C-049] un type de sauvegarde inconnu est refusé avant toute commande pgBackRest", () => {

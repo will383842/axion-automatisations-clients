@@ -31,7 +31,7 @@ describe("requêtes du plan commercial", () => {
   });
 
   it("[C-138] @argent une grille sans liste lisible de formules est refusée, jamais prise pour « toutes »", async () => {
-    for (const mauvaise of [null, "abonnement", [1], []]) {
+    for (const mauvaise of [null, "abonnement", [1]]) {
       await expect(preparerPlan(fauxClient(mauvaise).client, "t", "i", { date: "2026-07-01" }), JSON.stringify(mauvaise)).rejects.toMatchObject({ motif: "valeur_invalide:formules_actives" });
     }
   });

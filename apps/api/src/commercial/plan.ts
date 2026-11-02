@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { formuleInstance } from "../db/schema/clients.ts";
 import type { Requeteur } from "../instances/activer.ts";
 import { CLES_HERITABLES, ErreurPlan, MAX_ENTIER, remiseBps, type CleHeritable } from "./heritage.ts";
-import { lireNiveaux } from "./lire-niveaux.ts";
+import { dateParis, lireNiveaux } from "./lire-niveaux.ts";
 
 export { ErreurPlan };
 
@@ -29,13 +29,16 @@ export type PlanPrepare = {
 
 type Regle = { nul: boolean; ok: (v: unknown) => boolean };
 const entier = (v: unknown) => typeof v === "number" && Number.isSafeInteger(v) && v >= 0 && v <= MAX_ENTIER;
+// Colonnes `integer` de plans_commerciaux : au-delà de 2^31 − 1, PostgreSQL refuserait l'écriture (erreur brute) ; on refuse avant, en ErreurPlan.
+const MAX_INTEGER_PG = 2147483647;
+const entier32 = (v: unknown) => entier(v) && (v as number) <= MAX_INTEGER_PG;
 const parmi = (...vals: string[]) => (v: unknown) => typeof v === "string" && vals.includes(v);
 const REGLES: Record<CleHeritable, Regle> = {
   remise_bps: { nul: true, ok: (v) => entier(v) && (v as number) < 10000 }, // 100 % ou plus : refusé
   frais_mise_en_place_centimes: { nul: false, ok: entier },
   tarif_mensuel_centimes: { nul: false, ok: entier },
-  engagement_mois: { nul: false, ok: entier },
-  maintenance_incluse_mois: { nul: false, ok: entier },
+  engagement_mois: { nul: false, ok: entier32 },
+  maintenance_incluse_mois: { nul: false, ok: entier32 },
   suite_maintenance: { nul: false, ok: parmi("arret", "reconduction") },
   garantie_mois: { nul: true, ok: entier },
   delai_jours: { nul: true, ok: entier },
@@ -47,8 +50,10 @@ const REGLES: Record<CleHeritable, Regle> = {
 const rang = (r: Resolu) => NIVEAUX.indexOf(r.source) * 2 + (r.origine === "grille" ? 0 : 1);
 const sourcePlan = (r: Resolu): SourcePlan => (r.source === "instance" ? "instance" : r.source === "client" ? "client" : r.source === "global" && r.origine === "grille" ? "grille" : "defaut");
 
-export function calculerPlan(niveaux: NiveauxConnus, formule: string): PlanPrepare {
+// `formulesActives` : celles de la grille de l'automatisation (null = pas de grille, donc aucune liste à respecter). Une formule qui n'y figure pas est refusée (A-142).
+export function calculerPlan(niveaux: NiveauxConnus, formule: string, formulesActives: readonly string[] | null): PlanPrepare {
   if (!(formuleInstance.enumValues as readonly string[]).includes(formule)) throw new ErreurPlan("formule_inconnue");
+  if (formulesActives && !formulesActives.includes(formule)) throw new ErreurPlan("formule_non_proposee");
   const r: Partial<Record<CleHeritable, Resolu>> = {};
   const valeurs: PlanPrepare["valeurs"] = {};
   for (const cle of CLES_HERITABLES) {
@@ -89,15 +94,17 @@ export function calculerPlan(niveaux: NiveauxConnus, formule: string): PlanPrepa
   };
 }
 
-export type OptionsPlan = { metierId?: string | null; surcharges?: Record<string, unknown>; date?: string };
+// `metierId` et `versionMetier` vont ensemble : la version de départ de l'instance (prereglage_depart_id / version_prereglage_depart), que console_app ne peut pas lire (C-676, migration 0007) ; l'équipe la fournit.
+// `date` : jour commercial AAAA-MM-JJ, par défaut celui d'Europe/Paris.
+export type OptionsPlan = { metierId?: string | null; versionMetier?: number; surcharges?: Record<string, unknown>; date?: string };
 
 // À appeler dans la transaction d'avecClient du client concerné.
 export async function preparerPlan(client: Requeteur, tenantId: string, instanceId: string, options: OptionsPlan = {}): Promise<PlanPrepare> {
   const ligne = (await client.query("SELECT organisation_id, automatisation_id, formule FROM instances WHERE tenant_id = $1 AND id = $2", [tenantId, instanceId])).rows[0];
   if (!ligne) throw new ErreurPlan("instance_introuvable");
-  const date = options.date ?? new Date().toISOString().slice(0, 10);
-  const niveaux = await lireNiveaux(client, tenantId, { organisationId: String(ligne["organisation_id"]), automatisationId: (ligne["automatisation_id"] as string | null) ?? null }, { ...options, date });
-  return { ...calculerPlan(niveaux, String(ligne["formule"])), instanceId };
+  const date = options.date ?? dateParis(new Date());
+  const { niveaux, formulesActives } = await lireNiveaux(client, tenantId, { organisationId: String(ligne["organisation_id"]), automatisationId: (ligne["automatisation_id"] as string | null) ?? null }, { ...options, date });
+  return { ...calculerPlan(niveaux, String(ligne["formule"]), formulesActives), instanceId };
 }
 
 // Écrit l'unique plan de l'instance. Le journal d'audit se remplit par la base. `motif` est exigé (traçabilité de l'appelant) mais la base n'a pas de colonne pour le ranger : dette.

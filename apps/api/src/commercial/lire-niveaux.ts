@@ -8,7 +8,7 @@ import { CLES_SURCHARGEABLES_INSTANCE, ErreurPlan, TYPE_VERS_CLES, estHeritable,
 // Niveaux : la grille de prix (catalogue commun) puis les conditions par défaut forment le niveau PLATEFORME (les secondes l'emportent, C-138) ; le préréglage publié du métier ;
 // les conditions du client ; les réglages de l'instance. Le niveau « automatisation » est réservé aux défauts de modèle des modules (T4-30).
 export type Condition = { type: string; valeur: Record<string, unknown> };
-export type Grille = { fraisMiseEnPlaceCentimes: number; tarifMensuelCentimes: number; maintenanceIncluseMois: number };
+export type Grille = { fraisMiseEnPlaceCentimes: number; tarifMensuelCentimes: number; maintenanceIncluseMois: number; formulesActives: string[] };
 export type Entrees = {
   grille: Grille | null;
   defauts: Condition[];
@@ -63,20 +63,33 @@ const objet = (v: unknown): Record<string, unknown> => {
   return v as Record<string, unknown>;
 };
 const conditions = (rows: Record<string, unknown>[]): Condition[] => rows.map((r) => ({ type: String(r["type"]), valeur: objet(r["valeur"]) }));
-const VALIDE = "(valide_du IS NULL OR valide_du <= $2::date) AND (valide_au IS NULL OR valide_au >= $2::date)";
+// Fenêtre de validité : valide_du INCLUSE, valide_au EXCLUE (le jour de passation, seule la condition qui commence ce jour-là s'applique). Une fenêtre où valide_du = valide_au est donc vide.
+const VALIDE = "(valide_du IS NULL OR valide_du <= $2::date) AND (valide_au IS NULL OR valide_au > $2::date)";
+// Le jour commercial est celui d'Europe/Paris (jamais celui d'UTC : entre 22 h et minuit, UTC retarde d'un jour).
+export const dateParis = (instant: Date): string => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Paris", year: "numeric", month: "2-digit", day: "2-digit" }).format(instant);
+const formules = (v: unknown): string[] => {
+  if (!Array.isArray(v) || !v.every((f) => typeof f === "string")) throw new ErreurPlan("valeur_invalide:formules_actives");
+  return v as string[];
+};
+export type OptionsNiveaux = { metierId?: string | null; versionMetier?: number; surcharges?: Record<string, unknown>; date: string };
+export type NiveauxLus = { niveaux: NiveauxConnus; formulesActives: string[] | null };
 
-export async function lireNiveaux(client: Requeteur, tenantId: string, instance: { organisationId: string; automatisationId: string | null }, options: { metierId?: string | null; surcharges?: Record<string, unknown>; date: string }): Promise<NiveauxConnus> {
+export async function lireNiveaux(client: Requeteur, tenantId: string, instance: { organisationId: string; automatisationId: string | null }, options: OptionsNiveaux): Promise<NiveauxLus> {
+  // Le préréglage est la version de DÉPART de l'instance, que l'appelant (équipe) fournit : jamais « la dernière publiée ».
+  if (options.metierId && !(Number.isSafeInteger(options.versionMetier) && (options.versionMetier ?? 0) >= 1)) throw new ErreurPlan("version_metier_obligatoire");
   let grille: Grille | null = null;
   let metier: Entrees["metier"] = null;
   if (instance.automatisationId) {
-    const g = (await client.query("SELECT montant_installation_centimes, montant_mensuel_centimes, maintenance_incluse_mois FROM grilles_prix WHERE automatisation_id = $1 ORDER BY cree_le DESC, id DESC LIMIT 1", [instance.automatisationId])).rows[0];
-    if (g) grille = { fraisMiseEnPlaceCentimes: entier(g["montant_installation_centimes"]), tarifMensuelCentimes: entier(g["montant_mensuel_centimes"]), maintenanceIncluseMois: entier(g["maintenance_incluse_mois"]) };
-    if (options.metierId) {
-      const m = (await client.query("SELECT donnees, version FROM prereglages_metier WHERE automatisation_id = $1 AND metier_id = $2 AND statut = 'publie' ORDER BY version DESC LIMIT 1", [instance.automatisationId, options.metierId])).rows[0];
-      if (m) metier = { donnees: objet(m["donnees"]), version: entier(m["version"]) };
-    }
+    const g = (await client.query("SELECT montant_installation_centimes, montant_mensuel_centimes, maintenance_incluse_mois, formules_actives FROM grilles_prix WHERE automatisation_id = $1 ORDER BY cree_le DESC, id DESC LIMIT 1", [instance.automatisationId])).rows[0];
+    if (g) grille = { fraisMiseEnPlaceCentimes: entier(g["montant_installation_centimes"]), tarifMensuelCentimes: entier(g["montant_mensuel_centimes"]), maintenanceIncluseMois: entier(g["maintenance_incluse_mois"]), formulesActives: formules(g["formules_actives"]) };
+  }
+  if (options.metierId) {
+    // Une version retirée depuis reste la base de l'instance ; un brouillon n'a jamais été proposé.
+    const m = instance.automatisationId ? (await client.query("SELECT donnees, version FROM prereglages_metier WHERE automatisation_id = $1 AND metier_id = $2 AND version = $3 AND statut <> 'brouillon'", [instance.automatisationId, options.metierId, options.versionMetier])).rows[0] : undefined;
+    if (!m) throw new ErreurPlan("prereglage_introuvable");
+    metier = { donnees: objet(m["donnees"]), version: entier(m["version"]) };
   }
   const defauts = await client.query(`SELECT type, valeur FROM conditions_par_defaut WHERE tenant_id = $1 AND ${VALIDE} ORDER BY id`, [PLATEFORME_ID, options.date]);
   const duClient = await client.query(`SELECT type, valeur FROM conditions_commerciales WHERE tenant_id = $1 AND organisation_id = $3 AND ${VALIDE} ORDER BY id`, [tenantId, options.date, instance.organisationId]);
-  return assemblerNiveaux({ grille, defauts: conditions(defauts.rows), metier, client: conditions(duClient.rows), instance: options.surcharges ?? {} });
+  return { niveaux: assemblerNiveaux({ grille, defauts: conditions(defauts.rows), metier, client: conditions(duClient.rows), instance: options.surcharges ?? {} }), formulesActives: grille ? grille.formulesActives : null };
 }

@@ -84,7 +84,11 @@ function banc(garantie: Garantie, corps: Record<string, (ctx: ContexteEtape) => 
   connecteur.dedupliquer = garantie === "idempotent_par_cle";
   const console = new ConsoleFactice({ reglages: { actionsAutomatiquesAutorisees: ["envoyer", "classer"], objetAccuse: "Accusé" } });
   const processus = () => {
-    const ports = { journal: new JournalPostgres(app, tenant), boite: new BoitePostgres(app, tenant), connecteurs: connecteur, console, horloge };
+    const boite = new BoitePostgres(app, tenant);
+    // g : la cause d'une erreur de la base est écrite sur la sortie d'erreur (le noyau ne garde que « erreur_inconnue »).
+    const ecrire = boite.ecrire.bind(boite);
+    boite.ecrire = (...a: Parameters<typeof ecrire>) => ecrire(...a).catch((e: unknown) => (writeSync(2, `BOITE ${String((e as Error).message)}\n`), Promise.reject(e)));
+    const ports = { journal: new JournalPostgres(app, tenant), boite, connecteurs: connecteur, console, horloge };
     return { ports, lancer: (executionId: string) => horloge.piloter(new Machine({ module, ports }).lancer(INSTANCE, executionId)) };
   };
   return { tenant, connecteur, processus };

@@ -22,7 +22,7 @@ export class BoitePostgres implements BoiteEnvoi {
       const exec = await c.query<{ debut: Date }>("SELECT debut FROM executions WHERE tenant_id = $1 AND id = $2 AND instance_id = $3", [this.tenantId, i.executionId, i.instanceId]);
       if (!exec.rows[0]) throw new Error("execution_inconnue");
       const ajout = await c.query(
-        "INSERT INTO intentions (tenant_id, id, execution_id, debut_execution, cle_intention, garantie) SELECT x.tenant_id, gen_random_uuid(), x.id, x.debut, $4, $5 FROM executions x WHERE x.tenant_id = $1 AND x.id = $2 AND x.instance_id = $3 ON CONFLICT (tenant_id, cle_intention) DO NOTHING",
+        "INSERT INTO intentions (tenant_id, id, execution_id, debut_execution, cle_intention, garantie) SELECT x.tenant_id, gen_random_uuid(), x.id, x.debut, $4::text, $5::garantie_intention FROM executions x WHERE x.tenant_id = $1 AND x.id = $2 AND x.instance_id = $3 ON CONFLICT (tenant_id, cle_intention) DO NOTHING",
         [this.tenantId, i.executionId, i.instanceId, i.cle, i.garantie],
       );
       const x = await c.query<{ etat: Etat; garantie: Intention["garantie"] }>("SELECT etat, garantie FROM intentions WHERE tenant_id = $1 AND cle_intention = $2", [this.tenantId, i.cle]);

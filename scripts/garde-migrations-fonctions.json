@@ -19,6 +19,7 @@
     {"fichier":"0007_catalogue.sql","nom":"audit_ecrire_equipe","empreinte":"01c5e0e0d0f65c9d7ad95b2ddfe41d010f90c585e27f3e52fb69fc6452c80c4c","adr":"0051"},
     {"fichier":"0007_catalogue.sql","nom":"audit_ecrire","empreinte":"88ffea9241cb62ea045a31bd83137860123fc69e501c41bb9833bfd07e64edf0","adr":"0051"},
     {"fichier":"0007_catalogue.sql","nom":"instances_garde","empreinte":"904c932e8995b010a06c08dce3aae90944163040926a2b87f6640bceb7e41704","adr":"0051"},
-    {"fichier":"0009_contrats.sql","nom":"instances_exiger_sous_traitance","empreinte":"356a7c4aee06567dabdbc8945f3cc65db3c56d556210ebe22821d6da9f1be44f","adr":"0053"}
+    {"fichier":"0009_contrats.sql","nom":"instances_exiger_sous_traitance","empreinte":"b5d50144ca233b39fec80652f71a694c62d140fa0c908944bb401c9e7ec9b28b","adr":"0053"},
+    {"fichier":"0009_contrats.sql","nom":"echeances_verifier_facture","empreinte":"2a04b28cca8433d084567047fca1ba3a1ac41f44035ef751986ff11c84c10a06","adr":"0053"}
   ]
 }

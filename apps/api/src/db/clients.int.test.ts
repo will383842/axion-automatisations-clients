@@ -75,7 +75,7 @@ const creerOrg = (id: string, extra: Record<string, unknown> = {}) => {
 // T2-05 : une instance ne passe à « active » (valeur par défaut comprise) qu'avec un contrat de sous-traitance signé : un contrat par client d'essai, posé une fois.
 const sousTraitance = new Map<string, Promise<unknown>>();
 const signerSousTraitance = (tenant: string) => {
-  const v = { id: randomUUID(), tenant_id: tenant, organisation_id: tenant, type: "sous_traitance_art28", date_signature: "2026-01-15", pdf_ref: `contrats/${tenant}/art28.pdf`, empreinte_sha256: "a".repeat(64) };
+  const v = { id: randomUUID(), tenant_id: tenant, organisation_id: tenant, type: "sous_traitance_art28", date_signature: "2026-01-15", pdf_ref: `contrats/${tenant}/art28.pdf`, empreinte_sha256: "a".repeat(64), auteur: APPELANT.acteur };
   const cles = Object.keys(v);
   if (!sousTraitance.has(tenant)) sousTraitance.set(tenant, ecrire(app, tenant, (c) => c.query(`INSERT INTO contrats (${cles.join(", ")}) VALUES (${cles.map((_, i) => `$${i + 1}`).join(", ")})`, Object.values(v)), APPELANT));
   return sousTraitance.get(tenant);

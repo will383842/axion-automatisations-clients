@@ -25,8 +25,8 @@ describe("contrats, devis, factures, apporteurs : schéma et migration 0009", ()
     expect(typeContrat.enumValues).toContain("sous_traitance_art28");
     expect(colonnes(contrats)).toContain("empreinte_sha256");
     expect(migration).toContain(`CHECK ("contrats"."empreinte_sha256" ~ '^[0-9a-f]{64}$')`);
-    // Un contrat signé ne change plus et ne s'efface pas : lecture et ajout seuls.
-    expect(droits("contrats").join()).toBe("SELECT, INSERT");
+    // Un contrat signé ne change plus et ne s'efface pas : lecture, ajout, et la seule révocation (deux colonnes).
+    expect(droits("contrats").join()).toBe('SELECT, INSERT,UPDATE ("revoque_le", "revoque_par")');
   });
 
   it("[A-148] un contrat refuse un type hors énumération", () => {
@@ -44,18 +44,18 @@ describe("contrats, devis, factures, apporteurs : schéma et migration 0009", ()
   it("[A-133] @argent deux factures d'abonnement pour la même période sont refusées ; un avoir passe (index partiel sur la nature abonnement)", () => {
     expect(natureFacture.enumValues).toEqual(["abonnement", "mise_en_place", "complement_prorata", "avoir"]);
     expect(colonnes(factures)).toEqual(expect.arrayContaining(["numero", "hub_id", "nature", "plan", "periode_debut", "periode_fin", "montant_ht_centimes", "statut", "pdf_ref", "empreinte_sha256"]));
-    expect(migration).toContain(`CREATE UNIQUE INDEX "factures_abonnement_periode_unique" ON "factures" USING btree ("tenant_id","plan","periode_debut") WHERE "factures"."nature" = 'abonnement'`);
+    expect(migration).toContain(`CREATE UNIQUE INDEX "factures_abonnement_periode_unique" ON "factures" USING btree ("tenant_id","plan","periode_debut") WHERE "factures"."nature" = 'abonnement' AND "factures"."statut" <> 'annulee'`);
   });
 
   it("[A-133] @argent une seconde facture de mise en place pour la même automatisation est refusée", () => {
-    expect(migration).toContain(`CREATE UNIQUE INDEX "factures_mise_en_place_unique" ON "factures" USING btree ("tenant_id","code_automatisation") WHERE "factures"."nature" = 'mise_en_place'`);
+    expect(migration).toContain(`CREATE UNIQUE INDEX "factures_mise_en_place_unique" ON "factures" USING btree ("tenant_id","code_automatisation") WHERE "factures"."nature" = 'mise_en_place' AND "factures"."statut" <> 'annulee'`);
   });
 
   it("[A-133] @argent la console ne corrige jamais une facture : seul le statut est modifiable, ni montant, ni numéro, ni PDF", () => {
-    expect(droits("factures").join()).toBe('SELECT, INSERT,UPDATE ("statut")');
+    expect(droits("factures").join()).toBe('SELECT, INSERT,UPDATE ("statut", "auteur")');
     expect(droits("devis").join()).toMatch(/^SELECT, INSERT,UPDATE \("statut"/);
     expect(migration).not.toMatch(/GRANT UPDATE[^;]*(montant_ht_centimes|numero|pdf_ref)/);
-    expect(migration).toContain(`CHECK ("factures"."montant_ht_centimes" >= 0)`);
+    expect(migration).toContain(`"factures"."montant_ht_centimes" BETWEEN 0 AND 9007199254740991`);
   });
 
   it("[A-147] la table des apporteurs garde l'identifiant axion-ia, le taux en points de base et la date de lecture, sans écriture par console_app", () => {

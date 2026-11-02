@@ -1,5 +1,5 @@
 // Activation d'une instance (T2-05, ADR 0053). Le service donne un message clair à l'écran ; la base reste la garantie
-// (déclencheur instances_sous_traitance, migration 0009) : même règle, même motif, y compris si le contrat disparaît entre la lecture et l'écriture.
+// (déclencheur instances_sous_traitance, migration 0009) : même règle, même motif, y compris si le contrat disparaît ou est révoqué entre la lecture et l'écriture.
 // À appeler dans la transaction d'avecClient (tenant fixé) : jamais avec un pool direct.
 export const MOTIF_SOUS_TRAITANCE_ABSENTE = "sous_traitance_absente";
 
@@ -22,12 +22,14 @@ export async function activerInstance(client: Requeteur, tenantId: string, insta
   const organisation = instance.rows[0]?.["organisation_id"];
   if (!organisation) throw new ErreurRegleMetier("instance_introuvable");
   const contrat = await client.query(
-    "SELECT 1 AS un FROM contrats WHERE tenant_id = $1 AND organisation_id = $2 AND type = 'sous_traitance_art28' AND date_signature <= current_date LIMIT 1",
+    "SELECT 1 AS un FROM contrats WHERE tenant_id = $1 AND organisation_id = $2 AND type = 'sous_traitance_art28' AND date_signature <= current_date AND revoque_le IS NULL LIMIT 1",
     [tenantId, organisation],
   );
   if (contrat.rows.length === 0) throw new ErreurRegleMetier(MOTIF_SOUS_TRAITANCE_ABSENTE);
   try {
-    await client.query("UPDATE instances SET etat = 'active' WHERE tenant_id = $1 AND id = $2", [tenantId, instanceId]);
+    const maj = await client.query("UPDATE instances SET etat = 'active' WHERE tenant_id = $1 AND id = $2", [tenantId, instanceId]);
+    // Aucune ligne modifiée : l'instance a disparu (ou n'est plus visible) entre la lecture et l'écriture ; jamais un succès silencieux.
+    if (maj.rowCount === 0) throw new ErreurRegleMetier("instance_introuvable");
   } catch (e) {
     if ((e as { code?: string }).code === "P0001" && (e as { detail?: string }).detail === MOTIF_SOUS_TRAITANCE_ABSENTE) throw new ErreurRegleMetier(MOTIF_SOUS_TRAITANCE_ABSENTE);
     throw e;

@@ -83,8 +83,8 @@ const montants = (ht: number, taux = 2000) => ({ montant_ht_centimes: ht, taux_t
 const facture = (A: string, extra: Record<string, unknown> = {}) =>
   inserer(A, "factures", { organisation_id: A, numero: `AXI-FACT-${randomUUID()}`, hub_id: randomUUID(), nature: "abonnement", plan: "essentiel", periode_debut: "2026-02-01", periode_fin: "2026-02-28", ...montants(10000), statut: "emise", pdf_ref: "factures/a.pdf", empreinte_sha256: SHA, auteur: APPELANT.acteur, ...extra });
 const avoir = (A: string, origine: unknown, extra: Record<string, unknown> = {}) => facture(A, { nature: "avoir", facture_origine_id: origine, ...extra });
-const majFacture = (A: string, id: unknown, set: string, appelant: typeof APPELANT | undefined = APPELANT) => ecrire(app, A, (c) => c.query(`UPDATE factures SET ${set} WHERE id = $1`, [id]), appelant);
-const majDevis = (A: string, id: unknown, set: string, appelant: typeof APPELANT | undefined = APPELANT) => ecrire(app, A, (c) => c.query(`UPDATE devis SET ${set} WHERE id = $1`, [id]), appelant);
+const majFacture = (A: string, id: unknown, set: string, appelant: typeof APPELANT | null = APPELANT) => ecrire(app, A, (c) => c.query(`UPDATE factures SET ${set} WHERE id = $1`, [id]), appelant ?? undefined);
+const majDevis = (A: string, id: unknown, set: string, appelant: typeof APPELANT | null = APPELANT) => ecrire(app, A, (c) => c.query(`UPDATE devis SET ${set} WHERE id = $1`, [id]), appelant ?? undefined);
 const devisBrouillon = (A: string, extra: Record<string, unknown> = {}) => inserer(A, "devis", { organisation_id: A, numero_hub: `DEV-${randomUUID()}`, pdf_ref: "devis/a.pdf", duree_validite_jours: 30, ...extra });
 const ANNULATION = `statut = 'annule', motif_annulation = 'erreur de saisie', annule_le = now(), annule_par = '${APPELANT.acteur}'`;
 const code = (p: Promise<unknown>) => p.then(() => "ok", (e: { code?: string }) => e.code);
@@ -213,14 +213,14 @@ describe("contrats, devis, factures et activation, avec le socle", { timeout: 30
     await expect(brut("contrats", { ...contratBrut, auteur: "agent-essai" })).rejects.toMatchObject({ code: "42501" }); // aucun appelant
     await expect(brut("contrats", { ...contratBrut, auteur: "systeme" }, APPELANT)).rejects.toMatchObject({ code: "42501" }); // auteur différent de l'appelant
     await expect(brut("contrats", { ...contratBrut, auteur: "  " }, APPELANT)).rejects.toMatchObject({ code: "42501" });
-    await expect(brut("contrats", contratBrut, APPELANT)).rejects.toMatchObject({ code: "23502" }); // auteur absent
+    await expect(brut("contrats", contratBrut, APPELANT)).rejects.toMatchObject({ code: "42501" }); // auteur absent
     const f = await facture(A);
     await expect(facture(A, { auteur: "systeme" })).rejects.toMatchObject({ code: "42501" });
-    await expect(majFacture(A, f["id"], "statut = 'impayee'", undefined)).rejects.toMatchObject({ code: "42501" }); // aucun appelant
+    await expect(majFacture(A, f["id"], "statut = 'impayee'", null)).rejects.toMatchObject({ code: "42501" }); // aucun appelant
     await expect(majFacture(A, f["id"], "statut = 'impayee', auteur = 'systeme'")).rejects.toMatchObject({ code: "42501" });
     expect((await majFacture(A, f["id"], "statut = 'impayee', auteur = 'agent-essai'")).rowCount).toBe(1);
     const d = await devisBrouillon(A);
-    await expect(majDevis(A, d["id"], ANNULATION, undefined)).rejects.toMatchObject({ code: "42501" });
+    await expect(majDevis(A, d["id"], ANNULATION, null)).rejects.toMatchObject({ code: "42501" });
     await expect(majDevis(A, d["id"], "statut = 'annule', motif_annulation = 'erreur', annule_le = now(), annule_par = 'quelquun-d-autre'")).rejects.toMatchObject({ code: "42501" });
     expect((await majDevis(A, d["id"], ANNULATION)).rowCount).toBe(1);
   });
@@ -277,7 +277,8 @@ describe("contrats, devis, factures et activation, avec le socle", { timeout: 30
     await creerOrg(A);
     const d = await devisBrouillon(A);
     await expect(majDevis(A, d["id"], "statut = 'envoye'")).rejects.toMatchObject({ code: "23514" });
-    expect((await majDevis(A, d["id"], "statut = 'envoye', date_envoi = now()")).rowCount).toBe(1);
+    const daté = await devisBrouillon(A, { date_envoi: "2026-01-02T10:00:00Z" }); // console_app ne modifie pas date_envoi : elle se pose à l'insertion
+    expect((await majDevis(A, daté["id"], "statut = 'envoye'")).rowCount).toBe(1);
     await expect(facture(A, { plan: "  " })).rejects.toMatchObject({ code: "23514" });
     await expect(facture(A, { nature: "mise_en_place", plan: null, code_automatisation: " " })).rejects.toMatchObject({ code: "23514" });
     await expect(facture(A, { nature: "complement_prorata", plan: "", periode_debut: "2026-03-01", periode_fin: "2026-03-28" })).rejects.toMatchObject({ code: "23514" });
@@ -330,11 +331,11 @@ describe("contrats, devis, factures et activation, avec le socle", { timeout: 30
     const A = randomUUID();
     await creerOrg(A);
     const c = await contrat(A);
-    const revoquer = (set: string, appelant: typeof APPELANT | undefined = APPELANT) => ecrire(app, A, (x) => x.query(`UPDATE contrats SET ${set} WHERE id = $1`, [c["id"]]), appelant);
+    const revoquer = (set: string, appelant: typeof APPELANT | null = APPELANT) => ecrire(app, A, (x) => x.query(`UPDATE contrats SET ${set} WHERE id = $1`, [c["id"]]), appelant ?? undefined);
     const i = (await instance(A, { etat: "pause" }))["id"] as string;
-    await expect(revoquer("revoque_le = now(), revoque_par = 'agent-essai'", undefined)).rejects.toMatchObject({ code: "42501" });
+    await expect(revoquer("revoque_le = now(), revoque_par = 'agent-essai'", null)).rejects.toMatchObject({ code: "42501" });
     await expect(revoquer("revoque_le = now(), revoque_par = 'quelquun-d-autre'")).rejects.toMatchObject({ code: "42501" });
-    await expect(revoquer("revoque_le = now()")).rejects.toMatchObject({ code: "23514" }); // date sans auteur
+    await expect(revoquer("revoque_le = now()")).rejects.toMatchObject({ code: "42501" }); // date sans auteur
     await expect(revoquer("date_signature = '2020-01-01'")).rejects.toMatchObject({ code: "42501" });
     expect((await revoquer("revoque_le = now(), revoque_par = 'agent-essai'")).rowCount).toBe(1);
     await expect(revoquer("revoque_le = NULL, revoque_par = NULL")).rejects.toMatchObject({ code: "42501" }); // pas de retour en arrière

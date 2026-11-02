@@ -4694,6 +4694,28 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "echeances_facture_unique": {
+          "name": "echeances_facture_unique",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "facture_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"echeances\".\"facture_id\" IS NOT NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -4704,6 +4726,21 @@
           "columnsFrom": [
             "tenant_id",
             "plan_id"
+          ],
+          "columnsTo": [
+            "tenant_id",
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "echeances_facture_fk": {
+          "name": "echeances_facture_fk",
+          "tableFrom": "echeances",
+          "tableTo": "factures",
+          "columnsFrom": [
+            "tenant_id",
+            "facture_id"
           ],
           "columnsTo": [
             "tenant_id",
@@ -5203,6 +5240,18 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true
+        },
+        "siren": {
+          "name": "siren",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "siren_actif_verifie_le": {
+          "name": "siren_actif_verifie_le",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -5273,9 +5322,17 @@
           "name": "apporteurs_clients_taux_borne",
           "value": "\"apporteurs_clients\".\"taux_points_de_base\" BETWEEN 0 AND 10000"
         },
-        "apporteurs_clients_commissions_positives": {
-          "name": "apporteurs_clients_commissions_positives",
-          "value": "\"apporteurs_clients\".\"commissions_dues_centimes\" >= 0"
+        "apporteurs_clients_commissions_bornees": {
+          "name": "apporteurs_clients_commissions_bornees",
+          "value": "\"apporteurs_clients\".\"commissions_dues_centimes\" BETWEEN 0 AND 9007199254740991"
+        },
+        "apporteurs_clients_siren_format": {
+          "name": "apporteurs_clients_siren_format",
+          "value": "\"apporteurs_clients\".\"siren\" ~ '^[0-9]{9}$'"
+        },
+        "apporteurs_clients_commission_siren_actif": {
+          "name": "apporteurs_clients_commission_siren_actif",
+          "value": "\"apporteurs_clients\".\"commissions_dues_centimes\" = 0 OR (\"apporteurs_clients\".\"siren\" IS NOT NULL AND \"apporteurs_clients\".\"siren_actif_verifie_le\" IS NOT NULL)"
         }
       },
       "isRLSEnabled": false
@@ -5333,6 +5390,24 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "auteur": {
+          "name": "auteur",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "revoque_le": {
+          "name": "revoque_le",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "revoque_par": {
+          "name": "revoque_par",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -5390,6 +5465,14 @@
       },
       "policies": {},
       "checkConstraints": {
+        "contrats_auteur_non_vide": {
+          "name": "contrats_auteur_non_vide",
+          "value": "length(btrim(\"contrats\".\"auteur\")) > 0"
+        },
+        "contrats_revocation_complete": {
+          "name": "contrats_revocation_complete",
+          "value": "(\"contrats\".\"revoque_le\" IS NULL) = (\"contrats\".\"revoque_par\" IS NULL) AND (\"contrats\".\"revoque_par\" IS NULL OR length(btrim(\"contrats\".\"revoque_par\")) > 0)"
+        },
         "contrats_pdf_ref_format": {
           "name": "contrats_pdf_ref_format",
           "value": "\"contrats\".\"pdf_ref\" ~ '^[A-Za-z0-9][A-Za-z0-9_./-]{0,254}$'"
@@ -5558,6 +5641,10 @@
           "name": "devis_validite_positive",
           "value": "\"devis\".\"duree_validite_jours\" > 0"
         },
+        "devis_envoye_date": {
+          "name": "devis_envoye_date",
+          "value": "\"devis\".\"statut\" <> 'envoye' OR \"devis\".\"date_envoi\" IS NOT NULL"
+        },
         "devis_annulation_complete": {
           "name": "devis_annulation_complete",
           "value": "(\"devis\".\"statut\" = 'annule' AND coalesce(length(btrim(\"devis\".\"motif_annulation\")), 0) > 0 AND \"devis\".\"annule_le\" IS NOT NULL AND coalesce(length(btrim(\"devis\".\"annule_par\")), 0) > 0) OR (\"devis\".\"statut\" <> 'annule' AND \"devis\".\"motif_annulation\" IS NULL AND \"devis\".\"annule_le\" IS NULL AND \"devis\".\"annule_par\" IS NULL)"
@@ -5642,6 +5729,24 @@
           "primaryKey": false,
           "notNull": true
         },
+        "taux_tva_points_de_base": {
+          "name": "taux_tva_points_de_base",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "montant_tva_centimes": {
+          "name": "montant_tva_centimes",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "montant_ttc_centimes": {
+          "name": "montant_ttc_centimes",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
         "statut": {
           "name": "statut",
           "type": "statut_facture",
@@ -5649,6 +5754,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'emise'"
+        },
+        "facture_origine_id": {
+          "name": "facture_origine_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
         },
         "pdf_ref": {
           "name": "pdf_ref",
@@ -5668,6 +5779,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "auteur": {
+          "name": "auteur",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
         }
       },
       "indexes": {
@@ -5709,7 +5826,7 @@
             }
           ],
           "isUnique": true,
-          "where": "\"factures\".\"nature\" = 'abonnement'",
+          "where": "\"factures\".\"nature\" = 'abonnement' AND \"factures\".\"statut\" <> 'annulee'",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -5731,7 +5848,7 @@
             }
           ],
           "isUnique": true,
-          "where": "\"factures\".\"nature\" = 'mise_en_place'",
+          "where": "\"factures\".\"nature\" = 'mise_en_place' AND \"factures\".\"statut\" <> 'annulee'",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -5745,6 +5862,21 @@
           "columnsFrom": [
             "tenant_id",
             "organisation_id"
+          ],
+          "columnsTo": [
+            "tenant_id",
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "factures_origine_fk": {
+          "name": "factures_origine_fk",
+          "tableFrom": "factures",
+          "tableTo": "factures",
+          "columnsFrom": [
+            "tenant_id",
+            "facture_origine_id"
           ],
           "columnsTo": [
             "tenant_id",
@@ -5814,9 +5946,37 @@
           "name": "factures_empreinte_format",
           "value": "\"factures\".\"empreinte_sha256\" ~ '^[0-9a-f]{64}$'"
         },
-        "factures_montant_positif": {
-          "name": "factures_montant_positif",
-          "value": "\"factures\".\"montant_ht_centimes\" >= 0"
+        "factures_auteur_non_vide": {
+          "name": "factures_auteur_non_vide",
+          "value": "length(btrim(\"factures\".\"auteur\")) > 0"
+        },
+        "factures_montants_bornes": {
+          "name": "factures_montants_bornes",
+          "value": "\"factures\".\"montant_ht_centimes\" BETWEEN 0 AND 9007199254740991 AND \"factures\".\"montant_tva_centimes\" BETWEEN 0 AND 9007199254740991 AND \"factures\".\"montant_ttc_centimes\" BETWEEN 0 AND 9007199254740991"
+        },
+        "factures_taux_tva_positif": {
+          "name": "factures_taux_tva_positif",
+          "value": "\"factures\".\"taux_tva_points_de_base\" > 0"
+        },
+        "factures_ttc_coherent": {
+          "name": "factures_ttc_coherent",
+          "value": "\"factures\".\"montant_ttc_centimes\" = \"factures\".\"montant_ht_centimes\" + \"factures\".\"montant_tva_centimes\""
+        },
+        "factures_tva_arrondie": {
+          "name": "factures_tva_arrondie",
+          "value": "\"factures\".\"montant_tva_centimes\" = (\"factures\".\"montant_ht_centimes\" * \"factures\".\"taux_tva_points_de_base\" + 5000) / 10000"
+        },
+        "factures_avoir_origine": {
+          "name": "factures_avoir_origine",
+          "value": "(\"factures\".\"nature\" = 'avoir') = (\"factures\".\"facture_origine_id\" IS NOT NULL)"
+        },
+        "factures_plan_non_vide": {
+          "name": "factures_plan_non_vide",
+          "value": "length(btrim(\"factures\".\"plan\")) > 0"
+        },
+        "factures_code_non_vide": {
+          "name": "factures_code_non_vide",
+          "value": "length(btrim(\"factures\".\"code_automatisation\")) > 0"
         },
         "factures_periode_ordonnee": {
           "name": "factures_periode_ordonnee",

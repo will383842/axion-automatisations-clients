@@ -72,7 +72,7 @@ const plan = (A: string, instance: unknown, extra: Record<string, unknown> = {})
 const nouveauPlan = async (A: string) => plan(A, (await creerInstance(A))["id"]);
 // Copie d'une facture du Hub (T2-05) : TVA toujours ajoutée (20 % sur 10 000 centimes), chaque mois sa facture.
 const factureDe = (A: string, mois: number, extra: Record<string, unknown> = {}) =>
-  inserer(A, "factures", { organisation_id: A, numero: `AXI-FACT-${randomUUID()}`, hub_id: randomUUID(), nature: "abonnement", plan: "essentiel", periode_debut: `2026-${String(mois).padStart(2, "0")}-01`, periode_fin: `2026-${String(mois).padStart(2, "0")}-28`, montant_ht_centimes: 10000, taux_tva_points_de_base: 2000, montant_tva_centimes: 2000, montant_ttc_centimes: 12000, pdf_ref: "factures/a.pdf", empreinte_sha256: "a".repeat(64), auteur: APPELANT.acteur, ...extra });
+  inserer(A, "factures", { organisation_id: A, numero: `AXI-FACT-${randomUUID()}`, hub_id: randomUUID(), nature: "abonnement", plan: "essentiel", periode_debut: `2026-${String(mois).padStart(2, "0")}-01`, periode_fin: `2026-${String(mois).padStart(2, "0")}-${new Date(Date.UTC(2026, mois, 0)).getUTCDate()}`, montant_ht_centimes: 10000, taux_tva_points_de_base: 2000, montant_tva_centimes: 2000, montant_ttc_centimes: 12000, pdf_ref: "factures/a.pdf", empreinte_sha256: "a".repeat(64), auteur: APPELANT.acteur, ...extra });
 const echeance = (A: string, planId: unknown, extra: Record<string, unknown> = {}) =>
   inserer(A, "echeances", { plan_id: planId, debut_periode: "2026-01-01", fin_periode: "2026-02-01", montant_ht_centimes: 200, auteur: "agent-essai", ...extra });
 

@@ -59,4 +59,41 @@ describe("scanner-journaux", () => {
     const v = ipv4(1, 2, 3, 4);
     expect(scannerTexte("e.txt", `outil v${v} paquet@${v} version ${v}`)).toEqual([]);
   });
+  // Lignes fabriquées dans la forme de celles de la CI (jamais copiées) : un faux positif « téléphone » les prenait pour un numéro.
+  const lignesNormales: Record<string, string> = {
+    horodatage: "2026-11-02T10:11:12.0123456789Z étape terminée",
+    "empreinte hexadécimale": "image sha256:ab0123456789cdef0123456789abcdef poussée",
+    durée: "tests terminés en 0123456789ms",
+    "compte d'octets": "transfert=0123456789B vers le cache",
+    "numéro d'exécution": "run=0123456789 tâche 0123456789",
+    "numéro de version": "outil v4.0612345678 build-0123456789",
+  };
+  for (const [forme, ligne] of Object.entries(lignesNormales)) {
+    it(`[C-531] scanner-journaux ne signale pas un faux téléphone dans ${forme}`, () => {
+      expect(scannerTexte("e.txt", ligne)).toEqual([]);
+    });
+  }
+  it("[C-531] scanner-journaux signale encore les formes réelles de téléphone", () => {
+    const formes = [
+      "contact 06 12 34 56 78",
+      "contact 06.12.34.56.78",
+      "contact 06-12-34-56-78",
+      "contact +33 6 12 34 56 78",
+      "contact +33612345678",
+      "contact 0033612345678",
+      "tel 0612345678",
+      "phone: 0612345678",
+      "portable 0612345678.",
+    ];
+    for (const f of formes) expect(scannerTexte("e.txt", f).map((x) => x.type), f).toEqual(["téléphone"]);
+  });
+  it("[C-531] scanner-journaux signale tel:+33…, Tél:06… et mobile:06…", () => {
+    for (const f of ["tel:+33612345678", "Tél:06 12 34 56 78", "mobile:06 12 34 56 78", "mobile:0612345678"]) {
+      expect(scannerTexte("e.txt", f).map((x) => x.type), f).toEqual(["téléphone"]);
+    }
+  });
+  it("[C-531] scanner-journaux ne montre pas la valeur d'un téléphone trouvé", () => {
+    const t = scannerTexte("e.txt", "tel:+33612345678");
+    expect(formaterTrouvailles(t).join("\n")).not.toContain("612345678");
+  });
 });

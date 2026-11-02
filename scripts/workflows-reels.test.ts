@@ -34,7 +34,7 @@ describe("workflows réels", () => {
 
   it("[C-531] controle-journaux.yml suit ci.yml, sans secret ni checkout de la branche de la PR", () => {
     const t = lire(".github/workflows/controle-journaux.yml");
-    expect(t).toMatch(/workflow_run:\s*\n\s+workflows:\s*\[?"?(CI|ci)/);
+    expect(t).toMatch(/workflow_run:\s*\n\s+workflows:\s*(?:\[\s*|\n\s+-\s+)"?(CI|ci)/);
     expect(t).toMatch(/^permissions:\n\s+actions: write\n\s+contents: read/m);
     expect(t).not.toMatch(/secrets\.(?!GITHUB_TOKEN)/);
     expect(t).not.toMatch(/head_sha|head_branch|pull_requests/);

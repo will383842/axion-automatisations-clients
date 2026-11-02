@@ -81,7 +81,8 @@ describe("accès humain à une base client", () => {
     const base = nomBaseDe(T);
     expect(d.nom).toBe(`humain-lecture-${base}`);
     const creation = d.creation_statements.join("\n");
-    expect(creation).toContain(`GRANT "${base}_lecture" TO "{{name}}"`);
+    // Rôle NOINHERIT : sans WITH INHERIT TRUE sur ce seul rattachement, il serait membre de _lecture sans aucun droit (constaté par l'essai réel).
+    expect(creation).toContain(`GRANT "${base}_lecture" TO "{{name}}" WITH INHERIT TRUE`);
     expect(creation).toMatch(/NOINHERIT/);
     expect(creation).toMatch(/CONNECTION LIMIT [1-9]/);
     expect(creation).toMatch(/statement_timeout\s*=\s*'[1-9]\d*(ms|s|min)'/);

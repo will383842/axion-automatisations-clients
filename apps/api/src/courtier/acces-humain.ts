@@ -80,7 +80,7 @@ export function definitionRoleHumain(tenantId: string) {
       `ALTER ROLE "{{name}}" SET statement_timeout = '30s';`,
       `ALTER ROLE "{{name}}" SET default_transaction_read_only = on;`,
       `GRANT CONNECT ON DATABASE "${base}" TO "{{name}}";`,
-      `GRANT "${base}_lecture" TO "{{name}}";`,
+      `GRANT "${base}_lecture" TO "{{name}}" WITH INHERIT TRUE;`,
     ],
     // Ordre : le rôle perd d'abord LOGIN (il ne peut plus se reconnecter, même si la suite échoue), puis ses sessions sont coupées, ses droits retirés, le rôle supprimé.
     revocation_statements: [

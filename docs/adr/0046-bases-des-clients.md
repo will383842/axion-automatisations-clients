@@ -38,3 +38,5 @@ Choix : un seul rôle fixe `cli_<id>_app` et `VALID UNTIL`, pas de rôles altern
 - Une rotation par base et par période (`jobId` = base + période) et un verrou par client : deux rotations simultanées ne passent pas ensemble.
 - Inconvénient accepté : pas de chevauchement strict de deux mots de passe pour les nouvelles connexions.
 - Accès humain (T2-36b) : un rôle dynamique OpenBao par client (`humain-lecture-cli_<id>`), `NOINHERIT`, rattaché à `cli_<id>_lecture` seul, `CONNECTION LIMIT` et `statement_timeout` positifs, lecture seule ; jeton `HUMAINS` distinct de `DONNEES`. Le bail est révoqué à la fin de l'intervention (tâche différée) et sa révocation coupe les sessions du rôle.
+- La lecture seule de l'accès humain repose sur les droits de `cli_<id>_lecture` (SELECT seulement), pas sur `default_transaction_read_only` ni `statement_timeout` : ce sont des défauts du rôle, que son titulaire peut changer par `SET`.
+- La politique `humains` d'OpenBao et le compte `donnees-1` couvrent tous les clients : le cloisonnement repose sur `bailDe` (le bail doit venir du rôle `humain-lecture-cli_<id>` du client demandé) et sur l'UUID, dont dérivent tous les noms.

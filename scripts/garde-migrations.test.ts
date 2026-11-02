@@ -359,3 +359,30 @@ describe("fonctions permises : durcissement", () => {
     expect(gardeMigrations(racine, [])).toEqual(["apps/api/drizzle-cli/0000_x.sql:1: instruction interdite : DROP"]);
   });
 });
+
+describe("garde des migrations : phase contracter (T2-38)", () => {
+  const DROP = "ALTER TABLE a DROP COLUMN x;\nDROP TABLE b;";
+  const racineAvec = (dossier: string, sql: string) => {
+    const racine = mkdtempSync(join(tmpdir(), "garde-ct-"));
+    mkdirSync(join(racine, "apps/api", dossier, "meta"), { recursive: true });
+    writeFileSync(join(racine, "apps/api", dossier, "0000_x.sql"), sql);
+    writeFileSync(join(racine, "apps/api", dossier, "meta/_journal.json"), JSON.stringify({ entries: [{ idx: 0, version: "7", when: 1, tag: "0000_x", breakpoints: true }] }));
+    return racine;
+  };
+  it("[A-226] une migration qui supprime une colonne hors phase contracter est refusée", () => {
+    expect(gardeMigrations(racineAvec("drizzle-cli", DROP), [])).toEqual(["apps/api/drizzle-cli/0000_x.sql:1: instruction interdite : DROP", "apps/api/drizzle-cli/0000_x.sql:2: instruction interdite : DROP"]);
+    // Le marqueur ailleurs qu'en première ligne, ou dans un commentaire de fin, n'exempte rien.
+    expect(gardeMigrations(racineAvec("drizzle-cli", `${DROP}\n-- phase: contracter`), []).length).toBe(2);
+    expect(gardeMigrations(racineAvec("drizzle-cli", `SELECT '-- phase: contracter';\n${DROP}`), []).length).toBe(2);
+  });
+  it("[A-226] un fichier « -- phase: contracter » de drizzle-cli/ est la seule exception à la règle « pas de DROP »", () => {
+    expect(gardeMigrations(racineAvec("drizzle-cli", `-- phase: contracter\n${DROP}`), [])).toEqual([]);
+    // Hors de drizzle-cli/ (console, moteur) : le marqueur n'exempte rien.
+    expect(gardeMigrations(racineAvec("drizzle", `-- phase: contracter\n${DROP}`), []).length).toBe(2);
+  });
+  it("[A-226] un fichier contracter ne permet que DROP de table, colonne ou index : RENAME, TRUNCATE, rôle, base, fonction restent refusés", () => {
+    for (const sql of ["ALTER TABLE a RENAME COLUMN x TO y;", "TRUNCATE a;", "DROP ROLE r;", "DROP DATABASE d;", "DROP OWNED BY r;", "ALTER TABLE a ALTER COLUMN x TYPE text;", "CREATE FUNCTION f() RETURNS int LANGUAGE sql AS $$ SELECT 1 $$;", "DO $$ BEGIN DROP TABLE a; END $$;", "SET ROLE r;"]) {
+      expect(gardeMigrations(racineAvec("drizzle-cli", `-- phase: contracter\n${sql}`), []).length, sql).toBeGreaterThan(0);
+    }
+  });
+});

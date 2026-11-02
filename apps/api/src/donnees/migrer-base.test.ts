@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { migrationsAAppliquer, migrerBase, verifierRole } from "./migrer-base.ts";
+import { empreinteScram, migrationsAAppliquer, migrerBase, verifierRole } from "./migrer-base.ts";
 
 const E = (n: number, empreinte = `h${n}`) => ({ version: n, tag: `000${n - 1}_x`, empreinte });
 
@@ -32,5 +32,35 @@ describe("outil de migration des bases des clients", () => {
   it("[A-212] migrerBase refuse un nom de base qui n'est pas cli_<12 hexadécimaux> et PgBouncer", async () => {
     await expect(migrerBase("console", 1, { url: "postgres://migrateur:x@localhost:5432/console" })).rejects.toThrow(/nom de base/);
     await expect(migrerBase("cli_0a0a0a0a0a0a", 1, { url: "postgres://migrateur:x@pgbouncer-donnees:6432/cli_0a0a0a0a0a0a" })).rejects.toThrow(/directe/);
+  });
+
+  it("[A-232] en production, migrerBase refuse une cible plus basse que la version appliquée", () => {
+    const entrees = [E(1), E(2), E(3)];
+    const faits = [{ version: 1, empreinte: "h1" }, { version: 2, empreinte: "h2" }, { version: 3, empreinte: "h3" }];
+    expect(() => migrationsAAppliquer(entrees, faits, 2, true)).toThrow(/descendante/);
+    expect(migrationsAAppliquer(entrees, faits, 3, true)).toEqual([]);
+    expect(migrationsAAppliquer(entrees, faits.slice(0, 1), 3, true).map((e) => e.version)).toEqual([2, 3]);
+    expect(migrationsAAppliquer(entrees, faits, 2, false)).toEqual([]);
+  });
+
+  it("[A-232] sous NODE_ENV=production, migrerBase lit lui-même l'environnement : la descente n'est pas un choix de l'appelant", () => {
+    const entrees = [E(1), E(2)];
+    const faits = [{ version: 1, empreinte: "h1" }, { version: 2, empreinte: "h2" }];
+    const avant = process.env["NODE_ENV"];
+    try {
+      process.env["NODE_ENV"] = "production";
+      expect(() => migrationsAAppliquer(entrees, faits, 1)).toThrow(/descendante/);
+      process.env["NODE_ENV"] = "test";
+      expect(migrationsAAppliquer(entrees, faits, 1)).toEqual([]);
+    } finally {
+      if (avant === undefined) delete process.env["NODE_ENV"]; else process.env["NODE_ENV"] = avant;
+    }
+  });
+
+  it("[A-219] le mot de passe du rôle de migration d'un module part en empreinte SCRAM calculée côté client, jamais en clair dans le texte SQL", () => {
+    const e = empreinteScram("secret-a-usage-unique");
+    expect(e).toMatch(/^SCRAM-SHA-256\$4096:[A-Za-z0-9+/]+=*\$[A-Za-z0-9+/]+=*:[A-Za-z0-9+/]+=*$/);
+    expect(e).not.toContain("secret-a-usage-unique");
+    expect(empreinteScram("secret-a-usage-unique")).not.toBe(e);
   });
 });

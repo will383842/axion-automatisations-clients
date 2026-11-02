@@ -77,17 +77,38 @@ const contrat = (A: string, extra: Record<string, unknown> = {}) =>
   inserer(A, "contrats", { organisation_id: A, type: "sous_traitance_art28", date_signature: "2026-01-15", pdf_ref: `contrats/${A}/art28.pdf`, empreinte_sha256: SHA, auteur: APPELANT.acteur, ...extra });
 const instance = (A: string, extra: Record<string, unknown> = {}) =>
   inserer(A, "instances", { organisation_id: A, code_automatisation: "relance-devis", formule: "abonnement", environnement: "production", ...extra });
-// TVA toujours ajoutée : arrondi au centime le plus proche, moitié vers le haut, comme la règle de la base.
-const tva = (ht: number, taux: number) => Math.floor((ht * taux + 5000) / 10000);
+// TVA toujours ajoutée : arrondi au centime le plus proche, moitié vers le haut, comme la règle de la base (calcul exact en entiers longs).
+const tva = (ht: number, taux: number) => Number((BigInt(ht) * BigInt(taux) + 5000n) / 10000n);
 const montants = (ht: number, taux = 2000) => ({ montant_ht_centimes: ht, taux_tva_points_de_base: taux, montant_tva_centimes: tva(ht, taux), montant_ttc_centimes: ht + tva(ht, taux) });
-const facture = (A: string, extra: Record<string, unknown> = {}) =>
-  inserer(A, "factures", { organisation_id: A, numero: `AXI-FACT-${randomUUID()}`, hub_id: randomUUID(), nature: "abonnement", plan: "essentiel", periode_debut: "2026-02-01", periode_fin: "2026-02-28", ...montants(10000), statut: "emise", pdf_ref: "factures/a.pdf", empreinte_sha256: SHA, auteur: APPELANT.acteur, ...extra });
+// Une facture d'abonnement ou de complément se rattache à une instance (clé d'unicité) : une instance en pause par client, sauf si l'essai en nomme une.
+const instanceDeFacture = new Map<string, Promise<string>>();
+const uneInstance = (A: string) => {
+  if (!instanceDeFacture.has(A)) instanceDeFacture.set(A, instance(A, { etat: "pause" }).then((i) => i["id"] as string));
+  return instanceDeFacture.get(A) as Promise<string>;
+};
+const facture = async (A: string, extra: Record<string, unknown> = {}) => {
+  const nature = (extra["nature"] as string | undefined) ?? "abonnement";
+  const rattachee = nature === "abonnement" || nature === "complement_prorata";
+  const instance_id = "instance_id" in extra || !rattachee ? undefined : await uneInstance(A);
+  return inserer(A, "factures", { organisation_id: A, numero: `AXI-FACT-${randomUUID()}`, hub_id: randomUUID(), nature: "abonnement", plan: "essentiel", periode_debut: "2026-02-01", periode_fin: "2026-02-28", ...montants(10000), statut: "emise", pdf_ref: "factures/a.pdf", empreinte_sha256: SHA, auteur: APPELANT.acteur, ...(instance_id ? { instance_id } : {}), ...extra });
+};
 const avoir = (A: string, origine: unknown, extra: Record<string, unknown> = {}) => facture(A, { nature: "avoir", facture_origine_id: origine, ...extra });
 const majFacture = (A: string, id: unknown, set: string, appelant: typeof APPELANT | null = APPELANT) => ecrire(app, A, (c) => c.query(`UPDATE factures SET ${set} WHERE id = $1`, [id]), appelant ?? undefined);
+// Changement de statut au nom de l'appelant : le statut et son auteur (statut_par) changent ensemble.
+const changerStatut = (A: string, id: unknown, statut: string, appelant: typeof APPELANT | null = APPELANT) => majFacture(A, id, `statut = '${statut}', statut_par = '${APPELANT.acteur}'`, appelant);
 const majDevis = (A: string, id: unknown, set: string, appelant: typeof APPELANT | null = APPELANT) => ecrire(app, A, (c) => c.query(`UPDATE devis SET ${set} WHERE id = $1`, [id]), appelant ?? undefined);
 const devisBrouillon = (A: string, extra: Record<string, unknown> = {}) => inserer(A, "devis", { organisation_id: A, numero_hub: `DEV-${randomUUID()}`, pdf_ref: "devis/a.pdf", duree_validite_jours: 30, ...extra });
 const ANNULATION = `statut = 'annule', motif_annulation = 'erreur de saisie', annule_le = now(), annule_par = '${APPELANT.acteur}'`;
 const code = (p: Promise<unknown>) => p.then(() => "ok", (e: { code?: string }) => e.code);
+// Deux connexions en parallèle sur la même ligne : la première écrit et garde son verrou, la seconde démarre alors et attend, la première valide, la seconde reprend sur la version validée.
+async function course(A: string, premiere: (c: pg.PoolClient) => Promise<unknown>, seconde: (c: pg.PoolClient) => Promise<unknown>): Promise<[string | undefined, string | undefined]> {
+  let ecrit!: () => void;
+  const apres = new Promise<void>((r) => (ecrit = r));
+  const t1 = code(ecrire(app, A, async (c) => { try { await premiere(c); } finally { ecrit(); } await new Promise((r) => setTimeout(r, 1000)); }, APPELANT));
+  await apres;
+  const t2 = code(ecrire(app, A, seconde, APPELANT));
+  return [await t1, await t2];
+}
 
 describe("contrats, devis, factures et activation, avec le socle", { timeout: 30_000 }, () => {
   it("[C-030] une instance insérée directement à l'état active sans contrat est refusée ; avec le contrat signé elle passe", async () => {
@@ -180,7 +201,8 @@ describe("contrats, devis, factures et activation, avec le socle", { timeout: 30
     for (const colonne of ["montant_ht_centimes = 1", "numero = 'AXI-FACT-X'", "pdf_ref = 'x.pdf'", "nature = 'avoir'", "taux_tva_points_de_base = 1", "montant_tva_centimes = 1", "montant_ttc_centimes = 1", "facture_origine_id = gen_random_uuid()"]) {
       await expect(ecrire(app, A, (c) => c.query(`UPDATE factures SET ${colonne} WHERE id = $1`, [f["id"]]), APPELANT), colonne).rejects.toMatchObject({ code: "42501" });
     }
-    expect((await ecrire(app, A, (c) => c.query("UPDATE factures SET statut = 'payee' WHERE id = $1", [f["id"]]), APPELANT)).rowCount).toBe(1);
+    await expect(majFacture(A, f["id"], "auteur = 'agent-essai'")).rejects.toMatchObject({ code: "42501" }); // l'auteur est figé à la création
+    expect((await changerStatut(A, f["id"], "payee")).rowCount).toBe(1);
   });
 
   it("[A-163] @isolation @argent le même numéro de facture chez deux clients passe, chez le même client est refusé, et le client A ne reçoit aucune erreur 23505 révélant une facture de B", async () => {
@@ -216,10 +238,21 @@ describe("contrats, devis, factures et activation, avec le socle", { timeout: 30
     await expect(brut("contrats", contratBrut, APPELANT)).rejects.toMatchObject({ code: "42501" }); // auteur absent
     const f = await facture(A);
     await expect(facture(A, { auteur: "systeme" })).rejects.toMatchObject({ code: "42501" });
-    await expect(majFacture(A, f["id"], "statut = 'impayee'", null)).rejects.toMatchObject({ code: "42501" }); // aucun appelant
-    await expect(majFacture(A, f["id"], "statut = 'impayee', auteur = 'systeme'")).rejects.toMatchObject({ code: "42501" });
-    expect((await majFacture(A, f["id"], "statut = 'impayee', auteur = 'agent-essai'")).rowCount).toBe(1);
+    await expect(facture(A, { statut_par: "agent-essai", periode_debut: "2026-03-01", periode_fin: "2026-03-28" })).rejects.toMatchObject({ code: "42501" }); // née sans auteur de statut
+    await expect(changerStatut(A, f["id"], "impayee", null)).rejects.toMatchObject({ code: "42501" }); // aucun appelant
+    await expect(majFacture(A, f["id"], "statut = 'impayee', statut_par = 'systeme'")).rejects.toMatchObject({ code: "42501" });
+    await expect(majFacture(A, f["id"], "statut = 'impayee'")).rejects.toMatchObject({ code: "42501" }); // statut sans auteur de statut
+    await expect(majFacture(A, f["id"], "statut = 'impayee', auteur = 'agent-essai', statut_par = 'agent-essai'")).rejects.toMatchObject({ code: "42501" }); // auteur figé
+    expect((await changerStatut(A, f["id"], "impayee")).rowCount).toBe(1);
+    expect((await ecrire(app, A, (c) => c.query("SELECT auteur, statut_par FROM factures WHERE id = $1", [f["id"]]))).rows[0]).toEqual({ auteur: "agent-essai", statut_par: "agent-essai" });
     const d = await devisBrouillon(A);
+    // Un devis ne s'écrit jamais sans appelant : ni l'insertion ni un passage à « accepté ».
+    const sansAppelant = { organisation_id: A, numero_hub: `DEV-${randomUUID()}`, pdf_ref: "devis/a.pdf", duree_validite_jours: 30 };
+    await expect(brut("devis", sansAppelant)).rejects.toMatchObject({ code: "42501" });
+    const e = await devisBrouillon(A);
+    expect((await majDevis(A, e["id"], "statut = 'envoye', date_envoi = now()")).rowCount).toBe(1);
+    await expect(majDevis(A, e["id"], "statut = 'accepte'", null)).rejects.toMatchObject({ code: "42501" });
+    expect((await majDevis(A, e["id"], "statut = 'accepte'")).rowCount).toBe(1);
     await expect(majDevis(A, d["id"], ANNULATION, null)).rejects.toMatchObject({ code: "42501" });
     await expect(majDevis(A, d["id"], "statut = 'annule', motif_annulation = 'erreur', annule_le = now(), annule_par = 'quelquun-d-autre'")).rejects.toMatchObject({ code: "42501" });
     expect((await majDevis(A, d["id"], ANNULATION)).rowCount).toBe(1);
@@ -230,32 +263,103 @@ describe("contrats, devis, factures et activation, avec le socle", { timeout: 30
     await creerOrg(A);
     const a = await facture(A);
     await expect(facture(A)).rejects.toMatchObject({ code: "23505" }); // tant qu'elle n'est pas annulée, la période est prise
-    await majFacture(A, a["id"], "statut = 'annulee'");
-    expect(await code(avoir(A, a["id"]))).toBe("ok");
+    expect(await code(avoir(A, a["id"]))).toBe("ok"); // l'avoir précède l'annulation
+    await changerStatut(A, a["id"], "annulee");
     expect(await code(facture(A))).toBe("ok"); // la facture rectifiée
     await expect(facture(A)).rejects.toMatchObject({ code: "23505" }); // la seconde active, elle, bloque
     const mep = (extra: Record<string, unknown> = {}) => facture(A, { nature: "mise_en_place", plan: null, code_automatisation: "relance-devis", ...extra });
     const m = await mep();
-    await majFacture(A, m["id"], "statut = 'annulee'");
+    await avoir(A, m["id"]);
+    await changerStatut(A, m["id"], "annulee");
     expect(await code(mep())).toBe("ok");
     await expect(mep()).rejects.toMatchObject({ code: "23505" });
   });
 
-  it("[A-133] @argent transitions de facture : née émise ; payée et annulée sont définitives (42501)", async () => {
+  it("[A-133] @argent transitions de facture : née émise ; payée et annulée sont définitives ; annulée seulement après un avoir (42501)", async () => {
     const A = randomUUID();
     await creerOrg(A);
     const periode = (n: number) => ({ periode_debut: `2026-0${n}-01`, periode_fin: `2026-0${n}-28` });
     for (const statut of ["payee", "impayee", "annulee"]) await expect(facture(A, { statut, ...periode(1) }), statut).rejects.toMatchObject({ code: "42501" });
     const f = await facture(A, periode(2));
-    expect((await majFacture(A, f["id"], "statut = 'impayee', auteur = 'agent-essai'")).rowCount).toBe(1);
-    await expect(majFacture(A, f["id"], "statut = 'emise'")).rejects.toMatchObject({ code: "42501" });
-    expect((await majFacture(A, f["id"], "statut = 'payee'")).rowCount).toBe(1);
-    for (const statut of ["emise", "impayee", "annulee"]) await expect(majFacture(A, f["id"], `statut = '${statut}'`), `payee vers ${statut}`).rejects.toMatchObject({ code: "42501" });
+    expect((await changerStatut(A, f["id"], "impayee")).rowCount).toBe(1);
+    await expect(changerStatut(A, f["id"], "emise")).rejects.toMatchObject({ code: "42501" });
+    await expect(changerStatut(A, f["id"], "impayee")).rejects.toMatchObject({ code: "42501" }); // impayee vers impayee
+    expect((await changerStatut(A, f["id"], "payee")).rowCount).toBe(1);
+    for (const statut of ["emise", "impayee", "annulee"]) await expect(changerStatut(A, f["id"], statut), `payee vers ${statut}`).rejects.toMatchObject({ code: "42501" });
     const g = await facture(A, periode(3));
-    expect((await majFacture(A, g["id"], "statut = 'annulee'")).rowCount).toBe(1);
-    for (const statut of ["emise", "impayee", "payee"]) await expect(majFacture(A, g["id"], `statut = '${statut}'`), `annulee vers ${statut}`).rejects.toMatchObject({ code: "42501" });
+    await expect(changerStatut(A, g["id"], "annulee")).rejects.toMatchObject({ code: "42501" }); // pas d'avoir : pas d'annulation
+    await avoir(A, g["id"]);
+    expect((await changerStatut(A, g["id"], "annulee")).rowCount).toBe(1);
+    for (const statut of ["emise", "impayee", "payee"]) await expect(changerStatut(A, g["id"], statut), `annulee vers ${statut}`).rejects.toMatchObject({ code: "42501" });
     const h = await facture(A, periode(4));
-    await expect(majFacture(A, h["id"], "statut = 'emise'")).rejects.toMatchObject({ code: "42501" }); // emise vers emise
+    await expect(changerStatut(A, h["id"], "emise")).rejects.toMatchObject({ code: "42501" }); // emise vers emise
+    const i = await facture(A, periode(5));
+    await changerStatut(A, i["id"], "impayee");
+    await avoir(A, i["id"]);
+    expect((await changerStatut(A, i["id"], "annulee")).rowCount).toBe(1); // impayee vers annulee, avoir présent
+    // Un avoir d'une autre facture ne vaut pas avoir pour celle-ci.
+    const j = await facture(A, periode(6));
+    const autre = await facture(A, periode(7));
+    await avoir(A, autre["id"]);
+    await expect(changerStatut(A, j["id"], "annulee")).rejects.toMatchObject({ code: "42501" });
+  });
+
+  it("[A-133] @argent course (lecture validée) : une facture payée par une écriture concurrente ne devient pas annulée ; la seconde écriture attend, puis est refusée (42501)", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    const f = await facture(A);
+    await avoir(A, f["id"]);
+    const [premiere, seconde] = await course(A, (c) => c.query("UPDATE factures SET statut = 'payee', statut_par = 'agent-essai' WHERE id = $1", [f["id"]]), (c) => c.query("UPDATE factures SET statut = 'annulee', statut_par = 'agent-essai' WHERE id = $1", [f["id"]]));
+    expect(premiere).toBe("ok");
+    expect(seconde).toBe("42501");
+    expect((await ecrire(app, A, (c) => c.query("SELECT statut FROM factures WHERE id = $1", [f["id"]]))).rows[0]).toEqual({ statut: "payee" });
+  });
+
+  it("[C-030] course : une double révocation concurrente d'un contrat est refusée (42501) ; la première date reste", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    const c = await contrat(A);
+    const revoquer = (date: string) => (x: pg.PoolClient) => x.query(`UPDATE contrats SET revoque_le = '${date}', revoque_par = 'agent-essai' WHERE id = $1`, [c["id"]]);
+    const [premiere, seconde] = await course(A, revoquer("2026-03-01T10:00:00Z"), revoquer("2026-04-01T10:00:00Z"));
+    expect(premiere).toBe("ok");
+    expect(seconde).toBe("42501");
+    expect((await ecrire(app, A, (x) => x.query("SELECT revoque_le::text FROM contrats WHERE id = $1", [c["id"]]))).rows[0]?.["revoque_le"]).toMatch(/^2026-03-01/);
+  });
+
+  it("[A-154] course : un devis annulé par une écriture concurrente n'est pas remis en brouillon (42501)", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    const d = await devisBrouillon(A);
+    const [premiere, seconde] = await course(
+      A,
+      (c) => c.query(`UPDATE devis SET ${ANNULATION} WHERE id = $1`, [d["id"]]),
+      (c) => c.query("UPDATE devis SET statut = 'brouillon', motif_annulation = NULL, annule_le = NULL, annule_par = NULL WHERE id = $1", [d["id"]]),
+    );
+    expect(premiere).toBe("ok");
+    expect(seconde).toBe("42501");
+    expect((await ecrire(app, A, (c) => c.query("SELECT statut FROM devis WHERE id = $1", [d["id"]]))).rows[0]).toEqual({ statut: "annule" });
+  });
+
+  it("[A-154] @argent transitions de devis : brouillon vers envoye ou annule ; envoye vers accepte, refuse, expire ou annule ; accepte, refuse, expire et annule sont définitifs (42501)", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    const envoye = async () => {
+      const d = await devisBrouillon(A);
+      await majDevis(A, d["id"], "statut = 'envoye', date_envoi = now()");
+      return d["id"];
+    };
+    const d0 = await devisBrouillon(A);
+    for (const statut of ["accepte", "refuse", "expire"]) await expect(majDevis(A, d0["id"], `statut = '${statut}'`), `brouillon vers ${statut}`).rejects.toMatchObject({ code: "42501" });
+    await expect(majDevis(A, d0["id"], "statut = 'brouillon'")).rejects.toMatchObject({ code: "42501" });
+    for (const statut of ["accepte", "refuse", "expire"]) {
+      const id = await envoye();
+      await expect(majDevis(A, id, "statut = 'brouillon'"), "envoye vers brouillon").rejects.toMatchObject({ code: "42501" });
+      expect((await majDevis(A, id, `statut = '${statut}'`)).rowCount).toBe(1);
+      for (const suite of ["brouillon", "envoye", "accepte", "refuse", "expire"]) await expect(majDevis(A, id, `statut = '${suite}'`), `${statut} vers ${suite}`).rejects.toMatchObject({ code: "42501" });
+      await expect(majDevis(A, id, ANNULATION), `${statut} vers annule`).rejects.toMatchObject({ code: "42501" });
+    }
+    const e = await envoye();
+    expect((await majDevis(A, e, ANNULATION)).rowCount).toBe(1); // envoye vers annule
   });
 
   it("[A-154] @argent un devis naît en brouillon ; annulé, il l'est pour toujours (statut et colonnes d'annulation figés)", async () => {
@@ -272,33 +376,40 @@ describe("contrats, devis, factures et activation, avec le socle", { timeout: 30
     expect(lu).toEqual({ statut: "annule", motif_annulation: "erreur de saisie" });
   });
 
-  it("[A-154] un devis envoyé porte sa date d'envoi ; plan et code d'automatisation ne sont jamais vides", async () => {
+  it("[A-154] un devis naît brouillon sans date d'envoi ; la date se pose une fois, avec le passage à envoyé ; plan et code d'automatisation ne sont jamais vides", async () => {
     const A = randomUUID();
     await creerOrg(A);
+    await expect(devisBrouillon(A, { date_envoi: "2026-01-02T10:00:00Z" })).rejects.toMatchObject({ code: "42501" }); // brouillon avec date
     const d = await devisBrouillon(A);
-    await expect(majDevis(A, d["id"], "statut = 'envoye'")).rejects.toMatchObject({ code: "23514" });
-    const daté = await devisBrouillon(A, { date_envoi: "2026-01-02T10:00:00Z" }); // console_app ne modifie pas date_envoi : elle se pose à l'insertion
-    expect((await majDevis(A, daté["id"], "statut = 'envoye'")).rowCount).toBe(1);
+    await expect(majDevis(A, d["id"], "statut = 'envoye'")).rejects.toMatchObject({ code: "23514" }); // envoyé sans date
+    await expect(majDevis(A, d["id"], "date_envoi = now()")).rejects.toMatchObject({ code: "42501" }); // date sans envoi
+    await expect(majDevis(A, d["id"], "statut = 'envoye', date_envoi = now()", null)).rejects.toMatchObject({ code: "42501" }); // sans appelant
+    expect((await majDevis(A, d["id"], "statut = 'envoye', date_envoi = '2026-01-02T10:00:00Z'")).rowCount).toBe(1);
+    await expect(majDevis(A, d["id"], "date_envoi = '2026-01-03T10:00:00Z'")).rejects.toMatchObject({ code: "42501" }); // jamais réécrite
+    await expect(majDevis(A, d["id"], "date_envoi = NULL")).rejects.toMatchObject({ code: "42501" });
     await expect(facture(A, { plan: "  " })).rejects.toMatchObject({ code: "23514" });
     await expect(facture(A, { nature: "mise_en_place", plan: null, code_automatisation: " " })).rejects.toMatchObject({ code: "23514" });
     await expect(facture(A, { nature: "complement_prorata", plan: "", periode_debut: "2026-03-01", periode_fin: "2026-03-28" })).rejects.toMatchObject({ code: "23514" });
   });
 
-  it("[A-133] @argent la TVA est toujours ajoutée : taux positif, arrondi au centime le plus proche (moitié vers le haut), total cohérent, colonnes figées", async () => {
+  it("[A-133] @argent la TVA est toujours ajoutée : taux de 1 à 2000 points, arrondi au centime le plus proche (moitié vers le haut), total cohérent, colonnes figées", async () => {
     const A = randomUUID();
     await creerOrg(A);
     const periode = (n: number) => ({ periode_debut: `2026-${String(n).padStart(2, "0")}-01`, periode_fin: `2026-${String(n).padStart(2, "0")}-28` });
-    await expect(facture(A, { ...periode(1), taux_tva_points_de_base: 0, montant_tva_centimes: 0, montant_ttc_centimes: 10000 })).rejects.toMatchObject({ code: "23514" }); // jamais d'exonération
-    await expect(facture(A, { ...periode(2), montant_tva_centimes: 1999, montant_ttc_centimes: 11999 })).rejects.toMatchObject({ code: "23514" }); // TVA mal arrondie
-    await expect(facture(A, { ...periode(3), montant_ttc_centimes: 12001 })).rejects.toMatchObject({ code: "23514" }); // total incohérent
-    await expect(facture(A, { ...periode(4), montant_tva_centimes: -2000, montant_ttc_centimes: 8000 })).rejects.toMatchObject({ code: "23514" });
-    for (const colonne of ["taux_tva_points_de_base", "montant_tva_centimes", "montant_ttc_centimes"]) await expect(facture(A, { ...periode(5), [colonne]: null }), colonne).rejects.toMatchObject({ code: "23502" });
-    // 1 centime à 50 % : 0,5 → 1 ; à 49,99 % : 0,4999 → 0 ; 15 centimes à 10 % : 1,5 → 2.
-    expect(await code(facture(A, { ...periode(6), ...montants(1, 5000) }))).toBe("ok");
-    expect(await code(facture(A, { ...periode(7), ...montants(1, 4999) }))).toBe("ok");
-    expect(await code(facture(A, { ...periode(8), ...montants(15, 1000) }))).toBe("ok");
-    await expect(facture(A, { ...periode(9), ...montants(1, 5000), montant_tva_centimes: 0, montant_ttc_centimes: 1 })).rejects.toMatchObject({ code: "23514" });
-    expect(tva(15, 1000)).toBe(2);
+    // Jamais d'exonération (taux 0), jamais au-dessus de 20 % (2001, 5000) : refusés même si la TVA et le total sont cohérents.
+    for (const [i, taux] of [0, 2001, 5000, -1].entries()) await expect(facture(A, { ...periode(i + 1), ...montants(10000, taux) }), `taux ${taux}`).rejects.toMatchObject({ code: "23514" });
+    await expect(facture(A, { ...periode(5), montant_tva_centimes: 1999, montant_ttc_centimes: 11999 })).rejects.toMatchObject({ code: "23514" }); // TVA mal arrondie
+    await expect(facture(A, { ...periode(6), montant_ttc_centimes: 12001 })).rejects.toMatchObject({ code: "23514" }); // total incohérent
+    await expect(facture(A, { ...periode(7), montant_tva_centimes: -2000, montant_ttc_centimes: 8000 })).rejects.toMatchObject({ code: "23514" });
+    for (const colonne of ["taux_tva_points_de_base", "montant_tva_centimes", "montant_ttc_centimes"]) await expect(facture(A, { ...periode(8), [colonne]: null }), colonne).rejects.toMatchObject({ code: "23502" });
+    // 5 centimes à 10 % : 0,5 → 1 ; 4 centimes à 12,49 % : 0,4996 → 0 ; 15 centimes à 10 % : 1,5 → 2 ; 1 centime à 20 % : 0,2 → 0 ; le plafond de 20 % est inclus.
+    expect(await code(facture(A, { ...periode(9), ...montants(5, 1000) }))).toBe("ok");
+    expect(await code(facture(A, { ...periode(10), ...montants(4, 1249) }))).toBe("ok");
+    expect(await code(facture(A, { ...periode(11), ...montants(15, 1000) }))).toBe("ok");
+    expect(await code(facture(A, { ...periode(12), ...montants(1, 2000) }))).toBe("ok");
+    expect(await code(facture(A, { ...periode(1), plan: "avance", ...montants(100, 1) }))).toBe("ok");
+    await expect(facture(A, { ...periode(2), plan: "avance", ...montants(5, 1000), montant_tva_centimes: 0, montant_ttc_centimes: 5 })).rejects.toMatchObject({ code: "23514" });
+    expect([tva(5, 1000), tva(4, 1249), tva(15, 1000), tva(1, 2000)]).toEqual([1, 0, 2, 0]);
   });
 
   it("[A-133] @argent bornes : un montant au-delà de 2^53 − 1, négatif ou un total qui dépasse est refusé (23514)", async () => {
@@ -308,12 +419,16 @@ describe("contrats, devis, factures et activation, avec le socle", { timeout: 30
     await expect(facture(A, { montant_ht_centimes: MAX + 1, taux_tva_points_de_base: 1, montant_tva_centimes: 900719925474, montant_ttc_centimes: MAX + 1 + 900719925474 })).rejects.toMatchObject({ code: "23514" });
     await expect(facture(A, { montant_ht_centimes: MAX, taux_tva_points_de_base: 1, montant_tva_centimes: 900719925474, montant_ttc_centimes: MAX + 900719925474 })).rejects.toMatchObject({ code: "23514" }); // total au-delà
     await expect(facture(A, { montant_ht_centimes: -1, taux_tva_points_de_base: 2000, montant_tva_centimes: 0, montant_ttc_centimes: -1 })).rejects.toMatchObject({ code: "23514" });
+    // Près de 2^53 avec le taux maximal : le produit dépasse un entier long, mais le refus reste une contrainte (23514), jamais un dépassement (22003).
+    const tvaMax = Number((BigInt(MAX) * 2000n + 5000n) / 10000n);
+    await expect(facture(A, { montant_ht_centimes: MAX, taux_tva_points_de_base: 2000, montant_tva_centimes: tvaMax, montant_ttc_centimes: MAX + tvaMax })).rejects.toMatchObject({ code: "23514" });
+    await expect(facture(A, { montant_ht_centimes: MAX, taux_tva_points_de_base: 2000, montant_tva_centimes: 1, montant_ttc_centimes: MAX })).rejects.toMatchObject({ code: "23514" });
     // Le plus grand total admis : la borne est incluse.
     const ht = 9007199254740991 - 900719925474;
     expect(await code(facture(A, { montant_ht_centimes: ht, taux_tva_points_de_base: 1, montant_tva_centimes: Math.floor((ht + 5000) / 10000), montant_ttc_centimes: ht + Math.floor((ht + 5000) / 10000) }))).toBe("ok");
   });
 
-  it("[A-133] @argent un avoir renvoie à sa facture d'origine (même client) ; une facture qui n'est pas un avoir n'en a pas", async () => {
+  it("[A-133] @argent un avoir renvoie à sa facture d'origine (même client, jamais lui-même, jamais un autre avoir) ; une facture qui n'est pas un avoir n'en a pas", async () => {
     const A = randomUUID();
     const B = randomUUID();
     await creerOrg(A);
@@ -324,7 +439,27 @@ describe("contrats, devis, factures et activation, avec le socle", { timeout: 30
     await expect(facture(A, { facture_origine_id: fa["id"], periode_debut: "2026-05-01", periode_fin: "2026-05-28" })).rejects.toMatchObject({ code: "23514" }); // non-avoir avec origine
     await expect(avoir(A, fb["id"], { periode_debut: "2026-06-01", periode_fin: "2026-06-28" })).rejects.toMatchObject({ code: "23503" }); // origine d'un autre client
     await expect(avoir(A, randomUUID(), { periode_debut: "2026-06-01", periode_fin: "2026-06-28" })).rejects.toMatchObject({ code: "23503" });
-    expect(await code(avoir(A, fa["id"], { periode_debut: "2026-07-01", periode_fin: "2026-07-28" }))).toBe("ok");
+    const soi = randomUUID();
+    await expect(avoir(A, soi, { id: soi })).rejects.toMatchObject({ code: "23514" }); // avoir de lui-même
+    const premier = await avoir(A, fa["id"], { periode_debut: "2026-07-01", periode_fin: "2026-07-28" });
+    await expect(avoir(A, premier["id"])).rejects.toMatchObject({ code: "P0001", message: "regle_metier", detail: "origine_avoir" }); // avoir d'un avoir
+    expect(await code(avoir(A, fa["id"], { periode_debut: "2026-08-01", periode_fin: "2026-08-28" }))).toBe("ok");
+  });
+
+  it("[A-133] @argent deux instances du même plan le même mois ont chacune leur facture d'abonnement ; une instance n'a qu'une facture par plan et par mois ; l'instance est exigée", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    const i1 = await instance(A, { etat: "pause" });
+    const i2 = await instance(A, { etat: "pause", code_automatisation: "suivi-chantier" });
+    expect(await code(facture(A, { instance_id: i1["id"] }))).toBe("ok");
+    expect(await code(facture(A, { instance_id: i2["id"] }))).toBe("ok"); // même plan, même mois, autre instance
+    await expect(facture(A, { instance_id: i1["id"] })).rejects.toMatchObject({ code: "23505" });
+    await expect(facture(A, { instance_id: i2["id"] })).rejects.toMatchObject({ code: "23505" });
+    await expect(facture(A, { instance_id: null, periode_debut: "2026-03-01", periode_fin: "2026-03-28" })).rejects.toMatchObject({ code: "23514" });
+    await expect(facture(A, { nature: "complement_prorata", plan: null, instance_id: null, periode_debut: "2026-03-01", periode_fin: "2026-03-28" })).rejects.toMatchObject({ code: "23514" });
+    // Un complément de prorata, comme une mise en place, ne porte ni plan ni code : son unicité est son identifiant du Hub.
+    expect(await code(facture(A, { nature: "complement_prorata", plan: null, instance_id: i1["id"], periode_debut: "2026-03-01", periode_fin: "2026-03-28" }))).toBe("ok");
+    expect(await code(facture(A, { nature: "mise_en_place", plan: null, code_automatisation: "relance-devis", instance_id: null }))).toBe("ok");
   });
 
   it("[C-030] un contrat de sous-traitance révoqué (une fois, par l'appelant) n'autorise plus l'activation ; la révocation ne se défait pas", async () => {
@@ -346,10 +481,21 @@ describe("contrats, devis, factures et activation, avec le socle", { timeout: 30
     expect((await ecrire(app, A, (x) => x.query("UPDATE instances SET etat = 'active' WHERE id = $1", [i]), APPELANT)).rowCount).toBe(1);
   });
 
-  it("[C-030] la fonction du déclencheur n'est pas exécutable par PUBLIC et fixe son search_path", async () => {
-    const { rows } = await migration.query("SELECT proconfig, has_function_privilege('console_equipe', oid, 'EXECUTE') AS equipe, has_function_privilege('console_app', oid, 'EXECUTE') AS app FROM pg_proc WHERE proname = 'instances_exiger_sous_traitance'");
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ proconfig: ["search_path=pg_catalog, pg_temp"], equipe: false });
+  it("[C-030] aucune fonction de déclencheur de T2-05 n'est exécutable par PUBLIC, toutes fixent leur search_path ; l'activation surveille aussi l'organisation", async () => {
+    const noms = ["instances_exiger_sous_traitance", "echeances_verifier_facture", "factures_garder_transition", "factures_verifier_origine", "contrats_garder_revocation", "devis_garder_transition"];
+    const { rows } = await migration.query(
+      `SELECT p.proname, p.proconfig, has_function_privilege('console_equipe', p.oid, 'EXECUTE') AS equipe, has_function_privilege('console_app', p.oid, 'EXECUTE') AS app,
+              EXISTS (SELECT 1 FROM aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a WHERE a.grantee = 0) AS public_execute
+       FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.proname = ANY($1) ORDER BY 1`,
+      [noms],
+    );
+    expect(rows.map((r) => r["proname"])).toEqual([...noms].sort());
+    for (const r of rows) expect(r, String(r["proname"])).toMatchObject({ proconfig: ["search_path=pg_catalog, pg_temp"], equipe: false, app: false, public_execute: false });
+    const defs = (await migration.query("SELECT tgname, pg_get_triggerdef(oid) AS def FROM pg_trigger WHERE NOT tgisinternal AND tgname = ANY($1)", [["instances_sous_traitance", "factures_transition", "factures_origine", "contrats_revocation", "devis_transition", "echeances_facture"]])).rows;
+    expect(defs.map((d) => d["tgname"]).sort()).toEqual(["contrats_revocation", "devis_transition", "echeances_facture", "factures_origine", "factures_transition", "instances_sous_traitance"]);
+    expect(String(defs.find((d) => d["tgname"] === "instances_sous_traitance")?.["def"])).toMatch(/UPDATE OF etat, organisation_id/);
+    for (const t of ["factures_transition", "contrats_revocation", "devis_transition"]) expect(String(defs.find((d) => d["tgname"] === t)?.["def"]), t).toMatch(/BEFORE UPDATE ON public\.\w+ FOR EACH ROW/);
+    expect(String(defs.find((d) => d["tgname"] === "factures_origine")?.["def"])).toMatch(/BEFORE INSERT ON public\.factures/);
   });
 
   it("[A-147] @argent apporteurs : SIREN de neuf chiffres ; aucune commission due sans SIREN vérifié actif ; montant borné", async () => {

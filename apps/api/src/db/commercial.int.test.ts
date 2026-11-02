@@ -71,8 +71,14 @@ const plan = (A: string, instance: unknown, extra: Record<string, unknown> = {})
   inserer(A, "plans_commerciaux", { instance_id: instance, frais_mise_en_place_ht_centimes: 100, prix_recurrent_mensuel_ht_centimes: 200, periode_facturation_mois: 1, mode_avance: "aucune", maintenance_incluse_mois: 0, suite_maintenance: "arret", engagement_mois: 0, ...SOURCES, auteur: "agent-essai", ...extra });
 const nouveauPlan = async (A: string) => plan(A, (await creerInstance(A))["id"]);
 // Copie d'une facture du Hub (T2-05) : TVA toujours ajoutée (20 % sur 10 000 centimes), chaque mois sa facture.
-const factureDe = (A: string, mois: number, extra: Record<string, unknown> = {}) =>
-  inserer(A, "factures", { organisation_id: A, numero: `AXI-FACT-${randomUUID()}`, hub_id: randomUUID(), nature: "abonnement", plan: "essentiel", periode_debut: `2026-${String(mois).padStart(2, "0")}-01`, periode_fin: `2026-${String(mois).padStart(2, "0")}-${new Date(Date.UTC(2026, mois, 0)).getUTCDate()}`, montant_ht_centimes: 10000, taux_tva_points_de_base: 2000, montant_tva_centimes: 2000, montant_ttc_centimes: 12000, pdf_ref: "factures/a.pdf", empreinte_sha256: "a".repeat(64), auteur: APPELANT.acteur, ...extra });
+const instanceDeFacture = new Map<string, Promise<unknown>>();
+const factureDe = async (A: string, mois: number, extra: Record<string, unknown> = {}) => {
+  // Une facture d'abonnement ou de complément se rattache à une instance (clé d'unicité) ; un avoir ou une mise en place n'en a pas besoin.
+  const rattachee = ["abonnement", "complement_prorata"].includes((extra["nature"] as string | undefined) ?? "abonnement") && !("instance_id" in extra);
+  if (rattachee && !instanceDeFacture.has(A)) instanceDeFacture.set(A, creerInstance(A).then((i) => i["id"]));
+  const instance_id = rattachee ? await instanceDeFacture.get(A) : undefined;
+  return inserer(A, "factures", { organisation_id: A, numero: `AXI-FACT-${randomUUID()}`, hub_id: randomUUID(), nature: "abonnement", plan: "essentiel", periode_debut: `2026-${String(mois).padStart(2, "0")}-01`, periode_fin: `2026-${String(mois).padStart(2, "0")}-${new Date(Date.UTC(2026, mois, 0)).getUTCDate()}`, montant_ht_centimes: 10000, taux_tva_points_de_base: 2000, montant_tva_centimes: 2000, montant_ttc_centimes: 12000, pdf_ref: "factures/a.pdf", empreinte_sha256: "a".repeat(64), auteur: APPELANT.acteur, ...(instance_id ? { instance_id } : {}), ...extra });
+};
 const echeance = (A: string, planId: unknown, extra: Record<string, unknown> = {}) =>
   inserer(A, "echeances", { plan_id: planId, debut_periode: "2026-01-01", fin_periode: "2026-02-01", montant_ht_centimes: 200, auteur: "agent-essai", ...extra });
 
@@ -326,8 +332,25 @@ describe("plan commercial, avec le socle", { timeout: 60_000 }, () => {
     const fb = await factureDe(B, 1);
     const e = await echeance(A, p["id"]);
     const lier = (facture: unknown) => ecrire(app, A, (c) => c.query("UPDATE echeances SET statut = 'emise', date_emission = '2026-01-02', facture_id = $2 WHERE id = $1", [e["id"], facture]), APPELANT);
-    await expect(lier(fb["id"])).rejects.toMatchObject({ code: "23503" });
-    await expect(lier(randomUUID())).rejects.toMatchObject({ code: "23503" });
+    await expect(lier(fb["id"])).rejects.toMatchObject({ code: "P0001", message: "regle_metier", detail: "facture_incoherente" });
+    await expect(lier(randomUUID())).rejects.toMatchObject({ code: "P0001", message: "regle_metier", detail: "facture_incoherente" });
+  });
+
+  it("[A-145] @argent une échéance ne se lie ni à un avoir ni à une facture annulée, mais à une facture d'abonnement ou de complément active (P0001 facture_incoherente)", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    const p = await nouveauPlan(A);
+    const e = await echeance(A, p["id"]);
+    const lier = (facture: unknown) => ecrire(app, A, (c) => c.query("UPDATE echeances SET statut = 'emise', date_emission = '2026-01-02', facture_id = $2 WHERE id = $1", [e["id"], facture]), APPELANT);
+    const abonnement = await factureDe(A, 1);
+    const avoirDe = await inserer(A, "factures", { organisation_id: A, numero: `AXI-AVOIR-${randomUUID()}`, hub_id: randomUUID(), nature: "avoir", facture_origine_id: abonnement["id"], plan: "essentiel", periode_debut: "2026-01-01", periode_fin: "2026-01-31", montant_ht_centimes: 10000, taux_tva_points_de_base: 2000, montant_tva_centimes: 2000, montant_ttc_centimes: 12000, pdf_ref: "factures/a.pdf", empreinte_sha256: "a".repeat(64), auteur: APPELANT.acteur });
+    await expect(lier(avoirDe["id"])).rejects.toMatchObject({ code: "P0001", detail: "facture_incoherente" });
+    await ecrire(app, A, (c) => c.query("UPDATE factures SET statut = 'annulee', statut_par = 'agent-essai' WHERE id = $1", [abonnement["id"]]), APPELANT);
+    await expect(lier(abonnement["id"])).rejects.toMatchObject({ code: "P0001", detail: "facture_incoherente" }); // annulée
+    const mise = await factureDe(A, 1, { nature: "mise_en_place", plan: null, code_automatisation: "relance-devis" });
+    await expect(lier(mise["id"])).rejects.toMatchObject({ code: "P0001", detail: "facture_incoherente" }); // une mise en place ne porte pas une échéance d'abonnement
+    const complement = await factureDe(A, 1, { nature: "complement_prorata", plan: null });
+    expect((await lier(complement["id"])).rowCount).toBe(1);
   });
 
   it("[A-145] @argent une échéance annulée avec une facture exige sa date d'émission (23514)", async () => {

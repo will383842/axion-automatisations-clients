@@ -44,17 +44,19 @@ const NOEUDS = new Map([
   ["AlterFunctionStmt", "ALTER FUNCTION"], ["DoStmt", "DO"], ["CreateFunctionStmt", "CREATE FUNCTION"], ["CallStmt", "CALL"], ["ExecuteStmt", "EXECUTE"], ["TransactionStmt", "COMMIT/ROLLBACK"],
 ]);
 
-// `contracter` : seuls DROP d'un objet (DropStmt) et ALTER TABLE … DROP sont levés ; DROP ROLE, DATABASE, OWNED, RENAME, TRUNCATE, SET… restent refusés.
+// `contracter` : seuls DROP TABLE, DROP INDEX et ALTER TABLE … DROP COLUMN, sans CASCADE, sont levés ; DROP POLICY, SCHEMA, FUNCTION, TRIGGER, VIEW, ROLE, DATABASE, OWNED, DROP CONSTRAINT, RENAME, TRUNCATE, SET… restent refusés.
+const DROP_PERMIS = new Set(["OBJECT_TABLE", "OBJECT_INDEX"]);
+const dropPermis = (n: { removeType?: string; behavior?: string }) => DROP_PERMIS.has(n.removeType ?? "") && n.behavior !== "DROP_CASCADE";
 function etiquettes(noeud: unknown, trouvees: string[], contracter = false): void {
   if (Array.isArray(noeud)) return noeud.forEach((n) => etiquettes(n, trouvees, contracter));
   if (typeof noeud !== "object" || noeud === null) return;
   for (const [cle, valeur] of Object.entries(noeud)) {
     const etiquette = NOEUDS.get(cle);
-    if (etiquette && !(contracter && cle === "DropStmt")) trouvees.push(etiquette);
+    if (etiquette && !(contracter && cle === "DropStmt" && dropPermis(valeur as object))) trouvees.push(etiquette);
     if (cle === "AlterTableCmd") {
       const sousType = (valeur as { subtype?: string }).subtype ?? "";
       if (sousType === "AT_AlterColumnType") trouvees.push("ALTER … TYPE");
-      else if (sousType.startsWith("AT_Drop") && !contracter) trouvees.push("DROP");
+      else if (sousType.startsWith("AT_Drop") && !(contracter && sousType === "AT_DropColumn" && (valeur as { behavior?: string }).behavior !== "DROP_CASCADE")) trouvees.push("DROP");
     }
     // ALTER FUNCTION … OWNER TO : un autre propriétaire change qui exécute une fonction SECURITY DEFINER.
     if (cle === "AlterOwnerStmt" && /^OBJECT_(FUNCTION|PROCEDURE|ROUTINE)$/.test((valeur as { objectType?: string }).objectType ?? "")) trouvees.push("ALTER FUNCTION");

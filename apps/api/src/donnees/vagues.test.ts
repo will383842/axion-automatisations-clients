@@ -56,7 +56,8 @@ describe("migrations par vagues", () => {
     expect(deux.vagues.map((v) => v.bases.map((b) => b.nomBase))).toEqual(un.vagues.map((v) => v.bases.map((b) => b.nomBase)));
     await expect(planifierVagues(2, CONFIG, ports, { graine: 999 })).rejects.toThrow(/graine/);
     // Une autre graine, pour une autre version, change bien le tirage.
-    const autre = await planifierVagues(3, CONFIG, { ...ports, tirerGraine: () => 777 });
+    const enN = monde(parc(100).map((b) => ({ ...b, versionStructure: 2 })));
+    const autre = await planifierVagues(3, CONFIG, { ...enN.ports, tirerGraine: () => 777 });
     expect(autre.vagues[2]!.bases.map((b) => b.nomBase)).not.toEqual(un.vagues[2]!.bases.map((b) => b.nomBase));
   });
 

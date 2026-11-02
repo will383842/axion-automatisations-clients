@@ -1,6 +1,8 @@
 // Migrations des bases des clients par vagues (T2-38) : recette, bases internes AXION, canari 5 %, puis lots de 50.
 // Ce module décide de l'ORDRE et de l'ARRÊT ; il n'ouvre aucune connexion lui-même : `migrer` (adaptateur de migrerBase, T2-32), le registre et les alertes sont des ports.
 // Une base en échec reste sur l'ancienne version (quarantaine) et alerte ; la vague continue ; au-delà du seuil d'échecs, les vagues suivantes ne partent pas.
+import { migrationSuivantePermise, type EtatContracter } from "./regles-versions.ts";
+
 export interface BaseRegistre {
   id: string;
   // Identifiant console du client : c'est lui, jamais un nom, que porte l'alerte.
@@ -55,6 +57,10 @@ const parNom = (a: BaseRegistre, b: BaseRegistre) => (a.nomBase < b.nomBase ? -1
 
 export async function planifierVagues(versionCible: number, config: ConfigVagues, ports: PortsVagues, options: { graine?: number } = {}): Promise<Plan> {
   if (!Number.isInteger(versionCible) || versionCible < 1) throw new Error("planifierVagues : version cible invalide");
+  // A-231 : la version N+1 n'est pas planifiée tant qu'une base du registre (gelée ou en création comprises) reste en N-1.
+  const toutes = await ports.bases();
+  const permis = migrationSuivantePermise({ versionCible, versionsDesBases: toutes.map((b) => b.versionStructure) });
+  if (!permis.permis) throw new Error(`planifierVagues : ${permis.raison}`);
   // Une graine déjà au journal fait foi : en demander une autre pour changer le canari est refusé.
   const connue = await ports.graine(versionCible);
   if (connue !== undefined && options.graine !== undefined && options.graine !== connue) throw new Error("planifierVagues : la graine de cette version est déjà au journal, une autre est refusée");
@@ -62,7 +68,7 @@ export async function planifierVagues(versionCible: number, config: ConfigVagues
   if (connue === undefined) await ports.enregistrerGraine(versionCible, graine);
 
   // Le plan se calcule sur TOUTES les bases actives, puis ne garde que celles encore en retard : la reprise après correction retrouve les mêmes vagues.
-  const actives = (await ports.bases()).filter((b) => b.etat === "active").sort(parNom);
+  const actives = toutes.filter((b) => b.etat === "active").sort(parNom);
   const recette = actives.filter((b) => config.recette.includes(b.nomBase));
   const internes = actives.filter((b) => config.internes.includes(b.nomBase) && !config.recette.includes(b.nomBase));
   const reste = actives.filter((b) => !config.recette.includes(b.nomBase) && !config.internes.includes(b.nomBase));
@@ -86,6 +92,11 @@ export async function planifierVagues(versionCible: number, config: ConfigVagues
     if (enRetard.length) vagues.push({ numero: vagues.length + 1, nom, versionCible, bases: enRetard });
   }
   return { versionCible, graine, vagues };
+}
+
+// Lecteur d'état de « contracter » pour migrerBase : lit TOUTES les bases du registre (active, gelée, en création, quarantaine), jamais une liste fournie par l'appelant (A-230).
+export function lireEtatContracter(ports: Pick<PortsVagues, "bases">, fixe: { interrupteurOuvert: boolean; versionCodeDeployee: number | undefined }): (versionN: number) => Promise<EtatContracter> {
+  return async (versionN) => ({ ...fixe, versionN, versionsDesBases: (await ports.bases()).map((b) => b.versionStructure) });
 }
 
 export async function deroulerVague(vague: Vague, ports: PortsVagues, options: OptionsDeroulement = {}): Promise<ResultatVague> {

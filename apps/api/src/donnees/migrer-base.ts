@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { estPhaseContracter, verifierDossier } from "../../../../scripts/garde-migrations.ts";
-import { verifierDescente } from "./regles-versions.ts";
+import { contracterPermis, verifierDescente, type EtatContracter } from "./regles-versions.ts";
 
 // Outil de migration des bases des clients (T2-32, ADR 0046) : applique apps/api/drizzle-cli/ avec le rôle PROPRIÉTAIRE de la base, jamais _app ni _lecture.
 // Le journal des migrations de chaque base est public.version_structure (A-225) : une ligne par migration, avec l'empreinte du fichier.
@@ -18,8 +18,17 @@ const ROLE_MODELE = "modele_proprietaire";
 export type EntreeMigration = { version: number; tag: string; empreinte: string };
 export type Appliquee = { version: number; empreinte: string };
 // `module` : code d'un module (schéma a_<code> de la base du client, T2-35) ; les migrations du dossier sont alors celles de CE module (jamais le modèle).
-// `contracterPermis` : décision de contracterPermis (regles-versions.ts), prise par l'appelant (vagues) avec l'interrupteur, le parc et la version du code ; sans elle, un fichier « phase: contracter » est refusé.
-export type Options = { url: string; dossier?: string; module?: string; contracterPermis?: boolean };
+// `etatContracter` : lecteur de l'état (interrupteur, versions de TOUTES les bases du registre, version du code), fourni par vagues (lireEtatContracter) ; migrerBase appelle lui-même contracterPermis (regles-versions.ts). Sans lecteur, un fichier « phase: contracter » est refusé.
+export type LecteurEtatContracter = (versionN: number) => Promise<EtatContracter>;
+export type Options = { url: string; dossier?: string; module?: string; etatContracter?: LecteurEtatContracter };
+
+// Décision prise ici, au moment d'appliquer : N est la version qui précède le fichier contracter. Un fichier ordinaire passe sans lire l'état.
+export async function verifierContracter(tag: string, version: number, texte: string, lire: LecteurEtatContracter | undefined): Promise<void> {
+  if (!estPhaseContracter(texte)) return;
+  if (!lire) throw new Error(`migrerBase : la migration ${tag} est en phase contracter, refusée sans lecteur d'état du registre`);
+  const decision = contracterPermis(await lire(version - 1));
+  if (!decision.permis) throw new Error(`migrerBase : la migration ${tag} est refusée : ${decision.raison}`);
+}
 
 // Entrées du journal drizzle, dans l'ordre : la version N est la N-ième migration (la première vaut 1).
 // `lire` : lecteur de fichier, remplaçable pour qu'un même tampon serve au filtre, à l'empreinte et à l'exécution (migrations de module).
@@ -62,7 +71,7 @@ export function verifierRole(nomBase: string, url: string): void {
 const citer = (nom: string) => `"${nom.replaceAll('"', '""')}"`;
 
 // Applique les migrations manquantes dans une transaction par migration, sous verrou ; `proprietaire` est le rôle dont la session prend l'identité.
-async function appliquer(client: pg.Client, proprietaire: string, dossier: string, versionCible: number, contracterPermis = false): Promise<void> {
+async function appliquer(client: pg.Client, proprietaire: string, dossier: string, versionCible: number, etatContracter?: LecteurEtatContracter): Promise<void> {
   const refus = verifierDossier(dossier);
   if (refus.length) throw new Error(`migrations refusées :\n${refus.join("\n")}`);
   const { rows } = await client.query<{ role: string }>("SELECT session_user AS role");
@@ -78,7 +87,7 @@ async function appliquer(client: pg.Client, proprietaire: string, dossier: strin
     for (const m of migrationsAAppliquer(lireEntrees(dossier), deja, versionCible)) {
       const texte = readFileSync(`${dossier}/${m.tag}.sql`, "utf8");
       // « contracter » : seule migration qui peut supprimer ; refusée sans la décision de regles-versions.ts. Chaque contracter appliqué est tracé au journal d'audit par l'appelant (vagues).
-      if (estPhaseContracter(texte) && !contracterPermis) throw new Error(`migrerBase : la migration ${m.tag} est en phase contracter, refusée sans décision d'ouverture`);
+      await verifierContracter(m.tag, m.version, texte, etatContracter);
       await client.query("BEGIN");
       try {
         for (const morceau of texte.split(MARQUEUR)) if (morceau.trim()) await client.query(morceau);
@@ -399,7 +408,7 @@ export async function migrerBase(nomBase: string, versionCible: number, options:
   await client.connect();
   try {
     if (options.module !== undefined) return await appliquerModule(client, options.url, nomBase, options.dossier!, versionCible, options.module);
-    await appliquer(client, `${nomBase}_proprietaire`, options.dossier ?? DOSSIER_CLI, versionCible, options.contracterPermis === true);
+    await appliquer(client, `${nomBase}_proprietaire`, options.dossier ?? DOSSIER_CLI, versionCible, options.etatContracter);
     await poserDroits(client, nomBase);
   } finally {
     await client.end();

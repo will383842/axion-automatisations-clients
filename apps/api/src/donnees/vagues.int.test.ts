@@ -1,83 +1,128 @@
-import { randomBytes } from "node:crypto";
+import { execFileSync } from "node:child_process";
+import { randomBytes, randomUUID } from "node:crypto";
 import { cpSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { construireModele, migrerBase } from "./migrer-base.ts";
+import { DOSSIER_CLI, lireEntrees, migrerBase } from "./migrer-base.ts";
 import { deroulerPlan, planifierVagues, type BaseRegistre, type PortsVagues } from "./vagues.ts";
-import { journalEchecs } from "../provisionnement/journal-echecs.js";
+import { sqlPg } from "../provisionnement/adaptateur-sql.js";
+import { adminPg, nomBaseDe, nomsRoles } from "../provisionnement/etapes-base.js";
+import { ecrireEchec, journalEchecs } from "../provisionnement/journal-echecs.js";
 // Journal des échecs (CI) : le rapport JSON n'est pas publié ; la cause de chaque test rouge s'imprime ici, adresses de connexion masquées.
 journalEchecs(import.meta.url);
 
-// T2-38 : 100 bases fictives créées par CREATE DATABASE … TEMPLATE, EN SÉRIE, depuis un modèle jetable ; une migration additive v2 d'essai (copie du dossier, jamais le vrai) les passe toutes par les vagues.
-// Grappe jetable (T232_PG_ADMIN_URL) ; sans elle, ces essais ne tournent pas (même dette que migrer-base.int.test.ts). Aucune donnée de client : tout vit dans le conteneur de la CI.
-const ADMIN = process.env["T232_PG_ADMIN_URL"];
-const DOSSIER = fileURLToPath(new URL("../../drizzle-cli", import.meta.url));
-const vers = (base: string) => { const u = new URL(ADMIN ?? "postgres://x@localhost/postgres"); u.pathname = `/${base}`; return u.toString(); };
-const N = 9000 + Math.floor(Math.random() * 900);
-const admin = new pg.Pool({ connectionString: ADMIN, max: 2 });
-admin.on("error", () => undefined);
-const noms: string[] = [];
+// T2-38 : 100 bases fictives créées par CREATE DATABASE … TEMPLATE modele_v1, EN SÉRIE, avec la recette du provisionneur ; une migration additive v2 d'essai (copie du dossier, jamais le vrai) les passe toutes par les vagues.
+// Connexion administrateur : comme migrer-module.int.test.ts (T2-35), adresse DIRECTE du rôle provisionneur (T232_PG_ADMIN_URL si posée) sinon calculée sur le socle par le conteneur « donnees ».
+// Un .int.test.ts ne tourne que sous SOCLE_INTEGRATION=1 : une grappe introuvable FAIT ÉCHOUER l'essai, jamais un saut silencieux. Aucune donnée de client : tout vit dans le conteneur de la CI.
+const docker = (...a: string[]) => {
+  try { return execFileSync("docker", a, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim(); } catch (e) {
+    ecrireEchec("docker", a[0] ?? "", (e as { stderr?: string }).stderr ?? (e as Error).message, 300);
+    throw e;
+  }
+};
+const adresseAdmin = () => {
+  const id = docker("ps", "-q", "--filter", "label=com.docker.compose.project=socle", "--filter", "label=com.docker.compose.service=donnees");
+  if (!id) throw new Error("conteneur donnees introuvable : le socle doit tourner (ops/socle/lancer.sh, fragment d'essai)");
+  const mdp = docker("exec", id, "sh", "-c", 'printf %s/provisionneur "$SOCLE_PG_MOT_DE_PASSE" | sha256sum | cut -c1-64');
+  return `postgresql://provisionneur:${mdp}@localhost/postgres?host=%2Ftmp%2Fsocle-donnees-socket`;
+};
+const ADMIN = process.env["T232_PG_ADMIN_URL"] ?? adresseAdmin();
+const vers = (base: string) => { const u = new URL(ADMIN); u.pathname = `/${base}`; return u.toString(); };
+const pools: pg.Pool[] = [];
+const pool = (base: string) => { const p = new pg.Pool({ connectionString: vers(base), max: 1 }); p.on("error", () => undefined); pools.push(p); return p; };
+afterAll(async () => { await Promise.all(pools.map((p) => p.end().catch(() => undefined))); });
+const empreinteVide = () => `SCRAM-SHA-256$4096:${randomBytes(16).toString("base64")}$${randomBytes(32).toString("base64")}:${randomBytes(32).toString("base64")}`;
 
-describe.skipIf(!ADMIN)("vagues sur 100 bases fictives (grappe jetable)", () => { // fiche: T2-38
+// Une base fictive comme la recette la crée (étapes 2, 3, 6), pas encore fermée : le provisionneur y reste membre du propriétaire.
+async function creerBaseFictive(i: number): Promise<BaseRegistre> {
+  const id = randomUUID();
+  const base = nomBaseDe(id);
+  const admin = adminPg(sqlPg(pool("postgres")), (b) => sqlPg(pool(b)));
+  await admin.creerBase(base, "modele_v1");
+  let v = 0;
+  for (const r of Object.values(nomsRoles(id))) await admin.poserRole(r, empreinteVide(), ++v);
+  await pool(base).query(`GRANT ${nomsRoles(id).proprietaire} TO CURRENT_USER WITH SET TRUE`);
+  await migrerBase(base, lireEntrees(DOSSIER_CLI).length, { url: vers(base) });
+  return { id: `id${i}`, tenantId: id, nomBase: base, versionStructure: lireEntrees(DOSSIER_CLI).length, etat: "active" };
+}
+
+describe("vagues sur des bases fictives (grappe jetable)", () => { // fiche: T2-38
   let dossierV2 = "";
+  let cible = 0;
   const registre: BaseRegistre[] = [];
+  const mondeDe = (liste: BaseRegistre[], alertes: { clientId: string }[], notes: string[]): PortsVagues => ({
+    async bases() { return liste.map((b) => ({ ...b })); },
+    async graine() { return undefined; },
+    async enregistrerGraine() {},
+    tirerGraine: () => 476,
+    async migrer(nomBase, version) { await migrerBase(nomBase, version, { url: vers(nomBase), dossier: dossierV2 }); },
+    async noter(baseId, version, resultat) { notes.push(resultat); if (resultat === "ok") liste.find((b) => b.id === baseId)!.versionStructure = version; },
+    async alerter(a) { alertes.push(a); },
+  });
+  const versionDe = async (base: string) => { const c = new pg.Client({ connectionString: vers(base) }); await c.connect(); try { return (await c.query("SELECT max(version)::int AS v FROM public.version_structure")).rows[0]?.v as number; } finally { await c.end(); } };
   beforeAll(async () => {
-    await construireModele(N, { url: vers("postgres") });
     dossierV2 = mkdtempSync(join(tmpdir(), "cli-v2-"));
-    cpSync(DOSSIER, dossierV2, { recursive: true });
+    cpSync(DOSSIER_CLI, dossierV2, { recursive: true });
     const journal = JSON.parse(readFileSync(join(dossierV2, "meta/_journal.json"), "utf8"));
-    journal.entries.push({ idx: 1, version: "7", when: journal.entries[0].when + 1000, tag: "0001_essai_vagues", breakpoints: true });
+    cible = journal.entries.length + 1;
+    journal.entries.push({ idx: journal.entries.length, version: "7", when: journal.entries.at(-1).when + 1000, tag: "9999_essai_vagues", breakpoints: true });
     writeFileSync(join(dossierV2, "meta/_journal.json"), JSON.stringify(journal));
-    writeFileSync(join(dossierV2, "0001_essai_vagues.sql"), 'ALTER TABLE "commun"."etablissements" ADD COLUMN "note_vagues" text;');
-    for (let i = 0; i < 100; i++) {
-      const base = `cli_${randomBytes(6).toString("hex")}`;
-      for (const r of ["proprietaire", "app", "lecture"]) await admin.query(`CREATE ROLE "${base}_${r}" NOLOGIN`);
-      await admin.query(`CREATE DATABASE "${base}" TEMPLATE "modele_v${N}" OWNER "${base}_proprietaire"`);
-      noms.push(base);
-      const c = new pg.Client({ connectionString: vers(base) });
-      await c.connect();
-      try { await c.query(`REASSIGN OWNED BY modele_proprietaire TO "${base}_proprietaire"`); } finally { await c.end(); }
-      registre.push({ id: `id${i}`, tenantId: `t${i}`, nomBase: base, versionStructure: 1, etat: "active" });
-    }
-  }, 600_000);
-  afterAll(async () => { await admin.end().catch(() => undefined); });
+    writeFileSync(join(dossierV2, "9999_essai_vagues.sql"), 'ALTER TABLE "commun"."etablissements" ADD COLUMN "note_vagues" text;');
+    for (let i = 0; i < 100; i++) registre.push(await creerBaseFictive(i));
+  }, 900_000);
+
+  it("la grappe jetable répond (échec, pas saut)", async () => {
+    expect((await pool("postgres").query("SELECT current_user AS u")).rows[0]?.u).toBe("provisionneur");
+  }, 30_000);
 
   it("[C-476] une migration canari réussit sur 100 bases", async () => {
-    const journal: string[] = [];
-    const ports: PortsVagues = {
-      async bases() { return registre.map((b) => ({ ...b })); },
-      async graine() { return undefined; },
-      async enregistrerGraine() {},
-      tirerGraine: () => 476,
-      async migrer(nomBase, cible) { await migrerBase(nomBase, cible, { url: vers(nomBase), dossier: dossierV2 }); },
-      async noter(baseId, version, resultat) { journal.push(`${resultat}`); if (resultat === "ok") registre.find((b) => b.id === baseId)!.versionStructure = version; },
-      async alerter() { throw new Error("aucune alerte attendue"); },
-    };
-    const plan = await planifierVagues(2, { recette: [noms[0]!], internes: [noms[1]!, noms[2]!] }, ports);
+    const alertes: { clientId: string }[] = [];
+    const notes: string[] = [];
+    const ports = mondeDe(registre, alertes, notes);
+    const noms = registre.map((b) => b.nomBase);
+    const plan = await planifierVagues(cible, { recette: [noms[0]!], internes: [noms[1]!, noms[2]!] }, ports);
     expect(plan.vagues.find((v) => v.nom === "canari")?.bases).toHaveLength(5);
     const r = await deroulerPlan(plan, ports);
     expect(r.arretee).toBe(false);
     expect(r.vagues.flatMap((v) => v.echecs)).toEqual([]);
-    expect(journal.filter((x) => x === "ok")).toHaveLength(100);
+    expect(alertes).toEqual([]);
+    expect(notes.filter((x) => x === "ok")).toHaveLength(100);
     // Relu dans les bases elles-mêmes, pas seulement dans le registre.
     for (const base of [noms[0]!, noms[50]!, noms[99]!]) {
-      const c = new pg.Client({ connectionString: vers(base) });
-      await c.connect();
-      try {
-        expect((await c.query("SELECT max(version)::int AS v FROM public.version_structure")).rows[0]?.v).toBe(2);
-        expect((await c.query("SELECT 1 FROM information_schema.columns WHERE table_name = 'etablissements' AND column_name = 'note_vagues'")).rowCount).toBe(1);
-      } finally { await c.end(); }
+      expect(await versionDe(base)).toBe(cible);
+      expect((await pool(base).query("SELECT 1 FROM information_schema.columns WHERE table_name = 'etablissements' AND column_name = 'note_vagues'")).rowCount).toBe(1);
     }
-  }, 600_000);
+  }, 900_000);
 
-  it("[A-232] en production, migrerBase refuse une cible plus basse sur une base réelle déjà en version 2", async () => {
+  it("[A-228] sur de vraies bases, un échec reste isolé : la base en échec reste en version précédente, alerte, les autres migrent", async () => {
+    const trois = [await creerBaseFictive(1000), await creerBaseFictive(1001), await creerBaseFictive(1002)];
+    // La colonne existe déjà dans la deuxième : sa migration additive échoue (et se défait), les deux autres passent.
+    const p = pool(trois[1]!.nomBase);
+    await p.query(`SET ROLE ${nomsRoles(trois[1]!.tenantId).proprietaire}`);
+    await p.query('ALTER TABLE "commun"."etablissements" ADD COLUMN "note_vagues" text');
+    await p.query("RESET ROLE");
+    const alertes: { clientId: string }[] = [];
+    const notes: string[] = [];
+    const ports = mondeDe(trois, alertes, notes);
+    const plan = await planifierVagues(cible, { recette: [], internes: [] }, ports);
+    const r = await deroulerPlan(plan, ports);
+    expect(r.vagues.flatMap((v) => v.echecs)).toEqual([trois[1]!.nomBase]);
+    expect(r.vagues.flatMap((v) => v.reussies).sort()).toEqual([trois[0]!.nomBase, trois[2]!.nomBase].sort());
+    expect(alertes).toEqual([{ type: "migration_echec", clientId: trois[1]!.tenantId }]);
+    expect(notes.filter((x) => x === "quarantaine")).toHaveLength(1);
+    expect(trois[1]!.versionStructure).toBe(cible - 1);
+    expect(await versionDe(trois[1]!.nomBase)).toBe(cible - 1);
+    expect(await versionDe(trois[0]!.nomBase)).toBe(cible);
+    expect(await versionDe(trois[2]!.nomBase)).toBe(cible);
+  }, 300_000);
+
+  it("[A-232] en production, migrerBase refuse une cible plus basse sur une base réelle déjà migrée", async () => {
     const avant = process.env["NODE_ENV"];
     try {
       process.env["NODE_ENV"] = "production";
-      await expect(migrerBase(noms[3]!, 1, { url: vers(noms[3]!), dossier: dossierV2 })).rejects.toThrow(/descendante/);
+      await expect(migrerBase(registre[3]!.nomBase, cible - 1, { url: vers(registre[3]!.nomBase), dossier: dossierV2 })).rejects.toThrow(/descendante/);
     } finally {
       if (avant === undefined) delete process.env["NODE_ENV"]; else process.env["NODE_ENV"] = avant;
     }

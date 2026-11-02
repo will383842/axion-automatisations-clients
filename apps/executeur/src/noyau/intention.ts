@@ -8,7 +8,15 @@ import { CoupureProcessus, type Ports } from "./ports.ts";
 export class ATrancher extends Error {}
 
 // Un autre lancement tient le bail : ce n'est pas une erreur de l'outil, rien n'est inscrit ni envoyé.
-export class IntentionEnCours extends Error {}
+// libreA : l'instant (ms, horloge du processus) où la fenêtre d'occupation finit ; avant, rappeler ne sert à rien.
+export class IntentionEnCours extends Error {
+  constructor(
+    readonly libreA: number,
+    readonly cle: string = "",
+  ) {
+    super("intention_en_cours");
+  }
+}
 
 // Marge après la fin de l'étape : l'appel en vol doit finir dans ce délai après l'arrêt (manque 20).
 export const DELAI_GRACE_MS = 60_000;
@@ -23,6 +31,8 @@ export interface BaseEffet {
   signal: AbortSignal;
   // Instant où l'étape est coupée : le bail court jusque-là plus la marge.
   finEtape: number;
+  // Durée de l'étape (constante, bornée) : la boîte en tire la fenêtre d'occupation.
+  delaiEtapeMs: number;
 }
 
 const coupee = () => new ErreurConnecteur("passagere", "delai_depasse");
@@ -36,12 +46,12 @@ export async function effet(ports: Ports, base: BaseEffet, action: string, eleme
   const cle = deriverCleIntention({ instanceId: base.instanceId, executionId: base.executionId, etape: base.etape, action, element });
   const { boite, connecteurs, horloge } = ports;
   const proprietaire = randomUUID();
-  const bail = { proprietaire, jusqua: base.finEtape + DELAI_GRACE_MS };
-  const { intention, creee, occupee } = await boite.ecrire({ cle, instanceId: base.instanceId, executionId: base.executionId, etape: base.etape, element, action, garantie: decl.garantie }, bail, horloge.maintenant());
+  const bail = { proprietaire, jusqua: base.finEtape + DELAI_GRACE_MS, delaiEtapeMs: base.delaiEtapeMs };
+  const { intention, creee, occupee, libreA } = await boite.ecrire({ cle, instanceId: base.instanceId, executionId: base.executionId, etape: base.etape, element, action, garantie: decl.garantie }, bail, horloge.maintenant());
   if (intention.action !== action) throw new ErreurConnecteur("definitive", "cle_en_conflit");
   if (intention.etat === "faite") return false;
   if (intention.etat === "a_trancher") throw new ATrancher();
-  if (occupee) throw new IntentionEnCours();
+  if (occupee) throw new IntentionEnCours(libreA ?? bail.jusqua, cle);
   try {
     if (!creee) {
       if (decl.garantie === "au_plus_une_fois") return await aTrancher(ports, cle, proprietaire);

@@ -11,7 +11,7 @@ export class BoiteEnMemoire implements BoiteEnvoi {
     }
     const occupee = existante.etat === "ecrite" && existante.bail !== undefined && existante.bail.proprietaire !== bail.proprietaire && existante.bail.jusqua > maintenant;
     if (existante.etat === "ecrite" && !occupee) existante.bail = bail;
-    return { intention: { ...existante }, creee: false, occupee };
+    return { intention: { ...existante }, creee: false, occupee, ...(occupee ? { libreA: existante.bail!.jusqua } : {}) };
   }
   async lire(cle: string) {
     const i = this.#parCle.get(cle);

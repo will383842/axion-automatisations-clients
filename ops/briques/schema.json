@@ -22,7 +22,8 @@
     },
     "image": {
       "type": "string",
-      "description": "Dépôt de l'image, sans version ni empreinte."
+      "pattern": "^[a-z0-9][a-z0-9._-]*(/[a-z0-9][a-z0-9._-]*)*$",
+      "description": "Dépôt de l'image, sans version ni empreinte (ni « : », ni « @ », ni tiret initial)."
     },
     "version": {
       "type": "string",

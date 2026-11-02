@@ -27,11 +27,14 @@ export interface Admin {
   baseExiste(nomBase: string): Promise<boolean>;
   creerBase(nomBase: string, modele: string): Promise<void>;
   rolesPresents(nomBase: string): Promise<string[]>;
-  poserRole(role: string, empreinte: string): Promise<void>;
+  // `version` = version KV du secret déjà rangé ; elle est notée sur le rôle (COMMENT) pour que dejaFait sache quel secret correspond à quelle empreinte.
+  poserRole(role: string, empreinte: string, version: number): Promise<void>;
+  versionSecret(role: string): Promise<number | undefined>;
   fermer(nomBase: string): Promise<void>;
   connexionFermeeAuPublic(nomBase: string): Promise<boolean>;
+  accesProvisionneurRetire(nomBase: string): Promise<boolean>;
 }
-export interface Coffre { ranger(chemin: string, valeur: string): Promise<void>; existe(chemin: string): Promise<boolean> }
+export interface Coffre { ranger(chemin: string, valeur: string): Promise<number>; version(chemin: string): Promise<number | undefined> }
 export interface Bouncer { declarer(nomBase: string, pool: number): Promise<void>; recharger(): Promise<void>; repond(nomBase: string): Promise<boolean> }
 export interface PortsBase {
   grappes(): Promise<{ nom: string; basesActives: number; octets: number }[]>;
@@ -57,7 +60,7 @@ export const contexteBase = (tenantId: string, ligne: LigneBase | undefined): Co
   grappe: ligne && ligne.grappe !== GRAPPE_A_CHOISIR ? ligne.grappe : undefined,
 });
 
-export function adminPg(sql: Sql, dansBase?: (nomBase: string) => Sql): Admin {
+export function adminPg(sql: Sql, dansBase: (nomBase: string) => Sql): Admin {
   const citer = async (nom: string) => (await sql.requete<{ q: string }>("SELECT quote_ident($1) AS q", [nom]))[0]!.q;
   const verifier = (nom: string) => { if (!NOM.test(nom)) throw new Error("nom refusé"); };
   const noms = (base: string) => { verifier(base); return GENRES.map((g) => `${base}_${g}`); };
@@ -69,12 +72,21 @@ export function adminPg(sql: Sql, dansBase?: (nomBase: string) => Sql): Admin {
     async creerBase(b, modele) {
       verifier(b);
       if (!MODELE.test(modele)) throw new Error("modèle refusé");
-      await sql.requete(`CREATE DATABASE ${await citer(b)} TEMPLATE ${await citer(modele)}`);
+      const base = await citer(b);
+      await sql.requete(`CREATE DATABASE ${base} TEMPLATE ${await citer(modele)}`);
+      // Le provisionneur en est encore propriétaire : seul moment où REVOKE vaut sans SET ROLE. PUBLIC n'a plus CONNECT dès l'étape 2, avant même que les rôles existent.
+      await sql.requete(`REVOKE ALL ON DATABASE ${base} FROM PUBLIC`);
     },
     async rolesPresents(b) {
       return (await sql.requete<{ rolname: string }>("SELECT rolname FROM pg_roles WHERE rolname = ANY($1)", [noms(b)])).map((r) => r.rolname);
     },
-    async poserRole(role, empreinte) {
+    async versionSecret(role) {
+      verifier(role);
+      const m = /^secret:v([0-9]{1,9})$/.exec((await sql.requete<{ c: string | null }>("SELECT shobj_description(oid, 'pg_authid') AS c FROM pg_roles WHERE rolname = $1", [role]))[0]?.c ?? "");
+      return m ? Number(m[1]) : undefined;
+    },
+    async poserRole(role, empreinte, version) {
+      if (!Number.isInteger(version) || version < 1 || version > 999999999) throw new Error("version refusée");
       verifier(role);
       if (!EMPREINTE.test(empreinte)) throw new Error("empreinte refusée");
       const q = await citer(role);
@@ -87,27 +99,37 @@ export function adminPg(sql: Sql, dansBase?: (nomBase: string) => Sql): Admin {
       }
       const [{ lit }] = (await sql.requete<{ lit: string }>("SELECT quote_literal($1) AS lit", [empreinte])) as [{ lit: string }];
       await sql.requete(`ALTER ROLE ${q} PASSWORD ${lit}`);
+      await sql.requete(`COMMENT ON ROLE ${q} IS 'secret:v${version}'`);
     },
     async fermer(b) {
       const [proprio, app, lecture] = (await Promise.all(noms(b).map(citer))) as [string, string, string];
       const base = await citer(b);
+      // Le provisionneur est NOINHERIT : il n'agit en propriétaire que sous SET ROLE (comme creer-base.sql). Sans lui, REVOKE/GRANT ne font qu'un avertissement et PUBLIC garde CONNECT.
+      // Un seul texte = une seule connexion et une seule transaction implicite : le rôle posé ne fuit jamais vers une autre requête d'un pool, et rien n'est à moitié appliqué.
       await sql.requete(`GRANT ${proprio} TO CURRENT_USER WITH SET TRUE`);
       await sql.requete(`ALTER DATABASE ${base} OWNER TO ${proprio}`);
-      await sql.requete(`REVOKE ALL ON DATABASE ${base} FROM PUBLIC`);
-      await sql.requete(`GRANT CONNECT ON DATABASE ${base} TO ${app}, ${lecture}`);
-      const dedans = dansBase?.(b);
-      if (dedans) {
-        for (const ordre of [
-          `ALTER SCHEMA public OWNER TO ${proprio}`,
-          "REVOKE ALL ON SCHEMA public FROM PUBLIC",
-          `GRANT USAGE ON SCHEMA public TO ${app}, ${lecture}`,
-          `ALTER DEFAULT PRIVILEGES FOR ROLE ${proprio} IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${app}`,
-          `ALTER DEFAULT PRIVILEGES FOR ROLE ${proprio} IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO ${app}`,
-          `ALTER DEFAULT PRIVILEGES FOR ROLE ${proprio} IN SCHEMA public GRANT SELECT ON TABLES TO ${lecture}`,
-        ]) await dedans.requete(ordre);
-      }
-      // Retire au provisionneur tout accès au client (fonction du superutilisateur, init.sql de T2-31).
+      await sql.requete(`SET ROLE ${proprio}; REVOKE ALL ON DATABASE ${base} FROM PUBLIC; GRANT CONNECT ON DATABASE ${base} TO ${app}, ${lecture}, provisionneur; RESET ROLE`);
+      await dansBase(b).requete([
+        `SET ROLE ${proprio}`,
+        `ALTER SCHEMA public OWNER TO ${proprio}`,
+        "REVOKE ALL ON SCHEMA public FROM PUBLIC",
+        `GRANT USAGE ON SCHEMA public TO ${app}, ${lecture}`,
+        `ALTER DEFAULT PRIVILEGES FOR ROLE ${proprio} IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${app}`,
+        `ALTER DEFAULT PRIVILEGES FOR ROLE ${proprio} IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO ${app}`,
+        `ALTER DEFAULT PRIVILEGES FOR ROLE ${proprio} IN SCHEMA public GRANT SELECT ON TABLES TO ${lecture}`,
+        `ALTER DEFAULT PRIVILEGES FOR ROLE ${proprio} REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC`,
+        "RESET ROLE",
+      ].join("; "));
+      // Retire au provisionneur tout accès au client (fonction du superutilisateur, init.sql de T2-31) ; rejouée à chaque essai, sans danger après une réussite.
       await sql.requete("SELECT provisionnement.fermer_client($1)", [b.slice(4)]);
+    },
+    async accesProvisionneurRetire(b) {
+      verifier(b);
+      const r = await sql.requete<{ retire: boolean }>(
+        "SELECT NOT EXISTS (SELECT 1 FROM pg_auth_members m JOIN pg_roles ro ON ro.oid = m.roleid JOIN pg_roles me ON me.oid = m.member WHERE me.rolname = 'provisionneur' AND ro.rolname = ANY($2)) AND EXISTS (SELECT 1 FROM pg_database WHERE datname = $1) AND NOT has_database_privilege('provisionneur', $1, 'CONNECT') AS retire",
+        [b, noms(b)],
+      );
+      return r[0]?.retire === true;
     },
     async connexionFermeeAuPublic(b) {
       verifier(b);
@@ -122,6 +144,8 @@ export function adminPg(sql: Sql, dansBase?: (nomBase: string) => Sql): Admin {
 
 const cheminSecret = (nomBase: string, genre: string) => `technique/donnees/${nomBase}/${genre}`;
 const grappeDe = (ctx: ContexteBase): string => { if (!ctx.grappe) throw new ErreurEtape("grappe_absente"); return ctx.grappe; };
+// La ligne doit décrire CE client : nom physique cli_<12 hex> ou nom du registre cli_<32 hex> (dette : T2-52 unifie les deux), jamais le nom d'un autre.
+const decritCeClient = (ctx: ContexteBase): boolean => ctx.ligne !== undefined && [ctx.nomBase, `cli_${ctx.tenantId.replaceAll("-", "")}`].includes(ctx.ligne.nomBase);
 const attraper = <T>(code: string, f: () => Promise<T>): Promise<T> => f().catch((e: unknown) => { throw e instanceof ErreurEtape ? e : new ErreurEtape(code); });
 
 export function etapesBase(p: PortsBase): Etape<ContexteBase>[] {
@@ -141,7 +165,7 @@ export function etapesBase(p: PortsBase): Etape<ContexteBase>[] {
       numero: 2,
       nom: "creation_base",
       // Faite = base physique ET ligne bases_client du client. Une base sans ligne n'est jamais branchée : la décision est humaine.
-      dejaFait: async (ctx) => ctx.ligne !== undefined && (await attraper("grappe_injoignable", () => p.admin(grappeDe(ctx)).baseExiste(ctx.nomBase))),
+      dejaFait: async (ctx) => decritCeClient(ctx) && (await attraper("grappe_injoignable", () => p.admin(grappeDe(ctx)).baseExiste(ctx.nomBase))),
       async faire(ctx) {
         const admin = p.admin(grappeDe(ctx));
         if (await attraper("grappe_injoignable", () => admin.baseExiste(ctx.nomBase))) throw new ErreurEtape("base_orpheline");
@@ -155,18 +179,24 @@ export function etapesBase(p: PortsBase): Etape<ContexteBase>[] {
         const admin = p.admin(grappeDe(ctx));
         const noms = Object.values(nomsRoles(ctx.tenantId));
         const presents = await attraper("grappe_injoignable", () => admin.rolesPresents(ctx.nomBase));
-        if (!noms.every((n) => presents.includes(n)) || !(await admin.connexionFermeeAuPublic(ctx.nomBase))) return false;
-        return (await Promise.all(GENRES.map((g) => p.coffre.existe(cheminSecret(ctx.nomBase, g))))).every(Boolean);
+        if (!noms.every((n) => presents.includes(n)) || !(await admin.connexionFermeeAuPublic(ctx.nomBase)) || !(await admin.accesProvisionneurRetire(ctx.nomBase))) return false;
+        // Le secret doit exister ET correspondre au mot de passe du rôle (même version, notée sur le rôle) ; sinon il est régénéré.
+        const roles = nomsRoles(ctx.tenantId);
+        for (const g of GENRES) {
+          const v = await attraper("coffre_indisponible", () => p.coffre.version(cheminSecret(ctx.nomBase, g)));
+          if (v === undefined || v !== (await admin.versionSecret(roles[g]))) return false;
+        }
+        return true;
       },
       async faire(ctx) {
         const admin = p.admin(grappeDe(ctx));
         const noms = nomsRoles(ctx.tenantId);
-        // Mot de passe neuf à chaque passage : le rôle reçoit l'empreinte, PUIS le coffre reçoit le mot de passe. Un plantage entre les deux laisse un secret absent,
-        // donc dejaFait faux et un nouveau tirage ; jamais un rôle dont le secret serait inconnu et réputé fait.
+        // Mot de passe neuf à chaque passage : le coffre reçoit le mot de passe (nouvelle version), PUIS le rôle reçoit l'empreinte et la version notée.
+        // Un plantage entre les deux laisse un secret dont la version n'est pas celle du rôle : dejaFait faux, nouveau tirage ; jamais un rôle dont le mot de passe serait inconnu.
         for (const genre of GENRES) {
           const motDePasse = p.motDePasse();
-          await attraper("role_echoue", () => admin.poserRole(noms[genre], p.empreinte(motDePasse)));
-          await attraper("coffre_indisponible", () => p.coffre.ranger(cheminSecret(ctx.nomBase, genre), motDePasse));
+          const version = await attraper("coffre_indisponible", () => p.coffre.ranger(cheminSecret(ctx.nomBase, genre), motDePasse));
+          await attraper("role_echoue", () => admin.poserRole(noms[genre], p.empreinte(motDePasse), version));
         }
         await attraper("fermeture_echouee", () => admin.fermer(ctx.nomBase));
       },
@@ -188,6 +218,12 @@ export function etapesBase(p: PortsBase): Etape<ContexteBase>[] {
 
 // Coffre OpenBao (KV v2 monté sur technique/) : le jeton du rôle « provisionneur » écrit les secrets d'un client, sans jamais les relire. Aucun corps de réponse n'est repris dans une erreur.
 const CHEMIN_SECRET = /^technique\/donnees\/(cli_[0-9a-f]{12}\/(?:proprietaire|app|lecture))$/;
+// Seul le numéro de version est lu dans la réponse ; rien d'autre n'en est repris.
+const numero = async (r: Response, cle: string): Promise<number> => {
+  const n = ((await r.json().catch(() => ({}))) as { data?: Record<string, unknown> }).data?.[cle];
+  if (typeof n !== "number" || !Number.isInteger(n) || n < 1) throw new ErreurEtape("coffre_indisponible");
+  return n;
+};
 export function coffreOpenBao(o: { url: string; jeton: string; fetch?: typeof fetch }): Coffre {
   const appeler = (methode: string, partie: "data" | "metadata", chemin: string, corps?: unknown): Promise<Response> => {
     const reste = CHEMIN_SECRET.exec(chemin)?.[1];
@@ -204,12 +240,13 @@ export function coffreOpenBao(o: { url: string; jeton: string; fetch?: typeof fe
     async ranger(chemin, valeur) {
       const r = await appeler("POST", "data", chemin, { data: { valeur } });
       if (!r.ok) throw new ErreurEtape("coffre_indisponible");
+      return await numero(r, "version");
     },
-    async existe(chemin) {
+    async version(chemin) {
       const r = await appeler("GET", "metadata", chemin);
-      if (r.status === 404) return false;
+      if (r.status === 404) return undefined;
       if (!r.ok) throw new ErreurEtape("coffre_indisponible");
-      return true;
+      return await numero(r, "current_version");
     },
   };
 }

@@ -4,9 +4,27 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 export const ESSAIS_MAX = 5;
 // BullMQ refuse un jobId à deux-points (sauf trois parties) : tiret à la place de « provision: ».
 export const OPTIONS_TACHE = { attempts: ESSAIS_MAX, backoff: { type: "exponential" as const, delay: 5000 }, removeOnComplete: true } as const;
+// Un UUID en majuscules est le même client : on range tout en minuscules avant de valider (sinon l'erreur sortirait avant le try, sans code ni alerte).
+export const normaliser = (tenantId: unknown): string => (typeof tenantId === "string" ? tenantId.toLowerCase() : "");
 export function idTacheProvisionnement(tenantId: string): string {
-  if (!UUID.test(tenantId)) throw new Error("tenantId invalide");
-  return `provision-${tenantId}`;
+  const id = normaliser(tenantId);
+  if (!UUID.test(id)) throw new Error("tenantId invalide");
+  return `provision-${id}`;
+}
+// Verrou par client tenu pendant toute l'exécution : une tâche « stalled » reprise par un autre travailleur ne chevauche pas la première.
+export interface Verrou { prendre(tenantId: string): Promise<(() => Promise<void>) | undefined> }
+// Adaptateur PostgreSQL : verrou consultatif de SESSION sur une connexion dédiée (jamais PgBouncer en mode transaction), rendu par pg_advisory_unlock ou à la mort de la connexion.
+export function verrouConsultatif(ouvrir: () => Promise<{ query(texte: string, valeurs: unknown[]): Promise<{ rows: { ok: boolean }[] }>; release(): void }>): Verrou {
+  return {
+    async prendre(tenantId) {
+      const c = await ouvrir();
+      try {
+        const cle = `provision-${tenantId}`;
+        if ((await c.query("SELECT pg_try_advisory_lock(hashtextextended($1, 0)) AS ok", [cle])).rows[0]?.ok !== true) { c.release(); return undefined; }
+        return async () => { try { await c.query("SELECT pg_advisory_unlock(hashtextextended($1, 0)) AS ok", [cle]); } finally { c.release(); } };
+      } catch (e) { c.release(); throw e; }
+    },
+  };
 }
 
 export interface LigneBase {
@@ -45,8 +63,9 @@ export interface OptionsMachine<C> {
   registre: Registre;
   alertes: AlertesProvisionnement;
   contexte(tenantId: string, ligne: LigneBase): C;
+  verrou?: Verrou;
 }
-export type Resultat = "a_jour" | "ignore" | "ligne_absente";
+export type Resultat = "a_jour" | "ignore" | "ligne_absente" | "occupe";
 
 export function creerMachine<C>(o: OptionsMachine<C>) {
   async function echec(tenantId: string, code: string): Promise<void> {
@@ -54,27 +73,37 @@ export function creerMachine<C>(o: OptionsMachine<C>) {
     await o.alertes.envoyer({ type: "provisionnement_echec", clientId: tenantId, code });
   }
   return {
-    async executer(tenantId: string): Promise<Resultat> {
+    async executer(brut: string): Promise<Resultat> {
+      const tenantId = normaliser(brut);
       if (!UUID.test(tenantId)) throw new Error("tenantId invalide");
-      const ligne = await o.registre.lire(tenantId);
-      if (!ligne) {
-        await o.alertes.envoyer({ type: "provisionnement_echec", clientId: tenantId, code: "ligne_absente" });
-        return "ligne_absente";
-      }
-      // Une base déjà active (bon de commande complémentaire) ne relance aucune création.
-      if (ligne.etat !== "en_creation") return "ignore";
-      const ctx = o.contexte(tenantId, ligne);
+      const rendre = o.verrou ? await o.verrou.prendre(tenantId) : async () => undefined;
+      if (!rendre) return "occupe";
       try {
-        for (const etape of o.etapes) {
-          if (!(await etape.dejaFait(ctx))) await etape.faire(ctx);
-          await o.registre.enregistrerEtape(tenantId, etape.numero);
-        }
-      } catch (erreur) {
-        const code = erreur instanceof ErreurEtape ? erreur.code : "erreur_inattendue";
-        await echec(tenantId, code);
-        throw new ErreurEtape(code);
+        return await executerSousVerrou(tenantId);
+      } finally {
+        await rendre().catch(() => undefined);
       }
-      return "a_jour";
     },
   };
+  async function executerSousVerrou(tenantId: string): Promise<Resultat> {
+    const ligne = await o.registre.lire(tenantId);
+    if (!ligne) {
+      await o.alertes.envoyer({ type: "provisionnement_echec", clientId: tenantId, code: "ligne_absente" });
+      return "ligne_absente";
+    }
+    // Une base déjà active (bon de commande complémentaire) ne relance aucune création.
+    if (ligne.etat !== "en_creation") return "ignore";
+    try {
+      const ctx = o.contexte(tenantId, ligne);
+      for (const etape of o.etapes) {
+        if (!(await etape.dejaFait(ctx))) await etape.faire(ctx);
+        await o.registre.enregistrerEtape(tenantId, etape.numero);
+      }
+    } catch (erreur) {
+      const code = erreur instanceof ErreurEtape ? erreur.code : "erreur_inattendue";
+      await echec(tenantId, code);
+      throw new ErreurEtape(code);
+    }
+    return "a_jour";
+  }
 }

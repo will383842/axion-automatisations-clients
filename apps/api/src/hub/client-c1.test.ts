@@ -6,7 +6,7 @@ import { clientC1, type DepotHub } from "./client-c1.ts";
 const TENANT = "11111111-1111-4111-8111-111111111111";
 const AUTRE = "22222222-2222-4222-8222-222222222222";
 const AXI = "AXI-CLI-000101";
-const ADRESSE = { ligne1: "1 rue d'essai", codePostal: "75001", ville: "Ville-Test", pays: "FR" };
+const ADRESSE = { ligne1: "1 rue d'essai", codePostal: "75001", ville: "Ville-Test", pays: "FR" as const };
 const ORG = { consoleClientId: TENANT, siren: "123456782", raisonSociale: "Atelier Bertin", adresse: ADRESSE, contactFacturation: { nom: "Camille Test", email: "contact@exemple.fr" } };
 const LIGNES = [{ libelle: "Mise en place", quantite: 1, prixUnitaireHtCentimes: 50_000 }];
 

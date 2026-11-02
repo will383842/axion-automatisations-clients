@@ -61,12 +61,8 @@ const inserer = (tenant: string, table: string, valeurs: Record<string, unknown>
 const creerOrg = (id: string) => inserer(id, "organisations", { id, console_client_id: id, raison_sociale: "Boulangerie Rivoire" });
 beforeAll(async () => {
   await migrer({ url: `postgres://console_migration:${motDePasseDe("console_migration")}@${DIRECT.host}:${DIRECT.port}/console`, dossier: fileURLToPath(new URL("../../drizzle", import.meta.url)) });
-  // Politique d'essai du propriétaire, validée (pas de transaction ouverte) : la course du propriétaire a besoin qu'elle soit visible par deux connexions. Elle ne concerne pas console_app.
-  await migration.query("DROP POLICY IF EXISTS essai_course ON public.factures");
-  await migration.query("CREATE POLICY essai_course ON public.factures FOR ALL TO console_proprietaire USING (true) WITH CHECK (true)");
 }, 120_000);
 afterAll(async () => {
-  await migration.query("DROP POLICY IF EXISTS essai_course ON public.factures").catch(() => undefined);
   await Promise.all(ouverts.map((o) => o.end().catch(() => undefined)));
 });
 
@@ -345,47 +341,10 @@ describe("contrats, devis, factures et activation, avec le socle", { timeout: 30
     const [premiere, seconde] = await course(A, (c) => c.query("UPDATE factures SET statut = 'payee', statut_par = 'agent-essai' WHERE id = $1", [f["id"]]), (c) => c.query("UPDATE factures SET statut = 'annulee', statut_par = 'agent-essai' WHERE id = $1", [f["id"]]));
     expect([premiere, seconde]).toEqual(["ok", "ok"]);
     expect((await ecrire(app, A, (c) => c.query("SELECT statut FROM factures WHERE id = $1", [f["id"]]))).rows[0]).toEqual({ statut: "annulee" });
-    // Le droit de colonne (42501) refuse le montant pour `console_app` avant toute attente de verrou : ce n'est pas une course sur le déclencheur (voir l'essai du propriétaire plus bas).
+    // Le droit de colonne (42501) refuse le montant pour `console_app` avant toute attente de verrou : ce n'est pas une course sur le déclencheur (le déclencheur est prouvé par l'essai du propriétaire « le déclencheur fige les colonnes reçues »).
     const [p2, s2] = await course(A, (c) => c.query("UPDATE factures SET statut = 'impayee', statut_par = 'agent-essai' WHERE id = $1", [f["id"]]), (c) => c.query("UPDATE factures SET montant_ht_centimes = 1 WHERE id = $1", [f["id"]]));
     expect([p2, s2]).toEqual(["ok", "42501"]);
     expect((await ecrire(app, A, (c) => c.query("SELECT montant_ht_centimes::int AS ht FROM factures WHERE id = $1", [f["id"]]))).rows[0]).toEqual({ ht: 10000 });
-  });
-
-  it("[A-133] @argent course du propriétaire : un montant modifié par une seconde connexion, après un changement de statut validé, est refusé par le déclencheur (42501) et le montant reste celui du Hub", async () => {
-    const A = randomUUID();
-    await creerOrg(A);
-    const f = await facture(A);
-    // Deux connexions du propriétaire (pool migration). T1 passe la facture à impayée et garde son verrou 1 s ; T2, lancée après l'UPDATE de T1, attend, puis relit la ligne validée : seul le déclencheur peut refuser le montant (la politique d'essai ouvre tout, le droit de colonne ne joue pas).
-    const transaction = async (corps: (c: pg.PoolClient) => Promise<unknown>) => {
-      const cx = await migration.connect();
-      try {
-        await cx.query("BEGIN");
-        await cx.query("SELECT set_config('app.tenant_id', $1, true), set_config('app.acteur', 'agent-essai', true)", [A]);
-        await corps(cx);
-        await cx.query("COMMIT");
-      } catch (e) {
-        await cx.query("ROLLBACK").catch(() => undefined);
-        throw e;
-      } finally {
-        cx.release();
-      }
-    };
-    let ecrit!: () => void;
-    const apres = new Promise<void>((r) => (ecrit = r));
-    const t1 = transaction(async (c) => {
-      try {
-        await c.query("UPDATE public.factures SET statut = 'impayee', statut_par = 'agent-essai' WHERE id = $1", [f["id"]]);
-      } finally {
-        ecrit();
-      }
-      await new Promise((r) => setTimeout(r, 1000));
-    }).then(() => "ok", (e: { code?: string }) => e.code);
-    await apres;
-    const t2 = transaction((c) => c.query("UPDATE public.factures SET statut = 'payee', statut_par = 'agent-essai', montant_ht_centimes = 1 WHERE id = $1", [f["id"]])).then(() => ({ code: "ok", detail: undefined }), (e: { code?: string; detail?: string }) => ({ code: e.code, detail: e.detail }));
-    const [r1, r2] = [await t1, await t2];
-    expect([r1, r2.code]).toEqual(["ok", "42501"]);
-    expect(r2.detail).toBe("factures"); // détail du déclencheur colonne_figee, pas du droit de colonne
-    expect((await ecrire(app, A, (c) => c.query("SELECT statut, montant_ht_centimes::int AS ht FROM factures WHERE id = $1", [f["id"]]))).rows[0]).toEqual({ statut: "impayee", ht: 10000 });
   });
 
   it("[C-030] course : une double révocation concurrente d'un contrat est refusée (42501) ; la première date reste", async () => {

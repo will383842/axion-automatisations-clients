@@ -29,3 +29,11 @@ L'ADR 0013 sépare deux grappes PostgreSQL : la commune (`console`, `moteur`, `k
 - Le provisionneur garde `CREATEROLE` et `CREATEDB` (nécessaires pour créer) et peut donc créer d'autres rôles et d'autres bases ; il n'a plus aucun droit sur ceux des clients. Le changement d'un mot de passe de client (rotation) passe par un superutilisateur ou par une fonction du même genre, à décider avec T2-34.
 - Les catalogues restent aussi lisibles à travers `pg_stat_activity` : `cli_<id>_app` y voit les bases, les rôles, les heures et les adresses des connexions des autres clients (pas le texte des requêtes).
 - Le compte des connexions est fait par PostgreSQL : au-delà de 250, un client attend puis reçoit un refus (délai d'attente de PgBouncer), les connexions déjà tenues par les autres bases ne sont pas coupées.
+
+## Rotation des mots de passe (T2-36)
+Choix : un seul rôle fixe `cli_<id>_app` et `VALID UNTIL`, pas de rôles alternés `_app_a` / `_app_b`. Raisons : les rôles alternés ajoutent des noms que `auth_query` de PgBouncer (limité aux noms `cli_…_app`), `pg_hba`, `fermer_client` et les contrôles `NOM` du provisionnement ne connaissent pas, doublent les limites A-417 à tenir et font servir deux noms de rôle à l'exécuteur ; la rotation ne recrée jamais le rôle, donc `statement_timeout` et `CONNECTION LIMIT` restent.
+- Le rôle n'a qu'un mot de passe à la fois : l'ancien est refusé aux NOUVELLES connexions dès le changement. La période de grâce de 10 minutes laisse finir les connexions déjà ouvertes (PgBouncer garde ses connexions serveur) ; une tâche différée `RECONNECT` de la base les coupe ensuite. Un exécuteur dont la connexion tombe redemande ses identifiants au courtier.
+- `VALID UNTIL` est un filet : deux périodes après la dernière rotation, le mot de passe s'éteint seul si les rotations s'arrêtent.
+- Ordre : le coffre reçoit le nouveau mot de passe (version KV neuve), puis le rôle reçoit l'empreinte et la version notée en `COMMENT`. Le courtier ne sert un secret que si sa version est celle du rôle ; sinon il refuse (`secret_incoherent`) jusqu'à la rotation suivante.
+- Une rotation par base et par période (`jobId` = base + période) et un verrou par client : deux rotations simultanées ne passent pas ensemble.
+- Inconvénient accepté : pas de chevauchement strict de deux mots de passe pour les nouvelles connexions.

@@ -87,7 +87,7 @@ describe("identifiants servis par le courtier", () => {
   });
 
   it("[A-417] la lecture des limites regarde statement_timeout et CONNECTION LIMIT du rôle", async () => {
-    const requetes: { texte: string; valeurs?: unknown[] }[] = [];
+    const requetes: { texte: string; valeurs: unknown[] | undefined }[] = [];
     const sql = { requete: async (texte: string, valeurs?: unknown[]) => { requetes.push({ texte, valeurs }); return [{ rolconnlimit: 8, rolconfig: ["statement_timeout=5s", "work_mem=4MB"] }] as never; } };
     await expect(limitesPg(sql)(`cli_${idA}_app`)).resolves.toEqual({ statementTimeout: true, connectionLimit: 8 });
     expect(requetes[0]?.valeurs).toEqual([`cli_${idA}_app`]);

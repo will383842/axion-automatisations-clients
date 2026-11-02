@@ -23,7 +23,8 @@ describe("catalogue commun : liste fermée et règle C5 (migration 0007)", () =>
     // T2-07 (ADR 0055) ajoute deux tables communes hors catalogue : la liste du catalogue reste exacte, les ajouts ultérieurs sont nommés ici.
     expect(TABLES_COMMUNES.filter((t) => !["public.cellules", "public.registre_traitements"].includes(t))).toHaveLength(COMMUNES.length + 1);
     expect(Object.isFrozen(TABLES_COMMUNES)).toBe(true);
-    expect(TABLES_COMMUNES_SCHEMA.map((t) => t.nom).sort()).toEqual([...COMMUNES].sort());
+    // clients.ts importe suivi.ts (clé étrangère instances → cellules, T4-21) : les deux tables communes de T2-07 sont chargées avec lui.
+    expect(TABLES_COMMUNES_SCHEMA.map((t) => t.nom).filter((n) => !["cellules", "registre_traitements"].includes(n)).sort()).toEqual([...COMMUNES].sort());
     for (const t of [metiers, postes, automatisations, automatisationMetiers, automatisationPostes, versionsAutomatisation, prereglagesMetier, synonymesCatalogue, packs, packsAutomatisations, connecteurs, grillesPrix]) {
       expect(colonnes(t)).not.toContain("tenant_id");
     }

@@ -133,7 +133,9 @@ describe("liens instance → cellule et version de l'état voulu, avec le socle"
     expect((await lire(A, id)).version_etat_voulu).toBe(0);
     await maj(A, id, "etat = 'erreur', version_etat_voulu = 99");
     expect((await lire(A, id)).version_etat_voulu).toBe(1);
-    await expect(maj(A, id, "version_etat_voulu = -1")).rejects.toMatchObject({ code: "23514" });
+    await maj(A, id, "version_etat_voulu = -1"); // écrasée aussi : le déclencheur rend OLD + 0
+    expect((await lire(A, id)).version_etat_voulu).toBe(1);
+    await expect(creerInstance(A, ", version_etat_voulu", [-1])).rejects.toMatchObject({ code: "23514" }); // à l'INSERT, la contrainte garde
   });
 
   it("[C-017] un code de cellule avec _ ou de forme inconnue est refusé par la contrainte de forme C4", async () => {

@@ -101,7 +101,8 @@ describe("jeton d'instance (C-017)", () => {
 
   it("[C-017] une clé en plus dans la charge est refusée, comme une clé en moins", async () => {
     await expect(verifierJetonInstance(coffre.cles, forger(cleJi, charge({ tenant_id: randomUUID() })), attendu, () => NOW)).resolves.toBeNull();
-    const { exp: _exp, ...sansExp } = charge();
+    const sansExp: Record<string, unknown> = charge();
+    delete sansExp["exp"];
     await expect(verifierJetonInstance(coffre.cles, forger(cleJi, sansExp), attendu, () => NOW)).resolves.toBeNull();
   });
 

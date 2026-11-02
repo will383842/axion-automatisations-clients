@@ -21,7 +21,7 @@ describe("instances → cellule et version de l'état voulu (migration 0018)", (
     expect(migration).not.toMatch(/^\s*(DROP|TRUNCATE|DELETE|UPDATE)\b/im);
     expect(migration).toMatch(/ADD COLUMN "cellule_code" text/);
     expect(migration).toMatch(/FOREIGN KEY \("cellule_code"\) REFERENCES "public"\."cellules"\("code"\) ON DELETE no action/);
-    expect(migration).toMatch(/instances_cellule_code_forme_c4[\s\S]*char_length\("cellule_code"\) <= 64/);
+    expect(migration).toMatch(/instances_cellule_code_forme_c4[\s\S]*char_length\("instances"\."cellule_code"\) <= 64/);
     expect(migration).toMatch(/DROP TRIGGER[\s\S]*DROP FUNCTION/); // en commentaire seulement (vérifié par la ligne précédente)
   });
 

@@ -194,7 +194,7 @@ describe("suivi, avec le socle", { timeout: 90_000 }, () => {
     await creerOrg(B);
     expect((await ecrire(app, A, (c) => c.query("SELECT count(*)::int AS n FROM themes_client WHERE actif"))).rows[0]?.n).toBe(0);
     const theme = (T: string, extra: Record<string, unknown> = {}) =>
-      inserer(T, "themes_client", { organisation_id: T, logo_ref: "logos/lemoine-renovation.png", couleur_principale: "couleur.action", couleur_accent: "couleur.teinte.vert.liseret", police: "police-titre", ton: "formel", signature: "L'équipe Lemoine Rénovation", mentions_legales: "Mentions de l'atelier.", actif: false, ...extra });
+      inserer(T, "themes_client", { organisation_id: T, logo_ref: "logos/lemoine-renovation.png", couleur_principale: "couleur.action", couleur_accent: "couleur.teinte.vert.liseret", police: "police.titre", ton: "formel", signature: "L'équipe Lemoine Rénovation", mentions_legales: "Mentions de l'atelier.", actif: false, ...extra });
     const t1 = await theme(A);
     await theme(B, { actif: true });
     await maj(A, "UPDATE themes_client SET actif = true WHERE id = $1", [t1["id"]]);

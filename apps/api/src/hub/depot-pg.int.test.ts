@@ -73,18 +73,22 @@ describe("adaptateur Postgres du récepteur C2", { timeout: 30_000 }, () => {
     await creerOrg(client);
     const depot = depotPg(app, equipe);
     const taches: { nom: string; donnees: { payload?: unknown }; jobId?: string }[] = [];
+    // La base est partagée avec d'autres essais en parallèle : le balayage est limité au sujet de cet essai (les autres sujets seraient longs à parcourir).
+    const f = fait(0);
+    const seul = { ...depot, sujetsEnAttente: async () => [{ tenantId: client, sujet: f.sujet }] };
     const deps = {
-      depot,
+      depot: seul,
       file: { name: "faits-c2", async add(nom: string, donnees: unknown, o?: { jobId?: string }) { taches.push({ nom, donnees: donnees as never, ...(o?.jobId ? { jobId: o.jobId } : {}) }); } },
       rattrapage: { async demander() {} },
       alerter: () => undefined,
       maintenant: () => Date.now(),
     };
-    const f = fait(0);
     await recevoirFait(deps, enveloppe(client, f));
     taches.length = 0;
     const r = await balayer(deps, Date.now() + 10 * 60_000, 500);
-    expect(r.remis).toBeGreaterThanOrEqual(1);
+    expect(r.remis).toBe(1);
+    // La liste réelle des sujets à balayer (sans limite pratique) contient ce sujet.
+    expect(await depot.sujetsEnAttente(1_000_000)).toContainEqual({ tenantId: client, sujet: f.sujet });
     const mienne = taches.find((t) => (t.donnees as { eventId?: string }).eventId === f.eventId);
     expect(mienne?.nom).toBe(NOM_TACHE);
     expect(JSON.stringify(mienne?.donnees)).toContain("AXI-FACT-000001");

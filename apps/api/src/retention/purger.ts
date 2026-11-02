@@ -1,6 +1,6 @@
 // Retrait du détail des exécutions (A-180, C-039) : 90 jours, par PARTITION mensuelle entière, jamais par DELETE sur la date.
 // Fermé par défaut (RETENTION_PURGE_ACTIVE) : fermé, on journalise la liste de ce qui serait retiré et on ne touche à rien.
-// Refus (et note au journal) si la liste des clients de la partition est vide, si une exécution y est encore en cours, si l'agrégat d'un jour manque,
+// Refus (et note au journal) si la liste des clients de la partition est illisible (vide alors que la partition a des lignes), si une exécution y est encore en cours, si l'agrégat d'un jour manque,
 // ou si un client de la partition est sous gel pour litige (C-609). Juste avant le retrait, les agrégats de TOUTE la partition sont recalculés (upsert).
 // Contraintes de l'adaptateur SQL (dette, spec/preuves.md LOT2-dette-T2-11-adaptateur) : part_config.retention reste NULL (sinon run_maintenance supprimerait
 // sans interrupteur ni gel), rôle de maintenance dédié et nommé qui possède les partitions (pas console_app), lecture client par client sous RLS forcée.
@@ -23,10 +23,19 @@ export interface DepotPartitions {
   // Recalcule (upsert) les agrégats de tous les jours de la partition, y compris les lignes insérées en retard après l'agrégation de nuit.
   recalculerAgregats(partition: Partition): Promise<void>;
   retirerPartition(nom: string): Promise<void>;
+  // Nombre de lignes de la partition, compté par le rôle de maintenance (propriétaire des partitions, sans passer par la RLS client par client).
+  // Sert à distinguer une partition VIDE (0 : retrait autorisé) d'une liste de clients illisible (> 0 avec `tenants` vide : refus `clients_inconnus`).
+  nombreExecutions(partition: Partition): Promise<number>;
 }
 // Interface de gelActif(tenantId) de T2-43 (gel pour litige) : l'implémentation réelle est branchée quand T2-43 est fusionnée.
 export interface GelLitige {
+  // Vrai seulement pour l'implémentation réelle de T2-43 ; toute implémentation provisoire doit renvoyer false.
+  readonly estReel: boolean;
   gelActif(tenantId: string): Promise<boolean>;
+}
+// L'interrupteur ne s'ouvre pas tant que le gel pour litige est provisoire : ouvert avec un gel provisoire, refus net avant tout travail.
+export function exigerGelReel(active: boolean, gel: GelLitige): void {
+  if (active && !gel.estReel) throw new Error("RETENTION_PURGE_ACTIVE ne peut s'ouvrir tant que le gel pour litige est provisoire");
 }
 export type EvenementRetention =
   | { type: "purge_prevue_interrupteur_ferme"; partitions: string[] }
@@ -58,9 +67,10 @@ async function sousGel(gel: GelLitige, tenants: string[]): Promise<boolean> {
   return false;
 }
 
-// Refus d'une partition, ou null si elle peut partir. Liste de clients vide = clients inconnus : on ne devine pas, on refuse.
+// Refus d'une partition, ou null si elle peut partir. Liste de clients vide : si le rôle de maintenance compte 0 ligne, la partition est vide
+// et peut partir ; sinon les clients sont illisibles (on ne devine pas) et on refuse.
 async function motifDeRefus(o: OptionsPurge, p: Partition, verifierAgregats: boolean): Promise<MotifRefusPurge | null> {
-  if (p.tenants.length === 0) return "clients_inconnus";
+  if (p.tenants.length === 0 && (await o.depot.nombreExecutions(p)) !== 0) return "clients_inconnus";
   if ((await o.depot.executionsEnCours(p)) > 0) return "execution_en_cours";
   if (verifierAgregats && (await o.depot.joursSansAgregat(p)).length > 0) return "agregat_incomplet";
   if (await sousGel(o.gel, p.tenants)) return "gel_pour_litige";
@@ -68,6 +78,7 @@ async function motifDeRefus(o: OptionsPurge, p: Partition, verifierAgregats: boo
 }
 
 export async function purgerExecutions(o: OptionsPurge): Promise<ResultatPurge> {
+  exigerGelReel(o.active, o.gel);
   const limite = new Date(o.maintenant.getTime() - JOURS_DETAIL * JOUR_MS).toISOString().slice(0, 10);
   const resultat: ResultatPurge = { retirees: [], refusees: [], prevues: [] };
   const retirables: Partition[] = [];

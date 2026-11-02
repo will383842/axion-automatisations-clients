@@ -1,4 +1,4 @@
-import type { GelLitige, JournalRetention } from "./purger.js";
+import { exigerGelReel, type GelLitige, type JournalRetention } from "./purger.js";
 
 // Fin de conservation des notes (C-041) : 3 ans après la fin du contrat, une PROPOSITION de suppression par client est soumise à Will.
 // Jamais d'effacement automatique (règle de Will, ADR 0055 : « proposition de suppression soumise à Will, jamais un effacement automatique ») :
@@ -22,7 +22,9 @@ export interface DepotNotes {
   notesDeContratsFinisAvant(limite: string): Promise<NoteEnFinDeContrat[]>;
   // Vrai si le client a signé un nouveau contrat après la date de fin donnée.
   nouveauContratApres(tenantId: string, finContrat: string): Promise<boolean>;
-  soumettreProposition(proposition: PropositionSuppression): Promise<void>;
+  // IDEMPOTENTE sur (client, date de fin de contrat) : la même proposition soumise une seconde fois (chaque nuit) ne crée rien.
+  // Renvoie vrai si la proposition vient d'être créée, faux si elle existait déjà (l'adaptateur SQL : INSERT … ON CONFLICT (tenant_id, fin_contrat) DO NOTHING).
+  soumettreProposition(proposition: PropositionSuppression): Promise<boolean>;
 }
 export interface ResultatNotes {
   proposees: PropositionSuppression[];
@@ -30,6 +32,7 @@ export interface ResultatNotes {
 }
 
 export async function proposerSuppressionNotes(o: { depot: DepotNotes; gel: GelLitige; journal: JournalRetention; active: boolean; maintenant: Date }): Promise<ResultatNotes> {
+  exigerGelReel(o.active, o.gel);
   const limiteDate = new Date(o.maintenant);
   limiteDate.setUTCFullYear(limiteDate.getUTCFullYear() - ANNEES_NOTES);
   const resultat: ResultatNotes = { proposees: [], refusees: [] };
@@ -56,7 +59,8 @@ export async function proposerSuppressionNotes(o: { depot: DepotNotes; gel: GelL
       await refuser();
       continue;
     }
-    await o.depot.soumettreProposition(proposition);
+    // Déjà soumise une nuit précédente : rien de nouveau, rien au journal.
+    if (!(await o.depot.soumettreProposition(proposition))) continue;
     resultat.proposees.push(proposition);
     await o.journal({ type: "proposition_suppression_notes", tenantId, noteIds: proposition.noteIds, finContrat: proposition.finContrat });
   }

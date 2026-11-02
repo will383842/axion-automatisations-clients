@@ -24,8 +24,10 @@ export interface Agregat {
 // Port : l'adaptateur SQL lit `executions` du jour (debut en UTC) et écrit par le upsert ci-dessous (SQL_UPSERT_AGREGAT).
 export interface DepotAgregats {
   executionsDuJour(jour: string): Promise<LigneExecution[]>;
-  // Jours terminés (strictement avant `avant`, AAAA-MM-JJ en UTC) qui ont des exécutions mais aucune ligne d'agrégat, du plus ancien au plus récent.
-  joursTerminesSansAgregat(avant: string): Promise<string[]>;
+  // Jours terminés (strictement avant `avant`, AAAA-MM-JJ en UTC) à (re)calculer, du plus ancien au plus récent : ceux qui ont des exécutions
+  // ET (aucune ligne d'agrégat, OU une exécution encore `en_cours`, OU une exécution modifiée après l'écriture de l'agrégat).
+  // Un agrégat calculé trop tôt (exécution en cours à 02:00 puis terminée) est ainsi refait la nuit suivante ; l'écriture remplace la ligne.
+  joursAAgreger(avant: string): Promise<string[]>;
   enregistrer(agregat: Agregat): Promise<void>;
 }
 
@@ -56,11 +58,11 @@ export function calculerAgregats(lignes: LigneExecution[], jour: string): Agrega
   return [...parCle.values()];
 }
 
-// Traite TOUS les jours terminés sans agrégat (nuit manquée, panne, changement d'heure), pas seulement la veille.
+// Traite TOUS les jours terminés à (re)calculer (nuit manquée, panne, changement d'heure, agrégat calculé trop tôt), pas seulement la veille.
 // Les jours sont calculés en UTC : une exécution du 25 octobre à 01:30 à Paris (heure d'hiver) est du 24 à 23:30Z.
 export async function agregerVeille(depot: DepotAgregats, maintenant: Date): Promise<{ jours: string[]; agregats: number }> {
   const aujourdhui = maintenant.toISOString().slice(0, 10);
-  const jours = await depot.joursTerminesSansAgregat(aujourdhui);
+  const jours = await depot.joursAAgreger(aujourdhui);
   // Tout est calculé avant la première écriture : une borne dépassée n'écrit rien.
   const calcules = [];
   for (const jour of jours) calcules.push(...calculerAgregats(await depot.executionsDuJour(jour), jour));

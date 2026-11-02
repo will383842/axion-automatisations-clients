@@ -8,21 +8,36 @@ const INST_1 = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const INST_2 = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const NUIT = new Date("2026-11-02T02:00:00.000Z");
 
-function depotEnMemoire(lignes: LigneExecution[]): DepotAgregats & { agregats: Map<string, Agregat> } {
+function depotEnMemoire(lignes: LigneExecution[]): DepotAgregats & { terminer(l: LigneExecution, statut: LigneExecution["statut"], dureeMs: number): Promise<void>; agregats: Map<string, Agregat>; lignes: LigneExecution[]; horloge: { t: number } } {
   const agregats = new Map<string, Agregat>();
+  // Horloge logique : `modifieA` d'une exécution et `ecritA` d'un agrégat, pour savoir qui est le plus récent.
+  const horloge = { t: 0 };
+  const modifieA = new WeakMap<LigneExecution, number>();
+  const ecritA = new Map<string, number>();
+  for (const l of lignes) modifieA.set(l, 0);
   return {
     agregats,
+    lignes,
+    horloge,
     async executionsDuJour(jour) {
       return lignes.filter((l) => l.jour === jour);
     },
-    // Jours terminés (avant `avant`, exclu) qui ont des exécutions mais aucune ligne d'agrégat.
-    async joursTerminesSansAgregat(avant) {
-      const jours = new Set(lignes.filter((l) => l.jour < avant && !agregats.has(`${l.tenantId}/${l.instanceId}/${l.jour}`)).map((l) => l.jour));
+    // Jours terminés (avant `avant`, exclu) avec des exécutions et : pas d'agrégat, ou exécution en cours, ou exécution modifiée après l'agrégat.
+    async joursAAgreger(avant) {
+      const cle = (l: LigneExecution) => `${l.tenantId}/${l.instanceId}/${l.jour}`;
+      const jours = new Set(
+        lignes.filter((l) => l.jour < avant && (!agregats.has(cle(l)) || l.statut === "en_cours" || (modifieA.get(l) ?? 0) > (ecritA.get(cle(l)) ?? 0))).map((l) => l.jour),
+      );
       return [...jours].sort();
     },
     // Écriture « remplace » : la clé porte le client, l'instance et le jour.
     async enregistrer(a) {
       agregats.set(`${a.tenantId}/${a.instanceId}/${a.jour}`, a);
+      ecritA.set(`${a.tenantId}/${a.instanceId}/${a.jour}`, ++horloge.t);
+    },
+    async terminer(l: LigneExecution, statut: LigneExecution["statut"], dureeMs: number) {
+      Object.assign(l, { statut, dureeMs });
+      modifieA.set(l, ++horloge.t);
     },
   };
 }
@@ -85,5 +100,23 @@ describe("agrégat quotidien", () => {
     const depot = depotEnMemoire([{ ...ex(CLIENT_A, INST_1, "reussie", 10, 1), jour: "2026-10-24" }]);
     await agregerVeille(depot, new Date("2026-10-25T02:00:00.000Z"));
     expect(depot.agregats.get(`${CLIENT_A}/${INST_1}/2026-10-24`)).toMatchObject({ nombre: 1 });
+  });
+
+  it("[A-181] une exécution en cours au calcul puis terminée : l'agrégat est corrigé la nuit suivante, sans doublon", async () => {
+    const enCours = ex(CLIENT_A, INST_1, "en_cours", null, 0);
+    const depot = depotEnMemoire([ex(CLIENT_A, INST_1, "reussie", 1000, 5), enCours]);
+    // Nuit du 2 novembre 02:00Z : la veille est agrégée, l'exécution tourne encore (durée 0).
+    await agregerVeille(depot, NUIT);
+    expect(depot.agregats.get(`${CLIENT_A}/${INST_1}/2026-11-01`)).toMatchObject({ nombre: 2, dureeTotaleMs: 1000, coutMicroCentimes: 5 });
+    // Elle se termine après l'écriture de l'agrégat.
+    await depot.terminer(enCours, "reussie", 600);
+    enCours.coutMicroCentimes = 4;
+    // Nuit suivante (3 novembre) : le jour 1er est revu et la ligne REMPLACÉE.
+    const r = await agregerVeille(depot, new Date("2026-11-03T02:00:00.000Z"));
+    expect(r.jours).toEqual(["2026-11-01"]);
+    expect(depot.agregats.size).toBe(1);
+    expect(depot.agregats.get(`${CLIENT_A}/${INST_1}/2026-11-01`)).toMatchObject({ nombre: 2, dureeTotaleMs: 1600, coutMicroCentimes: 9 });
+    // Une troisième nuit sans changement ne refait rien.
+    expect((await agregerVeille(depot, new Date("2026-11-04T02:00:00.000Z"))).jours).toEqual([]);
   });
 });

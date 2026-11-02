@@ -19,11 +19,14 @@ function monde(notes: NoteEnFinDeContrat[], nouveauContrat: string[] = []) {
     async nouveauContratApres(tenantId) {
       return nouveauContrat.includes(tenantId);
     },
+    // Contrat du port : idempotente sur (client, date de fin).
     async soumettreProposition(p) {
+      if (propositions.some((x) => x.tenantId === p.tenantId && x.finContrat === p.finContrat)) return false;
       propositions.push(p);
+      return true;
     },
   };
-  return { depot, propositions, journal, ecrire: async (e: EvenementRetention) => void journal.push(e), sansGel: { gelActif: async () => false } as GelLitige };
+  return { depot, propositions, journal, ecrire: async (e: EvenementRetention) => void journal.push(e), sansGel: { estReel: true, gelActif: async () => false } };
 }
 
 describe("fin de conservation des notes : proposition à Will, jamais d'effacement", () => {
@@ -38,6 +41,23 @@ describe("fin de conservation des notes : proposition à Will, jamais d'effaceme
     expect(m.propositions).toEqual([{ tenantId: CLIENT_B, noteIds: ["n-1", "n-2"], finContrat: "2023-11-01" }]);
     expect(r.proposees).toEqual(m.propositions);
     expect(m.journal).toContainEqual({ type: "proposition_suppression_notes", tenantId: CLIENT_B, noteIds: ["n-1", "n-2"], finContrat: "2023-11-01" });
+  });
+
+  it("[C-041] deux passages (deux nuits) donnent une seule proposition et une seule ligne au journal", async () => {
+    const m = monde([note("n-1", CLIENT_B, "2023-11-01")]);
+    const o = { depot: m.depot, gel: m.sansGel, journal: m.ecrire, active: true, maintenant: AUJOURDHUI };
+    const premier = await proposerSuppressionNotes(o);
+    const second = await proposerSuppressionNotes(o);
+    expect(premier.proposees).toHaveLength(1);
+    expect(second.proposees).toEqual([]);
+    expect(m.propositions).toHaveLength(1);
+    expect(m.journal.filter((e) => e.type === "proposition_suppression_notes")).toHaveLength(1);
+  });
+
+  it("[C-609] interrupteur ouvert avec un gel provisoire (estReel faux) : refus net, aucune proposition", async () => {
+    const m = monde([note("n-1", CLIENT_B, "2023-11-01")]);
+    await expect(proposerSuppressionNotes({ depot: m.depot, gel: { estReel: false, gelActif: async () => false }, journal: m.ecrire, active: true, maintenant: AUJOURDHUI })).rejects.toThrow(/provisoire/);
+    expect(m.propositions).toEqual([]);
   });
 
   it("[C-041] un client qui a signé un nouveau contrat n'est pas proposé", async () => {
@@ -55,7 +75,7 @@ describe("fin de conservation des notes : proposition à Will, jamais d'effaceme
 
   it("[C-609] un client sous gel pour litige n'est pas proposé, et le journal le note", async () => {
     const m = monde([note("n-a", CLIENT_A, "2020-01-01"), note("n-b", CLIENT_B, "2020-01-01")]);
-    const gel: GelLitige = { gelActif: async (t) => t === CLIENT_B };
+    const gel: GelLitige = { estReel: true, gelActif: async (t) => t === CLIENT_B };
     const r = await proposerSuppressionNotes({ depot: m.depot, gel, journal: m.ecrire, active: true, maintenant: AUJOURDHUI });
     expect(m.propositions.map((p) => p.tenantId)).toEqual([CLIENT_A]);
     expect(r.refusees).toEqual([{ tenantId: CLIENT_B, notes: 1, motif: "gel_pour_litige" }]);
@@ -65,7 +85,7 @@ describe("fin de conservation des notes : proposition à Will, jamais d'effaceme
   it("[C-609] le gel est relu juste avant la proposition : un gel posé entre-temps l'emporte", async () => {
     const m = monde([note("n-a", CLIENT_A, "2020-01-01")]);
     let appels = 0;
-    const gel: GelLitige = { gelActif: async () => ++appels > 1 };
+    const gel: GelLitige = { estReel: true, gelActif: async () => ++appels > 1 };
     await proposerSuppressionNotes({ depot: m.depot, gel, journal: m.ecrire, active: true, maintenant: AUJOURDHUI });
     expect(m.propositions).toEqual([]);
   });

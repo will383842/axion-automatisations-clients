@@ -7,8 +7,8 @@ const AUJOURDHUI = new Date("2026-11-02T03:00:00.000Z");
 const jourIl = (jours: number) => new Date(AUJOURDHUI.getTime() - jours * 86_400_000).toISOString().slice(0, 10);
 
 // Partition mensuelle fictive qui finit (exclue) à `fin`.
-type Fictive = Partition & { joursSansAgregat: string[]; enCours: number };
-const partition = (nom: string, fin: string, tenants: string[], joursSansAgregat: string[] = [], enCours = 0): Fictive => ({ nom, fin, tenants, joursSansAgregat, enCours });
+type Fictive = Partition & { joursSansAgregat: string[]; enCours: number; lignes: number };
+const partition = (nom: string, fin: string, tenants: string[], joursSansAgregat: string[] = [], enCours = 0, lignes = 1): Fictive => ({ nom, fin, tenants, joursSansAgregat, enCours, lignes });
 
 function monde(partitions: Fictive[]) {
   const retirees: string[] = [];
@@ -30,12 +30,15 @@ function monde(partitions: Fictive[]) {
       recalculees.push(p.nom);
       ordre.push(`recalcul:${p.nom}`);
     },
+    async nombreExecutions(p) {
+      return partitions.find((x) => x.nom === p.nom)?.lignes ?? 0;
+    },
     async retirerPartition(nom) {
       retirees.push(nom);
       ordre.push(`retrait:${nom}`);
     },
   };
-  const sansGel: GelLitige = { gelActif: async () => false };
+  const sansGel: GelLitige = { estReel: true, gelActif: async () => false };
   return { depot, retirees, recalculees, journal, ordre, ecrire: async (e: EvenementRetention) => void (journal.push(e), ordre.push(`journal:${e.type}`)), sansGel };
 }
 
@@ -58,7 +61,7 @@ describe("purge du détail des exécutions", () => {
   it.each([
     ["00:30Z", new Date("2026-11-02T00:30:00.000Z")],
     ["23:30Z", new Date("2026-11-02T23:30:00.000Z")],
-  ])("[C-039] borne en heure à %s : fin au 3 août reste, fin au 4 août est retirée", async (_nom, maintenant) => {
+  ])("[C-039] borne en heure à %s : fin au 5 août reste, fin au 4 août est retirée", async (_nom, maintenant) => {
     // Le 4 août 00:00Z est à plus de 90 jours de 2 novembre 00:30Z comme de 23:30Z ; le 5 août 00:00Z est à moins de 90 jours de 23:30Z.
     const m = monde([partition("executions_2026_05", "2026-08-05", [CLIENT_A]), partition("executions_2026_04", "2026-08-04", [CLIENT_A])]);
     await purgerExecutions({ depot: m.depot, gel: m.sansGel, journal: m.ecrire, active: true, maintenant });
@@ -90,6 +93,22 @@ describe("purge du détail des exécutions", () => {
     const r = await purgerExecutions({ depot: m.depot, gel: m.sansGel, journal: m.ecrire, active: true, maintenant: AUJOURDHUI });
     expect(m.retirees).toEqual([]);
     expect(r.refusees).toEqual([{ partition: "executions_2026_07", motif: "clients_inconnus" }]);
+  });
+
+  it("[A-180] une partition VIDE (0 ligne comptée par le rôle de maintenance) est retirée, une liste illisible reste refusée", async () => {
+    const m = monde([partition("executions_2026_06", jourIl(120), [], [], 0, 0), partition("executions_2026_07", jourIl(95), [], [], 0, 3)]);
+    const r = await purgerExecutions({ depot: m.depot, gel: m.sansGel, journal: m.ecrire, active: true, maintenant: AUJOURDHUI });
+    expect(m.retirees).toEqual(["executions_2026_06"]);
+    expect(r.refusees).toEqual([{ partition: "executions_2026_07", motif: "clients_inconnus" }]);
+  });
+
+  it("[A-180] interrupteur ouvert avec un gel pour litige provisoire (estReel faux) : refus net, rien n'est lu ni retiré", async () => {
+    const m = monde([partition("executions_2026_07", jourIl(95), [CLIENT_A])]);
+    const provisoire: GelLitige = { estReel: false, gelActif: async () => false };
+    await expect(purgerExecutions({ depot: m.depot, gel: provisoire, journal: m.ecrire, active: true, maintenant: AUJOURDHUI })).rejects.toThrow(/provisoire/);
+    expect(m.retirees).toEqual([]);
+    // Fermé, un gel provisoire reste permis (on ne fait que journaliser).
+    await expect(purgerExecutions({ depot: m.depot, gel: provisoire, journal: m.ecrire, active: false, maintenant: AUJOURDHUI })).resolves.toBeDefined();
   });
 
   it("[A-180] l'intention est écrite au journal avant le retrait, puis le résultat après", async () => {
@@ -126,7 +145,7 @@ describe("purge du détail des exécutions", () => {
 
   it("[C-609] une partition qui contient un client sous gel pour litige n'est pas retirée", async () => {
     const m = monde([partition("executions_2026_07", jourIl(95), [CLIENT_A, CLIENT_B]), partition("executions_2026_06", jourIl(120), [CLIENT_A])]);
-    const gel: GelLitige = { gelActif: async (t) => t === CLIENT_B };
+    const gel: GelLitige = { estReel: true, gelActif: async (t) => t === CLIENT_B };
     const r = await purgerExecutions({ depot: m.depot, gel, journal: m.ecrire, active: true, maintenant: AUJOURDHUI });
     expect(m.retirees).toEqual(["executions_2026_06"]);
     expect(r.refusees).toEqual([{ partition: "executions_2026_07", motif: "gel_pour_litige" }]);
@@ -137,7 +156,7 @@ describe("purge du détail des exécutions", () => {
     const m = monde([partition("executions_2026_07", jourIl(95), [CLIENT_A])]);
     let appels = 0;
     // Libre à la première lecture, posé à la seconde (course entre la pose et le retrait).
-    const gel: GelLitige = { gelActif: async () => ++appels > 1 };
+    const gel: GelLitige = { estReel: true, gelActif: async () => ++appels > 1 };
     await purgerExecutions({ depot: m.depot, gel, journal: m.ecrire, active: true, maintenant: AUJOURDHUI });
     expect(m.retirees).toEqual([]);
   });

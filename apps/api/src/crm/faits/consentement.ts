@@ -4,7 +4,7 @@ import type { FaitDe, TxC3 } from "./types.js";
 type Personne = FaitDe<"consentement.retire" | "effacement.demande">;
 
 // Règle de Will : une opposition met à l'écart des envois, durablement ; les données sont gardées, aucun contact n'est supprimé.
-// L'exclusion est rangée par empreinte, sans lire les contacts : un fait reçu avant l'import garde son effet (ADR 0059).
+// L'exclusion est rangée par empreinte, sans lire les contacts : un fait reçu avant l'import garde son effet (ADR 0106).
 // Portée : consentement.retire = désabonnement, propre au client du sujet ; effacement.demande = « opposition », globale à la plateforme.
 // Le contrat C1 n'a pas de route d'exclusion en version 0 : l'exclusion est signalée « à reporter dans le Hub ».
 export async function retraitDePersonne(tx: TxC3, e: Personne): Promise<Issue> {

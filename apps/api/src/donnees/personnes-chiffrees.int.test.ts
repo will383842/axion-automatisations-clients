@@ -1,9 +1,9 @@
 import { execFileSync } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, onTestFailed } from "vitest";
 import { lireYaml } from "../../../../scripts/garde-compose.js";
 import type { ErreurCoffre as ErreurCoffreType, OptionsBao } from "../coffre/coffre.js";
 import { ErreurCoffre } from "../coffre/coffre.js";
@@ -22,6 +22,16 @@ afterAll(async () => {
   for (const p of pools) await p.end().catch(() => undefined);
   for (const id of lances) try { docker("rm", "-f", id); } catch { /* déjà arrêté */ }
 });
+// Écrit sur la sortie d'erreur (le rapport JSON de la CI avale console.log) : à l'échec, seul le nom de l'erreur et un message tronqué, jamais de valeur.
+const trace = (m: string) => writeSync(2, `PERSONNES-INT ${m}\n`);
+async function suivre<T>(nom: string, f: () => Promise<T>): Promise<T> {
+  try {
+    return await f();
+  } catch (e) {
+    trace(`échec « ${nom} » : ${(e as Error).name} ${(e as Error).message.slice(0, 300)}`);
+    throw e;
+  }
+}
 const adresse = (id: string) => docker("inspect", "-f", "{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}", id).split(" ")[0] ?? "";
 const attendre = async (pret: () => Promise<boolean>, quoi: string) => {
   for (let i = 0; ; i++) {
@@ -62,19 +72,20 @@ async function lancerPostgres(): Promise<{ pool: pg.Pool; conteneur: string }> {
   return { pool, conteneur: id };
 }
 
-// Cherche une suite d'octets dans tous les fichiers du répertoire de données (tables, journal d'écriture) après un point de reprise.
+// Cherche une suite d'octets dans tous les fichiers du répertoire de données (tables, journal d'écriture) : 1 si trouvée, 0 si absente ; toute autre issue de grep est une erreur, jamais une absence.
 function dansLesFichiers(conteneur: string, motif: string): number {
   try {
-    docker("exec", conteneur, "sh", "-c", `grep -rlaF -e '${motif}' "$PGDATA" | head -1 | grep .`);
+    docker("exec", conteneur, "sh", "-c", `grep -rlaF -e '${motif}' "$PGDATA" > /dev/null`);
     return 1;
-  } catch {
-    return 0;
+  } catch (e) {
+    if ((e as { status?: number }).status === 1) return 0;
+    throw e;
   }
 }
 
 async function preparer() {
-  const bao = await lancerOpenBao();
-  const { pool, conteneur } = await lancerPostgres();
+  const bao = await suivre("OpenBao", lancerOpenBao);
+  const { pool, conteneur } = await suivre("PostgreSQL", lancerPostgres);
   const env = creerEnveloppe(bao);
   const colonnes = creerColonnesChiffrees(bao);
   const A = randomUUID();
@@ -90,12 +101,13 @@ async function preparer() {
 
 describe("commun.personnes chiffrée, PostgreSQL et OpenBao réels", () => {
   it("[A-243] un e-mail rangé dans commun.personnes est chiffré ; la base ne contient pas la valeur en clair (marqueur cherché dans le texte brut de la table)", async () => {
+    onTestFailed(({ task }) => { trace(`essai rouge : ${(task.result?.errors?.[0]?.message ?? "").slice(0, 400)}`); });
     const { pool, conteneur, personnes, A, etab } = await preparer();
     const marqueur = `marq${randomBytes(8).toString("hex")}@exemple.fr`;
     const id = await personnes.ranger(A, { etablissementId: etab, nom: "Pellegrand", prenom: "Lucien", courriel: marqueur });
     const hex = Buffer.from(marqueur).toString("hex");
     const brut = (await pool.query<{ t: string }>("SELECT p::text AS t FROM commun.personnes p")).rows.map((r) => r.t).join("\n");
-    expect(brut).toContain("courriel"); // le texte brut n'est pas vide : la ligne y est bien
+    expect(brut).toContain("\\x"); // le texte brut n'est pas vide : les octets chiffrés y sont bien (bytea en hexadécimal)
     expect(brut).not.toContain(marqueur);
     expect(brut).not.toContain(hex);
     expect(brut).not.toContain(marqueur.split("@")[0]!);
@@ -106,6 +118,7 @@ describe("commun.personnes chiffrée, PostgreSQL et OpenBao réels", () => {
   }, 180_000);
 
   it("[A-243] l'empreinte rangée fait 32 octets et retrouve la personne", async () => {
+    onTestFailed(({ task }) => { trace(`essai rouge : ${(task.result?.errors?.[0]?.message ?? "").slice(0, 400)}`); });
     const { pool, personnes, A, B, etab } = await preparer();
     const courriel = `retrouve${randomBytes(6).toString("hex")}@personnes.test`;
     const id = await personnes.ranger(A, { etablissementId: etab, nom: "Sablonnier", courriel });
@@ -116,6 +129,7 @@ describe("commun.personnes chiffrée, PostgreSQL et OpenBao réels", () => {
   }, 180_000);
 
   it("[A-201] le téléphone rangé est chiffré de la même façon", async () => {
+    onTestFailed(({ task }) => { trace(`essai rouge : ${(task.result?.errors?.[0]?.message ?? "").slice(0, 400)}`); });
     const { pool, conteneur, personnes, A, etab } = await preparer();
     const telephone = "+33 6 39 98 04 17";
     const id = await personnes.ranger(A, { etablissementId: etab, nom: "Lavernette", telephone });
@@ -129,6 +143,7 @@ describe("commun.personnes chiffrée, PostgreSQL et OpenBao réels", () => {
   }, 180_000);
 
   it("[A-243] @isolation le courriel d'une personne copié sur une autre ligne ne se lit pas", async () => {
+    onTestFailed(({ task }) => { trace(`essai rouge : ${(task.result?.errors?.[0]?.message ?? "").slice(0, 400)}`); });
     const { pool, personnes, A, B, etab } = await preparer();
     const un = await personnes.ranger(A, { etablissementId: etab, nom: "Dufresnoy", courriel: "alienor.dufresnoy@exemple.fr" });
     const deux = await personnes.ranger(A, { etablissementId: etab, nom: "Chaumeil", courriel: "basile.chaumeil@exemple.fr" });

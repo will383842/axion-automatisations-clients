@@ -26,8 +26,10 @@ regle() {
 ponts=()
 while read -r reseau; do
   [ -n "$reseau" ] || continue
-  IFS='|' read -r interne identifiant option <<<"$(docker network inspect -f '{{.Internal}}|{{.Id}}|{{index .Options "com.docker.network.bridge.name"}}' "$reseau")"
+  IFS='|' read -r interne identifiant option <<<"$(docker network inspect -f '{{.Internal}}|{{.Id}}|{{with .Options}}{{index . "com.docker.network.bridge.name"}}{{end}}' "$reseau")"
   [ "$interne" = "true" ] || continue
+  # Une option absente peut être rendue « <no value> » par le modèle de Docker : ce n'est pas un nom d'interface.
+  case "${option:-}" in "<no value>" | "<nil>") option="" ;; esac
   ponts+=("${option:-br-${identifiant:0:12}}")
 done < <(docker network ls --filter driver=bridge -q)
 

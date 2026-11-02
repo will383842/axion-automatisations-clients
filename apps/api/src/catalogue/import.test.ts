@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { sbom } from "../../../../packages/sdk-module/src/emballage/sbom.ts";
 import { manifesteJson } from "../../../../packages/sdk-module/src/emballage/manifeste-json.ts";
 import { SignataireMemoire, signerArtefact, type Artefact } from "../../../../packages/sdk-module/src/emballage/signer.ts";
-import { manifesteExemple, moduleExemple } from "../../../../packages/sdk-module/exemples/module-exemple.ts";
+import { moduleExemple } from "../../../../packages/sdk-module/exemples/module-exemple.ts";
 import { construireServeur } from "../serveur.js";
 import { ErreurApi } from "../plugins/erreurs.js";
 import type { IdentifiantsS3, PortS3 } from "../stockage/stockage.js";
@@ -35,7 +35,7 @@ function tar(entrees: Entree[]): Uint8Array {
     blocs.push(h, e.contenu, new Uint8Array((512 - (e.contenu.length % 512)) % 512));
   }
   blocs.push(new Uint8Array(1024));
-  return Uint8Array.from(blocs.flatMap((b) => [...b]));
+  return Buffer.concat(blocs);
 }
 const archiver = (a: Artefact, extra: Entree[] = []) => gzipSync(tar([...Object.entries(a).map(([nom, contenu]) => ({ nom, contenu })), ...extra]));
 
@@ -150,7 +150,7 @@ describe("vérification de l'artefact par la console", () => {
   it("[C-248] une bombe de décompression est refusée sans remplir la mémoire", () => {
     const m = modeleSigne("module-bombe");
     const gros = new Uint8Array(LIMITES.decompresseOctets + 1024);
-    const bombe = gzipSync(tar([{ nom: "module.js", contenu: gros }]));
+    const bombe = gzipSync(tar([{ nom: "module.js", contenu: gros }]), { level: 1 });
     expect(bombe.length).toBeLessThan(LIMITES.archiveOctets);
     expect(verifierArtefactImporte(bombe, m.cles)).toEqual({ ok: false, code: "archive_invalide" });
   });

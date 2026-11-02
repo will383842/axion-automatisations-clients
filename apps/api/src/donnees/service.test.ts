@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { ErreurApi } from "../plugins/erreurs.js";
@@ -44,12 +45,13 @@ describe("service des données client", () => {
     const { service, ouvertures } = monde();
     expect((await service.executer(client(), "compterPersonnes", {}))[0]).toEqual({ total: 3 });
     expect(ouvertures).toEqual([{ base: "cli_1111", role: "lecture" }]);
-    const racine = new URL("../../../../apps", import.meta.url).pathname;
+    const racine = fileURLToPath(new URL("../../../../apps", import.meta.url));
     const fichiers = (d: string): string[] => readdirSync(d).flatMap((f) => (f === "node_modules" ? [] : statSync(join(d, f)).isDirectory() ? fichiers(join(d, f)) : [join(d, f)]));
+    const interdit = /from\s+["'](pg|postgres|drizzle-orm[^"']*|@neondatabase[^"']*)["']|require\(\s*["']pg["']|import\(\s*["'](pg|postgres)["']|postgres(ql)?:\/\/|cli_[0-9a-f]{12}_app/;
     for (const app of ["console", "portail"]) {
-      let dossier: string[] = [];
-      try { dossier = fichiers(join(racine, app)).filter((f) => /\.(ts|tsx)$/.test(f) && !/\.test\./.test(f)); } catch { /* app absente */ }
-      for (const f of dossier) expect(readFileSync(f, "utf8"), f).not.toMatch(/from "pg"|from "postgres"|cli_[0-9a-f]{12}_app/);
+      const dossier = fichiers(join(racine, app)).filter((f) => /\.(ts|tsx)$/.test(f) && !/\.test\./.test(f));
+      expect(dossier.length, `aucun fichier lu pour ${app}`).toBeGreaterThan(0);
+      for (const f of dossier) expect(readFileSync(f, "utf8"), f).not.toMatch(interdit);
     }
   });
 
@@ -148,5 +150,32 @@ describe("service des données client", () => {
     t += 600_000;
     await service.balayer(300_000);
     expect(fermes).toEqual(["cli_1111"]);
+  });
+
+  it("[A-170] l'échec d'une ouverture ne supprime pas l'entrée plus récente de la même clé", async () => {
+    let n = 0;
+    const ouvertures: string[] = [];
+    let echouer!: (e: Error) => void;
+    const ports: PortsDonnees = {
+      base: async (id) => ({ nomBase: `cli_${id.slice(0, 4)}`, etat: "active" }),
+      ouvrir: (b) => {
+        n += 1;
+        ouvertures.push(`${b}#${n}`);
+        if (n === 1) return new Promise<Connexion>((_, rej) => { echouer = rej; });
+        return Promise.resolve({ requete: async () => [], fermer: async () => {} });
+      },
+      maintenant: () => T0,
+    };
+    const service = creerServiceDonnees(ports);
+    const premier = service.executer(client(A), "compterPersonnes", {}).catch(() => undefined);
+    await new Promise((r) => setTimeout(r, 0));
+    const balayage = service.balayer(-1).catch(() => undefined); // retire l'entrée 1 de la table, sans attendre sa promesse
+    await service.executer(client(A), "compterPersonnes", {}); // crée l'entrée 2 pour la même clé
+    echouer(new Error("panne"));
+    await premier;
+    await balayage;
+    await new Promise((r) => setTimeout(r, 0));
+    await service.executer(client(A), "compterPersonnes", {});
+    expect(ouvertures).toEqual(["cli_1111#1", "cli_1111#2"]);
   });
 });

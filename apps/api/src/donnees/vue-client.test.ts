@@ -43,4 +43,13 @@ describe("vue « comme le client »", () => {
     expect(vus[0]![1]).toEqual([A, T0]);
     expect(await accordValideSql({ requete: async () => [] })(A, T0)).toBe(false);
   });
+
+  it("[A-005] la vue s'arrête à la fin de l'intervention si elle tombe avant les 60 minutes", async () => {
+    const fin = new Date(T0.getTime() + 600_000);
+    const { d } = deps(true);
+    const s = await ouvrirVueClient({ ...d, finIntervention: async () => fin }, equipe, A, "assistance");
+    expect(s.vue!.expireLe).toEqual(fin);
+    const loin = new Date(T0.getTime() + 7_200_000);
+    expect((await ouvrirVueClient({ ...d, finIntervention: async () => loin }, equipe, A, "assistance")).vue!.expireLe).toEqual(new Date(T0.getTime() + 3_600_000));
+  });
 });

@@ -234,7 +234,9 @@ describe("politiques OpenBao de la fiche T1A-07", () => {
     for (const role of ["signature", "echanges", "secours", "courtier", "equipe"]) expect(interdits(politique(role), role), role).toEqual([]);
     // L'API garde seulement la destruction d'une clé client (T1A-06) : jamais sudo, jamais sys/, jamais le chemin racine.
     expect(interdits(politique("api")).filter((d) => d.capacites.includes("sudo") || !d.chemin.startsWith("transit/keys/cli-"))).toEqual([]);
-    for (const role of ["courtier", "equipe", "api"]) expect(politique(role).filter((d) => d.chemin.startsWith("technique") || d.chemin.includes("modules-signature")), role).toEqual([]);
+    for (const role of ["courtier", "equipe"]) expect(politique(role).filter((d) => d.chemin.startsWith("technique") || d.chemin.includes("modules-signature")), role).toEqual([]);
+    // L'API lit seulement les mots de passe app et lecture des bases clients (T2-37c) ; aucune clé d'échange, aucune clé de signature.
+    expect(politique("api").filter((d) => d.chemin.startsWith("technique") && !/^technique\/data\/donnees\/\+\/(app|lecture)$/.test(d.chemin) || d.chemin.includes("modules-signature") || d.chemin.includes("echanges"))).toEqual([]);
   });
   it("[A-193] initialiser.sh : monte technique/ (KV v2), crée la clé ed25519 non exportable sans copie transit, écrit les trois politiques et leurs jetons", () => {
     const s = lire("ops/socle/openbao/initialiser.sh");

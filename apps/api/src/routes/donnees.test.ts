@@ -92,3 +92,33 @@ describe("route des données client : la session décide", () => {
     expect((await (await appliService(session, new Date(T0.getTime() + 61 * 60_000))).poster("listerListesProspects")).statusCode).toBe(403);
   });
 });
+
+// Contrôle d'équipe (T2-37c, étape 3) : un client passe ; une session d'équipe passe sauf lecteur et qualifieur ; sans rôle d'équipe lisible, tout est refusé.
+describe("route des données : équipe", () => {
+  const SESSION_EQUIPE: SessionDonnees = { tenantId: A, role: "equipe", acteur: "e1", etablissements: [] };
+  async function avec(session: SessionDonnees, roleEquipe?: string, fournir = true) {
+    const vus: string[] = [];
+    const s = Fastify();
+    brancherErreurs(s);
+    routeDonnees(s, { session: async () => session, ...(fournir ? { roleEquipe: async () => roleEquipe } : {}), executer: async (_se, nom) => { vus.push(nom); return []; } });
+    await s.ready();
+    return { s, vus };
+  }
+  it("[B-070] @isolation les rôles lecteur et qualifieur de l'équipe sont refusés avant le service", async () => {
+    for (const r of ["lecteur", "qualifieur"]) {
+      const { s, vus } = await avec(SESSION_EQUIPE, r);
+      expect((await s.inject({ method: "POST", url: "/api/v1/donnees/compterPersonnes", payload: {} })).statusCode, r).toBe(403);
+      expect(vus).toEqual([]);
+    }
+  });
+  it("[B-070] @isolation une session d'équipe sans rôle lisible, ou sans fonction de rôle, est refusée", async () => {
+    expect((await (await avec(SESSION_EQUIPE, undefined)).s.inject({ method: "POST", url: "/api/v1/donnees/compterPersonnes", payload: {} })).statusCode).toBe(403);
+    expect((await (await avec(SESSION_EQUIPE, "admin", false)).s.inject({ method: "POST", url: "/api/v1/donnees/compterPersonnes", payload: {} })).statusCode).toBe(403);
+  });
+  it("[B-070] un rôle d'équipe autre (administrateur) passe, et un client n'a pas besoin de rôle d'équipe", async () => {
+    const a = await avec(SESSION_EQUIPE, "administrateur");
+    expect((await a.s.inject({ method: "POST", url: "/api/v1/donnees/compterPersonnes", payload: {} })).statusCode).toBe(200);
+    const c = await avec({ tenantId: A, role: "client", acteur: "u1", etablissements: [] }, undefined, false);
+    expect((await c.s.inject({ method: "POST", url: "/api/v1/donnees/compterPersonnes", payload: {} })).statusCode).toBe(200);
+  });
+});

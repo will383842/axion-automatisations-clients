@@ -1,8 +1,11 @@
 import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
+import { writeSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import pg from "pg";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { avecClient } from "../db/client-actif.js";
+import { migrer } from "../db/migrer.js";
 import { enregistrerPlan, ErreurPlan, preparerPlan } from "./plan.js";
 
 // Plan commercial calculé (T2-08) contre un vrai PostgreSQL : socle lancé par ops/socle/lancer.sh (job socle-integration). Instances d'essai à l'état pause, montants fictifs.
@@ -30,12 +33,20 @@ const ouverts: { end(): Promise<void> }[] = [];
 const app = new pg.Pool({ ...PGBOUNCER, user: "console_app", database: "console", password: motDePasseDe("console_app"), max: 10, connectionTimeoutMillis: 10_000 });
 app.on("error", () => undefined);
 ouverts.push(app);
-afterAll(async () => {
-  for (const p of ouverts) await p.end();
-});
 const migration = new pg.Pool({ ...DIRECT, user: "console_migration", database: "console", password: motDePasseDe("console_migration"), max: 2 });
 migration.on("error", () => undefined);
 ouverts.push(migration);
+
+beforeAll(async () => {
+  await migrer({ url: `postgres://console_migration:${motDePasseDe("console_migration")}@${DIRECT.host}:${DIRECT.port}/console`, dossier: fileURLToPath(new URL("../../drizzle", import.meta.url)) });
+}, 120_000);
+afterAll(async () => {
+  await Promise.all(ouverts.map((o) => o.end().catch(() => undefined)));
+});
+// Un essai en échec est écrit sur la sortie d'erreur : lisible dans le journal du job (le rapport JSON n'est pas publié).
+afterEach((contexte) => {
+  if (contexte.task.result?.state === "fail") writeSync(2, `ECHEC ${contexte.task.name} : ${String(contexte.task.result.errors?.[0]?.message ?? "").slice(0, 400)}\n`);
+});
 
 const APPELANT = { acteur: "agent-essai", ip: "192.0.2.17" };
 const ins = (tenant: string, table: string, valeurs: Record<string, unknown>) => {

@@ -54,8 +54,16 @@ const enveloppe = (client: string, f: FaitRange) => ({
   payload: { numeroFacture: "AXI-FACT-000001", montantCentimes: 100, dateReception: "2026-10-24", moyen: "virement" },
 });
 
+// BILAN affiché dans le journal de la CI : le rapport JSON de l'intégration n'est pas publié, un échec n'y serait pas lisible.
+const essai = (nom: string, fn: () => Promise<void>) =>
+  it(nom, async ({ onTestFailed }) => {
+    onTestFailed((resultat) => console.log(`BILAN depot-pg : ROUGE ${nom.slice(0, 60)} : ${String((resultat as unknown as { errors?: { message?: string }[] }).errors?.[0]?.message).slice(0, 400)}`));
+    await fn();
+    console.log(`BILAN depot-pg : vert ${nom.slice(0, 60)}`);
+  });
+
 describe("adaptateur Postgres du récepteur C2", { timeout: 30_000 }, () => {
-  it("[C-338] [T2-16b] @anti-doublon un fait rangé deux fois en parallèle n'existe qu'une fois ; le contenu allégé est celui de la première réception", async () => {
+  essai("[C-338] [T2-16b] @anti-doublon un fait rangé deux fois en parallèle n'existe qu'une fois ; le contenu allégé est celui de la première réception", async () => {
     const client = randomUUID();
     await creerOrg(client);
     const depot = depotPg(app, equipe);
@@ -68,7 +76,7 @@ describe("adaptateur Postgres du récepteur C2", { timeout: 30_000 }, () => {
     expect(await depot.organisationExiste(randomUUID())).toBe(false);
   });
 
-  it("[C-338] [T2-16b] Valkey perdu après le 200 : le balayage remet le fait en file depuis la base, avec son contenu", async () => {
+  essai("[C-338] [T2-16b] Valkey perdu après le 200 : le balayage remet le fait en file depuis la base, avec son contenu", async () => {
     const client = randomUUID();
     await creerOrg(client);
     const depot = depotPg(app, equipe);
@@ -99,7 +107,7 @@ describe("adaptateur Postgres du récepteur C2", { timeout: 30_000 }, () => {
     expect(taches.find((t) => (t.donnees as { eventId?: string }).eventId === f.eventId)).toBeUndefined();
   });
 
-  it("[C-338] [T2-16b] @isolation un client ne lit pas les faits d'un autre ; aucun DELETE ; le contenu rangé ne se modifie pas", async () => {
+  essai("[C-338] [T2-16b] @isolation un client ne lit pas les faits d'un autre ; aucun DELETE ; le contenu rangé ne se modifie pas", async () => {
     const a = randomUUID();
     const b = randomUUID();
     await creerOrg(a);

@@ -8,6 +8,9 @@ import { appeler, ErreurCoffre, type OptionsBao } from "../coffre/coffre.js";
 import { creerEnveloppe } from "../coffre/enveloppe.js";
 import { creerFichiersClient, type PortFichiers } from "../stockage/fichiers-client.js";
 import { creerColonnesChiffrees } from "./colonnes-chiffrees.js";
+import { journalEchecs } from "../provisionnement/journal-echecs.js";
+// Journal des échecs (CI) : le rapport JSON n'est pas publié ; la cause de chaque test rouge s'imprime ici, adresses de connexion masquées.
+journalEchecs(import.meta.url);
 
 // Contre un VRAI OpenBao lancé par le test (même image que le socle), avec la politique api du dépôt. Jetons et clés générés au lancement.
 const racineDepot = (chemin: string) => fileURLToPath(new URL(`../../../../${chemin}`, import.meta.url));

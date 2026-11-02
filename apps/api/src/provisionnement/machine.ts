@@ -14,14 +14,18 @@ export function idTacheProvisionnement(tenantId: string): string {
 // Verrou par client tenu pendant toute l'exécution : une tâche « stalled » reprise par un autre travailleur ne chevauche pas la première.
 export interface Verrou { prendre(tenantId: string): Promise<(() => Promise<void>) | undefined> }
 // Adaptateur PostgreSQL : verrou consultatif de SESSION sur une connexion dédiée (jamais PgBouncer en mode transaction), rendu par pg_advisory_unlock ou à la mort de la connexion.
-export function verrouConsultatif(ouvrir: () => Promise<{ query(texte: string, valeurs: unknown[]): Promise<{ rows: { ok: boolean }[] }>; release(): void }>): Verrou {
+export function verrouConsultatif(ouvrir: () => Promise<{ query(texte: string, valeurs: unknown[]): Promise<{ rows: { ok: boolean }[] }>; release(detruire?: boolean): void }>): Verrou {
   return {
     async prendre(tenantId) {
       const c = await ouvrir();
       try {
         const cle = `provision-${tenantId}`;
         if ((await c.query("SELECT pg_try_advisory_lock(hashtextextended($1, 0)) AS ok", [cle])).rows[0]?.ok !== true) { c.release(); return undefined; }
-        return async () => { try { await c.query("SELECT pg_advisory_unlock(hashtextextended($1, 0)) AS ok", [cle]); } finally { c.release(); } };
+        // Déverrouillage raté : la connexion garde peut-être le verrou, elle est détruite (release(true)) plutôt que rendue au pool.
+        return async () => {
+          let detruire = true;
+          try { await c.query("SELECT pg_advisory_unlock(hashtextextended($1, 0)) AS ok", [cle]); detruire = false; } finally { if (detruire) c.release(true); else c.release(); }
+        };
       } catch (e) { c.release(); throw e; }
     },
   };
@@ -106,4 +110,11 @@ export function creerMachine<C>(o: OptionsMachine<C>) {
     }
     return "a_jour";
   }
+}
+
+// Pour le Worker : un verrou pris est une erreur réessayable (BullMQ rejoue avec l'attente croissante de OPTIONS_TACHE), jamais un succès silencieux.
+export async function executerTache(machine: { executer(tenantId: string): Promise<Resultat> }, tenantId: string): Promise<Resultat> {
+  const r = await machine.executer(tenantId);
+  if (r === "occupe") throw new ErreurEtape("occupe");
+  return r;
 }

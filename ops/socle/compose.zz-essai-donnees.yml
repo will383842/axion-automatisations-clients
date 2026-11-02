@@ -1,0 +1,19 @@
+# Fragment d'essai, lancé seulement sur la CI : la socket de la grappe données est posée dans un dossier de l'hôte au lieu du volume nommé donnees-socket, pour que les essais T2-35 joignent PostgreSQL en 'local' (règles pg_hba inchangées) sans relais ni port.
+services:
+  donnees-socket-init:
+    image: ghcr.io/will383842/axion-automatisations-clients/postgres-socle:16-r41@sha256:c5fd480db4b8537bfaf082b5b73cd6e288994309b4ac0bf8cc58694f6757e2ce
+    restart: "no"
+    user: "0:0"
+    network_mode: none
+    entrypoint: ['sh', '-c', 'chown postgres:postgres /s && chmod 755 /s']
+    volumes:
+      - /tmp/socle-donnees-socket:/s
+  donnees:
+    depends_on:
+      donnees-socket-init:
+        condition: service_completed_successfully
+    volumes:
+      - /tmp/socle-donnees-socket:/var/run/postgresql
+  pgbouncer-donnees:
+    volumes:
+      - /tmp/socle-donnees-socket:/var/run/postgresql:ro

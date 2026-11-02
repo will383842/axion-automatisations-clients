@@ -44,7 +44,7 @@ async function creerClient(): Promise<{ id: string; base: string }> {
 }
 afterAll(async () => { await Promise.all(pools.map((p) => p.end().catch(() => undefined))); });
 
-describe.skipIf(!ADMIN)("fermeture des bases sur une grappe jetable", () => {
+describe.skipIf(!ADMIN)("fermeture des bases sur une grappe jetable", () => { // fiche: T2-35
   it("[A-216] @isolation le rôle _app d'un autre client ne se connecte pas à cli_<id>, le sien oui", async () => {
     const a = await creerClient();
     const b = await creerClient();
@@ -59,7 +59,7 @@ describe.skipIf(!ADMIN)("fermeture des bases sur une grappe jetable", () => {
     expect(await admin.accesProvisionneurRetire(a.base)).toBe(true);
   }, 60_000);
 
-  it.skipIf(!BOUNCER)("[A-216] @isolation à travers PgBouncer : le rôle _app d'un autre client est refusé, le sien accepté", async () => {
+  it.skipIf(!BOUNCER)("[A-216] @isolation à travers PgBouncer : le rôle _app d'un autre client est refusé, le sien accepté", async () => { // fiche: T2-35
     const a = await creerClient();
     const b = await creerClient();
     const ra = nomsRoles(a.id);

@@ -42,7 +42,7 @@ const dossierAvec = (sql: string) => {
   return d;
 };
 
-describe.skipIf(!ADMIN)("migrations d'un module (grappe jetable)", () => {
+describe.skipIf(!ADMIN)("migrations d'un module (grappe jetable)", () => { // fiche: T2-35
   it("[A-219] les migrations du module d'essai sont appliquées dans a_<code>, par le propriétaire, et rejouables", async () => {
     const c = await clientNonFerme();
     await migrerBase(c.base, 1, { url: vers(c.base), dossier: ESSAI, module: "essai" });

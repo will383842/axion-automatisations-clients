@@ -72,6 +72,7 @@ exit 0
 if [ "$1" = "ps" ]; then echo cid-essai; exit 0; fi
 if [ "$1" = "exec" ]; then
   while [ "$1" != "pgbackrest" ] && [ $# -gt 0 ]; do shift; done
+  shift
   exec pgbackrest "$@"
 fi
 exit 1
@@ -247,8 +248,8 @@ describe("sauvegarde de nuit : expiration automatique coupée, rythme, journal (
       expect(lignesActives(lire(f)).join("\n"), f).toMatch(/source "\$dossier\/journaliser\.sh"/);
       expect(lignesActives(lire(f)).join("\n"), f).toMatch(/journal_ecrire /);
     }
-    // Le journal ne s'écrit nulle part ailleurs que dans le dossier choisi par journaliser.sh.
-    for (const f of readdirSync(dossierScripts).filter((x) => x.endsWith(".sh") && x !== "journaliser.sh")) {
+    // Le journal ne s'écrit nulle part ailleurs que par journaliser.sh (controle-fraicheur.sh ne fait que le lire).
+    for (const f of readdirSync(dossierScripts).filter((x) => x.endsWith(".sh") && x !== "journaliser.sh" && x !== "controle-fraicheur.sh")) {
       expect(lignesActives(lire(f)).join("\n"), f).not.toMatch(/\.journal\b/);
     }
   });

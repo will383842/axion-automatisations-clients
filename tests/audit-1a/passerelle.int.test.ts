@@ -67,9 +67,10 @@ const garder = <T>(f: () => T | Promise<T>) => async () => {
   }
 };
 
-// Faux fournisseur au format « chat completions » : usage déterministe, il répond « écho : <dernier message> » et n'écrit rien.
+// Faux fournisseur au format « chat completions » : identifiant de réponse UNIQUE (la passerelle s'en sert comme clé de ligne du journal de dépense : un identifiant fixe fusionnerait les appels de tous les clients en une seule ligne), usage déterministe, il répond « écho : <dernier message> » et n'écrit rien.
 const FAUX = `
 import json
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 class H(BaseHTTPRequestHandler):
     def log_message(self, *a):
@@ -90,7 +91,7 @@ class H(BaseHTTPRequestHandler):
         texte = " ".join(str(x.get("content", "")) for x in m)
         dernier = str(m[-1].get("content", "")) if m else ""
         e = len(texte.split())
-        self.repondre({"id": "faux", "object": "chat.completion", "created": 0, "model": q.get("model", "faux"),
+        self.repondre({"id": "faux-" + uuid.uuid4().hex, "object": "chat.completion", "created": 0, "model": q.get("model", "faux"),
             "choices": [{"index": 0, "message": {"role": "assistant", "content": "écho : " + dernier}, "finish_reason": "stop"}],
             "usage": {"prompt_tokens": e, "completion_tokens": 3, "total_tokens": e + 3}})
 ThreadingHTTPServer(("0.0.0.0", 4010), H).serve_forever()

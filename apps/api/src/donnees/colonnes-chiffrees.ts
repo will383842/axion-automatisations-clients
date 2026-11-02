@@ -121,6 +121,7 @@ export function creerColonnesChiffrees(o: OptionsEnveloppe) {
     },
     // HMAC-SHA256 par une clé propre au client (transit cli-<id>-recherche, non exportable, créée au provisionnement) : jamais un hachage nu.
     async empreinteRecherche(tenantId: string, valeur: string): Promise<Buffer> {
+      if (typeof valeur !== "string") throw new Error("valeur_invalide");
       const nom = `cli-${validerTenant(tenantId)}-recherche`;
       const normalisee = valeur.includes("@") ? normaliserEmail(valeur) : normaliserTelephone(valeur);
       const r = (await appeler(o, "POST", `transit/hmac/${nom}`, { input: Buffer.from(normalisee, "utf8").toString("base64"), algorithm: "sha2-256", key_version: VERSION_EMPREINTE })) as { data?: { hmac?: unknown } } | undefined;

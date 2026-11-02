@@ -5,6 +5,10 @@ import { validerTenant, type Coffre } from "../coffre/coffre.js";
 
 export const MODELES_PERMIS = ["claude-standard", "mistral-souverain", "gpt-option"] as const;
 
+// Routes d'appel de modèle ouvertes à la clé d'un client (chat et plongements, avec et sans /v1). Tout le reste, dont /key/*, /v2/key/* et /spend/*,
+// est refusé par la passerelle elle-même (allowed_routes) : refus identique que la ressource existe ou non (A-058, pas d'oracle).
+export const ROUTES_CLIENT = ["/chat/completions", "/v1/chat/completions", "/embeddings", "/v1/embeddings"] as const;
+
 export type CodePasserelle =
   | "tenant_invalide"
   | "modeles_invalides"
@@ -67,7 +71,7 @@ export function creerCles(o: OptionsCles) {
       // Une liste vide vaut « tous les modèles » pour LiteLLM, et un joker aussi : seules les trois familles sont permises.
       const m = options.modelesPermis;
       if (!Array.isArray(m) || m.length === 0 || m.some((x) => !(MODELES_PERMIS as readonly string[]).includes(x))) throw new ErreurPasserelle("modeles_invalides");
-      const reponse = await appeler("/key/generate", { key_alias: `cli-${t}`, models: [...new Set(m)], metadata: { tenant_id: t } });
+      const reponse = await appeler("/key/generate", { key_alias: `cli-${t}`, models: [...new Set(m)], allowed_routes: [...ROUTES_CLIENT], metadata: { tenant_id: t } });
       const cle = typeof reponse === "object" && reponse !== null ? (reponse as { key?: unknown }).key : undefined;
       if (typeof cle !== "string" || !cle.startsWith("sk-") || cle.length < 8) throw new ErreurPasserelle("reponse_invalide");
       try {

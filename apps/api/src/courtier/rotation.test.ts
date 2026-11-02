@@ -167,6 +167,33 @@ describe("rotation des mots de passe", () => {
     expect(`${(e as Error).message}${JSON.stringify(panne.journal)}`).not.toContain(MDP[0]!);
   });
 
+  it("[A-169] poste perdu pendant une rotation planifiée : la rotation immédiate échoue de façon visible (alerte, code, trace) et ne laisse aucune session ouverte passer pour coupée", async () => {
+    const m = monter();
+    // Une rotation planifiée tient le verrou : pivoter renvoie « occupe ».
+    m.bloquer();
+    const e = await creerRotation(m.p).immediate(T, "poste perdu", session(), m.file).catch((x: unknown) => x as Error);
+    expect(e).toMatchObject({ code: "rotation_occupee" });
+    expect(m.journal).toContainEqual(expect.objectContaining({ evenement: "rotation_immediate_non_faite", tenantId: T }));
+    expect(m.alertes).toEqual([{ evenement: "rotation_immediate_non_faite", tenantId: T, base: BASE, essais: 0, code: "rotation_occupee" }]);
+    expect(m.evenements).toEqual([]);
+    // Récepteur d'alerte absent : l'échec reste visible (trace) et la demande échoue quand même.
+    const sans = monter({ echecAlerte: true });
+    sans.bloquer();
+    await expect(creerRotation(sans.p).immediate(T, "poste perdu", session(), sans.file)).rejects.toMatchObject({ code: "rotation_occupee" });
+    expect(sans.journal).toContainEqual(expect.objectContaining({ evenement: "alerte_non_envoyee", tenantId: T }));
+  });
+
+  it("[A-169] une tâche en échec définitif dont le tenantId est mal formé envoie quand même l'alerte, sans lever", async () => {
+    const m = monter();
+    const rot = creerRotation(m.p);
+    const erreur = Object.assign(new Error("x"), { code: "role_echoue" });
+    for (const data of [{ tenantId: "pas-un-uuid" }, { tenantId: 12 }, {}, undefined]) {
+      m.alertes.length = 0;
+      await rot.surEchec({ name: "rotation", data: data as never, attemptsMade: 5, opts: { attempts: ESSAIS_ROTATION } }, erreur);
+      expect(m.alertes).toEqual([{ evenement: "rotation_echec_definitif", tenantId: "invalide", base: "inconnue", essais: 5, code: "role_echoue" }]);
+    }
+  });
+
   it("[A-169] l'adaptateur coupe KILL puis RESUME sur la seule base, et les sessions du rôle app et des rôles humains rattachés à lecture", async () => {
     const ordres: { cible: string; texte: string; valeurs?: unknown[] | undefined }[] = [];
     const sql = (cible: string, echec = false) => ({ requete: async (texte: string, valeurs?: unknown[]) => { ordres.push({ cible, texte, valeurs }); if (echec && texte.startsWith("SELECT pg_terminate")) throw new Error("grappe injoignable"); return [] as never; } });

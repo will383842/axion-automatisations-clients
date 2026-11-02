@@ -91,6 +91,10 @@ describe("accès humain à une base client", () => {
     // Fin du bail : sessions coupées, droits retirés, rôle supprimé.
     const fin = d.revocation_statements.join("\n");
     expect(fin).toMatch(/pg_terminate_backend/);
+    // Course à la révocation : le rôle perd d'abord le droit de se connecter, PUIS ses sessions sont coupées, PUIS ses droits retirés, PUIS il est supprimé.
+    const ordre = d.revocation_statements.map((o) => (/NOLOGIN/.test(o) ? "nologin" : /pg_terminate_backend/.test(o) ? "terminer" : /REVOKE/.test(o) ? "revoquer" : /DROP ROLE/.test(o) ? "supprimer" : "autre"));
+    expect(ordre).toEqual(["nologin", "terminer", "revoquer", "supprimer"]);
+    expect(d.revocation_statements[0]).toMatch(/^ALTER ROLE "\{\{name\}\}" NOLOGIN;$/);
     expect(fin).toMatch(/REVOKE ALL ON DATABASE/);
     expect(fin).toMatch(/DROP ROLE IF EXISTS "\{\{name\}\}"/);
     expect(d.default_ttl).toBe("1h");

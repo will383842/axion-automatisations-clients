@@ -137,7 +137,7 @@ describe("gestionnaire du Worker : une intention occupée est une remise, pas un
     for (let i = 1; i <= 3; i++) {
       await expect(appeler(g, j)).rejects.toBeInstanceOf(DelayedError);
       expect(j.data["essais"]).toBeUndefined();
-      expect(j.data["remises"]).toBe(i);
+      expect((j.data["remise"] as { n: number }).n).toBe(i);
     }
     for (const quand of j.reports) expect(quand - Date.now()).toBeGreaterThanOrEqual(FENETRE_MS - 1_000);
   });
@@ -146,7 +146,7 @@ describe("gestionnaire du Worker : une intention occupée est une remise, pas un
     const h = new HorlogeFactice();
     const escalades: unknown[][] = [];
     const g = creerGestionnaire({ delaiRemiseMs: 5_000 }, deps(occupee(h), { escalader: async (...a: unknown[]) => void escalades.push(a) } as never), lire, h);
-    const j = fauxJob({ remises: 3 });
+    const j = fauxJob({ remise: { etape: "e1", cle: "", libreA: 0, n: 3 } });
     await appeler(g, j); // ne lève pas : le travail est rendu à l'équipe, pas perdu
     expect(escalades).toEqual([[expect.objectContaining({ instanceId: "inst-1" }), "e1", "intention_en_cours_sans_issue"]]);
     expect(j.data["essais"]).toBeUndefined();
@@ -156,7 +156,7 @@ describe("gestionnaire du Worker : une intention occupée est une remise, pas un
   it("[A-318] sans escalade branchée, le sens sûr reste un abandon explicite, jamais un second envoi", async () => {
     const h = new HorlogeFactice();
     const g = creerGestionnaire({ delaiRemiseMs: 5_000 }, deps(occupee(h)), lire, h);
-    await expect(appeler(g, fauxJob({ remises: 3 }))).rejects.toBeInstanceOf(UnrecoverableError);
+    await expect(appeler(g, fauxJob({ remise: { etape: "e1", cle: "", libreA: 0, n: 3 } }))).rejects.toBeInstanceOf(UnrecoverableError);
   });
 
   it("[A-318] une remise ne remet pas à zéro le compte des essais déjà faits", async () => {

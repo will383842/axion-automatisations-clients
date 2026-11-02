@@ -42,8 +42,8 @@ export class BoitePostgres implements BoiteEnvoi {
     if (!connue && lue.etat === "ecrite") this.#connues.set(i.cle, i);
     const actuel = this.#baux.get(i.cle);
     const bailAutre = actuel !== undefined && actuel.proprietaire !== bail.proprietaire && actuel.jusqua > maintenant;
-    // Fenêtre = délai de l'étape + marge : le bail demandé court jusqu'à (fin d'étape + DELAI_GRACE_MS), la marge réglée la remplace.
-    const fenetre = bail.jusqua - maintenant - DELAI_GRACE_MS + (this.options.graceMs ?? DELAI_GRACE_MS);
+    // Fenêtre = délai de l'étape + marge, CONSTANTE : elle ne dépend pas de la part de l'étape déjà écoulée chez le lanceur actuel (sinon un effet atteint tard dans l'étape raccourcirait la fenêtre).
+    const fenetre = bail.delaiEtapeMs + (this.options.graceMs ?? DELAI_GRACE_MS);
     const recente = !lue.creee && maintenant - lue.creeLe < fenetre && !this.#rendues.has(i.cle) && !(actuel && actuel.proprietaire === bail.proprietaire);
     const occupee = lue.etat === "ecrite" && (bailAutre || recente);
     // Fin de l'occupation : la plus tardive des deux causes (bail d'un autre dans ce processus, âge de l'intention en base).

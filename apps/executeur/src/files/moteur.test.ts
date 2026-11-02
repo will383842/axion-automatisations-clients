@@ -185,7 +185,7 @@ describe("travailleur complet avec un faux moteur", () => {
     const brancheur = { pool: b.moteur.pool(), module: b.module, console: b.console, connecteurs: b.connecteur, horloge: b.horloge };
     const g = creerGestionnaire({ delaiRemiseMs: 5_000 }, { cellule: new Cellule("c1", [INSTANCE]), semaphore: { acquerir: async () => true, prolonger: async () => true, liberer: async () => undefined, bailMs: 60_000 } as never, executer: b.executer, escalader: escaladerAvecMoteur(brancheur) }, (x) => (x.data as { travail: Travail }).travail, b.horloge);
     const j = job(t);
-    j.data["remises"] = 3;
+    j.data["remise"] = { etape: "e1", cle, libreA: 0, n: 3 };
     await b.horloge.piloter(g(j as never, "jeton"));
     expect(b.moteur.etat.journal.map((e) => e.cle)).toContain("a_trancher-3");
     expect(b.console.evenements).toContainEqual(expect.objectContaining({ type: "a_trancher", etape: "e1", code: "intention_en_cours_sans_issue" }));

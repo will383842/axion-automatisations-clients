@@ -12,7 +12,7 @@ export class Machine {
   // reporter : une erreur passagère n'est pas rejouée ici mais rendue à l'appelant (statut « reportee », cause), qui compte les essais et choisit l'attente (ADR 0102, plafond total de 5).
   constructor(private o: { module: Module; ports: Ports; reporter?: boolean }) {}
 
-  async lancer(instanceId: string, executionId: string): Promise<{ statut: Statut; etape?: string; cause?: unknown; libreA?: number }> {
+  async lancer(instanceId: string, executionId: string): Promise<{ statut: Statut; etape?: string; cause?: unknown; libreA?: number; cle?: string }> {
     const { module, ports } = this.o;
     const { console, journal, horloge } = ports;
     const voulu = await console.lireEtatVoulu(instanceId);
@@ -43,7 +43,7 @@ export class Machine {
           await inscrire("faite");
           break;
         }
-        if (issue instanceof IntentionEnCours) return { statut: "en_cours", etape: decl.nom, libreA: issue.libreA }; // un autre lancement tient l'appel : ni journal, ni événement
+        if (issue instanceof IntentionEnCours) return { statut: "en_cours", etape: decl.nom, libreA: issue.libreA, cle: issue.cle }; // un autre lancement tient l'appel : ni journal, ni événement
         if (issue instanceof ATrancher) {
           await inscrire("a_trancher");
           return { statut: "a_trancher", etape: decl.nom };
@@ -79,7 +79,7 @@ export class Machine {
     const delaiMs = Math.min(delaiSecondes, DELAI_MAX_SECONDES) * 1000;
     const finEtape = horloge.maintenant() + delaiMs;
     try {
-      const travail = executer(this.contexte(base, nom, ac.signal, finEtape, compter));
+      const travail = executer(this.contexte(base, nom, ac.signal, finEtape, delaiMs, compter));
       travail.catch(() => undefined);
       const delai = horloge.attendre(delaiMs, ac.signal).then(() => {
         throw new ErreurConnecteur("passagere", "delai_depasse");
@@ -99,9 +99,10 @@ export class Machine {
     nom: string,
     signal: AbortSignal,
     finEtape: number,
+    delaiEtapeMs: number,
     compter: () => void,
   ): ContexteEtape {
-    const effetBase = { ...base, signal, finEtape, classer: (a: string) => this.o.module.classerAction(base.reglages as { actionsAutomatiquesAutorisees: string[] }, a) };
+    const effetBase = { ...base, signal, finEtape, delaiEtapeMs, classer: (a: string) => this.o.module.classerAction(base.reglages as { actionsAutomatiquesAutorisees: string[] }, a) };
     const { ia, motifs } = this.o.ports;
     return {
       reglages: base.reglages,

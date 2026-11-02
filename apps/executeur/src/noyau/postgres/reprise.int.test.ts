@@ -135,7 +135,7 @@ describe("reprise et anti-doublon sur la base moteur, avec le socle", { timeout:
     const b = banc("verifiable_apres_coup");
     const exec = await execution(b.tenant);
     b.connecteur.verification = "trouvee";
-    await b.processus().ports.boite.ecrire({ cle: cleDe(exec), instanceId: INSTANCE, executionId: exec, etape: "e1", element: "msg-1", action: "envoyer", garantie: "verifiable_apres_coup" }, { proprietaire: "mort", jusqua: 0 }, 1);
+    await b.processus().ports.boite.ecrire({ cle: cleDe(exec), instanceId: INSTANCE, executionId: exec, etape: "e1", element: "msg-1", action: "envoyer", garantie: "verifiable_apres_coup" }, { proprietaire: "mort", jusqua: 0, delaiEtapeMs: 0 }, 1);
     await attendre(1_200); // l'intention du processus mort a dépassé le délai de l'étape (1 s) + la marge (0)
     expect((await b.processus().lancer(exec)).statut).toBe("terminee");
     expect(b.connecteur.appels).toEqual([]);
@@ -145,7 +145,7 @@ describe("reprise et anti-doublon sur la base moteur, avec le socle", { timeout:
   it("[A-319] @anti-doublon intention écrite sans issue + garantie au_plus_une_fois → a_trancher, aucune nouvelle tentative", async () => {
     const b = banc("au_plus_une_fois");
     const exec = await execution(b.tenant);
-    await b.processus().ports.boite.ecrire({ cle: cleDe(exec), instanceId: INSTANCE, executionId: exec, etape: "e1", element: "msg-1", action: "envoyer", garantie: "au_plus_une_fois" }, { proprietaire: "mort", jusqua: 0 }, 1);
+    await b.processus().ports.boite.ecrire({ cle: cleDe(exec), instanceId: INSTANCE, executionId: exec, etape: "e1", element: "msg-1", action: "envoyer", garantie: "au_plus_une_fois" }, { proprietaire: "mort", jusqua: 0, delaiEtapeMs: 0 }, 1);
     await attendre(1_200);
     expect((await b.processus().lancer(exec)).statut).toBe("a_trancher");
     expect((await b.processus().lancer(exec)).statut).toBe("a_trancher");

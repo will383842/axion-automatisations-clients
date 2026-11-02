@@ -38,6 +38,8 @@ export interface Intention {
 export interface Bail {
   proprietaire: string;
   jusqua: number;
+  // Délai de l'étape (constant) : la fenêtre d'occupation entre processus vaut ce délai + la marge, quelle que soit la part déjà écoulée de l'étape.
+  delaiEtapeMs: number;
 }
 export interface BoiteEnvoi {
   // libreA : si occupée, l'instant où l'occupation finit au plus tard.

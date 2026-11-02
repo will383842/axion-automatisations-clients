@@ -178,7 +178,7 @@ describe("deux travailleurs sur la même base (bail non partagé en base, ADR 01
     const ecrire = (grace: number, age: number) => {
       b.moteur.etat.intentions = [{ cle: cle(b), executionId: b.executionId, garantie: "verifiable_apres_coup", etat: "ecrite", creeLe: b.horloge.maintenant() - age }];
       const maintenant = b.horloge.maintenant();
-      return new BoitePostgres(b.moteur.pool(), TENANT, { graceMs: grace }).ecrire(intention(b), { proprietaire: "p", jusqua: maintenant + 120_000 + 60_000 }, maintenant);
+      return new BoitePostgres(b.moteur.pool(), TENANT, { graceMs: grace }).ecrire(intention(b), { proprietaire: "p", jusqua: maintenant + 120_000 + 60_000, delaiEtapeMs: 120_000 }, maintenant);
     };
     expect((await ecrire(60_000, 150_000)).occupee).toBe(true); // 150 s < 120 s + 60 s
     expect((await ecrire(0, 150_000)).occupee).toBe(false); // 150 s > 120 s + 0
@@ -197,7 +197,7 @@ describe("deux travailleurs sur la même base (bail non partagé en base, ADR 01
   it("[A-318] une intention créée par cet appel n'est jamais occupée ; une intention déjà faite non plus", async () => {
     const b = banc({ e1: envoyer });
     const boite = new BoitePostgres(b.moteur.pool(), TENANT);
-    const bail = { proprietaire: "p", jusqua: b.horloge.maintenant() + 180_000 };
+    const bail = { proprietaire: "p", jusqua: b.horloge.maintenant() + 180_000, delaiEtapeMs: 120_000 };
     expect(await boite.ecrire(intention(b), bail, b.horloge.maintenant())).toMatchObject({ creee: true, occupee: false });
     await boite.marquerFaite(cle(b), "p");
     expect(await new BoitePostgres(b.moteur.pool(), TENANT).ecrire(intention(b), bail, b.horloge.maintenant())).toMatchObject({ creee: false, occupee: false });
@@ -213,7 +213,7 @@ describe("deux travailleurs sur la même base (bail non partagé en base, ADR 01
   it("[A-317] une même clé reprise avec une autre action garde l'action connue du processus", async () => {
     const b = banc({ e1: envoyer });
     const boite = new BoitePostgres(b.moteur.pool(), TENANT);
-    const bail = { proprietaire: "p", jusqua: b.horloge.maintenant() + 180_000 };
+    const bail = { proprietaire: "p", jusqua: b.horloge.maintenant() + 180_000, delaiEtapeMs: 120_000 };
     await boite.ecrire(intention(b), bail, b.horloge.maintenant());
     const r = await boite.ecrire(intention(b, "classer"), { ...bail, proprietaire: "q" }, b.horloge.maintenant());
     expect(r.intention.action).toBe("envoyer");
@@ -227,7 +227,7 @@ describe("mémoire de la boîte partagée par client", () => {
     const b = banc({ e1: envoyer });
     const boite = new BoitePostgres(b.moteur.pool(), TENANT);
     b.moteur.etat.intentions.push({ cle: "cle-0", executionId: b.executionId, garantie: "idempotent_par_cle", etat: "faite", creeLe: 0 });
-    await boite.ecrire(cles(b, 1)[0]!, { proprietaire: "p", jusqua: b.horloge.maintenant() + 1_000 }, b.horloge.maintenant());
+    await boite.ecrire(cles(b, 1)[0]!, { proprietaire: "p", jusqua: b.horloge.maintenant() + 1_000, delaiEtapeMs: 1_000 }, b.horloge.maintenant());
     expect(boite.tailles.connues).toBe(0);
     expect(boite.tailles.baux).toBe(0);
   });
@@ -237,12 +237,12 @@ describe("mémoire de la boîte partagée par client", () => {
     const boite = new BoitePostgres(b.moteur.pool(), TENANT);
     const t0 = b.horloge.maintenant();
     for (const [i, c] of cles(b, 20).entries()) {
-      await boite.ecrire(c, { proprietaire: `p${i}`, jusqua: t0 + 1_000 }, t0);
+      await boite.ecrire(c, { proprietaire: `p${i}`, jusqua: t0 + 1_000, delaiEtapeMs: 1_000 }, t0);
       await boite.liberer(c.cle, `p${i}`);
     }
     expect(boite.tailles.rendues).toBe(20);
     const tard = t0 + 400_000;
-    await boite.ecrire({ ...cles(b, 1)[0]!, cle: "cle-neuve", element: "msg-neuf" }, { proprietaire: "z", jusqua: tard + 1_000 }, tard);
+    await boite.ecrire({ ...cles(b, 1)[0]!, cle: "cle-neuve", element: "msg-neuf" }, { proprietaire: "z", jusqua: tard + 1_000, delaiEtapeMs: 1_000 }, tard);
     expect(boite.tailles.rendues).toBe(0);
     expect(boite.tailles.baux).toBe(1);
   });

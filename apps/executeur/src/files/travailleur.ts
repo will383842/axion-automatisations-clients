@@ -86,6 +86,7 @@ export class RemiseIntention extends Error {
   constructor(
     readonly libreA: number,
     readonly etape: string,
+    readonly cle: string = "",
   ) {
     super("intention_en_cours");
   }
@@ -94,6 +95,24 @@ export class RemiseIntention extends Error {
 // Remises successives tolérées avant l'escalade (3 fenêtres d'occupation).
 export const REMISES_MAX = 3;
 const compte = (v: unknown) => (Number.isInteger(v) && (v as number) > 0 ? (v as number) : 0);
+
+// Remises de l'occupation en cours, gardées dans les données du travail : la borne vaut PAR occupation (même étape, même clé d'intention).
+interface Remise {
+  etape: string;
+  cle: string;
+  libreA: number;
+  n: number;
+}
+const remiseDe = (data: unknown): Remise | undefined => {
+  const r = (data as { remise?: Partial<Remise> }).remise;
+  return r && typeof r.etape === "string" && typeof r.cle === "string" && compte(r.n) > 0 ? { etape: r.etape, cle: r.cle, libreA: compte(r.libreA), n: compte(r.n) } : undefined;
+};
+// Données sans le compte de remises : un lancement fini autrement que par une remise clôt l'occupation.
+const sansRemise = (data: unknown): Record<string, unknown> => {
+  const reste = { ...(data as Record<string, unknown>) };
+  delete reste["remise"];
+  return reste;
+};
 
 // Seule une ErreurConnecteur définitive (ou le bac fermé) abandonne le travail. Tout le reste (base ou Redis injoignable, PgBouncer qui redémarre,
 // coupure du processus, erreur inattendue) est passager : l'exécution reprendra, sous le plafond de 5 essais.
@@ -116,13 +135,14 @@ export function creerGestionnaire(config: Pick<ConfigExecuteur, "delaiRemiseMs">
     } catch (e) {
       if (e instanceof RemiseIntention) {
         // Une remise, pas un essai : le compte des essais ne bouge pas, le compteur de remises est à part et borné.
-        const remises = compte((job.data as { remises?: unknown }).remises);
+        const avant = remiseDe(job.data);
+        const remises = avant && avant.etape === e.etape && avant.cle === e.cle ? avant.n : 0; // autre étape ou autre clé : nouvelle occupation, compte à zéro
         if (remises >= REMISES_MAX) {
           if (!d.escalader) throw new UnrecoverableError("intention_en_cours_sans_issue");
           await d.escalader(travail, e.etape, "intention_en_cours_sans_issue");
           return;
         }
-        await job.updateData({ ...(job.data as object), remises: remises + 1 });
+        await job.updateData({ ...(job.data as object), remise: { etape: e.etape, cle: e.cle, libreA: e.libreA, n: remises + 1 } satisfies Remise });
         await job.moveToDelayed(Date.now() + Math.max(e.libreA - horloge.maintenant(), config.delaiRemiseMs), token);
         throw new DelayedError();
       }
@@ -135,7 +155,7 @@ export function creerGestionnaire(config: Pick<ConfigExecuteur, "delaiRemiseMs">
         return;
       }
       if (p.action === "abandon") throw new UnrecoverableError(p.code);
-      await job.updateData({ ...(job.data as object), essais });
+      await job.updateData({ ...sansRemise(job.data), essais });
       await job.moveToDelayed(Date.now() + p.delaiMs, token);
       throw new DelayedError();
     }
@@ -143,6 +163,8 @@ export function creerGestionnaire(config: Pick<ConfigExecuteur, "delaiRemiseMs">
       await job.moveToDelayed(Date.now() + r.delaiMs, token);
       throw new DelayedError();
     }
+    // Réussite : l'occupation éventuelle est résolue.
+    if (remiseDe(job.data)) await job.updateData(sansRemise(job.data));
   };
 }
 
@@ -187,7 +209,7 @@ export function executerAvecMoteur(b: BrancheMoteur): Dependances["executer"] {
     const r = await new Machine({ module: b.module, ports, reporter: true }).lancer(travail.instanceId, travail.id);
     if (r.statut === "reportee") throw r.cause;
     // Hors de la machine : seul un travail qui n'a ni fini ni échoué est relancé par BullMQ.
-    if (r.statut === "en_cours") throw new RemiseIntention(r.libreA ?? b.horloge.maintenant(), r.etape ?? "");
+    if (r.statut === "en_cours") throw new RemiseIntention(r.libreA ?? b.horloge.maintenant(), r.etape ?? "", r.cle ?? "");
   };
 }
 

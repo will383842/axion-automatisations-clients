@@ -60,7 +60,7 @@ describe("journal", () => {
 
 describe("boîte d'envoi", () => {
   const base = { cle: "k1", instanceId: "i", executionId: "x", etape: "e", element: "m", action: "envoyer", garantie: "verifiable_apres_coup" } as const;
-  const bail = (proprietaire: string, jusqua = 1_000) => ({ proprietaire, jusqua });
+  const bail = (proprietaire: string, jusqua = 1_000) => ({ proprietaire, jusqua, delaiEtapeMs: 1_000 });
 
   it("[A-316] @anti-doublon attaque : une intention « écrite » au bail vivant n'est pas rendue à un autre propriétaire", async () => {
     const b = new BoiteEnMemoire();

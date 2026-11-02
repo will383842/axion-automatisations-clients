@@ -97,6 +97,7 @@ export function creerRotation(p: PortsRotation) {
     // Incident : équipe réauthentifiée (T1A-08), client actif de la session, personne identifiée, motif écrit. La trace ne porte aucune valeur.
     async immediate(tenantId: string, motif: string, s: SessionEquipe, file: Pick<FileRotation, "add">): Promise<"faite" | "occupe"> {
       if (!s.reauthentifie) throw new ErreurApi("reauthentification_requise", "Reconnectez-vous pour continuer.");
+      if (s.role !== "administrateur") throw new ErreurApi("action_interdite", "Action réservée à l'administrateur.");
       const acteur = s.acteur.trim();
       if (s.clientActifId.toLowerCase() !== tenantId.toLowerCase() || acteur === "" || acteur.toLowerCase() === "systeme") throw new ErreurApi("action_interdite", "Action interdite.");
       const m = typeof motif === "string" ? motif.trim() : "";

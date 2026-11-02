@@ -24,6 +24,7 @@ export interface PortsIdentifiants {
   journal: Journal;
   maintenant(): Date;
 }
+// expire (15 minutes) est indicatif : l'exécuteur redemande ses identifiants à cette date, mais le mot de passe servi reste valide jusqu'au VALID UNTIL posé par la rotation.
 export interface Identifiants { hote: string; base: string; role: string; motDePasse: string; expire: Date }
 export const DUREE_SERVICE_MS = 15 * 60_000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -60,12 +61,18 @@ export async function identifiantsPourTache(p: PortsIdentifiants, tenantBrut: st
   return { hote: p.hote(base.grappe), base: nomBase, role, motDePasse: secret.motDePasse, expire: new Date(p.maintenant().getTime() + DUREE_SERVICE_MS) };
 }
 
+// A-417 : statement_timeout=0 (ou négatif) veut dire « sans limite » : seule une valeur strictement positive compte.
+function limitePositive(c: string): boolean {
+  const m = /^statement_timeout=(\d+(?:\.\d+)?)\s*[a-z]*$/i.exec(c);
+  return m !== null && Number(m[1]) > 0;
+}
+
 // Lecture des limites posées sur le rôle _app (statement_timeout et CONNECTION LIMIT, A-417) ; seul un rôle _app est interrogé.
 export function limitesPg(sql: Pick<Sql, "requete">): (role: string) => Promise<Limites | undefined> {
   return async (role) => {
     if (!/^cli_[0-9a-f]{12}_app$/.test(role)) throw new Error("nom refusé");
     const ligne = (await sql.requete<{ rolconnlimit: number; rolconfig: string[] | null }>("SELECT rolconnlimit, rolconfig FROM pg_roles WHERE rolname = $1", [role]))[0];
-    return ligne ? { statementTimeout: (ligne.rolconfig ?? []).some((c) => c.startsWith("statement_timeout=")), connectionLimit: ligne.rolconnlimit } : undefined;
+    return ligne ? { statementTimeout: (ligne.rolconfig ?? []).some((c) => limitePositive(c)), connectionLimit: ligne.rolconnlimit } : undefined;
   };
 }
 

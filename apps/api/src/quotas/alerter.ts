@@ -10,19 +10,38 @@ export const SEUIL_ALERTE_BPS = 7000;
 export const SEUIL_ATTEINT_BPS = 10000;
 export type Seuil = 70 | 100;
 export type TypeAlerteQuota = "quota_70" | "quota_atteint";
-// Une alerte ne porte que son type, l'identifiant console du client, le seuil, les quotas touchés et le mois : ni nom de client, ni mesure.
+// Une alerte ne porte que son type, l'identifiant console du client, le seuil, les quotas touchés et le début de la période d'abonnement : ni nom de client, ni mesure.
 export interface AlerteQuota {
   type: TypeAlerteQuota;
   clientId: string;
   seuil: Seuil;
   quotas: NomQuota[];
-  mois: string;
+  periode: string;
 }
 export interface PortsAlerte {
-  dejaEnvoyee(tenantId: string, seuil: Seuil, mois: string): Promise<boolean>;
-  marquer(tenantId: string, seuil: Seuil, mois: string): Promise<void>;
+  // Date de souscription de l'abonnement (AAAA-MM-JJ) : la période d'alerte suit sa date anniversaire.
+  souscritLe(tenantId: string): Promise<string>;
+  // Réservation ATOMIQUE (INSERT ... ON CONFLICT DO NOTHING RETURNING) : true pour un seul appelant par (client, seuil, période).
+  reserver(tenantId: string, seuil: Seuil, periode: string): Promise<boolean>;
+  // Libère la réservation quand l'envoi échoue : l'alerte repart à la mesure suivante.
+  liberer(tenantId: string, seuil: Seuil, periode: string): Promise<void>;
   envoyer(alerte: AlerteQuota): Promise<void>;
   maintenant(): Date;
+}
+
+const joursDuMois = (annee: number, mois: number): number => new Date(Date.UTC(annee, mois, 0)).getUTCDate();
+const iso = (a: number, m: number, j: number): string => `${String(a).padStart(4, "0")}-${String(m).padStart(2, "0")}-${String(j).padStart(2, "0")}`;
+// Début de la période d'abonnement en cours : le dernier jour anniversaire ≤ aujourd'hui (dates AAAA-MM-JJ, jour de Paris).
+// Un mois trop court ramène l'anniversaire à son dernier jour (souscription un 31 → 28/29 février, 30 avril).
+export function debutPeriode(souscription: string, aujourdhui: string): string {
+  const jourSouscription = Number(souscription.slice(8, 10));
+  const annee = Number(aujourdhui.slice(0, 4));
+  const mois = Number(aujourdhui.slice(5, 7));
+  const jour = Number(aujourdhui.slice(8, 10));
+  const ceMois = Math.min(jourSouscription, joursDuMois(annee, mois));
+  if (jour >= ceMois) return iso(annee, mois, ceMois);
+  const [a, m] = mois === 1 ? [annee - 1, 12] : [annee, mois - 1];
+  return iso(a, m, Math.min(jourSouscription, joursDuMois(a, m)));
 }
 
 // Pourcentage en points de base, arrondi vers le bas, en bigint : aucun flottant, aucune perte au-delà de 2^53.
@@ -32,17 +51,22 @@ export function pourcentagesBps(m: Pick<Mesures, "baseOctets" | "fichiersOctets"
 }
 const touches = (p: Record<NomQuota, number>, minimum: number, maximum: number): NomQuota[] => (Object.keys(p) as NomQuota[]).filter((k) => p[k] >= minimum && p[k] < maximum);
 
-// Une alerte par seuil et par mois (et par client), pas à chaque mesure. Si l'envoi échoue, rien n'est marqué : l'alerte repart à la mesure suivante.
+// Une alerte par seuil et par période d'abonnement (et par client), pas à chaque mesure.
+// La réservation précède l'envoi (deux mesures simultanées n'envoient qu'une fois) ; si l'envoi échoue, elle est libérée.
 export async function alerter(ports: PortsAlerte, tenantId: string, mesures: Mesures, quotas: Quotas): Promise<TypeAlerteQuota | undefined> {
   const p = pourcentagesBps(mesures, quotas);
   const atteints = touches(p, SEUIL_ATTEINT_BPS, Infinity);
   const proches = touches(p, SEUIL_ALERTE_BPS, SEUIL_ATTEINT_BPS);
   const [type, seuil, concernes] = atteints.length > 0 ? (["quota_atteint", 100, atteints] as const) : proches.length > 0 ? (["quota_70", 70, proches] as const) : [undefined, 0, []] as const;
   if (!type) return undefined;
-  const mois = dateParis(ports.maintenant()).slice(0, 7);
-  if (await ports.dejaEnvoyee(tenantId, seuil, mois)) return undefined;
-  await ports.envoyer({ type, clientId: tenantId, seuil, quotas: [...concernes], mois });
-  await ports.marquer(tenantId, seuil, mois);
+  const periode = debutPeriode(await ports.souscritLe(tenantId), dateParis(ports.maintenant()));
+  if (!(await ports.reserver(tenantId, seuil, periode))) return undefined;
+  try {
+    await ports.envoyer({ type, clientId: tenantId, seuil, quotas: [...concernes], periode });
+  } catch (e) {
+    await ports.liberer(tenantId, seuil, periode);
+    throw e;
+  }
   return type;
 }
 

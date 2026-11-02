@@ -41,8 +41,12 @@ export const SQL_TAILLE_BASE = "SELECT pg_database_size(current_database())::flo
 export function tailleBaseParLecture(ouvrir: (nomBase: string, role: RoleConnexion) => Promise<Connexion>): (nomBase: string) => Promise<number> {
   return async (nomBase) => {
     const connexion = await ouvrir(nomBase, "lecture");
-    const lignes = await connexion.requete(SQL_TAILLE_BASE, []);
-    return Number(lignes[0]?.["octets"]);
+    try {
+      const lignes = await connexion.requete(SQL_TAILLE_BASE, []);
+      return Number(lignes[0]?.["octets"]);
+    } finally {
+      await connexion.fermer();
+    }
   };
 }
 

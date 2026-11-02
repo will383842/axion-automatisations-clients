@@ -56,7 +56,7 @@ describe("expéditeur", () => {
     hub.tuerApresReception();
     expect(await expediteur.executer(ref)).toBe("reessai");
     expect(hub.etat().effets.length).toBe(avant + 1);
-    horloge.t += 3_600_000;
+    horloge.t += 5_000;
     expect(await expediteur.executer(ref)).toBe("envoye");
     expect(hub.etat().effets.length).toBe(avant + 1);
     const ligne = magasin.lignes().find((l) => l.id === ref.id)!;
@@ -92,7 +92,7 @@ describe("expéditeur", () => {
     const ref = poser(`e${randomUUID().slice(0, 6)}`);
     hub.couper();
     const verdicts: string[] = [];
-    for (let i = 0; i < 5; i++) { verdicts.push(await expediteur.executer(ref)); horloge.t += 3_600_000; }
+    for (let i = 0; i < 5; i++) { verdicts.push(await expediteur.executer(ref)); horloge.t += 5_000; }
     hub.rouvrir();
     expect(verdicts).toEqual(["reessai", "reessai", "reessai", "reessai", "echec"]);
     const echecs = await magasin.echecs();
@@ -107,7 +107,7 @@ describe("expéditeur", () => {
     const ref = poser(`f${randomUUID().slice(0, 6)}`);
     const cle = magasin.lignes().find((l) => l.id === ref.id)!.cle;
     hub.couper();
-    for (let i = 0; i < 5; i++) { await expediteur.executer(ref); horloge.t += 3_600_000; }
+    for (let i = 0; i < 5; i++) { await expediteur.executer(ref); horloge.t += 5_000; }
     hub.rouvrir();
     expect(await magasin.renvoyer(ref)).toBe(true);
     const ligne = magasin.lignes().find((l) => l.id === ref.id)!;

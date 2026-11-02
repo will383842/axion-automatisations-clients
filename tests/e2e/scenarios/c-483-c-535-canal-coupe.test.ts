@@ -35,7 +35,7 @@ test("[C-483] [C-535] Hub ou CRM arrêtés : file, reprise sans perte ni double 
   await relais.balayer(); await files.hub.vider();
   expect(hub.etat().effets.length).toBe(avant);
   hub.rouvrir();
-  horloge.t += 3_600_000;
+  horloge.t += 5_000;
   await relais.balayer(); await files.hub.vider();
   const lignes = magasin.lignes();
   const cles = hub.etat().effets.slice(avant).map((e) => e.cle);

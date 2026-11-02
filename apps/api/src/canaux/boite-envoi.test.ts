@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { cleDIntention } from "../../../../packages/contrats/src/commun/idempotence.js";
-import { deposer, transactionOuverte, type TransactionOuverte } from "./boite-envoi.js";
+import { PREFIXE_C1 } from "../../../../packages/contrats/src/c1/routes.js";
+import { RACINE_C1, deposer, transactionOuverte, type TransactionOuverte } from "./boite-envoi.js";
 
 // Fausse transaction : enregistre les requêtes, répond « client fixé » comme avecClient (app.tenant_id), ou rien (hors transaction).
 const TENANT = randomUUID();
@@ -11,7 +12,7 @@ function fausseTx(tenant: string | null = TENANT) {
     async query(sql: string, params: unknown[] = []) {
       requetes.push({ sql, params });
       if (/current_setting/.test(sql)) return { rows: [{ tenant }] };
-      if (/INSERT INTO boite_envoi/.test(sql)) return { rows: [{ id: randomUUID(), cle_anti_doublon: params[5], empreinte_corps: params[7] }] };
+      if (/INSERT INTO boite_envoi/.test(sql)) return { rows: [{ id: params[1] }] };
       return { rows: [] };
     },
   };
@@ -22,6 +23,8 @@ const corps = { consoleClientId: "console-cli-0001", raisonSociale: "Atelier Ber
 const depot = (surcharge: object = {}) => ({ destination: "hub" as const, route: RETROUVER, methode: "POST" as const, corps, intention: "retrouver:console-cli-0001", ...surcharge });
 
 describe("dépôt dans la boîte d'envoi", () => {
+  it("[C-402] la racine des routes de C1 est celle du contrat", () => expect(RACINE_C1).toBe(PREFIXE_C1));
+
   it("[C-402] @anti-doublon la ligne est écrite par la transaction métier reçue, jamais par une autre connexion", async () => {
     const { tx, requetes } = fausseTx();
     await deposer(tx, depot());

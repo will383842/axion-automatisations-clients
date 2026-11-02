@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { cleDIntention } from "../../../../packages/contrats/src/commun/idempotence.ts";
 import { ROUTES_C1 } from "../../../../packages/contrats/src/c1/routes.ts";
@@ -15,6 +16,7 @@ const LIGNES = [{ libelle: "Mise en place", quantite: 1, prixUnitaireHtCentimes:
 function banc(opts: { aTrancher?: boolean; email?: string | null; txTenant?: string; gardes?: boolean } = {}) {
   const txTenant = opts.txTenant ?? TENANT;
   const lignes = new Map<string, DepotHub>();
+  const empreintes = new Map<string, string>();
   const tx = {
     query: async (texte: string) => {
       if (/app\.tenant_id/.test(texte)) return { rows: [{ tenant: txTenant }] };
@@ -28,8 +30,11 @@ function banc(opts: { aTrancher?: boolean; email?: string | null; txTenant?: str
     gardesSignatureHub: opts.gardes ?? true,
     deposer: async (d) => {
       const cle = cleDIntention("hub", JSON.stringify([txTenant, d.intention]));
+      const empreinte = createHash("sha256").update(JSON.stringify(d.corps)).digest("hex");
       const nouveau = !lignes.has(cle);
-      if (nouveau) lignes.set(cle, d);
+      // Comme boite-envoi.deposer : même clé et autre empreinte de corps = refus, jamais un « déjà déposé » silencieux.
+      if (!nouveau && empreintes.get(cle) !== empreinte) throw new Error("intention déjà déposée avec un autre corps");
+      if (nouveau) { lignes.set(cle, d); empreintes.set(cle, empreinte); }
       return { nouveau };
     },
   });
@@ -116,14 +121,31 @@ describe("client C1 vers le Hub", () => {
     expect(b.lignes.size).toBe(0);
   });
 
-  it("[C-455] @argent un plan récurrent a UNE intention par phase : même phase deux fois ou deux périodes = une seule ligne", async () => {
+  it("[C-455] @argent un plan récurrent a UNE intention par phase : le même plan rejoué = une ligne, un autre corps pour la même phase est rejeté avec un code métier", async () => {
     const b = banc();
     const base = { axiCli: AXI, consoleClientId: TENANT, codeAutomatisation: "relance-devis", referenceAbonnementConsole: "abo-1", referenceContratConsole: "ctr-1", phaseId: PHASE, montantHtCentimesParPeriode: 9_000, periodeMois: 1 as const, engagementMois: 6 };
-    await b.c.plan({ ...base, premiereEcheance: "2026-11-01" }); await b.c.plan({ ...base, premiereEcheance: "2026-11-01" }); await b.c.plan({ ...base, premiereEcheance: "2026-12-01" });
+    await b.c.plan({ ...base, premiereEcheance: "2026-11-01" }); await b.c.plan({ ...base, premiereEcheance: "2026-11-01" });
     expect(b.depots().map((d) => d.intention)).toEqual([`plan:${PHASE}`]);
+    await expect(b.c.plan({ ...base, premiereEcheance: "2026-12-01" })).rejects.toMatchObject({ code: "plan_phase_deja_deposee" });
+    expect(b.lignes.size).toBe(1);
     await b.c.plan({ ...base, phaseId: "44444444-4444-4444-8444-444444444444", premiereEcheance: "2026-12-01" });
     expect(b.lignes.size).toBe(2);
     expect(JSON.stringify(b.depots()[0]!.corps)).not.toMatch(/phaseId|debutPeriode/);
+  });
+
+  it("[C-455] [C-456] seul l'e-mail ou l'adresse du contact change : nouvelle recherche, jamais une exception de la boîte d'envoi", async () => {
+    const b = banc();
+    await b.c.retrouverOuCreer(ORG);
+    await b.c.retrouverOuCreer({ ...ORG, contactFacturation: { nom: "Camille Test", email: "autre@exemple.fr" } });
+    await b.c.retrouverOuCreer({ ...ORG, adresse: { ...ADRESSE, ville: "Autre-Ville" } });
+    await b.c.retrouverOuCreer(ORG);
+    expect(b.lignes.size).toBe(3);
+  });
+
+  it("[C-324] un repère de transition vide est refusé avant la boîte d'envoi", async () => {
+    const b = banc();
+    for (const repere of ["", "   "]) await expect(b.c.changerStatut({ axiCli: AXI, consoleClientId: TENANT, statut: "client", repere })).rejects.toThrow(/repère/);
+    expect(b.lignes.size).toBe(0);
   });
 
   it("[C-324] [C-455] réactivation : client, ancien_client, client = 3 lignes ; même statut vers deux axiCli = 2 lignes", async () => {

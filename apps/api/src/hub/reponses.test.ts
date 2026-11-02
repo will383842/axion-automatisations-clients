@@ -7,6 +7,8 @@ const PHASE = "33333333-3333-4333-8333-333333333333";
 function banc(opts: { phaseLiee?: string | null; phaseAbsente?: boolean } = {}) {
   const requetes: { texte: string; valeurs: unknown[] }[] = [];
   const cles = new Set<string>();
+  const etats = new Map<string, string>();
+  const inserees: string[] = [];
   const alertes: { niveau: string; code: string }[] = [];
   const tx = {
     query: async (texte: string, valeurs: unknown[] = []) => {
@@ -14,8 +16,10 @@ function banc(opts: { phaseLiee?: string | null; phaseAbsente?: boolean } = {}) 
       if (/INSERT INTO a_trancher/.test(texte)) {
         if (!/WHERE NOT EXISTS/.test(texte)) { cles.add(String(Math.random())); return { rows: [{ id: "x" }] }; }
         const cle = String(valeurs[valeurs.length - 1]);
-        if (cles.has(cle)) return { rows: [] };
-        cles.add(cle); return { rows: [{ id: "x" }] };
+        // Le NOT EXISTS ne voit que les lignes ouvertes quand il filtre sur etat = 'ouvert'.
+        const vue = cles.has(cle) && (!/etat = 'ouvert'/.test(texte) || etats.get(cle) === "ouvert");
+        if (vue) return { rows: [] };
+        cles.add(cle); etats.set(cle, "ouvert"); inserees.push(cle); return { rows: [{ id: "x" }] };
       }
       if (/^UPDATE phases_plan/.test(texte)) return { rows: opts.phaseLiee === undefined && !opts.phaseAbsente ? [{ id: PHASE }] : [] };
       if (/FROM phases_plan/.test(texte)) return { rows: opts.phaseAbsente ? [] : [{ id_plan_hub: opts.phaseLiee ?? null }] };
@@ -23,7 +27,7 @@ function banc(opts: { phaseLiee?: string | null; phaseAbsente?: boolean } = {}) 
     },
   };
   const alerter = async (a: { niveau: "critique"; code: string }) => void alertes.push(a);
-  return { tx, requetes, cles, alertes, alerter };
+  return { tx, requetes, cles, etats, inserees, alertes, alerter };
 }
 
 describe("réponses du Hub rangées par route", () => {
@@ -70,27 +74,44 @@ describe("réponses du Hub rangées par route", () => {
     const r = { route: "clients-retrouver-ou-creer", statut: 202, corps: { resultat: "a_trancher", idDemande: "demande-1" } };
     await traiterReponse(b.tx, TENANT, r); await traiterReponse(b.tx, TENANT, r);
     expect(b.cles.size).toBe(1);
-    expect(b.requetes[0]!.texte).toMatch(/WHERE NOT EXISTS \(SELECT 1 FROM a_trancher WHERE tenant_id = \$1::uuid AND source = 'hub' AND etat = 'ouvert' AND donnees_comparaison->>'idDemande' = \$4\)/);
+    expect(b.requetes[0]!.texte).toMatch(/WHERE NOT EXISTS \(SELECT 1 FROM a_trancher WHERE tenant_id = \$1::uuid AND source = 'hub' AND donnees_comparaison->>'idDemande' = \$4\)/);
     await traiterReponse(b.tx, TENANT, { ...r, corps: { resultat: "a_trancher", idDemande: "demande-2" } });
     expect(b.cles.size).toBe(2);
   });
 
-  it("[C-338] un rejeu du même 409 ou 422 sur le statut ne range qu'une ligne, et l'axiCli est rangé dans les données", async () => {
+  it("[C-456] retraiter la même réponse 202 après la décision de l'équipe ne crée aucune ligne", async () => {
     const b = banc();
-    const r = { route: "clients-statut", statut: 422, axiCli: "AXI-CLI-000101", corps: { erreur: { code: "fiche_absorbee", message: "x", id_trace: "t" } } };
+    const r = { route: "clients-retrouver-ou-creer", statut: 202, corps: { resultat: "a_trancher", idDemande: "demande-1" } };
+    await traiterReponse(b.tx, TENANT, r);
+    b.etats.set("demande-1", "tranche");
+    await traiterReponse(b.tx, TENANT, r);
+    expect(b.inserees).toEqual(["demande-1"]);
+  });
+
+  it("[C-338] un rejeu du même 409 ou 422 sur le statut ne range qu'une ligne, rangée sous l'intention déposée, avec l'axiCli dans les données", async () => {
+    const b = banc();
+    const r = { route: "clients-statut", statut: 422, axiCli: "AXI-CLI-000101", intention: "statut:T:AXI-CLI-000101:client_actif:h-1", corps: { erreur: { code: "fiche_absorbee", message: "x", id_trace: "t" } } };
     await traiterReponse(b.tx, TENANT, r); await traiterReponse(b.tx, TENANT, r);
     expect(b.cles.size).toBe(1);
     expect(String(b.requetes[0]!.valeurs[2])).toContain("AXI-CLI-000101");
-    await traiterReponse(b.tx, TENANT, { ...r, axiCli: "AXI-CLI-000102" });
+    expect(b.requetes[0]!.valeurs[3]).toBe("statut:T:AXI-CLI-000101:client_actif:h-1");
+    await traiterReponse(b.tx, TENANT, { ...r, intention: "statut:T:AXI-CLI-000101:ancien_client:h-2" });
     expect(b.cles.size).toBe(2);
   });
 
-  it("[C-338] fiche_absorbee ou identifiant_deja_pris sur retrouver-ou-creer part dans à trancher, sans ZodError", async () => {
+  it("[C-338] un 409 ou 422 sur le statut sans axiCli est refusé : plus de statut:inconnu", async () => {
+    const b = banc();
+    await expect(traiterReponse(b.tx, TENANT, { route: "clients-statut", statut: 422, intention: "statut:T:x:client_actif:h-1", corps: { erreur: { code: "fiche_absorbee", message: "x", id_trace: "t" } } })).rejects.toThrow(/axiCli/);
+    expect(b.requetes).toHaveLength(0);
+  });
+
+  it("[C-338] fiche_absorbee ou identifiant_deja_pris sur retrouver-ou-creer part dans à trancher, rangé sous l'intention déposée, sans ZodError", async () => {
     for (const [statut, code] of [[422, "fiche_absorbee"], [409, "identifiant_deja_pris"]] as const) {
       const b = banc();
-      const r = await traiterReponse(b.tx, TENANT, { route: "clients-retrouver-ou-creer", statut, corps: { erreur: { code, message: "x", id_trace: "t" } } });
+      const r = await traiterReponse(b.tx, TENANT, { route: "clients-retrouver-ou-creer", statut, intention: "retrouver:T:abc", corps: { erreur: { code, message: "x", id_trace: "t" } } });
       expect(r).toEqual({ rangee: "a_trancher" });
       expect(b.requetes[0]!.valeurs).toContain("fiche_absorbee");
+      expect(b.requetes[0]!.valeurs[3]).toBe("retrouver:T:abc");
     }
   });
 

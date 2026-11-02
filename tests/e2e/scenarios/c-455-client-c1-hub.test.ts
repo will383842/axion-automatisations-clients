@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { cleDIntention } from "../../../packages/contrats/src/commun/idempotence.ts";
 import { creerExpediteur, magasinEnMemoire } from "../../../apps/api/src/canaux/expediteur.ts";
@@ -18,12 +18,15 @@ afterAll(async () => void (await hub.arreter()));
 function banc(tenant: string, gardes = true) {
   const magasin = magasinEnMemoire();
   const cles = new Set<string>();
+  const empreintes = new Map<string, string>();
   const alertes: unknown[] = [];
   const tx = { query: async (t: string) => (/app\.tenant_id/.test(t) ? { rows: [{ tenant }] } : /FROM contacts/.test(t) ? { rows: [{ email: "contact@exemple.fr" }] } : { rows: [] }) };
   const c = clientC1({ tx, gardesSignatureHub: gardes, deposer: async (d) => {
     const cle = cleDIntention("hub", JSON.stringify([tenant, d.intention]));
-    if (cles.has(cle)) return { nouveau: false };
-    cles.add(cle); magasin.deposer({ tenantId: tenant, destination: "hub", route: d.route, methode: d.methode, corps: d.corps, cle });
+    const empreinte = createHash("sha256").update(JSON.stringify(d.corps)).digest("hex");
+    // Comme boite-envoi.deposer : même clé et autre empreinte de corps = refus.
+    if (cles.has(cle)) { if (empreintes.get(cle) !== empreinte) throw new Error("intention déjà déposée avec un autre corps"); return { nouveau: false }; }
+    empreintes.set(cle, empreinte); cles.add(cle); magasin.deposer({ tenantId: tenant, destination: "hub", route: d.route, methode: d.methode, corps: d.corps, cle });
     return { nouveau: true };
   } });
   const expediteur = creerExpediteur({ magasin, signeur: creerSigneur({ cles: { cleActive: async () => ({ kid: KID, secret: SECRET }) }, actif: () => true }), urls: { hub: hub.url, crm: hub.url }, alerter: async (a) => void alertes.push(a), aleatoire: () => 0.5 });

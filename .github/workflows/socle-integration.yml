@@ -37,16 +37,7 @@ jobs:
           SOCLE_INTEGRATION: "1"
       - name: Lister les tests d'intégration en échec
         if: failure()
-        run: |
-          node -e '
-            const r = JSON.parse(require("node:fs").readFileSync("rapport-integration.json", "utf8"));
-            for (const f of r.testResults) for (const t of f.assertionResults) if (t.status === "failed")
-              console.log("ECHEC", f.name.split("/").slice(-3).join("/"), "::", t.fullName, "::", String((t.failureMessages || [])[0] || "").split("
-")[0].slice(0, 300));
-            for (const f of r.testResults) if (f.status === "failed" && !f.assertionResults.some((t) => t.status === "failed"))
-              console.log("ECHEC fichier", f.name.split("/").slice(-3).join("/"), "::", String(f.message || "").split("
-")[0].slice(0, 300));
-          '
+        run: node scripts/lister-echecs-integration.ts rapport-integration.json
       - name: Compter les tests d'intégration
         run: node scripts/compter-tests.ts --projet integration --rapport rapport-integration.json
       - name: Arrêter le socle

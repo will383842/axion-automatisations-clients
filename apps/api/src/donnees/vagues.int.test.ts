@@ -21,7 +21,7 @@ const admin = new pg.Pool({ connectionString: ADMIN, max: 2 });
 admin.on("error", () => undefined);
 const noms: string[] = [];
 
-describe.skipIf(!ADMIN)("vagues sur 100 bases fictives (grappe jetable)", () => {
+describe.skipIf(!ADMIN)("vagues sur 100 bases fictives (grappe jetable)", () => { // fiche: T2-38
   let dossierV2 = "";
   const registre: BaseRegistre[] = [];
   beforeAll(async () => {

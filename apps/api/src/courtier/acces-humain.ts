@@ -82,7 +82,9 @@ export function definitionRoleHumain(tenantId: string) {
       `GRANT CONNECT ON DATABASE "${base}" TO "{{name}}";`,
       `GRANT "${base}_lecture" TO "{{name}}";`,
     ],
+    // Ordre : le rôle perd d'abord LOGIN (il ne peut plus se reconnecter, même si la suite échoue), puis ses sessions sont coupées, ses droits retirés, le rôle supprimé.
     revocation_statements: [
+      `ALTER ROLE "{{name}}" NOLOGIN;`,
       `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE usename = '{{name}}';`,
       `REVOKE ALL ON DATABASE "${base}" FROM "{{name}}";`,
       `DROP ROLE IF EXISTS "{{name}}";`,

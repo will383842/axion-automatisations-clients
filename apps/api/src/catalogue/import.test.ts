@@ -9,6 +9,7 @@ import { moduleExemple } from "../../../../packages/sdk-module/exemples/module-e
 import { construireServeur } from "../serveur.js";
 import { ErreurApi } from "../plugins/erreurs.js";
 import type { IdentifiantsS3, PortS3 } from "../stockage/stockage.js";
+import { authentifierEquipeOuRecette } from "../routes/catalogue/import.js";
 import { creerImporteur, verifierRecette, type DepotCatalogue, type EntreeVersion, type VersionRangee } from "./importer.js";
 import { creerRangement } from "./ranger.js";
 import { LIMITES } from "./schema.js";
@@ -68,19 +69,21 @@ class S3Memoire implements PortS3 {
 
 class DepotMemoire implements DepotCatalogue {
   versions: (VersionRangee & { automatisation: string })[] = [];
-  automatisations = new Set<string>();
+  automatisations = new Map<string, string>();
+  async nomAutomatisation(code: string) { return this.automatisations.get(code); }
   async enregistrer(e: EntreeVersion) {
     await Promise.resolve();
     const existante = this.versions.find((v) => (v.automatisation === e.codeAutomatisation && v.semver === e.semver) || v.empreinte === e.empreinte);
     if (existante) return { cree: false as const, version: existante };
-    this.automatisations.add(e.codeAutomatisation);
+    this.automatisations.set(e.codeAutomatisation, e.nomAutomatisation);
     const version = { automatisation: e.codeAutomatisation, semver: e.semver, empreinte: e.empreinte, statut: "brouillon" as const, ref: e.ref };
     this.versions.push(version);
     return { cree: true as const, version };
   }
 }
 
-function monter(o: { ouvert?: boolean; doublons?: (nom: string) => Promise<string[]> } = {}) {
+type DepsAuth = Parameters<typeof construireServeur>[0] extends infer O ? NonNullable<O extends { importCatalogue?: infer I } ? I : never>["authentifier"] : never;
+function monter(o: { ouvert?: boolean; doublons?: (nom: string) => Promise<string[]>; authentifier?: DepsAuth } = {}) {
   const s3 = new S3Memoire();
   const depot = new DepotMemoire();
   const signataire = new SignataireMemoire("cle-essai-1");
@@ -90,10 +93,12 @@ function monter(o: { ouvert?: boolean; doublons?: (nom: string) => Promise<strin
     importCatalogue: {
       ouvert: o.ouvert ?? true,
       importeur,
-      authentifier: async (r) => {
-        if (r.headers["x-test-acteur"] !== "equipe") throw new ErreurApi("action_interdite", "Réservé à l'équipe.");
-        return { acteur: "equipe-essai" };
-      },
+      authentifier:
+        o.authentifier ??
+        (async (r) => {
+          if (r.headers["x-test-acteur"] !== "equipe") throw new ErreurApi("action_interdite", "Réservé à l'équipe.");
+          return { acteur: "equipe-essai" };
+        }),
     },
   });
   const poster = (archive: Uint8Array, code = "ACC-001", entetes: Record<string, string> = {}) =>
@@ -274,6 +279,17 @@ describe("import dans la console", () => {
     expect(m.s3.objets.size).toBe(0);
   });
 
+  it("[C-248] un module d'un autre code ne s'importe pas sous l'automatisation d'un autre module", async () => {
+    const m = monter();
+    expect((await m.poster(archiver(signeAvec(m, "module-y")), "ACC-001")).statusCode).toBe(201);
+    const rep = await m.poster(archiver(signeAvec(m, "module-x", { version: "2.0.0" })), "ACC-001");
+    expect(rep.statusCode).toBe(409);
+    expect(rep.json()).toMatchObject({ erreur: { code: "identifiant_deja_pris" } });
+    expect(JSON.stringify(rep.json())).not.toMatch(/module-[xy]|2\.0\.0/);
+    expect(m.depot.versions).toHaveLength(1);
+    expect(m.depot.automatisations.get("ACC-001")).toBe("module-y");
+  });
+
   it("[C-248] un code d'automatisation mal formé est refusé (400)", async () => {
     const m = monter();
     expect((await m.poster(archiver(signeAvec(m, "module-code")), "pas-un-code")).statusCode).toBe(400);
@@ -290,6 +306,8 @@ describe("import par la clé de la recette", () => {
   const cle = octets("cle-recette-essai");
   const signer = (corps: Uint8Array, t: number) => createHmac("sha256", cle).update(`${t}\n${createHash("sha256").update(corps).digest("hex")}`).digest("hex");
   const maintenant = 1_800_000_000;
+  // Chaîne signée : horodatage, code de l'automatisation visée, empreinte du corps.
+  const signerPour = (corps: Uint8Array, t: number, code: string) => createHmac("sha256", cle).update(`${t}\n${code}\n${createHash("sha256").update(corps).digest("hex")}`).digest("hex");
 
   it("[C-248] une signature HMAC valide est acceptée, un corps changé est refusé", () => {
     const corps = octets("archive");
@@ -308,6 +326,66 @@ describe("import par la clé de la recette", () => {
   it("[A-024] un import par la recette ne peut viser qu'un état brouillon", async () => {
     const m = monter();
     const rep = await m.poster(archiver(signeAvec(m, "module-recette")), "REC-001", { "x-statut": "pilote" });
+    expect((rep.json() as { version: { statut: string } }).version.statut).toBe("brouillon");
+  });
+
+  it("[C-248] un HMAC calculé sans l'en-tête x-automatisation est refusé", () => {
+    const corps = octets("archive");
+    const ancien = signer(corps, maintenant); // ancienne chaîne : horodatage + corps seulement
+    const entetes = { "x-axion-horodatage": String(maintenant), "x-axion-signature": ancien, "x-automatisation": "ACC-001" };
+    expect(verifierRecette({ cle, maintenant: () => maintenant }, entetes, corps)).toBe(false);
+  });
+
+  it("[C-248] une requête de la recette captée ne se rejoue pas vers une autre automatisation", () => {
+    const corps = octets("archive");
+    const bonne = signerPour(corps, maintenant, "ACC-001");
+    const e = (code: string) => ({ "x-axion-horodatage": String(maintenant), "x-axion-signature": bonne, "x-automatisation": code });
+    expect(verifierRecette({ cle, maintenant: () => maintenant }, e("ACC-001"), corps)).toBe(true);
+    expect(verifierRecette({ cle, maintenant: () => maintenant }, e("ACC-002"), corps)).toBe(false);
+    expect(verifierRecette({ cle, maintenant: () => maintenant }, { "x-axion-horodatage": String(maintenant), "x-axion-signature": bonne }, corps)).toBe(false);
+  });
+
+  // Composition réelle : route -> authentification (équipe ou recette) -> verifierRecette -> importeur.
+  const reel = () => {
+    const equipe = async (r: { headers: Record<string, string | string[] | undefined> }) => {
+      if (r.headers["x-test-acteur"] !== "equipe") throw new ErreurApi("action_interdite", "Réservé à l'équipe.");
+      return { acteur: "equipe-essai" };
+    };
+    return monter({ authentifier: authentifierEquipeOuRecette({ equipe, recette: { cle, maintenant: () => maintenant } }) });
+  };
+  const posterRecette = (m: ReturnType<typeof monter>, archive: Uint8Array, code: string, signeCode = code, entetes: Record<string, string> = {}) =>
+    m.serveur.inject({
+      method: "POST", url: "/api/catalogue/v1/versions", payload: Buffer.from(archive),
+      headers: { "content-type": "application/gzip", "x-automatisation": code, "x-axion-horodatage": String(maintenant), "x-axion-signature": signerPour(archive, maintenant, signeCode), ...entetes },
+    });
+
+  it("[A-024] la recette signée entre par la route et la version naît brouillon", async () => {
+    const m = reel();
+    const rep = await posterRecette(m, archiver(signeAvec(m, "module-recette")), "REC-001", "REC-001", { "x-statut": "pilote" });
+    expect(rep.statusCode).toBe(201);
+    expect((rep.json() as { version: { statut: string } }).version.statut).toBe("brouillon");
+    expect(m.depot.versions).toHaveLength(1);
+  });
+
+  it("[C-248] la recette avec une signature faite pour une autre automatisation est refusée (403) sans rien ranger", async () => {
+    const m = reel();
+    const rep = await posterRecette(m, archiver(signeAvec(m, "module-recette")), "REC-002", "REC-001");
+    expect(rep.statusCode).toBe(403);
+    expect(m.s3.objets.size).toBe(0);
+  });
+
+  it("[C-248] ni équipe ni signature de recette : 403, et une signature mal formée n'ouvre pas la voie de l'équipe", async () => {
+    const m = reel();
+    const archive = archiver(signeAvec(m, "module-anonyme"));
+    expect((await m.poster(archive, "ACC-001", { "x-test-acteur": "inconnu" })).statusCode).toBe(403);
+    expect((await posterRecette(m, archive, "ACC-001", "ACC-001", { "x-axion-signature": "zz", "x-test-acteur": "inconnu" })).statusCode).toBe(403);
+    expect(m.s3.objets.size).toBe(0);
+  });
+
+  it("[A-024] l'équipe authentifiée entre par la même route et la version naît brouillon", async () => {
+    const m = reel();
+    const rep = await m.poster(archiver(signeAvec(m, "module-equipe")), "ACC-003", { "x-statut": "publiee" });
+    expect(rep.statusCode).toBe(201);
     expect((rep.json() as { version: { statut: string } }).version.statut).toBe("brouillon");
   });
 });

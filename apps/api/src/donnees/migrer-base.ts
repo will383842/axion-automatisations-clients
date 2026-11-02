@@ -260,7 +260,8 @@ export async function ouvrirConnexionModule(admin: pg.Client, urlAdmin: string, 
   const m = roleMigrationModule(nomBase, code);
   // 1. Le rôle de migration du module : sans héritage, sans aucun droit propre, membre d'aucun rôle ; NOLOGIN tant que la migration ne commence pas.
   if (!(await admin.query("SELECT 1 FROM pg_roles WHERE rolname = $1", [m])).rowCount) await admin.query(`CREATE ROLE ${citer(m)} NOLOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION`);
-  else await admin.query(`ALTER ROLE ${citer(m)} NOLOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION`);
+  // Rôle existant (rejeu) : PostgreSQL 16 refuse à un non-superutilisateur tout ALTER ROLE citant SUPERUSER, BYPASSRLS, CREATEDB, CREATEROLE ou REPLICATION, même en forme négative ; la relecture ci-dessous les contrôle.
+  else await admin.query(`ALTER ROLE ${citer(m)} NOLOGIN NOINHERIT`);
   // 2. Le propriétaire de la base crée le schéma, n'y donne que USAGE et CREATE au rôle du module (USAGE à l'application et à la lecture) et lui ouvre CONNECT sur CETTE base seulement.
   try {
     await admin.query(`SET ROLE ${citer(`${nomBase}_proprietaire`)}`);
@@ -274,7 +275,7 @@ export async function ouvrirConnexionModule(admin: pg.Client, urlAdmin: string, 
   }
   // Droits relus : le rôle du module n'a rien dans commun, trace ni public, aucun attribut d'administration, aucune appartenance ; sinon refus avant toute migration.
   const hors = (await admin.query<{ ko: boolean }>(
-    "SELECT (has_schema_privilege($1, 'commun', 'USAGE') OR has_schema_privilege($1, 'commun', 'CREATE') OR has_schema_privilege($1, 'trace', 'USAGE') OR has_schema_privilege($1, 'trace', 'CREATE') OR has_schema_privilege($1, 'public', 'CREATE') OR EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1 AND (rolsuper OR rolcreaterole OR rolcreatedb OR rolbypassrls OR rolreplication)) OR EXISTS (SELECT 1 FROM pg_auth_members WHERE member = $1::regrole)) AS ko",
+    "SELECT (has_schema_privilege($1, 'commun', 'USAGE') OR has_schema_privilege($1, 'commun', 'CREATE') OR has_schema_privilege($1, 'trace', 'USAGE') OR has_schema_privilege($1, 'trace', 'CREATE') OR has_schema_privilege($1, 'public', 'CREATE') OR EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1 AND (rolsuper OR rolcreaterole OR rolcreatedb OR rolbypassrls OR rolreplication OR rolinherit)) OR EXISTS (SELECT 1 FROM pg_auth_members WHERE member = $1::regrole)) AS ko",
     [m],
   )).rows[0]?.ko;
   if (hors !== false) throw new Error(`migrerBase : le rôle de migration du module a un droit hors de ${schema}, refus`);

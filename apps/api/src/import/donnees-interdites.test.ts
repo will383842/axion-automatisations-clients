@@ -106,7 +106,7 @@ describe("refus d'import : ce que fait verifierImport", () => {
     const textes: string[] = [];
     return { textes, client: { query: async (t: string) => (textes.push(t), { rows: [], rowCount: 1 }) } };
   };
-  it("[C-060] un refus d'import ne garde rien : une seule écriture, la trace sans contenu", async () => {
+  it("[C-060] [A-033] [A-198] un refus d'import ne garde rien : une seule écriture, la trace sans contenu", async () => {
     const { textes, client } = enregistrer();
     expect((await verifierImport(client, "equipe-bertin", ["IBAN", "nom"])).accepte).toBe(false);
     expect(textes).toHaveLength(1);
@@ -117,7 +117,7 @@ describe("refus d'import : ce que fait verifierImport", () => {
     await verifierImport(client, "equipe-bertin", ["nom", "prenom"]);
     expect(textes).toEqual([]);
   });
-  it("[C-060] le refus s'inscrit dans le schéma trace de la base appelée, jamais ailleurs", async () => {
+  it("[C-060] [C-027] le refus s'inscrit dans le schéma trace de la base appelée, jamais ailleurs", async () => {
     const { textes, client } = enregistrer();
     await verifierImport(client, "equipe-bertin", ["mot de passe"]);
     expect(textes.every((t) => /trace\.evenements/.test(t) && !/public\./.test(t))).toBe(true);

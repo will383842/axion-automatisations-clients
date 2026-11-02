@@ -1,4 +1,10 @@
-import { readFileSync } from "node:fs";
+import { execFile, spawnSync } from "node:child_process";
+import { chmodSync, copyFileSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:https";
+import type { AddressInfo } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 // Lectures statiques de la configuration des sauvegardes : elles complètent les essais en conteneurs (tests/socle/sauvegardes.int.test.ts),
@@ -12,6 +18,7 @@ const phrase = lire("./lire-phrase-chiffrement.sh");
 const expirer = lire("./expirer.sh");
 const restaurer = lire("./restaurer.sh");
 const bases = lire("../socle/postgres/init/01-bases.sql");
+const dossierScripts = fileURLToPath(new URL(".", import.meta.url));
 const lignesActives = (texte: string) => texte.split("\n").filter((l) => !/^\s*(#|--)/.test(l));
 // Bloc d'un service du compose (de « nom: » au service ou à la section suivante, au même niveau).
 const service = (nom: string) => new RegExp(`^  ${nom}:\\n(?:(?:    .*|)\\n)+`, "m").exec(compose)?.[0] ?? "";
@@ -81,12 +88,139 @@ describe("configuration des sauvegardes (lecture statique)", () => {
     expect(compose).toMatch(/\[ \$\$# -eq 1 \]/);
   });
 
-  it("[C-593] lire-phrase-chiffrement.sh : adresse d'OpenBao au format http://hote:port (comme la passerelle), HTTPS refusé, 32 caractères au moins", () => {
+  it("[C-593] lire-phrase-chiffrement.sh : seul HTTPS est accepté hors essai (certificat vérifié), http:// est refusé, 32 caractères au moins", () => {
     expect(phrase).toMatch(/BAO_ADDR/);
     expect(phrase).toMatch(/https:\/\/\*\)/);
+    expect(phrase).toMatch(/BAO_CA_FICHIER/);
+    expect(phrase).toMatch(/-verify_return_error/);
+    expect(phrase).toMatch(/BAO_ESSAI_SANS_TLS/);
     expect(phrase).toMatch(/-ge 32/);
   });
 
+  it("[C-593] lire-phrase-chiffrement.sh refuse une adresse http hors mode essai, avant toute lecture du jeton", () => {
+    const jeton = join(mkdtempSync(join(tmpdir(), "sauv-")), "jeton");
+    writeFileSync(jeton, "s.jeton-factice");
+    const r = spawnSync(join(dossierScripts, "lire-phrase-chiffrement.sh"), [], {
+      encoding: "utf8",
+      env: { PATH: process.env.PATH, BAO_ADDR: "http://openbao.test:8200", BAO_JETON_FICHIER: jeton, SAUVEGARDE_ESSAI: "0" },
+    });
+    expect(r.status).not.toBe(0);
+    expect(r.stdout).toBe("");
+    expect(r.stderr).toMatch(/http:\/\/ refusé hors essai/);
+  });
+
+  it("[C-593] lire-phrase-chiffrement.sh lit la phrase en HTTPS quand le certificat est signé par l'autorité donnée, et la refuse sinon", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "sauv-tls-"));
+    try {
+      const ac = (nom: string) => {
+        const o = (...a: string[]) => expect(spawnSync("openssl", a, { cwd: tmp }).status, `openssl ${a[0]}`).toBe(0);
+        o("req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", `${nom}-ac.key`, "-out", `${nom}-ac.pem`, "-subj", `/CN=ac-${nom}.test`, "-days", "2");
+        o("req", "-newkey", "rsa:2048", "-nodes", "-keyout", `${nom}.key`, "-out", `${nom}.csr`, "-subj", "/CN=localhost");
+        writeFileSync(join(tmp, `${nom}.ext`), "subjectAltName=DNS:localhost\n");
+        o("x509", "-req", "-in", `${nom}.csr`, "-CA", `${nom}-ac.pem`, "-CAkey", `${nom}-ac.key`, "-CAcreateserial", "-out", `${nom}.pem`, "-days", "2", "-extfile", `${nom}.ext`);
+      };
+      ac("bon");
+      ac("autre");
+      const phraseOk = "p".repeat(40);
+      const serveur = createServer({ key: readFileSync(join(tmp, "bon.key")), cert: readFileSync(join(tmp, "bon.pem")) }, (req, rep) => {
+        const ok = req.url === "/v1/technique/data/sauvegardes" && req.headers["x-vault-token"] === "s.jeton-factice";
+        rep.statusCode = ok ? 200 : 403;
+        rep.end(ok ? JSON.stringify({ data: { data: { phrase: phraseOk } } }) : "{}");
+      });
+      await new Promise<void>((ok) => serveur.listen(0, "127.0.0.1", ok));
+      const port = (serveur.address() as AddressInfo).port;
+      const jeton = join(tmp, "jeton");
+      writeFileSync(jeton, "s.jeton-factice");
+      const lire = (autorite: string) =>
+        new Promise<{ code: number | null; out: string; err: string }>((ok) => {
+          const enfant = execFile(
+            join(dossierScripts, "lire-phrase-chiffrement.sh"),
+            [],
+            { env: { PATH: process.env.PATH, BAO_ADDR: `https://localhost:${port}`, BAO_JETON_FICHIER: jeton, BAO_CA_FICHIER: join(tmp, autorite), SAUVEGARDE_ESSAI: "0", BAO_DELAI: "20" } },
+            (_e, out, err) => ok({ code: enfant.exitCode, out, err }),
+          );
+        });
+      try {
+        const bon = await lire("bon-ac.pem");
+        expect(bon.err).toBe("");
+        expect(bon.out.trim()).toBe(phraseOk);
+        const faux = await lire("autre-ac.pem");
+        expect(faux.code).not.toBe(0);
+        expect(faux.out).toBe("");
+      } finally {
+        serveur.close();
+      }
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it("[C-593] preparer-configuration.sh hors essai épingle l'hôte SFTP (known_hosts) et refuse de démarrer sans empreinte ou avec le modèle non rempli", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "sauv-prep-"));
+    const copie = join(tmp, "s");
+    try {
+      spawnSync("mkdir", [copie]);
+      for (const f of readdirSync(dossierScripts)) if (/^(preparer-configuration\.sh|pgbackrest\.conf\..*|known_hosts\.modele)$/.test(f)) copyFileSync(join(dossierScripts, f), join(copie, f));
+      // Lecteur de phrase factice : ce test ne porte que sur la vérification de l'hôte.
+      writeFileSync(join(copie, "lire-phrase-chiffrement.sh"), `#!/usr/bin/env bash\nprintf '%s\\n' ${"x".repeat(40)}\n`);
+      chmodSync(join(copie, "lire-phrase-chiffrement.sh"), 0o755);
+      const cible = `/dev/shm/essai-t1b04-${process.pid}.conf`;
+      const lancer = (extra: Record<string, string> = {}) =>
+        spawnSync(join(copie, "preparer-configuration.sh"), [], { encoding: "utf8", env: { PATH: process.env.PATH, PGBACKREST_CONFIG: cible, ...extra } });
+      try {
+        // Aucun known_hosts : refus net.
+        const sans = lancer();
+        expect(sans.status).not.toBe(0);
+        expect(sans.stderr).toMatch(/known_hosts/);
+        // Le modèle livré n'est pas une empreinte : refus.
+        copyFileSync(join(copie, "known_hosts.modele"), join(copie, "known_hosts"));
+        const modele = lancer();
+        expect(modele.status).not.toBe(0);
+        expect(modele.stderr).toMatch(/known_hosts/);
+        // Une empreinte (fictive ici) : la configuration exige l'empreinte, jamais « none » ni « accept-new ».
+        writeFileSync(join(copie, "known_hosts"), "stockage.exemple.test ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFAKEFAKEFAKEFAKEFAKEFAKEFAKEFAKEFAKEFAKEFAKE\n");
+        const bon = lancer();
+        expect(bon.stderr).toBe("");
+        expect(bon.status).toBe(0);
+        const conf = readFileSync(cible, "utf8");
+        expect(conf).toMatch(/^repo1-sftp-host-key-check-type=strict$/m);
+        expect(conf).toMatch(/^repo1-sftp-known-host=.*known_hosts$/m);
+        expect(conf).not.toMatch(/check-type=(none|accept-new)/);
+      } finally {
+        rmSync(cible, { force: true });
+      }
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("[C-593] le modèle known_hosts ne contient aucune empreinte réelle (elle est posée au branchement) et le README nomme la limite du superutilisateur de maintenance", () => {
+    const kh = lire("./known_hosts.modele");
+    expect(lignesActives(kh).filter((l) => l.trim() !== "")).toEqual([]);
+    expect(kh).toMatch(/REMPLACER/);
+    const readme = lire("./README.md");
+    expect(readme).toMatch(/superutilisateur de maintenance/);
+    expect(readme).toMatch(/pg_read_server_files/);
+    expect(readme).toMatch(/HTTPS/);
+    expect(readme).toMatch(/sauvegardes-lecture/);
+  });
+
+  it("[C-593] aucune base ne crée de rôle applicatif ou équipe superutilisateur ni membre de pg_read_server_files", () => {
+    const dossierInit = fileURLToPath(new URL("../socle/postgres/init/", import.meta.url));
+    const tout = readdirSync(dossierInit).filter((f) => f.endsWith(".sql")).map((f) => lignesActives(readFileSync(join(dossierInit, f), "utf8")).join("\n")).join("\n");
+    expect(tout).not.toMatch(/\bSUPERUSER\b/i);
+    expect(tout).not.toMatch(/pg_read_server_files|pg_write_server_files|pg_execute_server_program/i);
+    expect(tout).toMatch(/CREATE ROLE/i);
+  });
+
+  it("[C-523] la politique sauvegardes-lecture ne permet que « read » sur technique/data/sauvegardes", () => {
+    const hcl = lignesActives(lire("../socle/openbao/politiques/sauvegardes-lecture.hcl")).join("\n");
+    const chemins = [...hcl.matchAll(/path\s+"([^"]+)"\s*\{([^}]*)\}/g)];
+    expect(chemins).toHaveLength(1);
+    expect(chemins[0]?.[1]).toBe("technique/data/sauvegardes");
+    expect(chemins[0]?.[2]?.replace(/\s+/g, "")).toBe('capabilities=["read"]');
+    expect(hcl).not.toMatch(/\*|sudo|list|update|create|delete/);
+  });
   it("[C-049] la rétention est pilotée par retention.ts : expirer.sh l'appelle, pgBackRest n'expire rien seul, la sauvegarde de nuit n'expire pas", () => {
     expect(expirer).toMatch(/retention\.ts/);
     expect(expirer).toMatch(/expire/);

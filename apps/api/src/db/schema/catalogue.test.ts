@@ -20,7 +20,8 @@ describe("catalogue commun : liste fermée et règle C5 (migration 0007)", () =>
   it("[A-119] les douze tables du catalogue sont dans la liste fermée TABLES_COMMUNES, gelée, sans tenant_id", () => {
     for (const t of COMMUNES) expect(TABLES_COMMUNES, t).toContain(`public.${t}`);
     expect(TABLES_COMMUNES).toContain("public.exclusions_plateforme");
-    expect(TABLES_COMMUNES).toHaveLength(COMMUNES.length + 1);
+    // T2-07 (ADR 0055) ajoute deux tables communes hors catalogue : la liste du catalogue reste exacte, les ajouts ultérieurs sont nommés ici.
+    expect(TABLES_COMMUNES.filter((t) => !["public.cellules", "public.registre_traitements"].includes(t))).toHaveLength(COMMUNES.length + 1);
     expect(Object.isFrozen(TABLES_COMMUNES)).toBe(true);
     expect(TABLES_COMMUNES_SCHEMA.map((t) => t.nom).sort()).toEqual([...COMMUNES].sort());
     for (const t of [metiers, postes, automatisations, automatisationMetiers, automatisationPostes, versionsAutomatisation, prereglagesMetier, synonymesCatalogue, packs, packsAutomatisations, connecteurs, grillesPrix]) {

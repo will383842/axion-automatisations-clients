@@ -8,3 +8,7 @@ export { FilActivite } from "./composants/FilActivite.tsx";
 export { BoutonDanger } from "./composants/Bouton.tsx";
 export { BandeauAction } from "./composants/Bandeau.tsx";
 export { Pastille } from "./composants/Pastille.tsx";
+export { FileValidation } from "./composants/FileValidation.tsx";
+export { Formulaire } from "./composants/Formulaire.tsx";
+export { ImportFichier, controlerFichier } from "./composants/ImportFichier.tsx";
+export { Assistant } from "./composants/Assistant.tsx";

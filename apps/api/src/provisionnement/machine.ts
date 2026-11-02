@@ -25,9 +25,7 @@ export interface AlerteProvisionnement {
   clientId: string;
   code: string;
 }
-export interface AlertesProvisionnement {
-  envoyer(alerte: AlerteProvisionnement): Promise<void>;
-}
+export interface AlertesProvisionnement { envoyer(alerte: AlerteProvisionnement): Promise<void> }
 export interface Etape<C> {
   numero: number;
   nom: string;

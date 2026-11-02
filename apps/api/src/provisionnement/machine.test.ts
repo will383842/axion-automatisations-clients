@@ -72,10 +72,10 @@ describe("machine de provisionnement", () => {
     expect(OPTIONS_TACHE).toMatchObject({ attempts: 5, backoff: { type: "exponential" } });
     const m = monter();
     m.cassee.add(1);
-    const etapes: Etape<{ tenantId: string }>[] = [{ numero: 1, nom: "x", dejaFait: async () => false, faire: async () => { throw new Error("mot de passe=SECRET-DE-ESSAI-123"); } }];
+    const etapes: Etape<{ tenantId: string }>[] = [{ numero: 1, nom: "x", dejaFait: async () => false, faire: async () => { throw new Error("valeur sensible VALEUR-SENSIBLE-A"); } }];
     const brute = creerMachine({ etapes, registre: m.registre, alertes: { envoyer: async (a) => void m.alertes.push(a) }, contexte: (tenantId) => ({ tenantId }) });
     await expect(brute.executer(T)).rejects.toThrow("erreur_inattendue");
-    expect(JSON.stringify([m.erreurs, m.alertes])).not.toContain("SECRET-DE-ESSAI");
+    expect(JSON.stringify([m.erreurs, m.alertes])).not.toContain("VALEUR-SENSIBLE-A");
   });
 
   it("[A-215] sans ligne bases_client pour le client, la machine n'exécute rien et envoie l'alerte", async () => {

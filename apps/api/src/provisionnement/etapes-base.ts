@@ -31,15 +31,8 @@ export interface Admin {
   fermer(nomBase: string): Promise<void>;
   connexionFermeeAuPublic(nomBase: string): Promise<boolean>;
 }
-export interface Coffre {
-  ranger(chemin: string, valeur: string): Promise<void>;
-  existe(chemin: string): Promise<boolean>;
-}
-export interface Bouncer {
-  declarer(nomBase: string, pool: number): Promise<void>;
-  recharger(): Promise<void>;
-  repond(nomBase: string): Promise<boolean>;
-}
+export interface Coffre { ranger(chemin: string, valeur: string): Promise<void>; existe(chemin: string): Promise<boolean> }
+export interface Bouncer { declarer(nomBase: string, pool: number): Promise<void>; recharger(): Promise<void>; repond(nomBase: string): Promise<boolean> }
 export interface PortsBase {
   grappes(): Promise<{ nom: string; basesActives: number; octets: number }[]>;
   admin(grappe: string): Admin;
@@ -90,8 +83,7 @@ export function adminPg(sql: Sql, dansBase?: (nomBase: string) => Sql): Admin {
         const connexion = role.endsWith("_proprietaire") ? "NOLOGIN" : `LOGIN NOINHERIT CONNECTION LIMIT ${role.endsWith("_app") ? 8 : 2}`;
         await sql.requete(`CREATE ROLE ${q} ${connexion} NOBYPASSRLS`);
         // Valeurs d'essai des limites (A-417), à définir au lot 8a comme dans creer-base.sql.
-        if (!role.endsWith("_proprietaire")) await sql.requete(`ALTER ROLE ${q} SET statement_timeout = '5s'`);
-        if (!role.endsWith("_proprietaire")) await sql.requete(`ALTER ROLE ${q} SET work_mem = '4MB'`);
+        if (!role.endsWith("_proprietaire")) for (const [cle, valeur] of [["statement_timeout", "5s"], ["work_mem", "4MB"]]) await sql.requete(`ALTER ROLE ${q} SET ${cle} = '${valeur}'`);
       }
       const [{ lit }] = (await sql.requete<{ lit: string }>("SELECT quote_literal($1) AS lit", [empreinte])) as [{ lit: string }];
       await sql.requete(`ALTER ROLE ${q} PASSWORD ${lit}`);
@@ -129,14 +121,8 @@ export function adminPg(sql: Sql, dansBase?: (nomBase: string) => Sql): Admin {
 }
 
 const cheminSecret = (nomBase: string, genre: string) => `technique/donnees/${nomBase}/${genre}`;
-const grappeDe = (ctx: ContexteBase): string => ctx.grappe ?? (() => { throw new ErreurEtape("grappe_absente"); })();
-const attraper = async <T>(code: string, f: () => Promise<T>): Promise<T> => {
-  try {
-    return await f();
-  } catch (e) {
-    throw e instanceof ErreurEtape ? e : new ErreurEtape(code);
-  }
-};
+const grappeDe = (ctx: ContexteBase): string => { if (!ctx.grappe) throw new ErreurEtape("grappe_absente"); return ctx.grappe; };
+const attraper = <T>(code: string, f: () => Promise<T>): Promise<T> => f().catch((e: unknown) => { throw e instanceof ErreurEtape ? e : new ErreurEtape(code); });
 
 export function etapesBase(p: PortsBase): Etape<ContexteBase>[] {
   return [
@@ -203,20 +189,16 @@ export function etapesBase(p: PortsBase): Etape<ContexteBase>[] {
 // Coffre OpenBao (KV v2 monté sur technique/) : le jeton du rôle « provisionneur » écrit les secrets d'un client, sans jamais les relire. Aucun corps de réponse n'est repris dans une erreur.
 const CHEMIN_SECRET = /^technique\/donnees\/(cli_[0-9a-f]{12}\/(?:proprietaire|app|lecture))$/;
 export function coffreOpenBao(o: { url: string; jeton: string; fetch?: typeof fetch }): Coffre {
-  const appeler = async (methode: string, partie: "data" | "metadata", chemin: string, corps?: unknown) => {
+  const appeler = (methode: string, partie: "data" | "metadata", chemin: string, corps?: unknown): Promise<Response> => {
     const reste = CHEMIN_SECRET.exec(chemin)?.[1];
     if (!reste) throw new ErreurEtape("chemin_refuse");
-    try {
-      return await (o.fetch ?? fetch)(`${o.url}/v1/technique/${partie}/donnees/${reste}`, {
-        method: methode,
-        headers: { "X-Vault-Token": o.jeton, "Content-Type": "application/json" },
-        ...(corps === undefined ? {} : { body: JSON.stringify(corps) }),
-        redirect: "error",
-        signal: AbortSignal.timeout(5000),
-      });
-    } catch {
-      throw new ErreurEtape("coffre_indisponible");
-    }
+    return (o.fetch ?? fetch)(`${o.url}/v1/technique/${partie}/donnees/${reste}`, {
+      method: methode,
+      headers: { "X-Vault-Token": o.jeton, "Content-Type": "application/json" },
+      ...(corps === undefined ? {} : { body: JSON.stringify(corps) }),
+      redirect: "error",
+      signal: AbortSignal.timeout(5000),
+    }).catch(() => { throw new ErreurEtape("coffre_indisponible"); });
   };
   return {
     async ranger(chemin, valeur) {

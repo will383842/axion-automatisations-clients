@@ -131,6 +131,13 @@ describe("quotas : période = date anniversaire de l'abonnement", () => {
     expect(envoyees).toHaveLength(1);
   });
 
+  it("[A-247] si liberer lève aussi, l'erreur d'origine de l'envoi est relancée (et non celle de liberer)", async () => {
+    const { p } = ports();
+    p.envoyer = async () => { throw new Error("panne envoi"); };
+    p.liberer = async () => { throw new Error("panne liberer"); };
+    await expect(alerter(p, T, mesures(800), QUOTAS)).rejects.toThrow("panne envoi");
+  });
+
   it("[A-247] si l'envoi échoue, la réservation est libérée (et l'erreur remonte)", async () => {
     const { p, appels } = ports();
     p.envoyer = async () => { throw new Error("panne"); };

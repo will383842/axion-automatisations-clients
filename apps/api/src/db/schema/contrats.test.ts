@@ -44,7 +44,7 @@ describe("contrats, devis, factures, apporteurs : schéma et migration 0009", ()
   it("[A-133] @argent deux factures d'abonnement pour la même période sont refusées ; un avoir passe (index partiel sur la nature abonnement)", () => {
     expect(natureFacture.enumValues).toEqual(["abonnement", "mise_en_place", "complement_prorata", "avoir"]);
     expect(colonnes(factures)).toEqual(expect.arrayContaining(["numero", "hub_id", "nature", "plan", "periode_debut", "periode_fin", "montant_ht_centimes", "statut", "pdf_ref", "empreinte_sha256"]));
-    expect(migration).toContain(`CREATE UNIQUE INDEX "factures_abonnement_periode_unique" ON "factures" USING btree ("tenant_id","plan","periode_debut") WHERE "factures"."nature" = 'abonnement' AND "factures"."statut" <> 'annulee'`);
+    expect(migration).toContain(`CREATE UNIQUE INDEX "factures_abonnement_periode_unique" ON "factures" USING btree ("tenant_id","instance_id","plan","periode_debut") WHERE "factures"."nature" = 'abonnement' AND "factures"."statut" <> 'annulee'`);
   });
 
   it("[A-133] @argent une seconde facture de mise en place pour la même automatisation est refusée", () => {
@@ -52,10 +52,30 @@ describe("contrats, devis, factures, apporteurs : schéma et migration 0009", ()
   });
 
   it("[A-133] @argent la console ne corrige jamais une facture : seul le statut est modifiable, ni montant, ni numéro, ni PDF", () => {
-    expect(droits("factures").join()).toBe('SELECT, INSERT,UPDATE ("statut", "auteur")');
+    expect(droits("factures").join()).toBe('SELECT, INSERT,UPDATE ("statut", "statut_par")');
     expect(droits("devis").join()).toMatch(/^SELECT, INSERT,UPDATE \("statut"/);
     expect(migration).not.toMatch(/GRANT UPDATE[^;]*(montant_ht_centimes|numero|pdf_ref)/);
     expect(migration).toContain(`"factures"."montant_ht_centimes" BETWEEN 0 AND 9007199254740991`);
+    // L'auteur est figé à la création : jamais dans le GRANT UPDATE ; l'auteur du statut est statut_par.
+    expect(migration).not.toMatch(/GRANT UPDATE[^;]*"auteur"/);
+    expect(colonnes(factures)).toContain("statut_par");
+  });
+
+  it("[A-133] @argent la TVA est toujours ajoutée, de 1 à 2000 points, calculée en numeric ; l'instance entre dans la clé d'abonnement et est exigée", () => {
+    expect(migration).toContain(`CHECK ("factures"."taux_tva_points_de_base" BETWEEN 1 AND 2000)`);
+    expect(migration).toContain(`floor(("factures"."montant_ht_centimes"::numeric * "factures"."taux_tva_points_de_base" + 5000) / 10000)`);
+    expect(migration).toContain(`CHECK ("factures"."nature" NOT IN ('abonnement', 'complement_prorata') OR "factures"."instance_id" IS NOT NULL)`);
+    expect(migration).toContain(`CHECK ("factures"."facture_origine_id" IS DISTINCT FROM "factures"."id")`);
+  });
+
+  it("[A-133] @argent chaque table à transitions a un déclencheur BEFORE UPDATE (course en lecture validée), sans droit pour PUBLIC et avec un chemin de recherche fixé", () => {
+    for (const [declencheur, table, fonction] of [["factures_transition", "factures", "factures_garder_transition"], ["contrats_revocation", "contrats", "contrats_garder_revocation"], ["devis_transition", "devis", "devis_garder_transition"]] as const) {
+      expect(migration, declencheur).toContain(`CREATE TRIGGER ${declencheur} BEFORE UPDATE ON "public"."${table}" FOR EACH ROW EXECUTE FUNCTION public.${fonction}()`);
+    }
+    for (const f of ["factures_garder_transition", "factures_verifier_origine", "contrats_garder_revocation", "devis_garder_transition", "instances_exiger_sous_traitance", "echeances_verifier_facture"]) {
+      expect(migration, f).toMatch(new RegExp(`CREATE FUNCTION public\\.${f}\\(\\) RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS`));
+      expect(migration, f).toContain(`REVOKE ALL ON FUNCTION public.${f}() FROM PUBLIC`);
+    }
   });
 
   it("[A-147] la table des apporteurs garde l'identifiant axion-ia, le taux en points de base et la date de lecture, sans écriture par console_app", () => {

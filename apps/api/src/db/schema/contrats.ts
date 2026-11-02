@@ -3,7 +3,7 @@ import { sql } from "drizzle-orm";
 import { tableClient } from "./aides.ts";
 import { instances, organisations } from "./clients.ts";
 
-// Contrats, devis, factures et apporteurs (C5, lot 2, ADR 0053). Copie des faits du Hub : console_app écrit ces copies (insertion, puis statut seul) sous un appelant nommé ;
+// Contrats, devis, factures et apporteurs (C5, lot 2, ADR 0053). Copie des faits du Hub : console_app écrit ces copies (insertion, puis statut seul et son auteur) sous un appelant nommé ;
 // elle n'invente ni ne corrige jamais un montant, un numéro ni un PDF.
 // Vocabulaires provisoires : une valeur s'ajoute plus tard (additif), jamais ne se renomme.
 export const typeContrat = pgEnum("type_contrat", ["contrat_service", "sous_traitance_art28", "bon_de_commande", "autre"]);
@@ -100,8 +100,10 @@ export const factures = tableClient(
     pdfRef: text("pdf_ref").notNull(),
     empreinteSha256: text("empreinte_sha256").notNull(),
     creeLe: timestamp("cree_le", { withTimezone: true }).notNull().defaultNow(),
-    // Qui a écrit la ligne : l'appelant (modifiable avec le statut), jamais un repli sur « systeme ».
+    // Qui a créé la ligne : l'appelant, figé à la création (absent du GRANT UPDATE), jamais un repli sur « systeme ».
     auteur: text("auteur").notNull(),
+    // Qui a changé le statut : l'appelant, posé avec le statut (NULL tant que la facture est émise).
+    statutPar: text("statut_par"),
   },
   {
     contraintes: (t) => [
@@ -111,18 +113,23 @@ export const factures = tableClient(
       unique("factures_tenant_id_numero_unique").on(t["tenantId"] as never, t["numero"] as never),
       unique("factures_tenant_id_hub_id_unique").on(t["tenantId"] as never, t["hubId"] as never),
       // Abonnement : une facture active par client, plan et début de période ; une facture annulée (puis son avoir) libère la période pour la facture rectifiée.
-      uniqueIndex("factures_abonnement_periode_unique").on(t["tenantId"] as never, t["plan"] as never, t["periodeDebut"] as never).where(sql`${t["nature"]} = 'abonnement' AND ${t["statut"]} <> 'annulee'`),
+      // Un client peut avoir plusieurs instances du même plan : l'instance fait partie de la clé.
+      uniqueIndex("factures_abonnement_periode_unique").on(t["tenantId"] as never, t["instanceId"] as never, t["plan"] as never, t["periodeDebut"] as never).where(sql`${t["nature"]} = 'abonnement' AND ${t["statut"]} <> 'annulee'`),
       // Mise en place : une facture active par client et par automatisation.
       uniqueIndex("factures_mise_en_place_unique").on(t["tenantId"] as never, t["codeAutomatisation"] as never).where(sql`${t["nature"]} = 'mise_en_place' AND ${t["statut"]} <> 'annulee'`),
       check("factures_pdf_ref_format", sql`${t["pdfRef"]} ~ '${sql.raw(REF_OBJET)}'`),
       check("factures_empreinte_format", sql`${t["empreinteSha256"]} ~ '${sql.raw(HEX64)}'`),
       check("factures_auteur_non_vide", sql`length(btrim(${t["auteur"]})) > 0`),
       check("factures_montants_bornes", sql`${t["montantHtCentimes"]} BETWEEN 0 AND ${sql.raw(MAX_ENTIER)} AND ${t["montantTvaCentimes"]} BETWEEN 0 AND ${sql.raw(MAX_ENTIER)} AND ${t["montantTtcCentimes"]} BETWEEN 0 AND ${sql.raw(MAX_ENTIER)}`),
-      check("factures_taux_tva_positif", sql`${t["tauxTvaPointsDeBase"]} > 0`),
+      check("factures_statut_par_non_vide", sql`${t["statutPar"]} IS NULL OR length(btrim(${t["statutPar"]})) > 0`),
+      // 1 à 2000 points de base (0,01 % à 20 %) : jamais d'exonération, jamais de taux au-dessus du taux normal.
+      check("factures_taux_tva_borne", sql`${t["tauxTvaPointsDeBase"]} BETWEEN 1 AND 2000`),
       check("factures_ttc_coherent", sql`${t["montantTtcCentimes"]} = ${t["montantHtCentimes"]} + ${t["montantTvaCentimes"]}`),
-      // Arrondi au centime le plus proche, moitié vers le haut (division entière sur des montants positifs).
-      check("factures_tva_arrondie", sql`${t["montantTvaCentimes"]} = (${t["montantHtCentimes"]} * ${t["tauxTvaPointsDeBase"]} + 5000) / 10000`),
+      // Arrondi au centime le plus proche, moitié vers le haut. Calcul en numeric : aucun dépassement d'entier long (22003) près de 2^53. La formule suppose des montants >= 0 (borne ci-dessus).
+      check("factures_tva_arrondie", sql`${t["montantTvaCentimes"]} = floor((${t["montantHtCentimes"]}::numeric * ${t["tauxTvaPointsDeBase"]} + 5000) / 10000)`),
       check("factures_avoir_origine", sql`(${t["nature"]} = 'avoir') = (${t["factureOrigineId"]} IS NOT NULL)`),
+      check("factures_avoir_pas_lui_meme", sql`${t["factureOrigineId"]} IS DISTINCT FROM ${t["id"]}`),
+      check("factures_instance_requise", sql`${t["nature"]} NOT IN ('abonnement', 'complement_prorata') OR ${t["instanceId"]} IS NOT NULL`),
       check("factures_plan_non_vide", sql`length(btrim(${t["plan"]})) > 0`),
       check("factures_code_non_vide", sql`length(btrim(${t["codeAutomatisation"]})) > 0`),
       check("factures_periode_ordonnee", sql`${t["periodeFin"]} >= ${t["periodeDebut"]}`),

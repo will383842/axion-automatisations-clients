@@ -19,7 +19,11 @@
     {"fichier":"0007_catalogue.sql","nom":"audit_ecrire_equipe","empreinte":"01c5e0e0d0f65c9d7ad95b2ddfe41d010f90c585e27f3e52fb69fc6452c80c4c","adr":"0051"},
     {"fichier":"0007_catalogue.sql","nom":"audit_ecrire","empreinte":"88ffea9241cb62ea045a31bd83137860123fc69e501c41bb9833bfd07e64edf0","adr":"0051"},
     {"fichier":"0007_catalogue.sql","nom":"instances_garde","empreinte":"904c932e8995b010a06c08dce3aae90944163040926a2b87f6640bceb7e41704","adr":"0051"},
-    {"fichier":"0009_contrats.sql","nom":"instances_exiger_sous_traitance","empreinte":"b5d50144ca233b39fec80652f71a694c62d140fa0c908944bb401c9e7ec9b28b","adr":"0053"},
-    {"fichier":"0009_contrats.sql","nom":"echeances_verifier_facture","empreinte":"2a04b28cca8433d084567047fca1ba3a1ac41f44035ef751986ff11c84c10a06","adr":"0053"}
+    {"fichier":"0009_contrats.sql","nom":"instances_exiger_sous_traitance","empreinte":"21469c5354b8b64437a8fd5a9cc52986f0910e58d1ddd0a33d85882563602972","adr":"0053"},
+    {"fichier":"0009_contrats.sql","nom":"echeances_verifier_facture","empreinte":"e269d06ca33f0c71c3132cc3c0310843707c903b2a70c64369549433ffd26ec3","adr":"0053"},
+    {"fichier":"0009_contrats.sql","nom":"contrats_garder_revocation","empreinte":"d6b29c2542f93394d6b3ffcfc0e21b976de9b41c9070071998718fc6c70b56f5","adr":"0053"},
+    {"fichier":"0009_contrats.sql","nom":"devis_garder_transition","empreinte":"15e6e96bfe3a57c1d9f0f6f59ab2bc1e4e4445cfd0f31c97e2fe769e10c75308","adr":"0053"},
+    {"fichier":"0009_contrats.sql","nom":"factures_garder_transition","empreinte":"e6464fe53a948bc45824a2d73018034e555b5b50b33ad5f5dff7dd6e7e08e915","adr":"0053"},
+    {"fichier":"0009_contrats.sql","nom":"factures_verifier_origine","empreinte":"44c405503d72f22f28415ed5e8f5ce2abd28551d810d46b56a77d073c11c30d3","adr":"0053"}
   ]
 }

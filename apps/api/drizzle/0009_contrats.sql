@@ -86,6 +86,7 @@ CREATE TABLE "factures" (
 	"empreinte_sha256" text NOT NULL,
 	"cree_le" timestamp with time zone DEFAULT now() NOT NULL,
 	"auteur" text NOT NULL,
+	"statut_par" text,
 	CONSTRAINT "factures_tenant_id_id_pk" PRIMARY KEY("tenant_id","id"),
 	CONSTRAINT "factures_tenant_id_id_unique" UNIQUE("tenant_id","id"),
 	CONSTRAINT "factures_tenant_id_numero_unique" UNIQUE("tenant_id","numero"),
@@ -94,10 +95,13 @@ CREATE TABLE "factures" (
 	CONSTRAINT "factures_empreinte_format" CHECK ("factures"."empreinte_sha256" ~ '^[0-9a-f]{64}$'),
 	CONSTRAINT "factures_auteur_non_vide" CHECK (length(btrim("factures"."auteur")) > 0),
 	CONSTRAINT "factures_montants_bornes" CHECK ("factures"."montant_ht_centimes" BETWEEN 0 AND 9007199254740991 AND "factures"."montant_tva_centimes" BETWEEN 0 AND 9007199254740991 AND "factures"."montant_ttc_centimes" BETWEEN 0 AND 9007199254740991),
-	CONSTRAINT "factures_taux_tva_positif" CHECK ("factures"."taux_tva_points_de_base" > 0),
+	CONSTRAINT "factures_statut_par_non_vide" CHECK ("factures"."statut_par" IS NULL OR length(btrim("factures"."statut_par")) > 0),
+	CONSTRAINT "factures_taux_tva_borne" CHECK ("factures"."taux_tva_points_de_base" BETWEEN 1 AND 2000),
 	CONSTRAINT "factures_ttc_coherent" CHECK ("factures"."montant_ttc_centimes" = "factures"."montant_ht_centimes" + "factures"."montant_tva_centimes"),
-	CONSTRAINT "factures_tva_arrondie" CHECK ("factures"."montant_tva_centimes" = ("factures"."montant_ht_centimes" * "factures"."taux_tva_points_de_base" + 5000) / 10000),
+	CONSTRAINT "factures_tva_arrondie" CHECK ("factures"."montant_tva_centimes" = floor(("factures"."montant_ht_centimes"::numeric * "factures"."taux_tva_points_de_base" + 5000) / 10000)),
 	CONSTRAINT "factures_avoir_origine" CHECK (("factures"."nature" = 'avoir') = ("factures"."facture_origine_id" IS NOT NULL)),
+	CONSTRAINT "factures_avoir_pas_lui_meme" CHECK ("factures"."facture_origine_id" IS DISTINCT FROM "factures"."id"),
+	CONSTRAINT "factures_instance_requise" CHECK ("factures"."nature" NOT IN ('abonnement', 'complement_prorata') OR "factures"."instance_id" IS NOT NULL),
 	CONSTRAINT "factures_plan_non_vide" CHECK (length(btrim("factures"."plan")) > 0),
 	CONSTRAINT "factures_code_non_vide" CHECK (length(btrim("factures"."code_automatisation")) > 0),
 	CONSTRAINT "factures_periode_ordonnee" CHECK ("factures"."periode_fin" >= "factures"."periode_debut"),
@@ -114,13 +118,14 @@ CREATE INDEX "apporteurs_clients_tenant_id_idx" ON "apporteurs_clients" USING bt
 CREATE INDEX "contrats_tenant_id_idx" ON "contrats" USING btree ("tenant_id");--> statement-breakpoint
 CREATE INDEX "devis_tenant_id_idx" ON "devis" USING btree ("tenant_id");--> statement-breakpoint
 CREATE INDEX "factures_tenant_id_idx" ON "factures" USING btree ("tenant_id");--> statement-breakpoint
-CREATE UNIQUE INDEX "factures_abonnement_periode_unique" ON "factures" USING btree ("tenant_id","plan","periode_debut") WHERE "factures"."nature" = 'abonnement' AND "factures"."statut" <> 'annulee';--> statement-breakpoint
+CREATE UNIQUE INDEX "factures_abonnement_periode_unique" ON "factures" USING btree ("tenant_id","instance_id","plan","periode_debut") WHERE "factures"."nature" = 'abonnement' AND "factures"."statut" <> 'annulee';--> statement-breakpoint
 CREATE UNIQUE INDEX "factures_mise_en_place_unique" ON "factures" USING btree ("tenant_id","code_automatisation") WHERE "factures"."nature" = 'mise_en_place' AND "factures"."statut" <> 'annulee';--> statement-breakpoint
 ALTER TABLE "echeances" ADD CONSTRAINT "echeances_facture_fk" FOREIGN KEY ("tenant_id","facture_id") REFERENCES "public"."factures"("tenant_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 CREATE UNIQUE INDEX "echeances_facture_unique" ON "echeances" USING btree ("tenant_id","facture_id") WHERE "echeances"."facture_id" IS NOT NULL;--> statement-breakpoint
 -- Isolation, droits et audit (modèle de ops/socle/postgres/modele-politique-rls.sql). Aucun DELETE, aucun TRUNCATE. ADR 0053.
--- Contrat signé : ajout seul, sauf sa révocation (une fois, irréversible). Devis et facture : console_app écrit les COPIES des faits du Hub, sous un appelant nommé (auteur) ; seuls le statut (et l'annulation du devis) changent.
+-- Contrat signé : ajout seul, sauf sa révocation (une fois, irréversible). Devis et facture : console_app écrit les COPIES des faits du Hub, sous un appelant nommé (auteur, figé à la création) ; seuls le statut (et son auteur, statut_par), l'envoi et l'annulation du devis changent.
 -- Apporteurs : lecture seule, l'écriture vient de la synchronisation (T2-15). Les transitions sont des politiques RESTRICTIVE dont le contrôle de l'ancienne ligne est dans WITH CHECK (sous-requête sur l'état avant écriture) : un refus lève 42501, jamais « 0 ligne » en silence.
+-- Une politique lit l'état d'AVANT dans une sous-requête sur l'instantané de l'instruction : en lecture validée (READ COMMITTED), une écriture concurrente la contourne. Chaque table à transitions a donc en plus un déclencheur BEFORE UPDATE qui compare OLD (la version verrouillée, relue après l'attente du verrou) et NEW et lève 42501.
 ALTER TABLE "public"."contrats" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
 ALTER TABLE "public"."contrats" FORCE ROW LEVEL SECURITY;--> statement-breakpoint
 CREATE POLICY isolation_client ON "public"."contrats" FOR ALL TO console_app USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid) WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid);--> statement-breakpoint
@@ -132,6 +137,17 @@ CREATE POLICY auteur_insertion ON "public"."contrats" AS RESTRICTIVE FOR INSERT 
 CREATE POLICY auteur_modification ON "public"."contrats" AS RESTRICTIVE FOR UPDATE TO console_app USING (true) WITH CHECK (revoque_le IS NOT NULL AND revoque_par = NULLIF(current_setting('app.acteur', true), ''));--> statement-breakpoint
 CREATE POLICY revocation_unique ON "public"."contrats" AS RESTRICTIVE FOR UPDATE TO console_app USING (true) WITH CHECK (NOT EXISTS (SELECT 1 FROM public.contrats a WHERE a.tenant_id = contrats.tenant_id AND a.id = contrats.id AND a.revoque_le IS NOT NULL));--> statement-breakpoint
 GRANT SELECT ON TABLE "public"."contrats" TO console_equipe;--> statement-breakpoint
+-- Révocation : NULL vers valeur seulement, jamais réécrite (ni la date ni l'auteur), même sous écriture concurrente (OLD = version verrouillée). Droits de l'appelant, chemin de recherche fixé.
+CREATE FUNCTION public.contrats_garder_revocation() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$
+BEGIN
+  IF OLD.revoque_le IS NOT NULL OR OLD.revoque_par IS NOT NULL OR NEW.revoque_le IS NULL OR NEW.revoque_par IS NULL THEN
+    RAISE EXCEPTION 'transition_interdite' USING ERRCODE = '42501', DETAIL = 'contrats';
+  END IF;
+  RETURN NEW;
+END;
+$$;--> statement-breakpoint
+REVOKE ALL ON FUNCTION public.contrats_garder_revocation() FROM PUBLIC;--> statement-breakpoint
+CREATE TRIGGER contrats_revocation BEFORE UPDATE ON "public"."contrats" FOR EACH ROW EXECUTE FUNCTION public.contrats_garder_revocation();--> statement-breakpoint
 CREATE TRIGGER contrats_audit AFTER INSERT OR UPDATE OR DELETE ON "public"."contrats" FOR EACH ROW EXECUTE FUNCTION public.audit_ecrire();--> statement-breakpoint
 ALTER TABLE "public"."devis" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
 ALTER TABLE "public"."devis" FORCE ROW LEVEL SECURITY;--> statement-breakpoint
@@ -139,11 +155,30 @@ CREATE POLICY isolation_client ON "public"."devis" FOR ALL TO console_app USING 
 CREATE POLICY lecture_equipe ON "public"."devis" FOR SELECT TO console_equipe USING (tenant_id IS NOT NULL);--> statement-breakpoint
 REVOKE ALL ON TABLE "public"."devis" FROM PUBLIC;--> statement-breakpoint
 GRANT SELECT, INSERT ON TABLE "public"."devis" TO console_app;--> statement-breakpoint
-GRANT UPDATE ("statut", "motif_annulation", "annule_le", "annule_par") ON TABLE "public"."devis" TO console_app;--> statement-breakpoint
+GRANT UPDATE ("statut", "date_envoi", "motif_annulation", "annule_le", "annule_par") ON TABLE "public"."devis" TO console_app;--> statement-breakpoint
 GRANT SELECT ON TABLE "public"."devis" TO console_equipe;--> statement-breakpoint
-CREATE POLICY creation_devis ON "public"."devis" AS RESTRICTIVE FOR INSERT TO console_app WITH CHECK (statut = 'brouillon');--> statement-breakpoint
+CREATE POLICY creation_devis ON "public"."devis" AS RESTRICTIVE FOR INSERT TO console_app WITH CHECK (statut = 'brouillon' AND date_envoi IS NULL);--> statement-breakpoint
+CREATE POLICY appelant_insertion ON "public"."devis" AS RESTRICTIVE FOR INSERT TO console_app WITH CHECK (NULLIF(current_setting('app.acteur', true), '') IS NOT NULL);--> statement-breakpoint
+CREATE POLICY appelant_modification ON "public"."devis" AS RESTRICTIVE FOR UPDATE TO console_app USING (true) WITH CHECK (NULLIF(current_setting('app.acteur', true), '') IS NOT NULL);--> statement-breakpoint
+CREATE POLICY brouillon_sans_envoi ON "public"."devis" AS RESTRICTIVE FOR UPDATE TO console_app USING (true) WITH CHECK (statut <> 'brouillon' OR date_envoi IS NULL);--> statement-breakpoint
 CREATE POLICY annulation_par_appelant ON "public"."devis" AS RESTRICTIVE FOR UPDATE TO console_app USING (true) WITH CHECK (statut <> 'annule' OR annule_par = NULLIF(current_setting('app.acteur', true), ''));--> statement-breakpoint
 CREATE POLICY annule_definitif ON "public"."devis" AS RESTRICTIVE FOR UPDATE TO console_app USING (true) WITH CHECK (NOT EXISTS (SELECT 1 FROM public.devis a WHERE a.tenant_id = devis.tenant_id AND a.id = devis.id AND a.statut = 'annule'));--> statement-breakpoint
+-- Transitions : brouillon vers envoye ou annule ; envoye vers accepte, refuse, expire ou annule ; accepte, refuse, expire et annule sont définitifs. date_envoi : NULL vers valeur, avec le passage de brouillon à envoye, jamais réécrite.
+CREATE FUNCTION public.devis_garder_transition() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$
+BEGIN
+  IF NOT ((OLD.statut = 'brouillon' AND NEW.statut IN ('envoye', 'annule'))
+       OR (OLD.statut = 'envoye' AND NEW.statut IN ('accepte', 'refuse', 'expire', 'annule'))) THEN
+    RAISE EXCEPTION 'transition_interdite' USING ERRCODE = '42501', DETAIL = 'devis';
+  END IF;
+  IF NEW.date_envoi IS DISTINCT FROM OLD.date_envoi
+     AND NOT (OLD.date_envoi IS NULL AND NEW.date_envoi IS NOT NULL AND OLD.statut = 'brouillon' AND NEW.statut = 'envoye') THEN
+    RAISE EXCEPTION 'transition_interdite' USING ERRCODE = '42501', DETAIL = 'devis';
+  END IF;
+  RETURN NEW;
+END;
+$$;--> statement-breakpoint
+REVOKE ALL ON FUNCTION public.devis_garder_transition() FROM PUBLIC;--> statement-breakpoint
+CREATE TRIGGER devis_transition BEFORE UPDATE ON "public"."devis" FOR EACH ROW EXECUTE FUNCTION public.devis_garder_transition();--> statement-breakpoint
 CREATE TRIGGER devis_audit AFTER INSERT OR UPDATE OR DELETE ON "public"."devis" FOR EACH ROW EXECUTE FUNCTION public.audit_ecrire();--> statement-breakpoint
 ALTER TABLE "public"."factures" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
 ALTER TABLE "public"."factures" FORCE ROW LEVEL SECURITY;--> statement-breakpoint
@@ -151,12 +186,42 @@ CREATE POLICY isolation_client ON "public"."factures" FOR ALL TO console_app USI
 CREATE POLICY lecture_equipe ON "public"."factures" FOR SELECT TO console_equipe USING (tenant_id IS NOT NULL);--> statement-breakpoint
 REVOKE ALL ON TABLE "public"."factures" FROM PUBLIC;--> statement-breakpoint
 GRANT SELECT, INSERT ON TABLE "public"."factures" TO console_app;--> statement-breakpoint
-GRANT UPDATE ("statut", "auteur") ON TABLE "public"."factures" TO console_app;--> statement-breakpoint
-CREATE POLICY auteur_insertion ON "public"."factures" AS RESTRICTIVE FOR INSERT TO console_app WITH CHECK (auteur = NULLIF(current_setting('app.acteur', true), ''));--> statement-breakpoint
-CREATE POLICY auteur_modification ON "public"."factures" AS RESTRICTIVE FOR UPDATE TO console_app USING (true) WITH CHECK (auteur = NULLIF(current_setting('app.acteur', true), ''));--> statement-breakpoint
+GRANT UPDATE ("statut", "statut_par") ON TABLE "public"."factures" TO console_app;--> statement-breakpoint
+CREATE POLICY auteur_insertion ON "public"."factures" AS RESTRICTIVE FOR INSERT TO console_app WITH CHECK (auteur = NULLIF(current_setting('app.acteur', true), '') AND statut_par IS NULL);--> statement-breakpoint
+CREATE POLICY statut_par_modification ON "public"."factures" AS RESTRICTIVE FOR UPDATE TO console_app USING (true) WITH CHECK (statut_par = NULLIF(current_setting('app.acteur', true), ''));--> statement-breakpoint
 CREATE POLICY creation_facture ON "public"."factures" AS RESTRICTIVE FOR INSERT TO console_app WITH CHECK (statut = 'emise');--> statement-breakpoint
 CREATE POLICY transitions_facture ON "public"."factures" AS RESTRICTIVE FOR UPDATE TO console_app USING (true) WITH CHECK (statut IN ('payee', 'impayee', 'annulee') AND EXISTS (SELECT 1 FROM public.factures a WHERE a.tenant_id = factures.tenant_id AND a.id = factures.id AND a.statut IN ('emise', 'impayee')));--> statement-breakpoint
 GRANT SELECT ON TABLE "public"."factures" TO console_equipe;--> statement-breakpoint
+-- Transitions : emise vers payee, impayee ou annulee ; impayee vers payee ou annulee ; payee et annulee définitives. Une facture ne passe à annulee que si son avoir (nature avoir, facture_origine_id = id) existe déjà.
+CREATE FUNCTION public.factures_garder_transition() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$
+BEGIN
+  IF NOT ((OLD.statut = 'emise' AND NEW.statut IN ('payee', 'impayee', 'annulee'))
+       OR (OLD.statut = 'impayee' AND NEW.statut IN ('payee', 'annulee'))) THEN
+    RAISE EXCEPTION 'transition_interdite' USING ERRCODE = '42501', DETAIL = 'factures';
+  END IF;
+  IF NEW.statut = 'annulee' AND NOT EXISTS (
+    SELECT 1 FROM public.factures a WHERE a.tenant_id = OLD.tenant_id AND a.nature = 'avoir' AND a.facture_origine_id = OLD.id
+  ) THEN
+    RAISE EXCEPTION 'transition_interdite' USING ERRCODE = '42501', DETAIL = 'factures';
+  END IF;
+  RETURN NEW;
+END;
+$$;--> statement-breakpoint
+REVOKE ALL ON FUNCTION public.factures_garder_transition() FROM PUBLIC;--> statement-breakpoint
+CREATE TRIGGER factures_transition BEFORE UPDATE ON "public"."factures" FOR EACH ROW EXECUTE FUNCTION public.factures_garder_transition();--> statement-breakpoint
+-- Origine d'un avoir : jamais un autre avoir (un avoir qui ne renvoie pas à une facture ne corrige rien). Origine introuvable ou d'un autre client : la clé étrangère la refuse.
+CREATE FUNCTION public.factures_verifier_origine() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$
+BEGIN
+  IF NEW.facture_origine_id IS NOT NULL AND EXISTS (
+    SELECT 1 FROM public.factures o WHERE o.tenant_id = NEW.tenant_id AND o.id = NEW.facture_origine_id AND o.nature = 'avoir'
+  ) THEN
+    RAISE EXCEPTION 'regle_metier' USING ERRCODE = 'P0001', DETAIL = 'origine_avoir';
+  END IF;
+  RETURN NEW;
+END;
+$$;--> statement-breakpoint
+REVOKE ALL ON FUNCTION public.factures_verifier_origine() FROM PUBLIC;--> statement-breakpoint
+CREATE TRIGGER factures_origine BEFORE INSERT ON "public"."factures" FOR EACH ROW EXECUTE FUNCTION public.factures_verifier_origine();--> statement-breakpoint
 CREATE TRIGGER factures_audit AFTER INSERT OR UPDATE OR DELETE ON "public"."factures" FOR EACH ROW EXECUTE FUNCTION public.audit_ecrire();--> statement-breakpoint
 ALTER TABLE "public"."apporteurs_clients" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
 ALTER TABLE "public"."apporteurs_clients" FORCE ROW LEVEL SECURITY;--> statement-breakpoint
@@ -166,12 +231,12 @@ REVOKE ALL ON TABLE "public"."apporteurs_clients" FROM PUBLIC;--> statement-brea
 GRANT SELECT ON TABLE "public"."apporteurs_clients" TO console_app;--> statement-breakpoint
 GRANT SELECT ON TABLE "public"."apporteurs_clients" TO console_equipe;--> statement-breakpoint
 CREATE TRIGGER apporteurs_clients_audit AFTER INSERT OR UPDATE OR DELETE ON "public"."apporteurs_clients" FOR EACH ROW EXECUTE FUNCTION public.audit_ecrire();--> statement-breakpoint
--- Activation : une instance ne passe à « active » (insertion comprise) que si l'organisation a un contrat de sous-traitance signé et non révoqué. Droits de l'appelant (pas SECURITY DEFINER) :
+-- Activation : une instance ne passe à « active » (insertion comprise, ou changement d'organisation d'une instance active) que si l'organisation a un contrat de sous-traitance signé et non révoqué. Droits de l'appelant (pas SECURITY DEFINER) :
 -- la lecture des contrats suit l'isolation par client, le contrat d'un autre client est invisible. Erreur P0001, message regle_metier, motif sous_traitance_absente.
 -- Chemin de recherche fixé et vide de public (tout est qualifié) ; aucun droit d'exécution pour PUBLIC.
 CREATE FUNCTION public.instances_exiger_sous_traitance() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
-  IF NEW.etat = 'active' AND (TG_OP = 'INSERT' OR OLD.etat IS DISTINCT FROM 'active') THEN
+  IF NEW.etat = 'active' AND (TG_OP = 'INSERT' OR OLD.etat IS DISTINCT FROM 'active' OR OLD.organisation_id IS DISTINCT FROM NEW.organisation_id) THEN
     IF NOT EXISTS (
       SELECT 1 FROM public.contrats c
       WHERE c.tenant_id = NEW.tenant_id AND c.organisation_id = NEW.organisation_id
@@ -184,18 +249,21 @@ BEGIN
 END;
 $$;--> statement-breakpoint
 REVOKE ALL ON FUNCTION public.instances_exiger_sous_traitance() FROM PUBLIC;--> statement-breakpoint
-CREATE TRIGGER instances_sous_traitance BEFORE INSERT OR UPDATE OF etat ON "public"."instances" FOR EACH ROW EXECUTE FUNCTION public.instances_exiger_sous_traitance();--> statement-breakpoint
+CREATE TRIGGER instances_sous_traitance BEFORE INSERT OR UPDATE OF etat, organisation_id ON "public"."instances" FOR EACH ROW EXECUTE FUNCTION public.instances_exiger_sous_traitance();--> statement-breakpoint
 -- Facture d'une échéance : la clé étrangère composée et l'unicité partielle (une échéance par facture) sont ci-dessus (déclarées dans schema/commercial.ts).
--- Le déclencheur vérifie ce qu'une clé ne dit pas : même organisation que la facture, période de l'échéance (fin exclue) incluse dans celle de la facture (fin incluse).
--- Facture introuvable (ou d'un autre client, invisible) : la clé étrangère la refuse. Droits de l'appelant, chemin de recherche fixé.
+-- Le déclencheur vérifie ce qu'une clé ne dit pas : facture trouvée (introuvable ou d'un autre client, invisible : refusée ici, avant la clé étrangère), d'abonnement ou de complément de prorata
+-- (ni avoir ni mise en place), non annulée, de la même organisation, avec la période de l'échéance (fin exclue) incluse dans celle de la facture (fin incluse). Droits de l'appelant, chemin de recherche fixé.
 CREATE FUNCTION public.echeances_verifier_facture() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$
 DECLARE
   v record;
 BEGIN
-  SELECT f.organisation_id, f.periode_debut, f.periode_fin INTO v
+  SELECT f.organisation_id, f.periode_debut, f.periode_fin, f.nature, f.statut INTO v
   FROM public.factures f WHERE f.tenant_id = NEW.tenant_id AND f.id = NEW.facture_id;
   IF NOT FOUND THEN
-    RETURN NEW;
+    RAISE EXCEPTION 'regle_metier' USING ERRCODE = 'P0001', DETAIL = 'facture_incoherente';
+  END IF;
+  IF v.nature NOT IN ('abonnement', 'complement_prorata') OR v.statut = 'annulee' THEN
+    RAISE EXCEPTION 'regle_metier' USING ERRCODE = 'P0001', DETAIL = 'facture_incoherente';
   END IF;
   IF v.organisation_id IS DISTINCT FROM (
        SELECT i.organisation_id FROM public.plans_commerciaux p

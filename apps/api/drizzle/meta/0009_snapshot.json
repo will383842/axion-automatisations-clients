@@ -5785,6 +5785,12 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "statut_par": {
+          "name": "statut_par",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -5808,6 +5814,12 @@
           "columns": [
             {
               "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "instance_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -5954,9 +5966,13 @@
           "name": "factures_montants_bornes",
           "value": "\"factures\".\"montant_ht_centimes\" BETWEEN 0 AND 9007199254740991 AND \"factures\".\"montant_tva_centimes\" BETWEEN 0 AND 9007199254740991 AND \"factures\".\"montant_ttc_centimes\" BETWEEN 0 AND 9007199254740991"
         },
-        "factures_taux_tva_positif": {
-          "name": "factures_taux_tva_positif",
-          "value": "\"factures\".\"taux_tva_points_de_base\" > 0"
+        "factures_statut_par_non_vide": {
+          "name": "factures_statut_par_non_vide",
+          "value": "\"factures\".\"statut_par\" IS NULL OR length(btrim(\"factures\".\"statut_par\")) > 0"
+        },
+        "factures_taux_tva_borne": {
+          "name": "factures_taux_tva_borne",
+          "value": "\"factures\".\"taux_tva_points_de_base\" BETWEEN 1 AND 2000"
         },
         "factures_ttc_coherent": {
           "name": "factures_ttc_coherent",
@@ -5964,11 +5980,19 @@
         },
         "factures_tva_arrondie": {
           "name": "factures_tva_arrondie",
-          "value": "\"factures\".\"montant_tva_centimes\" = (\"factures\".\"montant_ht_centimes\" * \"factures\".\"taux_tva_points_de_base\" + 5000) / 10000"
+          "value": "\"factures\".\"montant_tva_centimes\" = floor((\"factures\".\"montant_ht_centimes\"::numeric * \"factures\".\"taux_tva_points_de_base\" + 5000) / 10000)"
         },
         "factures_avoir_origine": {
           "name": "factures_avoir_origine",
           "value": "(\"factures\".\"nature\" = 'avoir') = (\"factures\".\"facture_origine_id\" IS NOT NULL)"
+        },
+        "factures_avoir_pas_lui_meme": {
+          "name": "factures_avoir_pas_lui_meme",
+          "value": "\"factures\".\"facture_origine_id\" IS DISTINCT FROM \"factures\".\"id\""
+        },
+        "factures_instance_requise": {
+          "name": "factures_instance_requise",
+          "value": "\"factures\".\"nature\" NOT IN ('abonnement', 'complement_prorata') OR \"factures\".\"instance_id\" IS NOT NULL"
         },
         "factures_plan_non_vide": {
           "name": "factures_plan_non_vide",

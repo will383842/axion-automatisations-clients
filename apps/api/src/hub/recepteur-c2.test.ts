@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { randomBytes, randomUUID } from "node:crypto";
 import Fastify from "fastify";
 import { describe, expect, it } from "vitest";
@@ -5,7 +6,7 @@ import { EN_TETES, signer } from "../../../../packages/contrats/src/commun/signa
 import type { CleEchange } from "../coffre/cles-echanges.js";
 import { brancherErreurs } from "../plugins/erreurs.js";
 import { brancherHub } from "../routes/hub.js";
-import { DELAI_TROU_MS, FENETRE_RATTRAPAGE_MS, SEUIL_ALERTE_RATTRAPAGES, decider, intentionRattrapage, verifierTrous, type Depot, type FaitRange, type Rattrapage } from "./recepteur-c2.js";
+import { DELAI_TROU_MS, FENETRE_RATTRAPAGE_MS, SEUIL_ALERTE_RATTRAPAGES, allegerPayload, decider, intentionRattrapage, verifierTrous, type DepsRecepteur, type Depot, type FaitRange, type Rattrapage } from "./recepteur-c2.js";
 
 // Clés de test générées au lancement : jamais écrites. Un secret par sens : le sens console → Hub ne doit jamais être accepté en réception.
 const MAINTENANT = 1_800_000_000;
@@ -89,6 +90,7 @@ function monter(options: { actif?: boolean; clients?: string[] } = {}) {
       depot,
       file: { name: "faits-c2", async add(nom, donnees, opts) { taches.push({ nom, donnees, ...(opts?.jobId ? { jobId: opts.jobId } : {}) }); } },
       rattrapage: { async demander(d) { rattrapages.push(d); } },
+      alerter: () => undefined,
       maintenant: () => MAINTENANT * 1000,
     },
   });
@@ -242,6 +244,38 @@ describe("[C-338] fait perdu côté file : le payload vit en base", () => {
   });
 });
 
+describe("[C-338] [T2-16] liste autorisée de champs", () => {
+  const PIEGES = ["pirate@exemple.fr", "0612345678", "FR7630006000011234567890189", "ftp://serveur.exemple.fr/x", "//hote.exemple.fr/x", "https://documents.exemple.fr/z"];
+  it("[C-338] [T2-16] un fait inconnu portant e-mail, téléphone, IBAN, ftp:// ou //hôte : rien de cela n'est rangé ni mis en file", async () => {
+    const { serveur, depot, taches } = monter();
+    const r = await serveur.inject(poster(facture(1, { event_type: "piece.signee", payload: { email: PIEGES[0], telephone: PIEGES[1], iban: PIEGES[2], ftp: PIEGES[3], relatif: PIEGES[4], lien: PIEGES[5], imbrique: { x: [PIEGES[0]] } } })));
+    expect(r.statusCode).toBe(200);
+    expect(depot.lignes).toHaveLength(1);
+    expect(taches).toHaveLength(1);
+    const tout = JSON.stringify({ lignes: depot.lignes, taches });
+    for (const p of PIEGES) expect(tout).not.toContain(p);
+    expect(depot.lignes[0]?.payload).toBeNull();
+  });
+  it("[C-338] [T2-16] un champ non prévu dans un fait connu n'est pas rangé", () => {
+    expect(allegerPayload("paiement.recu", { numeroFacture: "F1", montantCentimes: 1, dateReception: "2026-10-24", moyen: "virement", iban: PIEGES[2], url: PIEGES[3] })).toEqual({ numeroFacture: "F1", montantCentimes: 1, dateReception: "2026-10-24", moyen: "virement" });
+    expect(allegerPayload("__proto__", { a: 1 })).toBeNull();
+  });
+});
+
+describe("[C-338] [T2-16] alerter obligatoire", () => {
+  it("[C-338] [T2-16] brancherHub refuse de démarrer sans alerter", () => {
+    const sansAlerte = { depot: depotEnMemoire(), file: { name: "f", async add() {} }, rattrapage: { async demander() {} }, maintenant: () => 0 } as unknown as DepsRecepteur;
+    expect(() => brancherHub(Fastify(), { entrant: {} as never, recepteur: sansAlerte })).toThrow(/alerter/);
+  });
+});
+
+describe("[T2-16b] dettes D1 à D3 : le récepteur n'est pas branché", () => {
+  it("[T2-16b] tant que D1 (balayage) n'est pas livrée, serveur.ts ne branche pas le récepteur C2", () => {
+    const source = readFileSync(new URL("../serveur.ts", import.meta.url), "utf8");
+    expect(source).not.toMatch(/brancherHub|routes\/hub|recepteur-c2/);
+  });
+});
+
 describe("[C-338] identifiant console du client", () => {
   it("[C-338] [T2-16] un consoleClientId qui n'est pas un UUID donne 400 sans appel au dépôt", async () => {
     const { serveur, depot, taches } = monter();
@@ -270,8 +304,8 @@ describe("[LOT2-c2] ordre des faits et rattrapage", () => {
     const rattrapage: Rattrapage = { async demander(d) { rattrapages.push(d); } };
     depot.lignes.push({ tenantId: CLIENT, eventId: randomUUID(), type: "facture.emise", sequence: 5, sujet: SUJET, recuLe: il(DELAI_TROU_MS / 1000 + 1), traite: false });
     depot.lignes.push({ tenantId: CLIENT, eventId: randomUUID(), type: "facture.emise", sequence: 3, sujet: SUJET, recuLe: il(1), traite: true });
-    await verifierTrous({ depot, rattrapage }, CLIENT, SUJET, MAINTENANT * 1000);
-    await verifierTrous({ depot, rattrapage }, CLIENT, SUJET, MAINTENANT * 1000 + 60_000);
+    await verifierTrous({ depot, rattrapage, alerter: () => undefined }, CLIENT, SUJET, MAINTENANT * 1000);
+    await verifierTrous({ depot, rattrapage, alerter: () => undefined }, CLIENT, SUJET, MAINTENANT * 1000 + 60_000);
     // Deux passes, une même intention : la boîte d'envoi (clé anti-doublon) n'en garde qu'une.
     expect(new Set(rattrapages.map((r) => r.intention))).toEqual(new Set([intentionRattrapage(CLIENT, SUJET, 4, MAINTENANT * 1000)]));
     expect(rattrapages.every((r) => r.tenantId === CLIENT && r.sujet === SUJET)).toBe(true);
@@ -281,11 +315,11 @@ describe("[LOT2-c2] ordre des faits et rattrapage", () => {
     const { depot, rattrapages } = monter();
     const rattrapage: Rattrapage = { async demander(d) { rattrapages.push(d); } };
     depot.lignes.push({ tenantId: CLIENT, eventId: randomUUID(), type: "facture.emise", sequence: 2, sujet: SUJET, recuLe: il(DELAI_TROU_MS / 1000 - 5), traite: false });
-    await verifierTrous({ depot, rattrapage }, CLIENT, SUJET, MAINTENANT * 1000);
+    await verifierTrous({ depot, rattrapage, alerter: () => undefined }, CLIENT, SUJET, MAINTENANT * 1000);
     // Le fait manquant (0 et 1) arrive : plus de trou, même si le fait 2 date de plus de 10 minutes.
     depot.lignes.push({ tenantId: CLIENT, eventId: randomUUID(), type: "facture.emise", sequence: 0, sujet: SUJET, recuLe: il(1), traite: true });
     depot.lignes.push({ tenantId: CLIENT, eventId: randomUUID(), type: "facture.emise", sequence: 1, sujet: SUJET, recuLe: il(1), traite: true });
-    await verifierTrous({ depot, rattrapage }, CLIENT, SUJET, MAINTENANT * 1000 + 3_600_000);
+    await verifierTrous({ depot, rattrapage, alerter: () => undefined }, CLIENT, SUJET, MAINTENANT * 1000 + 3_600_000);
     expect(rattrapages).toHaveLength(0);
   });
 });

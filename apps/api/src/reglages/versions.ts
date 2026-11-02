@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import type { Pool, PoolClient } from "pg";
 import { z } from "zod";
 import { avecClient } from "../db/client-actif.js";
@@ -54,12 +55,21 @@ export function modifier(pool: Pool, tenantId: string, instance: string, donnees
   return avecClient(pool, tenantId, (c) => modifierDans(c, instance, donnees, auteur, motif), { acteur: auteur });
 }
 
+// Verrou de ligne sur l'instance (tenu jusqu'à la fin de la transaction) : sérialise modifications, retours et annulations.
+async function verrouiller(client: PoolClient, instance: string): Promise<void> {
+  if (!(await client.query("SELECT 1 FROM instances WHERE id = $1 FOR UPDATE", [instance])).rows[0]) throw new ErreurApi("introuvable", "Instance introuvable.");
+}
+
 export async function revenirDans(client: PoolClient, instance: string, numero: number, auteur: string, motif?: string): Promise<VersionReglage> {
   if (!Number.isSafeInteger(numero) || numero < 1) throw new ErreurApi("schema_invalide", "Numéro de version invalide.");
-  // Verrou d'abord (modifierDans le prend) : on lit la version visée dans la même transaction.
+  // Verrou d'abord : toute lecture (version visée, version active) se fait sous le verrou de l'instance, jamais avant.
+  await verrouiller(client, instance);
   const vue = await client.query("SELECT donnees FROM configurations WHERE instance_id = $1 AND numero = $2", [instance, numero]);
   const ancienne = vue.rows[0] as { donnees: Record<string, unknown> } | undefined;
   if (!ancienne) throw new ErreurApi("introuvable", "Version introuvable.");
+  // Idempotence : si la version active porte déjà ces données, on la renvoie sans rien écrire (double clic, rejeu).
+  const active = (await client.query("SELECT id, numero, donnees, auteur, motif_changement AS motif, active FROM configurations WHERE instance_id = $1 AND active", [instance])).rows[0] as VersionReglage | undefined;
+  if (active && isDeepStrictEqual(active.donnees, ancienne.donnees)) return active;
   return modifierDans(client, instance, ancienne.donnees, auteur, motif ?? `retour à la version ${numero}`);
 }
 
@@ -81,6 +91,7 @@ export const serviceAnnulationReglages: ServiceAnnulation = {
   async annuler(client: PoolClient, ligne: LigneAnnulation, auteur: string) {
     const v = ligne.action === "insertion" && ligne.nouvelle ? (JSON.parse(ligne.nouvelle) as { instance_id?: unknown; numero?: unknown }) : null;
     if (!v || typeof v.instance_id !== "string" || typeof v.numero !== "number") throw new ErreurApi("action_interdite", "Ce changement ne s'annule pas.");
+    await verrouiller(client, v.instance_id); // avant toute lecture de la version active : deux annulations simultanées se suivent
     const actuelle = (await client.query("SELECT numero FROM configurations WHERE instance_id = $1 AND active", [v.instance_id])).rows[0] as { numero: number } | undefined;
     if (!actuelle || actuelle.numero !== v.numero) throw new ErreurApi("regle_metier", "Une modification plus récente existe.");
     if (v.numero < 2) throw new ErreurApi("regle_metier", "Aucune version précédente.");

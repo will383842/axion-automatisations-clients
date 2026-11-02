@@ -53,6 +53,8 @@ function monter() {
 const A = randomUUID();
 const B = randomUUID();
 const CONTENU = Buffer.from(`devis-${randomBytes(8).toString("hex")} Boulangerie Rivoire, fichier fictif`);
+// Boulangerie Rivoire : entreprise inventée, permise par CLAUDE.md §2 (ce n'est pas un vrai client).
+const CTX = { colonne: "personnes.courriel_chiffre", idLigne: randomUUID() };
 const refus = async (p: Promise<unknown>, code?: string) => {
   const e = await p.then(() => undefined, (x: unknown) => x);
   expect(e).toBeInstanceOf(ErreurCoffre);
@@ -82,10 +84,32 @@ describe("fichiers du compartiment chiffrés par la clé du client", () => {
     await refus(m.fichiers.lireFichier(B, "suivi/note.txt"));
   });
 
+  it("[A-201] @isolation un objet déplacé sous une autre clé du même compartiment ne se lit pas", async () => {
+    const m = monter();
+    m.creerClient(A);
+    await m.fichiers.deposerFichier(A, "exports/devis.pdf", CONTENU);
+    await m.fichiers.deposerFichier(A, "exports/autre.pdf", Buffer.from("autre fichier fictif"));
+    // Un acteur du stockage recopie le chiffré du devis sur l'autre clé : le chiffré est valide pour ce client, mais pas pour cet objet.
+    await m.stockage.deposer(A, "exports/autre.pdf", (await m.stockage.lire(A, "exports/devis.pdf")) as Uint8Array);
+    await refus(m.fichiers.lireFichier(A, "exports/autre.pdf"), "dechiffrement_impossible");
+    expect((await m.fichiers.lireFichier(A, "exports/devis.pdf"))?.equals(CONTENU)).toBe(true);
+  });
+
+  it("[A-201] @isolation un champ chiffré ne se lit pas comme fichier, ni un fichier comme champ (séparation champ / fichier)", async () => {
+    const m = monter();
+    m.creerClient(A);
+    const champ = await m.colonnes.chiffrerChamp(A, "marc@exemple.fr", CTX);
+    await m.stockage.deposer(A, `${CTX.colonne}:${CTX.idLigne}`, champ);
+    await refus(m.fichiers.lireFichier(A, `${CTX.colonne}:${CTX.idLigne}`), "dechiffrement_impossible");
+    await m.fichiers.deposerFichier(A, `${CTX.colonne}:${CTX.idLigne}`, Buffer.from("marc@exemple.fr"));
+    const fichier = (await m.stockage.lire(A, `${CTX.colonne}:${CTX.idLigne}`)) as Uint8Array;
+    await refus(m.colonnes.dechiffrerChamp(A, fichier, CTX), "dechiffrement_impossible");
+  });
+
   it("[A-244] le compartiment et les colonnes utilisent la même clé du client, sans clé en clair dans l'objet", async () => {
     const m = monter();
     m.creerClient(A);
-    await m.colonnes.chiffrerChamp(A, "marc@exemple.fr");
+    await m.colonnes.chiffrerChamp(A, "marc@exemple.fr", CTX);
     await m.fichiers.deposerFichier(A, "exports/a.bin", CONTENU);
     const demandes = m.etat.appels.filter((a) => a.includes("datakey"));
     expect(demandes).toEqual([`POST transit/datakey/plaintext/cli-${A}`, `POST transit/datakey/plaintext/cli-${A}`]);

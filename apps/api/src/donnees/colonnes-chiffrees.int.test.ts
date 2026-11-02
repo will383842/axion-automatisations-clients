@@ -52,27 +52,32 @@ describe("colonnes et fichiers chiffrés, OpenBao réel", () => {
       const fichiers = creerFichiersClient({ stockage, enveloppe: env });
       const A = randomUUID();
       const B = randomUUID();
+      const ctx = { colonne: "personnes.courriel_chiffre", idLigne: randomUUID() };
       for (const t of [A, B]) {
         await env.creerCleClient(t);
         await appeler(bao, "POST", `transit/keys/cli-${t}-recherche`, { type: "hmac", exportable: false });
       }
       marquer("chiffrement");
-      const champ = await colonnes.chiffrerChamp(A, "essai@exemple.fr");
-      const champB = await colonnes.chiffrerChamp(B, "essai@exemple.fr");
+      const champ = await colonnes.chiffrerChamp(A, "essai@exemple.fr", ctx);
+      const champB = await colonnes.chiffrerChamp(B, "essai@exemple.fr", ctx);
       await fichiers.deposerFichier(A, "exports/a.bin", Buffer.from("fichier fictif"));
       marquer("empreintes");
-      expect(await colonnes.empreinteRecherche(A, "essai@exemple.fr")).not.toBe(await colonnes.empreinteRecherche(B, "essai@exemple.fr"));
-      expect(await colonnes.dechiffrerChamp(A, champ)).toBe("essai@exemple.fr"); // cache chaud
+      const empA = await colonnes.empreinteRecherche(A, "essai@exemple.fr");
+      expect(empA.equals(await colonnes.empreinteRecherche(B, "essai@exemple.fr"))).toBe(false);
+      expect(await colonnes.dechiffrerChamp(A, champ, ctx)).toBe("essai@exemple.fr"); // cache chaud
+      // Rotation de la clé de recherche : la version épinglée garde l'index stable.
+      await appeler(bao, "POST", `transit/keys/cli-${A}-recherche/rotate`, {});
+      expect((await colonnes.empreinteRecherche(A, "essai@exemple.fr")).equals(empA)).toBe(true);
       marquer("rotation");
       await colonnes.pivoterCle(A);
-      expect(await colonnes.dechiffrerChamp(A, champ)).toBe("essai@exemple.fr");
+      expect(await colonnes.dechiffrerChamp(A, champ, ctx)).toBe("essai@exemple.fr");
       marquer("croisé");
-      await expect(colonnes.dechiffrerChamp(B, champ)).rejects.toBeInstanceOf(ErreurCoffre);
+      await expect(colonnes.dechiffrerChamp(B, champ, ctx)).rejects.toBeInstanceOf(ErreurCoffre);
       marquer("destruction");
       await env.detruireCleClient(A, `detruire-${A}`); // client fictif créé par ce test
-      await expect(colonnes.dechiffrerChamp(A, champ)).rejects.toBeInstanceOf(ErreurCoffre);
+      await expect(colonnes.dechiffrerChamp(A, champ, ctx)).rejects.toBeInstanceOf(ErreurCoffre);
       await expect(fichiers.lireFichier(A, "exports/a.bin")).rejects.toBeInstanceOf(ErreurCoffre);
-      expect(await colonnes.dechiffrerChamp(B, champB)).toBe("essai@exemple.fr");
+      expect(await colonnes.dechiffrerChamp(B, champB, ctx)).toBe("essai@exemple.fr");
       trace(`COLONNES-INT terminé en ${Date.now() - debut} ms`);
     } catch (e) {
       // Seul le code ressort (ErreurCoffre : message = code) : aucun secret, pour lire l'échec dans le journal de la CI.

@@ -6,9 +6,9 @@ import { creerColonnesChiffrees, lireEnveloppeChamp, normaliserEmail, normaliser
 
 // Faux OpenBao (moteur transit) : clés par client, versions, clés de données, HMAC. Tout est généré à l'exécution.
 function creerFauxTransit() {
-  const cles = new Map<string, { version: number; secret: Buffer }>();
+  const cles = new Map<string, { version: number; secrets: Buffer[] }>();
   const donnees = new Map<string, { nom: string; clair: Buffer }>();
-  const etat = { scelle: false, appels: [] as string[], clairs: [] as Buffer[] };
+  const etat = { scelle: false, appels: [] as string[], clairs: [] as Buffer[], corpsHmac: [] as Record<string, unknown>[], versionHmacForcee: undefined as number | undefined };
   const rep = (corps: unknown, statut = 200) => new Response(JSON.stringify(corps), { status: statut });
   const chiffreDe = (nom: string, clair: Buffer) => {
     const c = `vault:v${cles.get(nom)?.version}:${randomBytes(24).toString("base64")}`;
@@ -28,7 +28,8 @@ function creerFauxTransit() {
         const k = cles.get(nom);
         if (!k) return rep({}, 404);
         k.version += 1;
-      } else if (!m[2]) cles.set(nom, { version: 1, secret: randomBytes(32) });
+        k.secrets.push(randomBytes(32));
+      } else if (!m[2]) cles.set(nom, { version: 1, secrets: [randomBytes(32)] });
       return rep({ data: {} });
     }
     if ((m = /^transit\/(datakey\/plaintext|decrypt|rewrap|hmac)\/([a-z0-9-]+)$/.exec(chemin))) {
@@ -40,7 +41,14 @@ function creerFauxTransit() {
         etat.clairs.push(clair);
         return rep({ data: { plaintext: clair.toString("base64"), ciphertext: chiffreDe(nom, clair) } });
       }
-      if (m[1] === "hmac") return rep({ data: { hmac: `vault:v1:${createHmac("sha256", cle.secret).update(Buffer.from(corps.input ?? "", "base64")).digest("base64")}` } });
+      if (m[1] === "hmac") {
+        etat.corpsHmac.push(corps);
+        // Comme OpenBao : sans key_version, la dernière version ; avec, celle demandée. La version employée est rendue dans la réponse.
+        const v = Number(corps.key_version ?? cle.version);
+        const secret = cle.secrets[v - 1];
+        if (!secret) return rep({ errors: ["version inconnue"] }, 400);
+        return rep({ data: { hmac: `vault:v${etat.versionHmacForcee ?? v}:${createHmac("sha256", secret).update(Buffer.from(corps.input ?? "", "base64")).digest("base64")}` } });
+      }
       const connu = donnees.get(corps.ciphertext ?? "");
       if (!connu || connu.nom !== nom) return rep({ errors: ["refusé"] }, 400);
       return m[1] === "decrypt" ? rep({ data: { plaintext: connu.clair.toString("base64") } }) : rep({ data: { ciphertext: chiffreDe(nom, connu.clair) } });
@@ -51,8 +59,15 @@ function creerFauxTransit() {
     etat,
     fetch: fetchFaux,
     async creerClient(tenantId: string) {
-      cles.set(`cli-${tenantId}`, { version: 1, secret: randomBytes(32) });
-      cles.set(`cli-${tenantId}-recherche`, { version: 1, secret: randomBytes(32) });
+      cles.set(`cli-${tenantId}`, { version: 1, secrets: [randomBytes(32)] });
+      cles.set(`cli-${tenantId}-recherche`, { version: 1, secrets: [randomBytes(32)] });
+    },
+    /** Rotation d'une clé du coffre par son nom (la clé de recherche n'a pas de méthode publique : la rotation vient du coffre). */
+    pivoterNom(nom: string) {
+      const k = cles.get(nom);
+      if (!k) throw new Error("clé inconnue");
+      k.version += 1;
+      k.secrets.push(randomBytes(32));
     },
   };
 }
@@ -60,6 +75,9 @@ function creerFauxTransit() {
 const A = randomUUID();
 const B = randomUUID();
 const MARQUEUR = `marqueur.${randomBytes(6).toString("hex")}@exemple.fr`;
+// Contexte lié au chiffré (point 3 de l'audit) : la colonne et la ligne. Un chiffré ne se lit qu'à sa place.
+const LIGNE = randomUUID();
+const CTX = { colonne: "personnes.courriel_chiffre", idLigne: LIGNE };
 
 function monter() {
   const bao = creerFauxTransit();
@@ -75,23 +93,23 @@ const refus = async (p: Promise<unknown>, code?: string) => {
 };
 
 describe("colonnes chiffrées par la clé du client", () => {
-  it("[A-243] un e-mail rangé dans commun.personnes est chiffré ; la base ne contient pas la valeur en clair (marqueur cherché)", async () => {
+  it("[A-243] un champ chiffré par chiffrerChamp ne contient pas la valeur en clair (marqueur cherché dans les octets produits ; aucune base touchée, voir la dette de branchement de commun.personnes)", async () => {
     const { bao, colonnes } = monter();
     await bao.creerClient(A);
-    const octets = await colonnes.chiffrerChamp(A, MARQUEUR);
+    const octets = await colonnes.chiffrerChamp(A, MARQUEUR, CTX);
     expect(Buffer.isBuffer(octets)).toBe(true);
     for (const forme of [octets.toString("utf8"), octets.toString("hex"), octets.toString("base64"), octets.toString("latin1")]) {
       expect(forme).not.toContain(MARQUEUR);
       expect(forme).not.toContain(Buffer.from(MARQUEUR).toString("hex"));
     }
-    expect(await colonnes.dechiffrerChamp(A, octets)).toBe(MARQUEUR);
+    expect(await colonnes.dechiffrerChamp(A, octets, CTX)).toBe(MARQUEUR);
   });
 
   it("[A-243] deux chiffrements de la même valeur diffèrent (nonce jamais réutilisé, une clé de données par champ)", async () => {
     const { bao, colonnes } = monter();
     await bao.creerClient(A);
-    const un = await colonnes.chiffrerChamp(A, MARQUEUR);
-    const deux = await colonnes.chiffrerChamp(A, MARQUEUR);
+    const un = await colonnes.chiffrerChamp(A, MARQUEUR, CTX);
+    const deux = await colonnes.chiffrerChamp(A, MARQUEUR, CTX);
     expect(un.equals(deux)).toBe(false);
     const [e1, e2] = [lireEnveloppeChamp(un), lireEnveloppeChamp(deux)];
     expect(e1.chiffre.subarray(0, 12).equals(e2.chiffre.subarray(0, 12))).toBe(false);
@@ -102,16 +120,16 @@ describe("colonnes chiffrées par la clé du client", () => {
     const { bao, colonnes } = monter();
     await bao.creerClient(A);
     await bao.creerClient(B);
-    const deA = await colonnes.chiffrerChamp(A, MARQUEUR);
-    await refus(colonnes.dechiffrerChamp(B, deA));
-    expect(await colonnes.dechiffrerChamp(A, deA)).toBe(MARQUEUR);
+    const deA = await colonnes.chiffrerChamp(A, MARQUEUR, CTX);
+    await refus(colonnes.dechiffrerChamp(B, deA, CTX));
+    expect(await colonnes.dechiffrerChamp(A, deA, CTX)).toBe(MARQUEUR);
   });
 
   it("[A-243] @isolation même si le coffre acceptait la clé de données d'un autre client, le lien au client (AAD) refuse", async () => {
     const { bao, colonnes, enveloppe } = monter();
     await bao.creerClient(A);
     await bao.creerClient(B);
-    const e = lireEnveloppeChamp(await colonnes.chiffrerChamp(A, MARQUEUR));
+    const e = lireEnveloppeChamp(await colonnes.chiffrerChamp(A, MARQUEUR, CTX));
     // La clé de données de A, rendue en clair par un coffre trop permissif, ne déchiffre pas le chiffré présenté comme celui de B.
     const clairDeA = bao.etat.clairs[0] as Buffer;
     const permissif = creerEnveloppe({ url: "http://bao.test", jeton: "j", fetch: async () => new Response(JSON.stringify({ data: { plaintext: clairDeA.toString("base64") } })) });
@@ -124,11 +142,13 @@ describe("colonnes chiffrées par la clé du client", () => {
     await bao.creerClient(A);
     await bao.creerClient(B);
     const deA = await colonnes.empreinteRecherche(A, MARQUEUR);
-    expect(deA).toMatch(/^[0-9a-f]{64}$/);
-    expect(await colonnes.empreinteRecherche(A, `  ${MARQUEUR.toUpperCase()} `)).toBe(deA);
-    expect(await colonnes.empreinteRecherche(B, MARQUEUR)).not.toBe(deA);
+    // Colonne bytea contrainte à octet_length = 32 : l'empreinte est rendue en 32 octets, pas en texte hexadécimal.
+    expect(Buffer.isBuffer(deA)).toBe(true);
+    expect(deA.length).toBe(32);
+    expect((await colonnes.empreinteRecherche(A, `  ${MARQUEUR.toUpperCase()} `)).equals(deA)).toBe(true);
+    expect((await colonnes.empreinteRecherche(B, MARQUEUR)).equals(deA)).toBe(false);
     // Pas un SHA-256 nu : un dictionnaire sans la clé du client ne retrouve rien.
-    expect(deA).not.toBe(createHash("sha256").update(MARQUEUR).digest("hex"));
+    expect(deA.equals(createHash("sha256").update(MARQUEUR).digest())).toBe(false);
     expect(bao.etat.appels.some((a) => a.includes("/decrypt/"))).toBe(false);
     expect(bao.etat.appels.filter((a) => a.includes("/hmac/")).every((a) => /hmac\/cli-[0-9a-f-]{36}-recherche$/.test(a))).toBe(true);
   });
@@ -146,26 +166,78 @@ describe("colonnes chiffrées par la clé du client", () => {
   it("[A-243] après rotation, les anciens chiffrés se lisent et les nouveaux prennent la nouvelle version", async () => {
     const { bao, colonnes } = monter();
     await bao.creerClient(A);
-    const ancien = await colonnes.chiffrerChamp(A, MARQUEUR);
+    const ancien = await colonnes.chiffrerChamp(A, MARQUEUR, CTX);
     expect(lireEnveloppeChamp(ancien).version).toBe(1);
     await colonnes.pivoterCle(A);
     expect(bao.etat.appels).toContain(`POST transit/keys/cli-${A}/rotate`);
-    const nouveau = await colonnes.chiffrerChamp(A, MARQUEUR);
+    const nouveau = await colonnes.chiffrerChamp(A, MARQUEUR, CTX);
     expect(lireEnveloppeChamp(nouveau).version).toBe(2);
-    expect(await colonnes.dechiffrerChamp(A, ancien)).toBe(MARQUEUR);
+    expect(await colonnes.dechiffrerChamp(A, ancien, CTX)).toBe(MARQUEUR);
     // Réenveloppement : seule la clé de données change de version, les données restent identiques.
     const refait = await colonnes.reenvelopper(A, ancien);
     expect(lireEnveloppeChamp(refait).version).toBe(2);
     expect(lireEnveloppeChamp(refait).chiffre.equals(lireEnveloppeChamp(ancien).chiffre)).toBe(true);
-    expect(await colonnes.dechiffrerChamp(A, refait)).toBe(MARQUEUR);
+    expect(await colonnes.dechiffrerChamp(A, refait, CTX)).toBe(MARQUEUR);
     await refus(colonnes.pivoterCle(B));
+  });
+
+  it("[A-243] @isolation un courriel copié d'une personne sur une autre est refusé", async () => {
+    const { bao, colonnes } = monter();
+    await bao.creerClient(A);
+    const autre = { colonne: CTX.colonne, idLigne: randomUUID() };
+    const octets = await colonnes.chiffrerChamp(A, MARQUEUR, CTX);
+    await refus(colonnes.dechiffrerChamp(A, octets, autre), "dechiffrement_impossible");
+    expect(await colonnes.dechiffrerChamp(A, octets, CTX)).toBe(MARQUEUR);
+  });
+
+  it("[A-243] @isolation courriel et téléphone échangés sur la même ligne : refus dans les deux sens", async () => {
+    const { bao, colonnes } = monter();
+    await bao.creerClient(A);
+    const courriel = { colonne: "personnes.courriel_chiffre", idLigne: LIGNE };
+    const telephone = { colonne: "personnes.telephone_chiffre", idLigne: LIGNE };
+    const ch = await colonnes.chiffrerChamp(A, MARQUEUR, courriel);
+    const tel = await colonnes.chiffrerChamp(A, "+33639980012", telephone);
+    await refus(colonnes.dechiffrerChamp(A, ch, telephone), "dechiffrement_impossible");
+    await refus(colonnes.dechiffrerChamp(A, tel, courriel), "dechiffrement_impossible");
+    expect(await colonnes.dechiffrerChamp(A, tel, telephone)).toBe("+33639980012");
+  });
+
+  it("[A-243] le contexte est exigé : colonne ou ligne vide ou mal formée refusée avant tout appel au coffre", async () => {
+    const { bao, colonnes } = monter();
+    await bao.creerClient(A);
+    for (const mauvais of [{ colonne: "", idLigne: LIGNE }, { colonne: "personnes.courriel_chiffre", idLigne: "" }, { colonne: "fichier:x", idLigne: LIGNE }, { colonne: "personnes.courriel:chiffre", idLigne: LIGNE }]) {
+      await expect(colonnes.chiffrerChamp(A, MARQUEUR, mauvais)).rejects.toBeInstanceOf(Error);
+    }
+    expect(bao.etat.appels.filter((x) => x.includes("datakey"))).toEqual([]);
+  });
+
+  it("[A-243] l'empreinte d'une même valeur reste identique après rotation de la clé de recherche (version épinglée)", async () => {
+    const { bao, colonnes } = monter();
+    await bao.creerClient(A);
+    const avant = await colonnes.empreinteRecherche(A, MARQUEUR);
+    bao.pivoterNom(`cli-${A}-recherche`);
+    bao.pivoterNom(`cli-${A}-recherche`);
+    const apres = await colonnes.empreinteRecherche(A, MARQUEUR);
+    expect(apres.equals(avant)).toBe(true);
+    // Chaque demande de HMAC épingle la version : jamais « la dernière ».
+    expect(bao.etat.corpsHmac.length).toBe(2);
+    for (const c of bao.etat.corpsHmac) expect(c.key_version).toBe(1);
+  });
+
+  it("[A-243] une réponse HMAC d'une autre version que celle épinglée est refusée (jamais d'index faussé en silence)", async () => {
+    const { bao, colonnes } = monter();
+    await bao.creerClient(A);
+    bao.etat.versionHmacForcee = 2;
+    await refus(colonnes.empreinteRecherche(A, MARQUEUR), "coffre_indisponible");
   });
 
   it("[A-243] clé de données remise à zéro après usage, absente du chiffré et des erreurs", async () => {
     const { bao, colonnes, observees } = monter();
     await bao.creerClient(A);
-    const octets = await colonnes.chiffrerChamp(A, MARQUEUR);
-    await colonnes.dechiffrerChamp(A, octets);
+    const octets = await colonnes.chiffrerChamp(A, MARQUEUR, CTX);
+    await colonnes.dechiffrerChamp(A, octets, CTX);
+    // Ne prouve que le Buffer de la clé de données, remis à zéro par l'enveloppe (observerCle). La chaîne base64 rendue par le coffre
+    // est une chaîne JavaScript immuable : elle n'est pas effaçable et reste en mémoire jusqu'au ramasse-miettes (limite connue).
     expect(observees.length).toBe(2);
     for (const b of observees) expect(b.every((x) => x === 0)).toBe(true);
     for (const clair of bao.etat.clairs) {
@@ -178,10 +250,10 @@ describe("colonnes chiffrées par la clé du client", () => {
   it("[A-243] clé du client absente ou identité invalide : refus, jamais de repli sur une autre clé", async () => {
     const { bao, colonnes } = monter();
     await bao.creerClient(A);
-    await refus(colonnes.chiffrerChamp(B, MARQUEUR));
-    await refus(colonnes.chiffrerChamp("systeme", MARQUEUR), "tenant_invalide");
+    await refus(colonnes.chiffrerChamp(B, MARQUEUR, CTX));
+    await refus(colonnes.chiffrerChamp("systeme", MARQUEUR, CTX), "tenant_invalide");
     await refus(colonnes.empreinteRecherche("systeme", MARQUEUR), "tenant_invalide");
-    await refus(colonnes.dechiffrerChamp(B, await colonnes.chiffrerChamp(A, MARQUEUR)));
+    await refus(colonnes.dechiffrerChamp(B, await colonnes.chiffrerChamp(A, MARQUEUR, CTX), CTX));
     await refus(colonnes.empreinteRecherche(B, MARQUEUR));
     // Les demandes pour B visent la clé de B (absente) ; aucune n'a été redirigée vers la clé de A ou une clé commune.
     const sensibles = bao.etat.appels.filter((x) => /datakey|hmac|decrypt/.test(x));
@@ -192,29 +264,29 @@ describe("colonnes chiffrées par la clé du client", () => {
   it("[A-243] un chiffré mal formé ou tronqué est refusé", async () => {
     const { bao, colonnes } = monter();
     await bao.creerClient(A);
-    const octets = await colonnes.chiffrerChamp(A, MARQUEUR);
+    const octets = await colonnes.chiffrerChamp(A, MARQUEUR, CTX);
     for (const mauvais of [Buffer.alloc(0), octets.subarray(0, 5), octets.subarray(0, octets.length - 1), Buffer.concat([Buffer.from([9]), octets.subarray(1)])]) {
-      await refus(colonnes.dechiffrerChamp(A, mauvais), "dechiffrement_impossible");
+      await refus(colonnes.dechiffrerChamp(A, mauvais, CTX), "dechiffrement_impossible");
     }
   });
 
   it("[A-245] après destruction de la clé, champs illisibles, même après lecture à chaud (imitation)", async () => {
     const { bao, colonnes, enveloppe } = monter();
     await bao.creerClient(A);
-    const octets = await colonnes.chiffrerChamp(A, MARQUEUR);
-    expect(await colonnes.dechiffrerChamp(A, octets)).toBe(MARQUEUR);
+    const octets = await colonnes.chiffrerChamp(A, MARQUEUR, CTX);
+    expect(await colonnes.dechiffrerChamp(A, octets, CTX)).toBe(MARQUEUR);
     await enveloppe.detruireCleClient(A, `detruire-${A}`);
-    await refus(colonnes.dechiffrerChamp(A, octets));
-    await refus(colonnes.chiffrerChamp(A, MARQUEUR));
+    await refus(colonnes.dechiffrerChamp(A, octets, CTX));
+    await refus(colonnes.chiffrerChamp(A, MARQUEUR, CTX));
   });
 
   it("[C-011] coffre scellé : erreur coffre_scelle, jamais de clair", async () => {
     const { bao, colonnes } = monter();
     await bao.creerClient(A);
-    const octets = await colonnes.chiffrerChamp(A, MARQUEUR);
+    const octets = await colonnes.chiffrerChamp(A, MARQUEUR, CTX);
     bao.etat.scelle = true;
-    await refus(colonnes.chiffrerChamp(A, MARQUEUR), "coffre_scelle");
-    await refus(colonnes.dechiffrerChamp(A, octets), "coffre_scelle");
+    await refus(colonnes.chiffrerChamp(A, MARQUEUR, CTX), "coffre_scelle");
+    await refus(colonnes.dechiffrerChamp(A, octets, CTX), "coffre_scelle");
     await refus(colonnes.empreinteRecherche(A, MARQUEUR), "coffre_scelle");
     await refus(colonnes.pivoterCle(A), "coffre_scelle");
   });

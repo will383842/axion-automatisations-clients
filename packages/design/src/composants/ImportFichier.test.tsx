@@ -36,4 +36,22 @@ describe("ImportFichier", () => {
     fireEvent.drop(zone, { dataTransfer: { files: [fichier("bon.csv", 5)] } });
     expect(envoyer).toHaveBeenCalledOnce();
   });
+
+  it("[B-260] l'erreur est reliée au champ et le même fichier peut être choisi de nouveau", () => {
+    const { getByLabelText, container } = render(<ImportFichier {...props} onFichier={() => {}} />);
+    const champ = getByLabelText("Votre fichier de contacts") as HTMLInputElement;
+    const ecritures: string[] = [];
+    Object.defineProperty(champ, "value", { configurable: true, get: () => "", set: (x: string) => void ecritures.push(x) });
+    fireEvent.change(champ, { target: { files: [fichier("contacts.csv", 5000)] } });
+    const alerte = container.querySelector('[role="alert"]')!;
+    expect(alerte.id).not.toBe("");
+    expect(champ.getAttribute("aria-describedby")).toContain(alerte.id);
+    expect(ecritures).toContain("");
+  });
+
+  it("[B-260] la taille maximale s'écrit en Mo au-delà de 1000 ko", () => {
+    const { getByLabelText, container } = render(<ImportFichier libelle="Fichier" types={[".csv"]} tailleMax={5_000_000} onFichier={() => {}} />);
+    fireEvent.change(getByLabelText("Fichier"), { target: { files: [fichier("a.csv", 6_000_000)] } });
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("5 Mo");
+  });
 });

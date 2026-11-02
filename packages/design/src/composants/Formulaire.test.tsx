@@ -22,9 +22,23 @@ describe("Formulaire", () => {
     expect(message?.textContent).toBe("Écrivez le nom de l'entreprise");
     expect(champ.getAttribute("aria-describedby")).toContain("nom-erreur");
     expect(champ.getAttribute("aria-invalid")).toBe("true");
-    expect(champ.nextElementSibling === message || champ.parentElement?.contains(message)).toBe(true);
+    expect(champ.nextElementSibling === message).toBe(true);
     expect(getByLabelText("Ville").getAttribute("aria-invalid")).toBeNull();
     expect(violations(container)).toEqual([]);
+  });
+
+  it("[B-259] deux formulaires aux mêmes champs n'ont pas d'identifiant en double", () => {
+    const { container } = render(
+      <>
+        <Formulaire champs={champs} valeurs={{}} onChange={() => {}} onEnvoyer={() => {}} libelleEnvoi="A" />
+        <Formulaire champs={champs} valeurs={{}} onChange={() => {}} onEnvoyer={() => {}} libelleEnvoi="B" />
+      </>,
+    );
+    const ids = [...container.querySelectorAll("[id]")].map((n) => n.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const c of container.querySelectorAll("input")) {
+      for (const cible of (c.getAttribute("aria-describedby") ?? "").split(" ").filter(Boolean)) expect(container.querySelector(`[id="${cible}"]`)).not.toBeNull();
+    }
   });
 
   it("[B-259] l'aide ne s'ouvre qu'à la demande et le formulaire envoie", () => {

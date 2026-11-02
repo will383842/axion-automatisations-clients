@@ -30,6 +30,19 @@ describe("FileValidation", () => {
     expect(violations(container)).toEqual([]);
   });
 
+  it("[B-258] les raccourcis ignorent les modificateurs et la répétition", () => {
+    const accepter = vi.fn();
+    const refuser = vi.fn();
+    const { container } = render(<FileValidation elements={elements} onAccepter={accepter} onRefuser={refuser} />);
+    const ligne = container.querySelector("li")!;
+    fireEvent.keyDown(ligne, { key: "r", ctrlKey: true });
+    fireEvent.keyDown(ligne, { key: "a", metaKey: true });
+    fireEvent.keyDown(ligne, { key: "a", altKey: true });
+    fireEvent.keyDown(ligne, { key: "a", repeat: true });
+    expect(accepter).not.toHaveBeenCalled();
+    expect(refuser).not.toHaveBeenCalled();
+  });
+
   it("[B-177] la file vide le dit en mots", () => {
     const { container } = render(<FileValidation elements={[]} onAccepter={() => {}} onRefuser={() => {}} />);
     expect(container.textContent).toContain("Rien à valider");

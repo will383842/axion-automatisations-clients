@@ -48,7 +48,7 @@ journal_dossier() {
 empreinte_de() { printf 'sha256:%s\n' "$(printf '%s' "$1" | sha256sum | cut -d' ' -f1)"; }
 
 # journal_ecrire <quoi> <fréquence> <type> <taille> <empreinte> <résultat> <durée> <identifiant>
-# Écrit UNE ligne dans un fichier neuf (jamais d'écrasement). Code 1 et message si le nom ou une valeur est refusé, ou si l'écriture échoue.
+# Écrit UNE ligne dans un fichier neuf (jamais d'écrasement ; nom unique même pour deux passages dans la même seconde). Code 1 et message si le nom ou une valeur est refusé, ou si l'écriture échoue.
 journal_ecrire() {
   local quoi="${1:-}" frequence="${2:-}" type="${3:-}" taille="${4:-}" empreinte="${5:-}" resultat="${6:-}" duree="${7:-}" identifiant="${8:-}"
   local date_iso horodatage chemin dossier fichier
@@ -62,21 +62,28 @@ journal_ecrire() {
     case "$valeur" in "" | *$'\t'* | *$'\n'*) echo "journal : valeur vide ou avec tabulation" >&2; return 1 ;; esac
   done
   dossier="$(journal_dossier)"
-  # Le nom porte la seconde : deux passages dans la même seconde attendent la suivante (jamais d'écrasement).
-  local essai
-  for essai in 1 2 3; do
-    date_iso="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    horodatage="$(date -u +%Y%m%d-%H%M%S)"
+  # Le nom porte la seconde. En cas de collision (deux passages dans la même seconde), le passage prend la seconde suivante libre :
+  # même format de nom, aucune attente, aucune ligne perdue. L'écriture elle-même refuse d'écraser (noclobber) : deux passages simultanés ne se marchent pas dessus.
+  local epoch n=0 ecrit=0
+  epoch="$(date -u +%s)"
+  date_iso="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  while [ "$n" -lt 300 ]; do
+    horodatage="$(date -u -d "@$((epoch + n))" +%Y%m%d-%H%M%S)"
     chemin="$RANGEMENT_SYSTEME/$quoi/$frequence/$RANGEMENT_SYSTEME-$quoi-$frequence-$horodatage.journal"
     rangement_nom_valide "$chemin" || { echo "journal : nom de rangement refusé : $chemin" >&2; return 1; }
     fichier="$dossier/$chemin"
+    mkdir -p "$(dirname "$fichier")" 2>/dev/null || { echo "journal : écriture impossible dans $dossier" >&2; return 1; }
+    if (
+      umask 077
+      set -o noclobber
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$date_iso" "$type" "$taille" "$empreinte" "$resultat" "$duree" "$identifiant" >"$fichier"
+    ) 2>/dev/null; then
+      ecrit=1
+      break
+    fi
+    # Le fichier existe : seconde suivante. Sinon, l'écriture est vraiment impossible.
     [ -e "$fichier" ] || break
-    sleep 1
+    n=$((n + 1))
   done
-  (
-    umask 077
-    mkdir -p "$(dirname "$fichier")" || exit 1
-    set -o noclobber
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$date_iso" "$type" "$taille" "$empreinte" "$resultat" "$duree" "$identifiant" >"$fichier"
-  ) || { echo "journal : écriture impossible dans $dossier" >&2; return 1; }
+  [ "$ecrit" = "1" ] || { echo "journal : écriture impossible dans $dossier" >&2; return 1; }
 }

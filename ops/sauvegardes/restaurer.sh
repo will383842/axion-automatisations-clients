@@ -10,7 +10,7 @@
 #   SAUVEGARDE_IMAGE    image avec pgBackRest (défaut : celle du service postgres lancé) · SAUVEGARDE_PROJET (défaut socle)
 #   SAUVEGARDE_JOURNAL  dossier du journal (une ligne par essai de restauration, journaliser.sh)
 # La configuration du conteneur est préparée par preparer-configuration.sh, le MÊME script que celui du serveur : un seul chemin pour « strict » + known_hosts.
-# En cas d'échec, le conteneur de restauration est supprimé avant de sortir.
+# En cas d'échec, le conteneur de restauration est supprimé avant de sortir. Code 3 : restauration réussie mais journal illisible ou non écrit ; le conteneur est alors détruit aussi.
 set -euo pipefail
 
 dossier="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -52,7 +52,15 @@ terminer() {
   else
     docker rm -f -v "$nom" >/dev/null 2>&1 || true
   fi
-  journal_ecrire restauration ponctuelle restauration "$taille" "-" "$resultat" "$(( $(date +%s) - debut ))" "$nom" || { [ "$code" -ne 0 ] || code=1; }
+  if ! journal_ecrire restauration ponctuelle restauration "$taille" "-" "$resultat" "$(( $(date +%s) - debut ))" "$nom"; then
+    if [ "$reussi" = "1" ] && [ "$code" -eq 0 ]; then
+      # Restauration réussie mais ligne de journal perdue : on ne laisse pas un conteneur restauré en marche sans trace. Il est détruit ; code 3 (distinct de 1 et 2).
+      docker rm -f -v "$nom" >/dev/null 2>&1 || true
+      echo "le journal n'a pas pu être écrit : le conteneur restauré $nom a été détruit (code 3), refaire la restauration après avoir rétabli le dossier du journal" >&2
+      exit 3
+    fi
+    [ "$code" -ne 0 ] || code=1
+  fi
   exit "$code"
 }
 trap terminer EXIT

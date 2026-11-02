@@ -135,7 +135,24 @@ describe("liens instance → cellule et version de l'état voulu, avec le socle"
     expect((await lire(A, id)).version_etat_voulu).toBe(1);
     await maj(A, id, "version_etat_voulu = -1"); // écrasée aussi : le déclencheur rend OLD + 0
     expect((await lire(A, id)).version_etat_voulu).toBe(1);
-    await expect(creerInstance(A, ", version_etat_voulu", [-1])).rejects.toMatchObject({ code: "23514" }); // à l'INSERT, la contrainte garde
+  });
+
+  it("[C-017] @isolation une version fournie à l'INSERT est écrasée par 0, même négative", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    for (const fournie of [99, -1]) {
+      const id = await creerInstance(A, ", version_etat_voulu", [fournie]);
+      expect((await lire(A, id)).version_etat_voulu).toBe(0);
+    }
+  });
+
+  it("[C-017] @isolation un INSERT à 2147483647 ne bloque pas l'instance : l'arrêt des envois reste possible", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    const id = await creerInstance(A, ", version_etat_voulu", [2147483647]);
+    expect((await lire(A, id)).version_etat_voulu).toBe(0);
+    await maj(A, id, "arret_envois = true");
+    expect(await lire(A, id)).toMatchObject({ arret_envois: true, version_etat_voulu: 1 });
   });
 
   it("[C-017] un code de cellule avec _ ou de forme inconnue est refusé par la contrainte de forme C4", async () => {

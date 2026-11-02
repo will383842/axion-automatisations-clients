@@ -64,12 +64,21 @@ const inserer = (tenant: string, table: string, valeurs: Record<string, unknown>
 const creerOrg = (id: string) => inserer(id, "organisations", { id, console_client_id: id, raison_sociale: "Lemoine Rénovation" });
 // Pas de RETURNING * : console_app ne lit qu'une liste de colonnes de instances (migration 0007) ; seul l'identifiant revient.
 const creerInstance = (A: string) =>
-  ecrire(app, A, async (c) => (await c.query("INSERT INTO instances (id, tenant_id, organisation_id, code_automatisation, formule, environnement) VALUES ($1, $2, $2, 'relance-devis', 'abonnement', 'test') RETURNING id", [randomUUID(), A])).rows[0] as Record<string, unknown>, APPELANT);
+  ecrire(app, A, async (c) => (await c.query("INSERT INTO instances (id, tenant_id, organisation_id, code_automatisation, formule, environnement, etat) VALUES ($1, $2, $2, 'relance-devis', 'abonnement', 'test', 'pause') RETURNING id", [randomUUID(), A])).rows[0] as Record<string, unknown>, APPELANT);
 const SOURCES = Object.fromEntries(["formule", "frais_mise_en_place", "prix_recurrent_mensuel", "periode_facturation", "mode_avance", "maintenance_incluse", "suite_maintenance", "engagement"].map((v) => [`source_${v}`, "grille"]));
 // Valeurs fictives (jamais un prix réel) : 100, 200 et 300 centimes.
 const plan = (A: string, instance: unknown, extra: Record<string, unknown> = {}) =>
   inserer(A, "plans_commerciaux", { instance_id: instance, frais_mise_en_place_ht_centimes: 100, prix_recurrent_mensuel_ht_centimes: 200, periode_facturation_mois: 1, mode_avance: "aucune", maintenance_incluse_mois: 0, suite_maintenance: "arret", engagement_mois: 0, ...SOURCES, auteur: "agent-essai", ...extra });
 const nouveauPlan = async (A: string) => plan(A, (await creerInstance(A))["id"]);
+// Copie d'une facture du Hub (T2-05) : TVA toujours ajoutée (20 % sur 10 000 centimes), chaque mois sa facture.
+const instanceDeFacture = new Map<string, Promise<unknown>>();
+const factureDe = async (A: string, mois: number, extra: Record<string, unknown> = {}) => {
+  // Une facture d'abonnement ou de complément se rattache à une instance (clé d'unicité) ; un avoir ou une mise en place n'en a pas besoin.
+  const rattachee = ["abonnement", "complement_prorata"].includes((extra["nature"] as string | undefined) ?? "abonnement") && !("instance_id" in extra);
+  if (rattachee && !instanceDeFacture.has(A)) instanceDeFacture.set(A, creerInstance(A).then((i) => i["id"]));
+  const instance_id = rattachee ? await instanceDeFacture.get(A) : undefined;
+  return inserer(A, "factures", { organisation_id: A, numero: `AXI-FACT-${randomUUID()}`, hub_id: randomUUID(), nature: "abonnement", plan: "essentiel", periode_debut: `2026-${String(mois).padStart(2, "0")}-01`, periode_fin: `2026-${String(mois).padStart(2, "0")}-${new Date(Date.UTC(2026, mois, 0)).getUTCDate()}`, montant_ht_centimes: 10000, taux_tva_points_de_base: 2000, montant_tva_centimes: 2000, montant_ttc_centimes: 12000, pdf_ref: "factures/a.pdf", empreinte_sha256: "a".repeat(64), auteur: APPELANT.acteur, ...(instance_id ? { instance_id } : {}), ...extra });
+};
 const echeance = (A: string, planId: unknown, extra: Record<string, unknown> = {}) =>
   inserer(A, "echeances", { plan_id: planId, debut_periode: "2026-01-01", fin_periode: "2026-02-01", montant_ht_centimes: 200, auteur: "agent-essai", ...extra });
 
@@ -247,7 +256,7 @@ describe("plan commercial, avec le socle", { timeout: 60_000 }, () => {
     await creerOrg(A);
     const p = await nouveauPlan(A);
     await expect(echeance(A, p["id"], { date_emission: "2026-01-02" })).rejects.toMatchObject({ code: "42501" });
-    await expect(echeance(A, p["id"], { facture_id: randomUUID() })).rejects.toMatchObject({ code: "42501" });
+    await expect(echeance(A, p["id"], { facture_id: (await factureDe(A, 1))["id"] })).rejects.toMatchObject({ code: "42501" }); // une facture réelle : la politique refuse, pas le déclencheur
     const e = await echeance(A, p["id"]);
     const maj = (set: string) => ecrire(app, A, (c) => c.query(`UPDATE echeances SET ${set} WHERE id = $1`, [e["id"]]), APPELANT);
     await expect(maj("statut = 'payee', date_emission = '2026-01-10', date_paiement = '2026-01-09'")).rejects.toMatchObject({ code: "23514" });
@@ -258,11 +267,13 @@ describe("plan commercial, avec le socle", { timeout: 60_000 }, () => {
     const A = randomUUID();
     await creerOrg(A);
     const p = await nouveauPlan(A);
-    const FACTURE = randomUUID();
+    // T2-05 : echeances.facture_id est une clé étrangère composée vers factures ; chaque échéance émise a sa propre facture (copie du Hub, fait de test).
+    const factures: Record<number, string> = {};
     const mois = (n: number) => ({ debut_periode: `2026-0${n}-01`, fin_periode: `2026-0${n + 1}-01` });
     const emise = async (n: number) => {
+      factures[n] = (await factureDe(A, n))["id"] as string;
       const e = await echeance(A, p["id"], mois(n));
-      await ecrire(app, A, (c) => c.query("UPDATE echeances SET statut = 'emise', date_emission = '2026-01-02', facture_id = $2 WHERE id = $1", [e["id"], FACTURE]), APPELANT);
+      await ecrire(app, A, (c) => c.query("UPDATE echeances SET statut = 'emise', date_emission = '2026-01-02', facture_id = $2 WHERE id = $1", [e["id"], factures[n]]), APPELANT);
       return e["id"];
     };
     const maj = (id: unknown, set: string) => ecrire(app, A, (c) => c.query(`UPDATE echeances SET ${set} WHERE id = $1`, [id]), APPELANT);
@@ -270,21 +281,77 @@ describe("plan commercial, avec le socle", { timeout: 60_000 }, () => {
     await expect(maj(e, "statut = 'emise'")).rejects.toMatchObject({ code: "42501" });
     await expect(maj(e, "statut = 'emise', date_emission = '2026-01-03'")).rejects.toMatchObject({ code: "42501" });
     await expect(maj(e, "date_emission = '2026-01-03'")).rejects.toMatchObject({ code: "42501" });
-    await expect(maj(e, `facture_id = '${randomUUID()}'`)).rejects.toMatchObject({ code: "42501" });
+    const autre = (await factureDe(A, 1, { plan: "avance" }))["id"]; // une autre facture réelle qui couvre la période : la politique refuse le changement de facture
+    await expect(maj(e, `facture_id = '${autre}'`)).rejects.toMatchObject({ code: "42501" });
     await expect(maj(e, "statut = 'payee', date_emission = '2025-12-01', date_paiement = '2026-01-10'")).rejects.toMatchObject({ code: "42501" });
-    await expect(maj(e, `statut = 'payee', facture_id = '${randomUUID()}', date_paiement = '2026-01-10'`)).rejects.toMatchObject({ code: "42501" });
+    await expect(maj(e, `statut = 'payee', facture_id = '${autre}', date_paiement = '2026-01-10'`)).rejects.toMatchObject({ code: "42501" });
     await expect(maj(e, "statut = 'annulee', date_emission = '2026-01-03'")).rejects.toMatchObject({ code: "42501" });
     const lue = async (id: unknown) => (await ecrire(app, A, (c) => c.query("SELECT statut, date_emission::text AS date_emission, facture_id FROM echeances WHERE id = $1", [id]))).rows[0] as { statut: string; date_emission: string; facture_id: string };
-    expect(await lue(e)).toEqual({ statut: "emise", date_emission: "2026-01-02", facture_id: FACTURE });
+    expect(await lue(e)).toEqual({ statut: "emise", date_emission: "2026-01-02", facture_id: factures[1] });
     // Sans toucher date_emission ni facture_id : permis.
     expect((await maj(e, "statut = 'payee', date_paiement = '2026-01-10'")).rowCount).toBe(1);
-    expect(await lue(e)).toEqual({ statut: "payee", date_emission: "2026-01-02", facture_id: FACTURE });
+    expect(await lue(e)).toEqual({ statut: "payee", date_emission: "2026-01-02", facture_id: factures[1] });
     const f = await emise(2);
     expect((await maj(f, "statut = 'annulee'")).rowCount).toBe(1);
     expect(await lue(f)).toMatchObject({ statut: "annulee", date_emission: "2026-01-02" });
     // Une échéance prevue passe toujours à emise avec sa date et sa facture.
     const g = await echeance(A, p["id"], mois(3));
-    expect((await maj(g["id"], `statut = 'emise', date_emission = '2026-03-02', facture_id = '${FACTURE}'`)).rowCount).toBe(1);
+    const f3 = (await factureDe(A, 3))["id"];
+    expect((await maj(g["id"], `statut = 'emise', date_emission = '2026-03-02', facture_id = '${f3}'`)).rowCount).toBe(1);
+  });
+
+  it("[A-145] @argent une échéance ne se lie qu'à une facture qui couvre sa période, et une seule échéance par facture", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    const p = await nouveauPlan(A);
+    const lier = (e: unknown, facture: unknown) => ecrire(app, A, (c) => c.query("UPDATE echeances SET statut = 'emise', date_emission = '2026-01-02', facture_id = $2 WHERE id = $1", [e, facture]), APPELANT);
+    const jan = await echeance(A, p["id"], { debut_periode: "2026-01-01", fin_periode: "2026-02-01" });
+    const fev = await echeance(A, p["id"], { debut_periode: "2026-02-01", fin_periode: "2026-03-01" });
+    const mars = await echeance(A, p["id"], { debut_periode: "2026-03-01", fin_periode: "2026-04-01" });
+    // Période de l'échéance hors de celle de la facture : refusée par le déclencheur (la fin de l'échéance est exclue, celle de la facture incluse).
+    const factureMars = await factureDe(A, 3);
+    await expect(lier(jan["id"], factureMars["id"])).rejects.toMatchObject({ code: "P0001", message: "regle_metier", detail: "facture_incoherente" });
+    const janvier = await factureDe(A, 1, { periode_fin: "2026-01-31" });
+    await expect(lier(fev["id"], janvier["id"])).rejects.toMatchObject({ code: "P0001", detail: "facture_incoherente" });
+    const debordante = await factureDe(A, 4, { periode_debut: "2026-02-15", periode_fin: "2026-03-31", plan: "avance" });
+    await expect(lier(fev["id"], debordante["id"])).rejects.toMatchObject({ detail: "facture_incoherente" }); // la facture commence après l'échéance
+    expect((await lier(jan["id"], janvier["id"])).rowCount).toBe(1); // fin exclue le 1er février, dernier jour inclus le 31 janvier
+    // Une seule échéance par facture : la seconde, pourtant dans la période, est refusée.
+    const trimestre = await factureDe(A, 2, { periode_debut: "2026-02-01", periode_fin: "2026-03-31", plan: "avance" });
+    expect((await lier(fev["id"], trimestre["id"])).rowCount).toBe(1);
+    await expect(lier(mars["id"], trimestre["id"])).rejects.toMatchObject({ code: "23505" });
+    // Plusieurs échéances sans facture : permis.
+    expect((await echeance(A, p["id"], { debut_periode: "2026-04-01", fin_periode: "2026-05-01" }))["statut"]).toBe("prevue");
+  });
+
+  it("[A-145] une facture inconnue ou d'un autre client est refusée par la clé étrangère composée (23503)", async () => {
+    const A = randomUUID();
+    const B = randomUUID();
+    await creerOrg(A);
+    await creerOrg(B);
+    const p = await nouveauPlan(A);
+    const fb = await factureDe(B, 1);
+    const e = await echeance(A, p["id"]);
+    const lier = (facture: unknown) => ecrire(app, A, (c) => c.query("UPDATE echeances SET statut = 'emise', date_emission = '2026-01-02', facture_id = $2 WHERE id = $1", [e["id"], facture]), APPELANT);
+    await expect(lier(fb["id"])).rejects.toMatchObject({ code: "P0001", message: "regle_metier", detail: "facture_incoherente" });
+    await expect(lier(randomUUID())).rejects.toMatchObject({ code: "P0001", message: "regle_metier", detail: "facture_incoherente" });
+  });
+
+  it("[A-145] @argent une échéance ne se lie ni à un avoir ni à une facture annulée, mais à une facture d'abonnement ou de complément active (P0001 facture_incoherente)", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    const p = await nouveauPlan(A);
+    const e = await echeance(A, p["id"]);
+    const lier = (facture: unknown) => ecrire(app, A, (c) => c.query("UPDATE echeances SET statut = 'emise', date_emission = '2026-01-02', facture_id = $2 WHERE id = $1", [e["id"], facture]), APPELANT);
+    const abonnement = await factureDe(A, 1);
+    const avoirDe = await inserer(A, "factures", { organisation_id: A, numero: `AXI-AVOIR-${randomUUID()}`, hub_id: randomUUID(), nature: "avoir", facture_origine_id: abonnement["id"], plan: "essentiel", periode_debut: "2026-01-01", periode_fin: "2026-01-31", montant_ht_centimes: 10000, taux_tva_points_de_base: 2000, montant_tva_centimes: 2000, montant_ttc_centimes: 12000, pdf_ref: "factures/a.pdf", empreinte_sha256: "a".repeat(64), auteur: APPELANT.acteur });
+    await expect(lier(avoirDe["id"])).rejects.toMatchObject({ code: "P0001", detail: "facture_incoherente" });
+    await ecrire(app, A, (c) => c.query("UPDATE factures SET statut = 'annulee', statut_par = 'agent-essai' WHERE id = $1", [abonnement["id"]]), APPELANT);
+    await expect(lier(abonnement["id"])).rejects.toMatchObject({ code: "P0001", detail: "facture_incoherente" }); // annulée
+    const mise = await factureDe(A, 1, { nature: "mise_en_place", plan: null, code_automatisation: "relance-devis" });
+    await expect(lier(mise["id"])).rejects.toMatchObject({ code: "P0001", detail: "facture_incoherente" }); // une mise en place ne porte pas une échéance d'abonnement
+    const complement = await factureDe(A, 1, { nature: "complement_prorata", plan: null });
+    expect((await lier(complement["id"])).rowCount).toBe(1);
   });
 
   it("[A-145] @argent une échéance annulée avec une facture exige sa date d'émission (23514)", async () => {
@@ -292,7 +359,8 @@ describe("plan commercial, avec le socle", { timeout: 60_000 }, () => {
     await creerOrg(A);
     const p = await nouveauPlan(A);
     const e = await echeance(A, p["id"]);
-    await expect(ecrire(app, A, (c) => c.query("UPDATE echeances SET statut = 'annulee', facture_id = $2 WHERE id = $1", [e["id"], randomUUID()]), APPELANT)).rejects.toMatchObject({ code: "23514" });
+    const reelle = (await factureDe(A, 1))["id"];
+    await expect(ecrire(app, A, (c) => c.query("UPDATE echeances SET statut = 'annulee', facture_id = $2 WHERE id = $1", [e["id"], reelle]), APPELANT)).rejects.toMatchObject({ code: "23514" });
   });
 
   it("[A-146] @argent plans, abonnements, conditions : une colonne non accordée ne se modifie pas (42501), l'équipe n'écrit sur aucune table d'argent", async () => {

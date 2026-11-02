@@ -1,9 +1,10 @@
 import { execFileSync } from "node:child_process";
+import { writeSync } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { controlerInvariants, type Requete } from "../../../../packages/contrats/src/c5/invariants.js";
 import { avecClient, avecEquipe } from "./client-actif.js";
 import { migrer } from "./migrer.js";
@@ -71,7 +72,16 @@ const creerOrg = (id: string, extra: Record<string, unknown> = {}) => {
   const cles = Object.keys(v);
   return ecrire(app, id, (c) => c.query(`INSERT INTO organisations (${cles.join(", ")}) VALUES (${cles.map((_, i) => `$${i + 1}`).join(", ")}) RETURNING *`, Object.values(v)), APPELANT);
 };
-const creerInstance = (tenant: string, id = randomUUID(), extra: Record<string, unknown> = {}) => {
+// T2-05 : une instance ne passe à « active » (valeur par défaut comprise) qu'avec un contrat de sous-traitance signé : un contrat par client d'essai, posé une fois.
+const sousTraitance = new Map<string, Promise<unknown>>();
+const signerSousTraitance = (tenant: string) => {
+  const v = { id: randomUUID(), tenant_id: tenant, organisation_id: tenant, type: "sous_traitance_art28", date_signature: "2026-01-15", pdf_ref: `contrats/${tenant}/art28.pdf`, empreinte_sha256: "a".repeat(64), auteur: APPELANT.acteur };
+  const cles = Object.keys(v);
+  if (!sousTraitance.has(tenant)) sousTraitance.set(tenant, ecrire(app, tenant, (c) => c.query(`INSERT INTO contrats (${cles.join(", ")}) VALUES (${cles.map((_, i) => `$${i + 1}`).join(", ")})`, Object.values(v)), APPELANT));
+  return sousTraitance.get(tenant);
+};
+const creerInstance = async (tenant: string, id = randomUUID(), extra: Record<string, unknown> = {}) => {
+  if ((extra["etat"] ?? "active") === "active") await signerSousTraitance(tenant);
   const v = { id, tenant_id: tenant, organisation_id: tenant, code_automatisation: "relance-devis", formule: "abonnement", environnement: "production", ...extra };
   const cles = Object.keys(v);
   return ecrire(app, tenant, (c) => c.query(`INSERT INTO instances (${cles.join(", ")}) VALUES (${cles.map((_, i) => `$${i + 1}`).join(", ")}) RETURNING id`, Object.values(v)), APPELANT);
@@ -82,6 +92,11 @@ beforeAll(async () => {
 }, 120_000);
 afterAll(async () => {
   await Promise.all(ouverts.map((o) => o.end().catch(() => undefined)));
+});
+
+// Le rapport de la CI est un JSON hors du journal : un essai en échec est écrit ici pour être lisible dans le journal du job.
+afterEach((contexte) => {
+  if (contexte.task.result?.state === "fail") writeSync(2, `ECHEC ${contexte.task.name} : ${String(contexte.task.result.errors?.[0]?.message ?? "").slice(0, 400)}\n`);
 });
 
 // Délai large : les autres fichiers du socle écrivent au même journal, dont un essai qui garde son verrou jusqu'à 5 s (audit.int.test.ts).
@@ -178,7 +193,7 @@ describe("tables de client, avec le socle", { timeout: 30_000 }, () => {
       expect((await c.query("UPDATE instances SET etat = 'pause' WHERE id = $1", [instanceB])).rowCount).toBe(0);
     }, APPELANT);
     // Écrire une ligne au nom de B depuis A : refus par WITH CHECK.
-    await expect(ecrire(app, A, (c) => c.query("INSERT INTO instances (id, tenant_id, organisation_id, code_automatisation, formule, environnement) VALUES ($1, $2, $2, 'x', 'abonnement', 'test')", [randomUUID(), B]))).rejects.toMatchObject({ code: "42501" });
+    await expect(ecrire(app, A, (c) => c.query("INSERT INTO instances (id, tenant_id, organisation_id, code_automatisation, formule, environnement, etat) VALUES ($1, $2, $2, 'x', 'abonnement', 'test', 'pause')", [randomUUID(), B]))).rejects.toMatchObject({ code: "42501" });
     // Sans client actif : aucune ligne ; chaîne, identifiant ou injection dans app.tenant_id : refusés ou vides.
     for (const t of ["organisations", "contacts", "instances"]) expect((await app.query(`SELECT count(*)::int AS n FROM ${t}`)).rows[0]?.n, t).toBe(0);
     for (const mauvais of ["", "pas-un-uuid", `${A}' OR '1'='1`]) {
@@ -269,12 +284,12 @@ describe("réserves de l'audit de la PR 95, avec le socle", { timeout: 60_000 },
     }).catch((e: unknown) => e);
     await dormir(300);
     const t1 = avecClient(app, A, async (c) => {
-      await c.query("INSERT INTO instances (id, tenant_id, organisation_id, code_automatisation, formule, environnement) VALUES ($1, $2, $2, 'x', 'abonnement', 'test')", [randomUUID(), A]);
+      await c.query("INSERT INTO instances (id, tenant_id, organisation_id, code_automatisation, formule, environnement, etat) VALUES ($1, $2, $2, 'x', 'abonnement', 'test', 'pause')", [randomUUID(), A]);
       await c.query("UPDATE instances SET etat = 'pause' WHERE id = $1", [X]);
     }).catch((e: unknown) => e);
     await dormir(1000);
     const debut = Date.now();
-    await avecClient(app, tiers, (c) => c.query("INSERT INTO instances (id, tenant_id, organisation_id, code_automatisation, formule, environnement) VALUES ($1, $2, $2, 'x', 'abonnement', 'test')", [randomUUID(), tiers]), APPELANT);
+    await avecClient(app, tiers, (c) => c.query("INSERT INTO instances (id, tenant_id, organisation_id, code_automatisation, formule, environnement, etat) VALUES ($1, $2, $2, 'x', 'abonnement', 'test', 'pause')", [randomUUID(), tiers]), APPELANT);
     // La borne de la fiche est 10 s ; derrière PgBouncer (4 connexions serveur par rôle) l'attente d'une connexion s'y ajoute : 30 s, l'échec réel est une erreur 55P03.
     expect(Date.now() - debut).toBeLessThan(30_000);
     await Promise.all([t0, t1]);

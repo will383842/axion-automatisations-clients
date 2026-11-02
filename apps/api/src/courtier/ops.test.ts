@@ -24,7 +24,7 @@ describe("politiques et initialisation OpenBao du courtier", () => {
 
   it("[A-211] la politique humains lit les identifiants et révoque les baux des seuls rôles humain-lecture, avec son propre jeton", () => {
     const sh = lire("ops/socle/openbao/initialiser.sh");
-    const m = /bao policy write humains - <<'POLITIQUE'\n([\s\S]*?)\nPOLITIQUE\n/.exec(sh);
+    const m = /bao policy write humains - <<'POLITIQUE' >\/dev\/null\n([\s\S]*?)\nPOLITIQUE\n/.exec(sh);
     expect(m, "politique humains en ligne dans initialiser.sh").not.toBeNull();
     const hcl = m![1]!.replace(/^#.*$/gm, "");
     const chemins = [...hcl.matchAll(/path "([^"]*)" \{\s*capabilities = \[([^\]]*)\]/g)].map((x) => ({ chemin: x[1]!, droits: x[2]! }));
@@ -65,7 +65,7 @@ describe("politiques et initialisation OpenBao du courtier", () => {
   it("[A-211] l'inventaire nomme le jeton HUMAINS et l'ADR dit que RECONNECT ne coupe pas les sessions des clients", () => {
     expect(lire("ops/secrets-inventaire.md")).toMatch(/\| `HUMAINS` \| equipe \|[^\n]*accès humain/);
     const adr = lire("docs/adr/0046-bases-des-clients.md");
-    expect(adr).toMatch(/KILL puis RESUME/);
-    expect(adr).not.toMatch(/RECONNECT[^\n]*ferme ensuite les connexions serveur rendues par PgBouncer \(elle ne coupe pas/);
+    expect(adr).toMatch(/`KILL` puis `RESUME`/);
+    expect(adr).not.toMatch(/les coupe par la fiche T2-36b/);
   });
 });

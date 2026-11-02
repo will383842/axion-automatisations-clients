@@ -168,7 +168,7 @@ describe("rotation des mots de passe", () => {
   });
 
   it("[A-169] l'adaptateur coupe KILL puis RESUME sur la seule base, et les sessions du rôle app et des rôles humains rattachés à lecture", async () => {
-    const ordres: { cible: string; texte: string; valeurs?: unknown[] }[] = [];
+    const ordres: { cible: string; texte: string; valeurs?: unknown[] | undefined }[] = [];
     const sql = (cible: string, echec = false) => ({ requete: async (texte: string, valeurs?: unknown[]) => { ordres.push({ cible, texte, valeurs }); if (echec && texte.startsWith("SELECT pg_terminate")) throw new Error("grappe injoignable"); return [] as never; } });
     await sessionsPg(sql("grappe"), sql("bouncer")).couper(`cli_${ID}`, `cli_${ID}_app`);
     expect(ordres.filter((o) => o.cible === "bouncer").map((o) => o.texte)).toEqual([`KILL cli_${ID}`, `RESUME cli_${ID}`]);

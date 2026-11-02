@@ -1,5 +1,5 @@
 {
-  "id": "a0b1f069-4ff7-4895-8c6c-bd3f6447fa23",
+  "id": "b1a5b79a-4a7c-4c95-ba34-cc6866056030",
   "prevId": "64158bf7-0aa3-4835-99ad-fcde4ae5cdd6",
   "version": "7",
   "dialect": "postgresql",
@@ -2789,6 +2789,12 @@
           "typeSchema": "public",
           "primaryKey": false,
           "notNull": false
+        },
+        "payload": {
+          "name": "payload",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -2803,6 +2809,55 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "faits_recus_sujet_idx": {
+          "name": "faits_recus_sujet_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "sujet",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "sequence",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "faits_recus_non_traites_idx": {
+          "name": "faits_recus_non_traites_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "recu_le",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"faits_recus\".\"traite_le\" IS NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -6969,423 +7024,6 @@
       },
       "isRLSEnabled": false
     },
-    "public.alertes_c3": {
-      "name": "alertes_c3",
-      "schema": "",
-      "columns": {
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "event_id": {
-          "name": "event_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "type": {
-          "name": "type",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "reference": {
-          "name": "reference",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "cree_le": {
-          "name": "cree_le",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "confirmee_le": {
-          "name": "confirmee_le",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "alertes_c3_tenant_id_idx": {
-          "name": "alertes_c3_tenant_id_idx",
-          "columns": [
-            {
-              "expression": "tenant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "alertes_c3_tenant_id_id_pk": {
-          "name": "alertes_c3_tenant_id_id_pk",
-          "columns": [
-            "tenant_id",
-            "id"
-          ]
-        }
-      },
-      "uniqueConstraints": {
-        "alertes_c3_tenant_id_id_unique": {
-          "name": "alertes_c3_tenant_id_id_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "tenant_id",
-            "id"
-          ]
-        },
-        "alertes_c3_tenant_id_event_id_type_reference_unique": {
-          "name": "alertes_c3_tenant_id_event_id_type_reference_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "tenant_id",
-            "event_id",
-            "type",
-            "reference"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {
-        "alertes_c3_type": {
-          "name": "alertes_c3_type",
-          "value": "\"alertes_c3\".\"type\" IN ('exclusion_a_reporter_dans_le_hub', 'effacement_demande', 'ecart_propose', 'fait_hors_perimetre')"
-        },
-        "alertes_c3_reference_bornee": {
-          "name": "alertes_c3_reference_bornee",
-          "value": "char_length(\"alertes_c3\".\"reference\") BETWEEN 1 AND 200"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.contenus_c3": {
-      "name": "contenus_c3",
-      "schema": "",
-      "columns": {
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "event_id": {
-          "name": "event_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "contenu": {
-          "name": "contenu",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "recu_le": {
-          "name": "recu_le",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "contenus_c3_tenant_id_idx": {
-          "name": "contenus_c3_tenant_id_idx",
-          "columns": [
-            {
-              "expression": "tenant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "contenus_c3_tenant_id_id_pk": {
-          "name": "contenus_c3_tenant_id_id_pk",
-          "columns": [
-            "tenant_id",
-            "id"
-          ]
-        }
-      },
-      "uniqueConstraints": {
-        "contenus_c3_tenant_id_id_unique": {
-          "name": "contenus_c3_tenant_id_id_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "tenant_id",
-            "id"
-          ]
-        },
-        "contenus_c3_tenant_id_event_id_unique": {
-          "name": "contenus_c3_tenant_id_event_id_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "tenant_id",
-            "event_id"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.donnees_crm_c3": {
-      "name": "donnees_crm_c3",
-      "schema": "",
-      "columns": {
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "organisation_id": {
-          "name": "organisation_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "event_id": {
-          "name": "event_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "sorte": {
-          "name": "sorte",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "contenu": {
-          "name": "contenu",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "cree_le": {
-          "name": "cree_le",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "donnees_crm_c3_tenant_id_idx": {
-          "name": "donnees_crm_c3_tenant_id_idx",
-          "columns": [
-            {
-              "expression": "tenant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "donnees_crm_c3_organisation_fk": {
-          "name": "donnees_crm_c3_organisation_fk",
-          "tableFrom": "donnees_crm_c3",
-          "tableTo": "organisations",
-          "columnsFrom": [
-            "tenant_id",
-            "organisation_id"
-          ],
-          "columnsTo": [
-            "tenant_id",
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "donnees_crm_c3_tenant_id_id_pk": {
-          "name": "donnees_crm_c3_tenant_id_id_pk",
-          "columns": [
-            "tenant_id",
-            "id"
-          ]
-        }
-      },
-      "uniqueConstraints": {
-        "donnees_crm_c3_tenant_id_id_unique": {
-          "name": "donnees_crm_c3_tenant_id_id_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "tenant_id",
-            "id"
-          ]
-        },
-        "donnees_crm_c3_tenant_id_event_id_sorte_unique": {
-          "name": "donnees_crm_c3_tenant_id_event_id_sorte_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "tenant_id",
-            "event_id",
-            "sorte"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {
-        "donnees_crm_c3_sorte": {
-          "name": "donnees_crm_c3_sorte",
-          "value": "\"donnees_crm_c3\".\"sorte\" IN ('copie', 'ecart', 'apporteur')"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.exclusions_c3": {
-      "name": "exclusions_c3",
-      "schema": "",
-      "columns": {
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "portee": {
-          "name": "portee",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "empreinte": {
-          "name": "empreinte",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "genre": {
-          "name": "genre",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "cree_le": {
-          "name": "cree_le",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "exclusions_c3_tenant_id_idx": {
-          "name": "exclusions_c3_tenant_id_idx",
-          "columns": [
-            {
-              "expression": "tenant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "exclusions_c3_tenant_id_id_pk": {
-          "name": "exclusions_c3_tenant_id_id_pk",
-          "columns": [
-            "tenant_id",
-            "id"
-          ]
-        }
-      },
-      "uniqueConstraints": {
-        "exclusions_c3_tenant_id_id_unique": {
-          "name": "exclusions_c3_tenant_id_id_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "tenant_id",
-            "id"
-          ]
-        },
-        "exclusions_c3_tenant_id_portee_empreinte_unique": {
-          "name": "exclusions_c3_tenant_id_portee_empreinte_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "tenant_id",
-            "portee",
-            "empreinte"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {
-        "exclusions_c3_empreinte_format": {
-          "name": "exclusions_c3_empreinte_format",
-          "value": "\"exclusions_c3\".\"empreinte\" ~ '^[0-9a-f]{64}$'"
-        },
-        "exclusions_c3_genre": {
-          "name": "exclusions_c3_genre",
-          "value": "\"exclusions_c3\".\"genre\" IN ('desabonnement', 'opposition')"
-        },
-        "exclusions_c3_portee": {
-          "name": "exclusions_c3_portee",
-          "value": "(\"exclusions_c3\".\"genre\" = 'opposition') = (\"exclusions_c3\".\"portee\" = '*') AND char_length(\"exclusions_c3\".\"portee\") BETWEEN 1 AND 200"
-        }
-      },
-      "isRLSEnabled": false
-    },
     "public.audits_client": {
       "name": "audits_client",
       "schema": "",
@@ -8946,9 +8584,7 @@
         "ressaisie_manuelle",
         "email_change",
         "fiche_absorbee",
-        "incoherence_nuit",
-        "lien_crm_different",
-        "identifiant_crm_incoherent"
+        "incoherence_nuit"
       ]
     },
     "public.motif_exclusion": {

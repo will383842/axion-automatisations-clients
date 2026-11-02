@@ -190,11 +190,11 @@ describe("adaptateur SQL du dépôt C3 (sans base : requêtes enregistrées)", (
 
 describe("migration du récepteur C3", () => {
   const dossier = fileURLToPath(new URL("../../drizzle/", import.meta.url));
-  const fichier = readdirSync(dossier).find((f) => f.startsWith("0015_"));
+  const fichier = readdirSync(dossier).find((f) => f.startsWith("0013_"));
   const sql = fichier ? readFileSync(`${dossier}${fichier}`, "utf8") : "";
   const tables = ["contenus_c3", "exclusions_c3", "alertes_c3", "donnees_crm_c3"];
 
-  it("[C-458] la migration 0015 existe et crée les tables du récepteur C3", () => {
+  it("[C-458] la migration 0013 existe et crée les tables du récepteur C3", () => {
     expect(fichier).toBeDefined();
     for (const t of tables) expect(sql).toContain(`CREATE TABLE "${t}"`);
   });

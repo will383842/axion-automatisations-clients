@@ -1,6 +1,6 @@
 # 0106 · Récepteur C3 : exclusion durable par empreinte, alertes rejouables, liens CRM
 
-Date : 02/11/2026 · Statut : proposé (T2-17, complété par T2-17b) · Contrat touché : aucun · Migration : aucune pour T2-17 ; console 0015 pour T2-17b (numéro réservé dans le dépôt privé).
+Date : 02/11/2026 · Statut : proposé (T2-17, complété par T2-17b) · Contrat touché : aucun · Migration : aucune pour T2-17 ; console 0013 pour T2-17b (numéro réservé dans le dépôt privé).
 
 ## Contexte
 Le récepteur C3 range les faits signés du CRM. Règle de Will : une opposition (consentement retiré, effacement demandé) met à l'écart des envois, **durablement** ; les données sont gardées ; aucun contact n'est supprimé.

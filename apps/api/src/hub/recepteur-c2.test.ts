@@ -270,9 +270,10 @@ describe("[C-338] [T2-16] alerter obligatoire", () => {
 });
 
 describe("[T2-16b] dettes D1 à D3 : le récepteur n'est pas branché", () => {
-  it("[T2-16b] tant que D1 (balayage) n'est pas livrée, serveur.ts ne branche pas le récepteur C2", () => {
+  it("[T2-16b] serveur.ts ne branche le récepteur C2 que s'il lance aussi le balayage (le branchement lui-même est porté par T2-17b)", () => {
     const source = readFileSync(new URL("../serveur.ts", import.meta.url), "utf8");
-    expect(source).not.toMatch(/brancherHub|routes\/hub|recepteur-c2/);
+    // Un simple import ne suffit pas : balayer doit être appelé (planifié) dans serveur.ts.
+    if (/brancherHub|routes\/hub|recepteur-c2/.test(source)) expect(source).toMatch(/\bbalayer\s*\(|setInterval\([^)]*balayer|planifier\w*\([^)]*balayer/);
   });
 });
 

@@ -324,7 +324,7 @@ describe("plan commercial, avec le socle", { timeout: 60_000 }, () => {
     expect((await echeance(A, p["id"], { debut_periode: "2026-04-01", fin_periode: "2026-05-01" }))["statut"]).toBe("prevue");
   });
 
-  it("[A-145] une facture inconnue ou d'un autre client est refusée par la clé étrangère composée (23503)", async () => {
+  it("[A-145] une facture inconnue ou d'un autre client est refusée (P0001 facture_incoherente, avant la clé étrangère)", async () => {
     const A = randomUUID();
     const B = randomUUID();
     await creerOrg(A);

@@ -334,14 +334,14 @@ describe("contrats, devis, factures et activation, avec le socle", { timeout: 30
     expect((await ecrire(app, A, (c) => c.query("SELECT montant_ht_centimes::int AS ht FROM factures WHERE id = $1", [f["id"]]))).rows[0]).toEqual({ ht: 10000 });
   });
 
-  it("[A-133] @argent deux connexions concurrentes sur la même facture : la seconde attend, puis écrit sur la version validée (payée vers annulée, sans avoir) ; le dernier mot est celui du Hub", async () => {
+  it("[A-133] @argent deux connexions concurrentes sur la même facture : la seconde attend, puis écrit sur la version validée (payée vers annulée, sans avoir) ; le dernier mot est celui du Hub, et un montant concurrent est refusé par le droit de colonne (42501)", async () => {
     const A = randomUUID();
     await creerOrg(A);
     const f = await facture(A);
     const [premiere, seconde] = await course(A, (c) => c.query("UPDATE factures SET statut = 'payee', statut_par = 'agent-essai' WHERE id = $1", [f["id"]]), (c) => c.query("UPDATE factures SET statut = 'annulee', statut_par = 'agent-essai' WHERE id = $1", [f["id"]]));
     expect([premiere, seconde]).toEqual(["ok", "ok"]);
     expect((await ecrire(app, A, (c) => c.query("SELECT statut FROM factures WHERE id = $1", [f["id"]]))).rows[0]).toEqual({ statut: "annulee" });
-    // Un changement concurrent de montant n'est jamais accepté, même derrière un changement de statut.
+    // Le droit de colonne (42501) refuse un montant concurrent pour `console_app`. Le déclencheur, lui, est prouvé dans l'essai du propriétaire (politique d'essai ouverte) « le déclencheur fige les colonnes reçues » : cette course ne le prouve pas.
     const [p2, s2] = await course(A, (c) => c.query("UPDATE factures SET statut = 'impayee', statut_par = 'agent-essai' WHERE id = $1", [f["id"]]), (c) => c.query("UPDATE factures SET montant_ht_centimes = 1 WHERE id = $1", [f["id"]]));
     expect([p2, s2]).toEqual(["ok", "42501"]);
     expect((await ecrire(app, A, (c) => c.query("SELECT montant_ht_centimes::int AS ht FROM factures WHERE id = $1", [f["id"]]))).rows[0]).toEqual({ ht: 10000 });

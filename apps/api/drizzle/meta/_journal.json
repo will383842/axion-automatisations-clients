@@ -78,6 +78,13 @@
       "when": 1793580000000,
       "tag": "0010_exploitation",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1793587472905,
+      "tag": "0011_suivi",
+      "breakpoints": true
     }
   ]
 }

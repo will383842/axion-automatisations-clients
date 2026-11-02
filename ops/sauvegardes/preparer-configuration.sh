@@ -38,7 +38,8 @@ rm -f "$cible"
   printf '[global]\nrepo1-cipher-pass=%s\n' "$phrase"
   if [ "$hors_essai" = "1" ]; then
     printf 'repo1-sftp-host-key-check-type=strict\nrepo1-sftp-known-host=%s\n' "$known_hosts"
-    grep -Ev '^\[global\]$|^[[:space:]]*repo1-sftp-host-key-(check|hash)-type[[:space:]]*=' "$modele"
+    # Le type de hachage reste : pgBackRest l'exige dès que la clé de l'hôte est vérifiée.
+    grep -Ev '^\[global\]$|^[[:space:]]*repo1-sftp-host-key-check-type[[:space:]]*=' "$modele"
   else
     grep -v '^\[global\]$' "$modele"
   fi

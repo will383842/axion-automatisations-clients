@@ -61,12 +61,18 @@ journal_ecrire() {
   for valeur in "$type" "$empreinte" "$identifiant"; do
     case "$valeur" in "" | *$'\t'* | *$'\n'*) echo "journal : valeur vide ou avec tabulation" >&2; return 1 ;; esac
   done
-  date_iso="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  horodatage="$(date -u +%Y%m%d-%H%M%S)"
-  chemin="$RANGEMENT_SYSTEME/$quoi/$frequence/$RANGEMENT_SYSTEME-$quoi-$frequence-$horodatage.journal"
-  rangement_nom_valide "$chemin" || { echo "journal : nom de rangement refusé : $chemin" >&2; return 1; }
   dossier="$(journal_dossier)"
-  fichier="$dossier/$chemin"
+  # Le nom porte la seconde : deux passages dans la même seconde attendent la suivante (jamais d'écrasement).
+  local essai
+  for essai in 1 2 3; do
+    date_iso="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    horodatage="$(date -u +%Y%m%d-%H%M%S)"
+    chemin="$RANGEMENT_SYSTEME/$quoi/$frequence/$RANGEMENT_SYSTEME-$quoi-$frequence-$horodatage.journal"
+    rangement_nom_valide "$chemin" || { echo "journal : nom de rangement refusé : $chemin" >&2; return 1; }
+    fichier="$dossier/$chemin"
+    [ -e "$fichier" ] || break
+    sleep 1
+  done
   (
     umask 077
     mkdir -p "$(dirname "$fichier")" || exit 1

@@ -24,6 +24,8 @@ export class FauxMoteur {
   mortApres: number | undefined;
   // Début de requête qui tue le processus (avant son effet).
   mortSur: string | undefined;
+  // Erreur levée une seule fois, par la première requête qui commence ainsi (ex. panne PgBouncer en pleine mise à jour).
+  erreurSur: { debut: string; erreur: unknown } | undefined;
   // Instant (ms) posé sur chaque intention créée : à régler comme l'horloge du test.
   maintenant = 1_000_000;
   #vues = 0;
@@ -51,6 +53,11 @@ export class FauxMoteur {
             const sql = texte.replace(/\s+/g, " ").trim();
             this.requetes.push(sql);
             if (this.mortSur && sql.startsWith(this.mortSur)) throw new CoupureProcessus();
+            if (this.erreurSur && sql.startsWith(this.erreurSur.debut)) {
+              const { erreur } = this.erreurSur;
+              this.erreurSur = undefined;
+              throw erreur;
+            }
             if (this.mortApres !== undefined && this.#vues >= this.mortApres) throw new CoupureProcessus();
             this.#vues++;
             if (sql === "BEGIN") {

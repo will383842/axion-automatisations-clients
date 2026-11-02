@@ -131,4 +131,49 @@ describe("travailleur complet avec un faux moteur", () => {
     await expect(b.horloge.piloter(g(j as never, "jeton"))).rejects.toBeInstanceOf(UnrecoverableError);
     expect(j.reports).toHaveLength(4);
   });
+
+  it("[A-318] @anti-doublon plantage : une intention écrite il y a 30 s est remise après la fenêtre puis résolue par verifier(), jamais abandonnée", async () => {
+    const b = banc(envoyer, "verifiable_apres_coup");
+    const t = b.travail();
+    const cle = deriverCleIntention({ instanceId: INSTANCE, executionId: t.id, etape: "e1", action: "envoyer", element: "msg-1" });
+    b.moteur.maintenant = b.horloge.maintenant() - 30_000;
+    b.moteur.etat.intentions.push({ cle, executionId: t.id, garantie: "verifiable_apres_coup", etat: "ecrite", creeLe: b.horloge.maintenant() - 30_000 });
+    // Le message était parti avant le plantage : le connecteur le retrouve.
+    b.connecteur.verification = "trouvee";
+    const g = monter(b);
+    const j = job(t);
+    await expect(b.horloge.piloter(g(j as never, "jeton"))).rejects.toBeInstanceOf(DelayedError);
+    expect(j.data["essais"]).toBeUndefined();
+    expect(b.connecteur.appels).toEqual([]);
+    expect(j.reports[0]! - Date.now()).toBeGreaterThanOrEqual(149_000);
+    b.horloge.regler(b.horloge.maintenant() + 181_000);
+    b.moteur.maintenant = b.horloge.maintenant();
+    await b.horloge.piloter(g(j as never, "jeton")); // résolue, rien à relancer
+    expect(b.connecteur.appels).toEqual([]);
+    expect(b.moteur.etat.intentions.map((i) => i.etat)).toEqual(["faite"]);
+    expect(b.moteur.etat.journal.map((e) => e.statut)).not.toContain("echec");
+  });
+
+  it("[A-320] une panne de base (57P01) pendant l'écriture de « faite » dans ctx.effet : étape reportée, aucun échec au journal, l'essai suivant finit sans second envoi", async () => {
+    const b = banc(envoyer, "verifiable_apres_coup");
+    const t = b.travail();
+    b.moteur.erreurSur = { debut: "UPDATE intentions SET etat", erreur: Object.assign(new Error("arrêt administrateur"), { code: "57P01" }) };
+    const g = monter(b);
+    const j = job(t);
+    await expect(b.horloge.piloter(g(j as never, "jeton"))).rejects.toBeInstanceOf(DelayedError);
+    expect(b.console.evenements.some((e) => e.type === "erreur")).toBe(false);
+    expect(b.moteur.etat.journal.map((e) => e.statut)).not.toContain("echec");
+    expect(j.data["essais"]).toBe(1);
+    expect(b.connecteur.effetsReels).toBe(1);
+    // Le bail de l'essai précédent court encore : la remise attend sa fin, puis la vérification trouve le message.
+    for (let i = 0; i < 3 && b.moteur.etat.intentions[0]?.etat !== "faite"; i++) {
+      b.horloge.regler(b.horloge.maintenant() + 400_000);
+      b.moteur.maintenant = b.horloge.maintenant();
+      await b.horloge.piloter(g(j as never, "jeton")).catch((e) => {
+        if (!(e instanceof DelayedError)) throw e;
+      });
+    }
+    expect(b.connecteur.effetsReels).toBe(1);
+    expect(b.moteur.etat.intentions.map((i) => i.etat)).toEqual(["faite"]);
+  });
 });

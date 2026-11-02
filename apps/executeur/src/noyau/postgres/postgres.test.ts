@@ -211,6 +211,34 @@ describe("deux travailleurs sur la même base (bail non partagé en base, ADR 01
   });
 });
 
+describe("mémoire de la boîte partagée par client", () => {
+  const cles = (b: ReturnType<typeof banc>, n: number) => Array.from({ length: n }, (_, i) => ({ cle: `cle-${i}`, instanceId: INSTANCE, executionId: b.executionId, etape: "e1", element: `msg-${i}`, action: "envoyer", garantie: "idempotent_par_cle" as const }));
+
+  it("[A-316] une intention déjà « faite » en base n'est pas gardée en mémoire", async () => {
+    const b = banc({ e1: envoyer });
+    const boite = new BoitePostgres(b.moteur.pool(), TENANT);
+    b.moteur.etat.intentions.push({ cle: "cle-0", executionId: b.executionId, garantie: "idempotent_par_cle", etat: "faite", creeLe: 0 });
+    await boite.ecrire(cles(b, 1)[0]!, { proprietaire: "p", jusqua: b.horloge.maintenant() + 1_000 }, b.horloge.maintenant());
+    expect(boite.tailles.connues).toBe(0);
+    expect(boite.tailles.baux).toBe(0);
+  });
+
+  it("[A-316] les baux échus et les échecs connus anciens sont purgés : la mémoire ne grossit pas sans fin", async () => {
+    const b = banc({ e1: envoyer });
+    const boite = new BoitePostgres(b.moteur.pool(), TENANT);
+    const t0 = b.horloge.maintenant();
+    for (const [i, c] of cles(b, 20).entries()) {
+      await boite.ecrire(c, { proprietaire: `p${i}`, jusqua: t0 + 1_000 }, t0);
+      await boite.liberer(c.cle, `p${i}`);
+    }
+    expect(boite.tailles.rendues).toBe(20);
+    const tard = t0 + 400_000;
+    await boite.ecrire({ ...cles(b, 1)[0]!, cle: "cle-neuve", element: "msg-neuf" }, { proprietaire: "z", jusqua: tard + 1_000 }, tard);
+    expect(boite.tailles.rendues).toBe(0);
+    expect(boite.tailles.baux).toBe(1);
+  });
+});
+
 describe("arrêt brutal simulé", () => {
   it("[C-470] @anti-doublon arrêt brutal tiré au sort 50 fois : aucun message en double", async () => {
     let graine = 470;

@@ -4,7 +4,7 @@ import { Cellule } from "./cellule.ts";
 import { ErreurConnecteur } from "../noyau/politique-erreurs.ts";
 import { CoupureProcessus } from "../noyau/ports.ts";
 import { HorlogeFactice } from "../noyau/horloge.ts";
-import { BacFerme, creerGestionnaire, type Dependances, type Travail } from "./travailleur.ts";
+import { BacFerme, creerGestionnaire, RemiseIntention, type Dependances, type Travail } from "./travailleur.ts";
 
 // Faux travail BullMQ : seules les méthodes que le gestionnaire touche. « moveToDelayed » ne fait PAS monter attemptsMade (skipAttempt) : c'est tout l'enjeu.
 function fauxJob(data: Record<string, unknown> = {}) {
@@ -121,5 +121,49 @@ describe("gestionnaire du Worker : erreur d'identification", () => {
       throw new ErreurConnecteur("identification", "jeton_refuse");
     });
     await expect(appeler(g, fauxJob())).rejects.toBeInstanceOf(UnrecoverableError);
+  });
+});
+
+describe("gestionnaire du Worker : une intention occupée est une remise, pas un essai", () => {
+  const FENETRE_MS = 150_000;
+  const occupee = (h: HorlogeFactice) => async () => {
+    throw new RemiseIntention(h.maintenant() + FENETRE_MS, "e1");
+  };
+
+  it("[A-318] intention_en_cours reçue trois fois : remise à chaque fois, essais intact, délai au moins égal à la fenêtre", async () => {
+    const h = new HorlogeFactice();
+    const g = creerGestionnaire({ delaiRemiseMs: 5_000 }, deps(occupee(h)), lire, h);
+    const j = fauxJob();
+    for (let i = 1; i <= 3; i++) {
+      await expect(appeler(g, j)).rejects.toBeInstanceOf(DelayedError);
+      expect(j.data["essais"]).toBeUndefined();
+      expect(j.data["remises"]).toBe(i);
+    }
+    for (const quand of j.reports) expect(quand - Date.now()).toBeGreaterThanOrEqual(FENETRE_MS - 1_000);
+  });
+
+  it("[A-318] au-delà de 3 fenêtres : escalade tracée (à trancher), jamais d'abandon silencieux ni d'essais épuisés", async () => {
+    const h = new HorlogeFactice();
+    const escalades: unknown[][] = [];
+    const g = creerGestionnaire({ delaiRemiseMs: 5_000 }, deps(occupee(h), { escalader: async (...a: unknown[]) => void escalades.push(a) } as never), lire, h);
+    const j = fauxJob({ remises: 3 });
+    await appeler(g, j); // ne lève pas : le travail est rendu à l'équipe, pas perdu
+    expect(escalades).toEqual([[expect.objectContaining({ instanceId: "inst-1" }), "e1", "intention_en_cours_sans_issue"]]);
+    expect(j.data["essais"]).toBeUndefined();
+    expect(j.reports).toHaveLength(0);
+  });
+
+  it("[A-318] sans escalade branchée, le sens sûr reste un abandon explicite, jamais un second envoi", async () => {
+    const h = new HorlogeFactice();
+    const g = creerGestionnaire({ delaiRemiseMs: 5_000 }, deps(occupee(h)), lire, h);
+    await expect(appeler(g, fauxJob({ remises: 3 }))).rejects.toBeInstanceOf(UnrecoverableError);
+  });
+
+  it("[A-318] une remise ne remet pas à zéro le compte des essais déjà faits", async () => {
+    const h = new HorlogeFactice();
+    const g = creerGestionnaire({ delaiRemiseMs: 5_000 }, deps(occupee(h)), lire, h);
+    const j = fauxJob({ essais: 2 });
+    await expect(appeler(g, j)).rejects.toBeInstanceOf(DelayedError);
+    expect(j.data["essais"]).toBe(2);
   });
 });

@@ -48,7 +48,7 @@ import { createRequire } from "node:module";
 const pg = createRequire(${JSON.stringify(url("apps/executeur/package.json"))})("pg");
 const e = JSON.parse(process.env.TRAVAIL);
 // Signaux vers le test (sortie d'erreur, une ligne chacun) : « ECRITE » dès que l'intention est validée en base, « VERIFIE » à chaque vérification après coup.
-const signal = (ligne) => process.stderr.write(ligne + "\n");
+const signal = (ligne) => process.stderr.write(ligne + "\\n");
 const pool = new pg.Pool({ host: e.pg.host, port: e.pg.port, user: "moteur_app", database: "moteur", password: e.pg.mdp, max: 2 });
 const graph = (chemin, init) => fetch(e.graph + "/v1.0/me" + chemin, { ...init, headers: { authorization: "Bearer faux.compte@exemple.fr", "content-type": "application/json" } });
 const connecteurs = {

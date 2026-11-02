@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { writeSync } from "node:fs";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, existsSync, mkdirSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
@@ -55,7 +56,7 @@ beforeAll(() => {
   sommeSource = sql("console", SOMME);
   // « pgbackrest check » avant la première sauvegarde (sinon l'archivage échoue sans bruit), puis la complète de nuit.
   try {
-    dans("postgres", "/opt/sauvegardes/sauvegarder-nuit.sh");
+    dans("postgres", "env", "SAUVEGARDE_TYPE=full", "/opt/sauvegardes/sauvegarder-nuit.sh");
   } catch (e) {
     const journal = spawnSync("docker", ["exec", conteneur("postgres"), "sh", "-c", "tail -n 60 /var/log/pgbackrest/*.log 2>&1"], { encoding: "utf8" }).stdout;
     const detail = `${String(e)}\n--- journal pgBackRest\n${journal}`;
@@ -140,7 +141,22 @@ describe("sauvegardes (archivage continu, complète de nuit, restauration)", () 
 
   it("[C-045] sauvegarde complète puis restauration dans un conteneur neuf : les sommes de contrôle des tables d'essai sont identiques", () => {
     // Mode essai explicite : sans lui, restaurer.sh exige OpenBao (BAO_ADDR et le fichier du jeton).
-    restaure = sortie(script("restaurer.sh"), [], { env: { ...process.env, SAUVEGARDE_ESSAI: "1" } }).trim().split("\n").pop() ?? "";
+    const journal = mkdtempSync(join(tmpdir(), "journal-restauration-"));
+    try {
+      restaure = sortie(script("restaurer.sh"), [], { env: { ...process.env, SAUVEGARDE_ESSAI: "1", SAUVEGARDE_JOURNAL: journal } }).trim().split("\n").pop() ?? "";
+      // [C-049] chaque essai de restauration écrit UNE ligne de journal, même nom de rangement que les autres.
+      const fichiers = readdirSync(join(journal, "console", "restauration"), { recursive: true, encoding: "utf8" }).filter((f) => f.endsWith(".journal"));
+      expect(fichiers).toHaveLength(1);
+      expect(fichiers[0]).toMatch(/^ponctuelle\/console-restauration-ponctuelle-\d{8}-\d{6}\.journal$/);
+      const champs = readFileSync(join(journal, "console", "restauration", fichiers[0] ?? ""), "utf8").trim().split("\t");
+      expect(champs).toHaveLength(7);
+      expect(champs[1]).toBe("restauration");
+      expect(champs[4]).toBe("ok");
+      expect(Number(champs[2])).toBeGreaterThan(0);
+      expect(champs[5]).toMatch(/^\d+$/);
+    } finally {
+      rmSync(journal, { recursive: true, force: true });
+    }
     expect(restaure).not.toBe("");
     expect(restaure).not.toBe(conteneur("postgres"));
     const apres = sortie("docker", ["exec", restaure, "psql", "-U", "postgres", "-d", "console", "-tAXc", SOMME]).trim();
@@ -241,7 +257,7 @@ describe("sauvegardes (archivage continu, complète de nuit, restauration)", () 
     expect(https.stdout).toBe("");
     // Chaîne complète : la sauvegarde de nuit, en mode HORS essai, lit la phrase dans OpenBao puis sauvegarde (une complète de plus).
     const avant = completes().length;
-    sortie("docker", ["exec", ...ENV_BAO, conteneur("postgres"), "/opt/sauvegardes/sauvegarder-nuit.sh"]);
+    sortie("docker", ["exec", ...ENV_BAO, "-e", "SAUVEGARDE_TYPE=full", conteneur("postgres"), "/opt/sauvegardes/sauvegarder-nuit.sh"]);
     expect(completes().length).toBe(avant + 1);
   }, 300_000);
 
@@ -264,6 +280,66 @@ describe("sauvegardes (archivage continu, complète de nuit, restauration)", () 
     const { phrase } = await preparerOpenBao();
     expect(avec("kv", "get", "-mount=technique", "-field=phrase", "sauvegardes").stdout.trim()).toBe(phrase);
   });
+
+  it("[C-523] restaurer.sh fonctionne en mode strict (SAUVEGARDE_ESSAI=0) avec l'empreinte et l'autorité du réseau interne", async () => {
+    // Hors essai : phrase lue dans un « coffre » en HTTPS (certificat vérifié contre BAO_CA_FICHIER), hôte SFTP vérifié contre known_hosts, jamais « none ».
+    // Le « coffre » est un openssl s_server qui sert le seul chemin lu (aucune image de plus), lancé dans le conteneur postgres sous le nom d'hôte du service.
+    // Le certificat est auto-signé et sert lui-même d'autorité : la chaîne et le nom sont vérifiés comme pour une vraie autorité (openssl -verify_return_error -verify_hostname).
+    const dir = mkdtempSync(join(tmpdir(), "strict-"));
+    const pg = conteneur("postgres");
+    const sftp = (...c: string[]) => dans("sftp-essai", ...c);
+    const lisible = (chemin: string, contenu: string) => {
+      writeFileSync(chemin, contenu);
+      chmodSync(chemin, 0o644); // fichiers publics ou factices : le conteneur de restauration ne tourne pas sous l'utilisateur de l'hôte
+    };
+    const avant = sortie("docker", ["ps", "-aq", "--filter", "name=restauration-"]).trim().split("\n").filter(Boolean);
+    let strict = "";
+    try {
+      dans("postgres", "sh", "-c", `set -e; d=/tmp/bao-tls; rm -rf $d; mkdir -p -m 700 $d/v1/technique/data; cd $d; openssl req -x509 -newkey rsa:2048 -nodes -keyout k.pem -out c.pem -days 1 -subj "/CN=postgres" -addext "subjectAltName=DNS:postgres" 2>/dev/null; printf '{"data":{"data":{"phrase":"%s"}}}' "$(cat /cles/phrase)" > v1/technique/data/sauvegardes`);
+      spawnSync("docker", ["exec", "-d", pg, "sh", "-c", "cd /tmp/bao-tls && echo $$ > pid && exec openssl s_server -accept 8443 -cert c.pem -key k.pem -WWW -quiet"]);
+      const repond = await attendre(
+        () => spawnSync("docker", ["exec", pg, "sh", "-c", "echo | openssl s_client -connect localhost:8443 -CAfile /tmp/bao-tls/c.pem -verify_return_error -verify_hostname postgres >/dev/null 2>&1"]).status === 0,
+        30,
+      );
+      expect(repond, "le faux coffre en HTTPS doit répondre").toBe(true);
+      const ca = join(dir, "ca.pem");
+      const jeton = join(dir, "jeton");
+      const bons = join(dir, "known_hosts-bon");
+      const faux = join(dir, "known_hosts-faux");
+      lisible(ca, dans("postgres", "cat", "/tmp/bao-tls/c.pem"));
+      lisible(jeton, "TEST-NE-PAS-UTILISER-jeton");
+      const ligne = (cle: string) => `sftp-essai ${cle.split(" ").slice(0, 2).join(" ")}`;
+      const vraies = sftp("sh", "-c", "cat /etc/ssh/ssh_host_*_key.pub").trim().split("\n").filter(Boolean);
+      expect(vraies.length).toBeGreaterThan(0);
+      sftp("sh", "-c", "rm -f /tmp/faux2 /tmp/faux2.pub && ssh-keygen -q -t ed25519 -N '' -f /tmp/faux2");
+      lisible(bons, vraies.map(ligne).join("\n") + "\n");
+      lisible(faux, ligne(sftp("cat", "/tmp/faux2.pub").trim()) + "\n");
+      const journal = join(dir, "journal");
+      const env = { ...process.env, SAUVEGARDE_ESSAI: "0", BAO_ADDR: "https://postgres:8443", BAO_CA_FICHIER: ca, BAO_JETON_FICHIER: jeton, SAUVEGARDE_JOURNAL: journal };
+      delete env.BAO_ESSAI_SANS_TLS;
+      // Une autre empreinte d'hôte : la restauration est refusée et ne laisse aucun conteneur.
+      const refus = spawnSync(script("restaurer.sh"), [], { encoding: "utf8", env: { ...env, SFTP_KNOWN_HOSTS: faux } });
+      expect(refus.status).not.toBe(0);
+      // La CAUSE : la clé de l'hôte est refusée (pas une option manquante ni une autre panne).
+      expect(refus.stderr).toMatch(/host.?key|known.?host|fingerprint|mismatch/i);
+      expect(refus.stderr).not.toMatch(/requires option/);
+      expect(sortie("docker", ["ps", "-aq", "--filter", "name=restauration-"]).trim().split("\n").filter(Boolean).filter((c) => !avant.includes(c))).toEqual([]);
+      // L'empreinte épinglée et l'autorité du réseau interne : la restauration aboutit.
+      strict = sortie(script("restaurer.sh"), [], { env: { ...env, SFTP_KNOWN_HOSTS: bons } }).trim().split("\n").pop() ?? "";
+      expect(strict).toMatch(/^restauration-/);
+      expect(sortie("docker", ["exec", strict, "psql", "-U", "postgres", "-d", "console", "-tAXc", SOMME]).trim()).toBe(sommeSource);
+      // La configuration du conteneur restauré est bien en mode strict avec le known_hosts, et ne contient jamais « none ».
+      const verif = sortie("docker", ["exec", strict, "sh", "-c", "grep -E '^repo1-sftp-(host-key-check-type|known-host)=' /dev/shm/pgbackrest.conf"]).trim().split("\n");
+      expect(verif).toEqual(["repo1-sftp-host-key-check-type=strict", `repo1-sftp-known-host=${bons}`]);
+      // Le journal : une ligne « echec » (empreinte refusée) et une ligne « ok », dans le rangement des essais de restauration.
+      const lignes = readdirSync(join(journal, "console", "restauration", "ponctuelle")).sort().map((f) => readFileSync(join(journal, "console", "restauration", "ponctuelle", f), "utf8").trim().split("\t")[4]);
+      expect(lignes).toEqual(["echec", "ok"]);
+    } finally {
+      if (strict) spawnSync("docker", ["rm", "-f", "-v", strict]);
+      spawnSync("docker", ["exec", pg, "sh", "-c", "kill $(cat /tmp/bao-tls/pid) 2>/dev/null; rm -rf /tmp/bao-tls"]);
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 600_000);
 
   it("[C-593] aucun rôle applicatif ni equipe n'est superutilisateur ni membre de pg_read_server_files", () => {
     // Seul « postgres » (maintenance) est superutilisateur : la limite est écrite dans le README.
@@ -315,7 +391,7 @@ describe("sauvegardes (archivage continu, complète de nuit, restauration)", () 
 
   it("[C-049] expirer.sh branche retention.ts sur la liste réelle de pgBackRest : une quotidienne par jour, rien d'expiré pour des sauvegardes futures, expiration réelle des complètes en trop", () => {
     // Il faut au moins deux complètes pour que « tout sauf la plus récente » ait un sens : on en ajoute une au besoin.
-    if (completes().length < 2) dans("postgres", "/opt/sauvegardes/sauvegarder-nuit.sh");
+    if (completes().length < 2) dans("postgres", "env", "SAUVEGARDE_TYPE=full", "/opt/sauvegardes/sauvegarder-nuit.sh");
     const labels = completes();
     expect(labels.length).toBeGreaterThanOrEqual(2);
     const hier = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
@@ -335,6 +411,56 @@ describe("sauvegardes (archivage continu, complète de nuit, restauration)", () 
     // Exécution réelle le jour même : pgbackrest expire --set retire pour de bon les complètes en trop, la plus récente reste.
     sortie(script("expirer.sh"), [], { env: { ...process.env, EXPIRER_AUJOURDHUI: new Date().toISOString().slice(0, 10) } });
     expect(completes()).toEqual(labels.slice(-1));
+  }, 120_000);
+
+  it("[C-049] la 31e sauvegarde complète réussit : aucun fichier effacé sur la cible et aucun expire dans le journal", () => {
+    // Sur une vraie Storage Box en ajout seul, « pgbackrest backup » lance son propre expire et échoue au-delà de 30 complètes. La cible d'essai
+    // ne simule PAS l'ajout seul (README) : ce test ne prouve donc pas l'ajout seul, il constate qu'aucun fichier n'est effacé et qu'aucun expire n'est lancé.
+    const nuit = () => dans("postgres", "env", "SAUVEGARDE_TYPE=full", "/opt/sauvegardes/sauvegarder-nuit.sh");
+    while (completes().length < 30) nuit();
+    const journalBackup = () => dans("postgres", "sh", "-c", "cat /var/log/pgbackrest/commun-backup.log 2>/dev/null || true").split("\n");
+    const lignesAvant = journalBackup().length;
+    const avant = fichiersCible();
+    nuit();
+    expect(completes().length).toBeGreaterThanOrEqual(31);
+    const apres = new Set(fichiersCible());
+    expect(avant.filter((f) => !apres.has(f))).toEqual([]);
+    const nouvelles = journalBackup().slice(lignesAvant);
+    expect(nouvelles.some((l) => /backup command (begin|end)/.test(l)), "le journal de la sauvegarde doit montrer la 31e").toBe(true);
+    expect(nouvelles.filter((l) => /expire/i.test(l) && !/--no-expire-auto|expire-auto/.test(l))).toEqual([]);
+  }, 1_800_000);
+
+  it("[C-049] chaque passage écrit une ligne de journal complète (sauvegarde réelle : taille, empreinte et identifiant de la copie)", () => {
+    const dossier = `/tmp/journal-essai-${Date.now()}`;
+    dans("postgres", "env", `SAUVEGARDE_JOURNAL=${dossier}`, "SAUVEGARDE_TYPE=full", "/opt/sauvegardes/sauvegarder-nuit.sh");
+    const fichiers = dans("postgres", "find", dossier, "-type", "f", "-name", "*.journal").split("\n").filter(Boolean);
+    expect(fichiers).toHaveLength(1);
+    expect(fichiers[0]).toMatch(/\/console\/sauvegarde\/hebdomadaire\/console-sauvegarde-hebdomadaire-\d{8}-\d{6}\.journal$/);
+    const champs = dans("postgres", "cat", fichiers[0] ?? "").trim().split("\t");
+    expect(champs).toHaveLength(7);
+    expect(champs[1]).toBe("full");
+    expect(Number(champs[2])).toBeGreaterThan(0);
+    expect(champs[3]).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(champs[4]).toBe("ok");
+    expect(champs[6]).toBe(completes().at(-1));
+  }, 300_000);
+
+  it("[C-602] le contrôle de fraîcheur lit la vraie liste de pgBackRest : silence juste après une sauvegarde, alerte avec une horloge avancée de 27 heures", () => {
+    const dir = mkdtempSync(join(tmpdir(), "controle-"));
+    try {
+      const alerte = join(dir, "alerte.sh");
+      writeFileSync(alerte, `#!/usr/bin/env bash\nprintf '%s|%s|%s\\n' "$1" "$2" "$3" >>"${join(dir, "alertes.txt")}"\n`);
+      chmodSync(alerte, 0o755);
+      writeFileSync(join(dir, "alertes.txt"), "");
+      const env = { ...process.env, SAUVEGARDE_PROJET: PROJET, ALERTE_COMMANDE: alerte, SAUVEGARDE_JOURNAL: join(dir, "journal"), STOCKAGE_UTILISE_OCTETS: "10", STOCKAGE_TOTAL_OCTETS: "1000" };
+      sortie(script("controle-fraicheur.sh"), [], { env });
+      expect(readFileSync(join(dir, "alertes.txt"), "utf8")).toBe("");
+      const dans27h = String(Math.floor(Date.now() / 1000) + 27 * 3600);
+      sortie(script("controle-fraicheur.sh"), [], { env: { ...env, CONTROLE_MAINTENANT: dans27h } });
+      expect(readFileSync(join(dir, "alertes.txt"), "utf8")).toMatch(/^sauvegarde_en_retard\|reveil\|/m);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   }, 120_000);
 
   it("[C-052] la grappe sauvegardée ne contient aucune base cli_", () => {
@@ -415,6 +541,56 @@ describe("sauvegardes (archivage continu, complète de nuit, restauration)", () 
       rmSync(racine, { recursive: true, force: true });
     }
   }, 180_000);
+
+  it("[C-593] après rotation, la nouvelle stanza restaure et l'ancienne n'est plus utilisée pour écrire", () => {
+    // Rotation jouée sur la cible d'essai (README, « Rotation de la phrase ») : nouvelle phrase ET nouveau dépôt, le tout dans la configuration en mémoire.
+    // Le nom de la stanza et archive_command sont fixés par le compose (ligne de commande de PostgreSQL) : l'essai change donc le chemin du dépôt,
+    // ce que pgBackRest traite comme une nouvelle stanza dans un dépôt neuf ; en production, le nom change aussi (README).
+    const CONF = "/dev/shm/pgbackrest.conf";
+    const origine = dans("postgres", "cat", CONF);
+    expect(origine).toMatch(/^repo1-path=\/depot$/m);
+    expect(origine).toMatch(/^repo1-cipher-pass=.+$/m);
+    const ecrireConf = (texte: string) => sortie("docker", ["exec", "-i", conteneur("postgres"), "sh", "-c", `f=${CONF}; umask 277; rm -f "$f"; cat > "$f"`], { input: texte });
+    const phraseNeuve = randomBytes(32).toString("hex");
+    const ancienneDepot = () => fichiersCible().filter((f) => !f.startsWith("/home/sauv/depot/rotation/")).sort();
+    const nouveauDepot = () => fichiersCible().filter((f) => f.startsWith("/home/sauv/depot/rotation/"));
+    const pgb = (phrase: string, ...args: string[]) => sortie("docker", ["exec", "-e", `PGBACKREST_REPO1_CIPHER_PASS=${phrase}`, conteneur("postgres"), "pgbackrest", "--stanza=commun", ...args]);
+    const dossier = `/tmp/rotation-${Date.now()}`;
+    const restor = (cmd: string) => sortie("docker", ["exec", "-e", `PGBACKREST_REPO1_CIPHER_PASS=${phraseNeuve}`, conteneur("postgres"), "sh", "-c", cmd]);
+    const avant = ancienneDepot();
+    try {
+      ecrireConf(origine.replace(/^repo1-path=.*$/m, "repo1-path=/depot/rotation").replace(/^repo1-cipher-pass=.*$/m, `repo1-cipher-pass=${phraseNeuve}`));
+      pgb(phraseNeuve, "stanza-create");
+      pgb(phraseNeuve, "check");
+      const somme = sql("console", SOMME);
+      pgb(phraseNeuve, "--type=full", "--no-expire-auto", "backup");
+      const apresSauvegarde = ancienneDepot();
+      // De l'activité : les journaux partent maintenant vers le dépôt neuf, plus vers l'ancien.
+      const archivesAvant = nouveauDepot().length;
+      sql("console", "create table if not exists essai_rotation (i int); insert into essai_rotation values (1)");
+      sql("postgres", "select pg_switch_wal()");
+      // La nouvelle stanza ne se vérifie qu'une fois le journal parti : « check » attend l'archivage du segment commuté.
+      pgb(phraseNeuve, "check");
+      expect(nouveauDepot().length).toBeGreaterThan(archivesAvant);
+      // L'ancien dépôt : rien n'a été effacé, et plus rien n'y est écrit depuis la fin de la première sauvegarde neuve.
+      const apres = ancienneDepot();
+      expect(avant.filter((f) => !apres.includes(f))).toEqual([]);
+      expect(apres).toEqual(apresSauvegarde);
+      // L'ancienne phrase ne relit pas le dépôt neuf.
+      const ancienne = dans("postgres", "cat", "/cles/phrase").trim();
+      const mauvaise = spawnSync("docker", ["exec", "-e", `PGBACKREST_REPO1_CIPHER_PASS=${ancienne}`, conteneur("postgres"), "pgbackrest", "--stanza=commun", "check"], { encoding: "utf8" });
+      expect(mauvaise.status).not.toBe(0);
+      // La nouvelle stanza restaure : un serveur jetable démarre sur la copie et rend les mêmes lignes (pg_wal remappé : jamais celui du serveur vivant).
+      restor(`rm -rf ${dossier} && mkdir -p -m 700 ${dossier}/donnees ${dossier}/wal ${dossier}/socket && pgbackrest --stanza=commun --pg1-path=${dossier}/donnees --link-map=pg_wal=${dossier}/wal --type=immediate --target-action=promote restore`);
+      restor(`pgctl="$(dirname "$(command -v postgres)")/pg_ctl" && "$pgctl" -D ${dossier}/donnees -w -t 120 -l ${dossier}/serveur.log -o "-c port=5499 -c listen_addresses= -c unix_socket_directories=${dossier}/socket -c archive_mode=off" start`);
+      expect(restor(`psql -h ${dossier}/socket -p 5499 -U postgres -d console -tAXc "${SOMME}"`).trim()).toBe(somme);
+    } finally {
+      spawnSync("docker", ["exec", conteneur("postgres"), "sh", "-c", `pgctl="$(dirname "$(command -v postgres)")/pg_ctl"; "$pgctl" -D ${dossier}/donnees -m immediate stop >/dev/null 2>&1; rm -rf ${dossier}`]);
+      ecrireConf(origine);
+      // Le serveur reprend sur l'ancien dépôt (la configuration d'origine est remise telle quelle).
+      spawnSync("docker", ["exec", conteneur("postgres"), "pgbackrest", "--stanza=commun", "check"], { encoding: "utf8" });
+    }
+  }, 600_000);
 });
 
 // Disque plein (T1A-15, C-602). Ces essais sont ICI, et non dans un fichier à part : ils arrêtent la cible SFTP, et Vitest lance les fichiers

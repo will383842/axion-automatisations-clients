@@ -44,13 +44,15 @@ export function clientC1(d: DepsClientC1) {
       const { decisionId, ...corps } = o;
       // Le SIREN part toujours quand il est connu : le Hub cherche avant de créer.
       const lu = RetrouverOuCreerRequete.parse(corps);
-      // Une recherche par état d'identité : l'empreinte couvre SIREN, raison sociale et décision tranchée.
-      const empreinte = createHash("sha256").update(JSON.stringify([lu.siren ?? "", lu.raisonSociale, decisionId ?? ""])).digest("hex").slice(0, 32);
+      // Une recherche par état du corps : l'empreinte couvre le corps entier validé (adresse et contact compris) et la décision tranchée,
+      // car la boîte d'envoi refuse la même intention avec un autre corps.
+      const empreinte = createHash("sha256").update(JSON.stringify([lu, decisionId ?? ""])).digest("hex").slice(0, 32);
       return envoyer("clients-retrouver-ou-creer", {}, lu, `retrouver:${t}:${empreinte}`);
     },
     // `repere` : repère stable de la transition (id de la ligne d'historique), jamais un horodatage.
     async changerStatut(p: { axiCli: string; consoleClientId: string; statut: StatutConsole; repere: string }) {
       exigerAxiCli(p.axiCli);
+      if (p.repere.trim() === "") throw new Error("repère de transition vide : refusé avant la boîte d'envoi");
       const t = await client(p.consoleClientId);
       await sansDecisionOuverte(t);
       const statut = statutVersHub(p.statut);
@@ -73,10 +75,15 @@ export function clientC1(d: DepsClientC1) {
       exigerAxiCli(p.axiCli);
       const t = await client(p.consoleClientId);
       await sansDecisionOuverte(t);
-      // UNE intention par phase du plan : deux mois ne font jamais deux plans au Hub.
+      // UN seul appel par phase : le même plan rejoué ne dépose rien de plus ; la même phase avec un autre corps est rejetée (code métier).
       const { phaseId, ...reste } = p;
       delete (reste as { consoleClientId?: string }).consoleClientId;
-      return envoyer("plans-recurrents", {}, PlanRequete.parse(reste), `plan:${phaseId}`);
+      try {
+        return await envoyer("plans-recurrents", {}, PlanRequete.parse(reste), `plan:${phaseId}`);
+      } catch (e) {
+        if (e instanceof Error && /autre corps/.test(e.message)) throw Object.assign(new Error("plan déjà déposé pour cette phase avec un autre corps : un seul appel par phase"), { code: "plan_phase_deja_deposee" });
+        throw e;
+      }
     },
     // Clore signale les brouillons non émis sans rien supprimer : la console les garde en alerte.
     async clore(p: { idPlan: string; dateFin: string; motif: z.infer<typeof MotifCloture> }) {

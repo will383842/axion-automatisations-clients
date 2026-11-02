@@ -44,7 +44,7 @@ describe("réponses du Hub rangées par route", () => {
   it("[C-338] 422 fiche_absorbee et 409 identifiant_deja_pris partent dans à trancher (motif fiche_absorbee)", async () => {
     for (const [statut, code] of [[422, "fiche_absorbee"], [409, "identifiant_deja_pris"]] as const) {
       const b = banc();
-      const r = await traiterReponse(b.tx, TENANT, { route: "clients-statut", statut, corps: { erreur: { code, message: "x", id_trace: "t" } } });
+      const r = await traiterReponse(b.tx, TENANT, { route: "clients-statut", statut, axiCli: "AXI-CLI-000101", intention: "statut:T:AXI-CLI-000101:client_actif:h-1", corps: { erreur: { code, message: "x", id_trace: "t" } } });
       expect(r).toEqual({ rangee: "a_trancher" });
       expect(b.requetes[0]!.valeurs).toContain("fiche_absorbee");
     }

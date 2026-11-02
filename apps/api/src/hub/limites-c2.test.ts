@@ -11,7 +11,8 @@ const MAINTENANT = 1_800_000_000;
 const HUB = { kid: "rec-hub-1", secret: randomBytes(32) } satisfies CleEchange;
 const CHEMIN = "/api/hub/v1/faits";
 
-function monter(options: { debit?: { max: number; fenetreSecondes: number } } = {}) {
+function monter(options: { debit?: { max: number; fenetreSecondes: number }; echecsAvant?: number } = {}) {
+  let essais = 0;
   const serveur = Fastify({ genReqId: () => randomUUID() });
   brancherErreurs(serveur);
   const recus: unknown[] = [];
@@ -28,6 +29,7 @@ function monter(options: { debit?: { max: number; fenetreSecondes: number } } = 
     },
     (s) => {
       s.post("/faits", async (r, reponse) => {
+        if (++essais <= (options.echecsAvant ?? 0)) throw new Error("base indisponible");
         recus.push(r.body);
         return reponse.status(200).send({ statut: "range" });
       });
@@ -87,6 +89,17 @@ describe("[T2-16b] D3 : refus neutres", () => {
     const rejeu = await serveur.inject(requete);
     expect(rejeu.statusCode).toBe(200);
     expect(rejeu.json()).toEqual({ statut: "duplicate" });
+    expect(recus).toHaveLength(1);
+  });
+
+  it("[T2-16b] un premier envoi qui échoue en 500 n'occupe pas l'anti-rejeu : le même envoi signé atteint le gestionnaire et range le fait", async () => {
+    const { serveur, recus } = monter({ echecsAvant: 1 });
+    const requete = demande(JSON.stringify({ a: 2 }));
+    expect((await serveur.inject(requete)).statusCode).toBe(500);
+    expect(recus).toHaveLength(0);
+    const renvoi = await serveur.inject(requete);
+    expect(renvoi.statusCode).toBe(200);
+    expect(renvoi.json()).toEqual({ statut: "range" });
     expect(recus).toHaveLength(1);
   });
 });

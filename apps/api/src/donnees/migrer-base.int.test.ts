@@ -42,7 +42,7 @@ async function creerClient(): Promise<string> {
   return base;
 }
 
-describe.skipIf(!ADMIN)("modèle de base client (grappe jetable)", () => {
+describe.skipIf(!ADMIN)("modèle de base client (grappe jetable)", () => { // fiche: T2-34
   it("[A-207] une base créée depuis modele_vN a les schémas commun et trace et la table version_structure", async () => {
     await construireModele(N, { url: vers("postgres") });
     const t = await admin.query("SELECT datistemplate, datallowconn FROM pg_database WHERE datname = $1", [`modele_v${N}`]);

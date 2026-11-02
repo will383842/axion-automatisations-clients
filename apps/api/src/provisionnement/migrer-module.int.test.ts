@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { afterAll, describe, expect, it } from "vitest";
-import { migrerBase } from "../donnees/migrer-base.js";
+import { migrerBase, roleMigrationModule } from "../donnees/migrer-base.js";
 import { sqlPg } from "./adaptateur-sql.js";
 import { adminPg, nomBaseDe, nomsRoles } from "./etapes-base.js";
 
@@ -42,17 +42,46 @@ const dossierAvec = (sql: string) => {
   return d;
 };
 
-describe.skipIf(!ADMIN)("migrations d'un module (grappe jetable)", () => { // fiche: T2-35
+// Un .int.test.ts ne tourne que sous SOCLE_INTEGRATION=1 : une variable manquante FAIT ÉCHOUER l'essai, jamais un saut silencieux.
+describe("migrations d'un module (grappe jetable)", () => { // fiche: T2-35
+  it("la variable de connexion de la grappe jetable est fournie (échec, pas saut)", () => {
+    expect(ADMIN, "T235_PG_ADMIN_URL manque : le job socle-integration doit la fournir").toBeTruthy();
+  });
   it("[A-219] les migrations du module d'essai sont appliquées dans a_<code>, par le propriétaire, et rejouables", async () => {
     const c = await clientNonFerme();
     await migrerBase(c.base, 1, { url: vers(c.base), dossier: ESSAI, module: "essai" });
     await migrerBase(c.base, 1, { url: vers(c.base), dossier: ESSAI, module: "essai" });
     const t = await c.dans.query("SELECT tableowner FROM pg_tables WHERE schemaname = 'a_essai' AND tablename = 'essai_notes'");
-    expect(t.rows[0]?.tableowner).toBe(c.roles.proprietaire);
+    // Barrière de droits : les objets du module appartiennent au rôle de migration PROPRE au module, pas au propriétaire de la base.
+    expect(t.rows[0]?.tableowner).toBe(roleMigrationModule(c.base, "essai"));
     expect((await c.dans.query("SELECT version FROM a_essai.version_structure")).rows).toEqual([{ version: 1 }]);
     expect((await c.dans.query("SELECT count(*)::int AS n FROM pg_tables WHERE tablename = 'essai_notes' AND schemaname <> 'a_essai'")).rows[0]?.n).toBe(0);
     // L'application lit et écrit dans le schéma du module, sans DELETE.
     expect((await c.dans.query("SELECT has_table_privilege($1, 'a_essai.essai_notes', 'INSERT') AS i, has_table_privilege($1, 'a_essai.essai_notes', 'DELETE') AS d", [c.roles.app])).rows[0]).toEqual({ i: true, d: false });
+  }, 60_000);
+
+  it("[A-219] @isolation le rôle de migration du module ne possède et n'écrit que a_<code> : rien dans commun ni public, même sans le filtre du texte", async () => {
+    const c = await clientNonFerme();
+    await migrerBase(c.base, 1, { url: vers(c.base), dossier: ESSAI, module: "essai" });
+    const m = roleMigrationModule(c.base, "essai");
+    const q = async (sql: string) => (await c.dans.query(sql)).rows[0] as Record<string, boolean>;
+    expect(await q(`SELECT has_schema_privilege('${m}', 'commun', 'USAGE') AS u, has_schema_privilege('${m}', 'commun', 'CREATE') AS c, has_schema_privilege('${m}', 'public', 'CREATE') AS p`)).toEqual({ u: false, c: false, p: false });
+    // Après la migration, le provisionneur ne garde pas la main sur ce rôle (il ne lirait pas les données du module d'un client fermé).
+    await expect(c.dans.query(`SET ROLE ${m}`)).rejects.toMatchObject({ code: "42501" });
+    // Sous ce rôle, même les ordres que le filtre laisserait passer échouent hors du schéma du module.
+    await c.dans.query(`RESET ROLE; GRANT ${m} TO CURRENT_USER WITH SET TRUE`);
+    const k = new pg.Client({ connectionString: vers(c.base) });
+    await k.connect();
+    try {
+      await k.query(`SET ROLE ${m}`);
+      for (const sql of ["CREATE TABLE commun.vole (id int)", "CREATE TABLE public.vole (id int)", "DELETE FROM commun.personnes", "UPDATE commun.personnes SET nom = nom", "TRUNCATE commun.personnes", "ALTER TABLE commun.personnes DISABLE ROW LEVEL SECURITY", "INSERT INTO commun.exclusions DEFAULT VALUES"]) {
+        await expect(k.query(sql), sql).rejects.toMatchObject({ code: "42501" });
+      }
+      await k.query("COMMIT").catch(() => undefined);
+      await k.query("CREATE TABLE a_essai.autre (id int)");
+    } finally { await k.end(); }
+    // L'application ne touche pas au journal de versions du module.
+    expect((await c.dans.query("SELECT has_table_privilege($1, 'a_essai.version_structure', 'SELECT') AS s", [c.roles.app])).rows[0]).toEqual({ s: false });
   }, 60_000);
 
   it("[A-219] @isolation une migration qui crée un objet hors a_<code> est refusée, même masquée, et ne laisse rien", async () => {

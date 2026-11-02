@@ -20,4 +20,11 @@ describe("lecture des secrets des bases clients", () => {
     }
     expect(l.urls).toEqual([]);
   });
+  it("[A-216] @isolation le trait bas de cli_<12 hex> n'est admis que pour donnees/cli_<12 hex>/app, pas pour proprietaire, lecture ni ailleurs", async () => {
+    const l = lecteur();
+    for (const n of ["donnees/cli_0123456789ab/proprietaire", "donnees/cli_0123456789ab/lecture", "donnees/cli_0123456789ab", "autre/cli_0123456789ab/app", "cli_0123456789ab/app", "donnees/cli_0123456789ab/app/x"]) {
+      await expect(l.lecteur.lire(n), n).rejects.toMatchObject({ code: "requete_refusee" });
+    }
+    expect(l.urls).toEqual([]);
+  });
 });

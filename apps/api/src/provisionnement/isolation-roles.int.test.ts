@@ -6,7 +6,8 @@ import { adminPg, nomBaseDe, nomsRoles, type Admin } from "./etapes-base.js";
 
 // Dettes de T2-34 n° 9 et n° 8 (propriétaire T2-35) : essais sur une grappe jetable où init.sql a été joué.
 // T235_PG_ADMIN_URL = adresse DIRECTE du rôle provisionneur vers la base d'administration ; T235_PGBOUNCER_URL = adresse de PgBouncer (même grappe), facultative.
-// Sans T235_PG_ADMIN_URL ces essais ne tournent pas ; le job socle-integration doit la fournir. Aucun secret dans le dépôt : mots de passe tirés au hasard à chaque essai.
+// Un .int.test.ts ne tourne que sous SOCLE_INTEGRATION=1 : une variable manquante FAIT ÉCHOUER l'essai, jamais un saut silencieux (le job socle-integration doit les fournir : dette de spec/preuves.md).
+// Aucun secret dans le dépôt : mots de passe tirés au hasard à chaque essai.
 const ADMIN = process.env["T235_PG_ADMIN_URL"];
 const BOUNCER = process.env["T235_PGBOUNCER_URL"];
 const empreinte = (mdp: string) => {
@@ -44,7 +45,11 @@ async function creerClient(): Promise<{ id: string; base: string }> {
 }
 afterAll(async () => { await Promise.all(pools.map((p) => p.end().catch(() => undefined))); });
 
-describe.skipIf(!ADMIN)("fermeture des bases sur une grappe jetable", () => { // fiche: T2-35
+describe("fermeture des bases sur une grappe jetable", () => { // fiche: T2-35
+  it("les variables de connexion de la grappe jetable et de PgBouncer sont fournies (échec, pas saut)", () => {
+    expect(ADMIN, "T235_PG_ADMIN_URL manque : le job socle-integration doit la fournir").toBeTruthy();
+    expect(BOUNCER, "T235_PGBOUNCER_URL manque : le job socle-integration doit la fournir").toBeTruthy();
+  });
   it("[A-216] @isolation le rôle _app d'un autre client ne se connecte pas à cli_<id>, le sien oui", async () => {
     const a = await creerClient();
     const b = await creerClient();
@@ -59,14 +64,15 @@ describe.skipIf(!ADMIN)("fermeture des bases sur une grappe jetable", () => { //
     expect(await admin.accesProvisionneurRetire(a.base)).toBe(true);
   }, 60_000);
 
-  it.skipIf(!BOUNCER)("[A-216] @isolation à travers PgBouncer : le rôle _app d'un autre client est refusé, le sien accepté", async () => { // fiche: T2-35
+  it("[A-216] @isolation à travers PgBouncer : le rôle _app d'un autre client est refusé, le sien accepté", async () => { // fiche: T2-35
     const a = await creerClient();
     const b = await creerClient();
     const ra = nomsRoles(a.id);
     const rb = nomsRoles(b.id);
     expect(await connecter(a.base, ra.app, MDP[ra.app]!, BOUNCER)).toBe("ok");
-    expect(await connecter(a.base, rb.app, MDP[rb.app]!, BOUNCER)).not.toBe("ok");
-    expect(await connecter(b.base, ra.app, MDP[ra.app]!, BOUNCER)).not.toBe("ok");
+    // Refus précis : mot de passe ou entrée refusés par PgBouncer (28P01) ou protocole refusé (08P01) ; jamais un autre code (ex. grappe injoignable).
+    expect(["28P01", "08P01"]).toContain(await connecter(a.base, rb.app, MDP[rb.app]!, BOUNCER));
+    expect(["28P01", "08P01"]).toContain(await connecter(b.base, ra.app, MDP[ra.app]!, BOUNCER));
   }, 60_000);
 
   it("[A-216] un secret désaccordé après la fermeture ne peut plus être corrigé par le provisionneur (échec, décision humaine)", async () => {

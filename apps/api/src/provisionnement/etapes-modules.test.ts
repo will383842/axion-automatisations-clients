@@ -75,3 +75,45 @@ describe("migrations d'un module : rester dans a_<code>", () => {
     expect(() => verifierMigrationModule("SELECT 1;", "Essai; DROP")).toThrow();
   });
 });
+
+// Contournements du filtre textuel relevés par l'audit (B1) : un essai par contournement. Le filtre n'est qu'une première barrière (la vraie : le rôle de migration du module).
+describe("migrations d'un module : contournements du filtre textuel", () => {
+  const contournements: [string, string][] = [
+    ["commentaire qui coupe un mot composé", "ALTER/**/ROLE cli_aaaaaaaaaaaa_app SUPERUSER;"],
+    ["commentaire de ligne qui coupe un mot composé", "SET --\n ROLE provisionneur;"],
+    ["commentaire autour du point d'un schéma protégé", "CREATE TABLE commun /**/ . /**/ vole (id int);"],
+    ["identifiant en échappement Unicode", 'CREATE TABLE U&"\\0063ommun"."vole" (id int);'],
+    ["COMMIT qui valide avant le comptage", "CREATE TABLE t (id int); COMMIT; CREATE TABLE u (id int);"],
+    ["END, synonyme de COMMIT", "CREATE TABLE t (id int); END;"],
+    ["ROLLBACK", "CREATE TABLE t (id int); ROLLBACK;"],
+    ["ABORT, synonyme de ROLLBACK", "ABORT;"],
+    ["BEGIN", "BEGIN; CREATE TABLE t (id int);"],
+    ["START TRANSACTION", "START TRANSACTION;"],
+    ["SAVEPOINT", "SAVEPOINT s;"],
+    ["SET ROLE", "SET ROLE cli_aaaaaaaaaaaa_proprietaire;"],
+    ["RESET ROLE", "RESET ROLE;"],
+    ["DISCARD ALL", "DISCARD ALL;"],
+    ["DELETE", "DELETE FROM essai_notes;"],
+    ["TRUNCATE", "TRUNCATE essai_notes;"],
+    ["UPDATE", "UPDATE essai_notes SET texte = 'x';"],
+    ["DELETE caché dans un WITH", "WITH d AS (DELETE FROM essai_notes RETURNING 1) SELECT 1;"],
+    ["INSERT dans commun", "INSERT INTO commun.exclusions (id) VALUES (1);"],
+    ["INSERT dans le schéma d'un autre module", "INSERT INTO a_autre.t (id) VALUES (1);"],
+    ["DISABLE ROW LEVEL SECURITY", "ALTER TABLE essai_notes DISABLE ROW LEVEL SECURITY;"],
+    ["NO FORCE ROW LEVEL SECURITY", "ALTER TABLE essai_notes NO FORCE ROW LEVEL SECURITY;"],
+    ["changement de propriétaire", "ALTER TABLE essai_notes OWNER TO provisionneur;"],
+    ["ordre hors de la liste blanche", "VACUUM essai_notes;"],
+  ];
+  for (const [nom, sql] of contournements) {
+    it(`[A-219] @isolation contournement refusé : ${nom}`, () => {
+      expect(verifierMigrationModule(sql, "essai").length).toBeGreaterThan(0);
+    });
+  }
+  it("[A-219] @isolation un marqueur de commentaire dans une chaîne ne cache pas le reste du texte", () => {
+    expect(verifierMigrationModule("SELECT '/*'; COMMIT; SELECT '*/';", "essai").length).toBeGreaterThan(0);
+  });
+  it("[A-219] une migration ordinaire avec commentaires, chaînes et insertion dans son schéma reste acceptée", () => {
+    const sql = "-- table de notes\nCREATE TABLE essai_t (id int, texte text DEFAULT '--/*'); /* fin */\nINSERT INTO essai_t (id) VALUES (1);\nINSERT INTO a_essai.essai_t (id) VALUES (2);";
+    expect(verifierMigrationModule(sql, "essai")).toEqual([]);
+  });
+});

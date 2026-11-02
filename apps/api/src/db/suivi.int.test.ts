@@ -72,9 +72,6 @@ const demande = (A: string, extra: Record<string, unknown> = {}, appelant: typeo
   inserer(A, "demandes", { organisation_id: A, canal: "courriel", categorie: "question", priorite: "normale", reference_texte: REF(), ...extra }, appelant);
 const maj = (A: string, texte: string, valeurs: unknown[], appelant: typeof APPELANT | null = APPELANT) => ecrire(app, A, (c) => c.query(texte, valeurs), appelant ?? undefined);
 const unique = () => randomUUID().replaceAll("-", "").slice(0, 8);
-// Automatisation de catalogue (table commune, écrite par le rôle de migration).
-const creerAutomatisation = async () =>
-  (await migration.query("INSERT INTO automatisations (code, nom) VALUES ($1, 'Relance de devis') RETURNING id", [`ESS-${String(Math.floor(Math.random() * 100000)).padStart(5, "0")}`])).rows[0]?.["id"] as string;
 // Écriture de l'équipe sur une table commune : une transaction avec l'acteur du journal (rejouée sur 55P03 / 40P01).
 async function ecrireEquipe<T>(fn: (c: pg.PoolClient) => Promise<T>, acteur: string | null = "agent-essai"): Promise<T> {
   for (let essai = 1; ; essai++) {
@@ -93,6 +90,9 @@ async function ecrireEquipe<T>(fn: (c: pg.PoolClient) => Promise<T>, acteur: str
     }
   }
 }
+// Automatisation de catalogue (table commune, écrite par l'équipe sous un acteur : le rôle de migration n'a aucune politique d'écriture).
+const creerAutomatisation = async () =>
+  (await ecrireEquipe((c) => c.query("INSERT INTO automatisations (code, nom) VALUES ($1, 'Relance de devis') RETURNING id", [`ESS-${String(Math.floor(Math.random() * 90000) + 10000)}`]))).rows[0]?.["id"] as string;
 const cellule = (extra: Record<string, unknown> = {}) => {
   const v = { code: `cellule-${unique()}`, adresse_interne: `cellule-${unique()}.interne.test`, mode: "mutualise", capacite: 50, nombre_instances: 3, version_image: "1.0.0", etat: "active", ...extra };
   const cles = Object.keys(v);

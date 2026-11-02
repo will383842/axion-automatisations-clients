@@ -15,6 +15,11 @@ function depotEnMemoire(lignes: LigneExecution[]): DepotAgregats & { agregats: M
     async executionsDuJour(jour) {
       return lignes.filter((l) => l.jour === jour);
     },
+    // Jours terminés (avant `avant`, exclu) qui ont des exécutions mais aucune ligne d'agrégat.
+    async joursTerminesSansAgregat(avant) {
+      const jours = new Set(lignes.filter((l) => l.jour < avant && !agregats.has(`${l.tenantId}/${l.instanceId}/${l.jour}`)).map((l) => l.jour));
+      return [...jours].sort();
+    },
     // Écriture « remplace » : la clé porte le client, l'instance et le jour.
     async enregistrer(a) {
       agregats.set(`${a.tenantId}/${a.instanceId}/${a.jour}`, a);
@@ -32,7 +37,7 @@ describe("agrégat quotidien", () => {
       ex(CLIENT_B, INST_2, "reussie", 250, 7),
     ]);
     const r = await agregerVeille(depot, NUIT);
-    expect(r).toEqual({ jour: "2026-11-01", agregats: 2 });
+    expect(r).toEqual({ jours: ["2026-11-01"], agregats: 2 });
     expect(depot.agregats.get(`${CLIENT_A}/${INST_1}/2026-11-01`)).toMatchObject({ nombre: 3, echecs: 1, dureeTotaleMs: 1400, coutMicroCentimes: 7 });
     expect(depot.agregats.get(`${CLIENT_B}/${INST_2}/2026-11-01`)).toMatchObject({ nombre: 1, echecs: 0, dureeTotaleMs: 250, coutMicroCentimes: 7 });
   });
@@ -62,5 +67,23 @@ describe("agrégat quotidien", () => {
     const ajouts: { nom: string; options: unknown }[] = [];
     await enfilerAgregation({ add: async (nom: string, _d: unknown, options: unknown) => void ajouts.push({ nom, options }) } as never, NUIT);
     expect(ajouts).toEqual([{ nom: "agregat-quotidien", options: { jobId: "agregat-quotidien-2026-11-01" } }]);
+  });
+
+  it("[A-181] une nuit manquée est rattrapée : tous les jours terminés sans agrégat sont traités, pas seulement la veille", async () => {
+    const depot = depotEnMemoire([
+      { ...ex(CLIENT_A, INST_1, "reussie", 10, 1), jour: "2026-10-24" },
+      { ...ex(CLIENT_A, INST_1, "reussie", 20, 2), jour: "2026-10-25" },
+      ex(CLIENT_A, INST_1, "reussie", 30, 3),
+      { ...ex(CLIENT_A, INST_1, "reussie", 99, 9), jour: "2026-11-02" },
+    ]);
+    const r = await agregerVeille(depot, NUIT);
+    expect(r.jours).toEqual(["2026-10-24", "2026-10-25", "2026-11-01"]);
+    expect([...depot.agregats.keys()].sort()).toEqual([`${CLIENT_A}/${INST_1}/2026-10-24`, `${CLIENT_A}/${INST_1}/2026-10-25`, `${CLIENT_A}/${INST_1}/2026-11-01`]);
+  });
+
+  it("[A-181] heure d'hiver : une exécution du 25 octobre à 01:30 Paris (23:30Z le 24) compte pour le 24 octobre en UTC", async () => {
+    const depot = depotEnMemoire([{ ...ex(CLIENT_A, INST_1, "reussie", 10, 1), jour: "2026-10-24" }]);
+    await agregerVeille(depot, new Date("2026-10-25T02:00:00.000Z"));
+    expect(depot.agregats.get(`${CLIENT_A}/${INST_1}/2026-10-24`)).toMatchObject({ nombre: 1 });
   });
 });

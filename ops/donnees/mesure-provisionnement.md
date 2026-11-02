@@ -10,4 +10,4 @@ Seuil : 120 secondes par création de bout en bout (constante `SEUIL_CREATION_MS
 ## Résultat
 Aucune mesure réelle à ce jour : les adaptateurs réels des étapes 4, 5, 8 et 9 et le Worker ne sont pas encore branchés (dette `LOT2-dette-T2-35` de `spec/preuves.md`). Les essais sur une vraie grappe PostgreSQL (étapes 2, 3 et 6) tournent en moins d'une seconde par base sur un poste de travail, ce qui ne dit rien de la chaîne complète.
 
-Conclusion : non mesuré ; A-223 reste ouverte.
+Conclusion : non mesuré ; A-223 reste ouverte et le critère C-473 reste un test.fails (dette LOT2-dette-T2-35-groupee, point b).

@@ -34,6 +34,7 @@ async function lancer(): Promise<OptionsBao> {
   return { url, jeton: r.auth.client_token };
 }
 
+// Le transit calcule un HMAC avec une clé de tout type : la clé de recherche est créée ici en aes256-gcm96, comme les clés des clients.
 // Écrit sur la sortie d'erreur : le rapport JSON de la CI avale console.log.
 const trace = (m: string) => writeSync(2, `${m}\n`);
 
@@ -54,7 +55,7 @@ describe("colonnes et fichiers chiffrés, OpenBao réel", () => {
       const B = randomUUID();
       for (const t of [A, B]) {
         await env.creerCleClient(t);
-        await appeler(bao, "POST", `transit/keys/cli-${t}-recherche`, { type: "hmac", exportable: false });
+        await appeler(bao, "POST", `transit/keys/cli-${t}-recherche`, { type: "aes256-gcm96", exportable: false });
       }
       marquer("chiffrement");
       const champ = await colonnes.chiffrerChamp(A, "essai@exemple.fr");

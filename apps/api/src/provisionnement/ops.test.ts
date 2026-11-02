@@ -25,14 +25,16 @@ describe("socle du provisionnement", () => {
   it("[A-216] le coffre n'écrit que sous technique/donnees/cli_<id>/<rôle>, avec le jeton en en-tête, et ne reprend jamais le corps d'une erreur", async () => {
     const vus: { url: string; init: RequestInit }[] = [];
     const reponse = (statut: number, corps = "") => (async (url: string | URL | Request, init?: RequestInit) => { vus.push({ url: String(url), init: init ?? {} }); return new Response(corps === "" ? null : corps, { status: statut }); }) as typeof fetch;
-    const c = coffreOpenBao({ url: "http://coffre.test", jeton: "jeton-d-essai", fetch: reponse(204) });
-    await c.ranger(CHEMIN, "valeur-d-essai");
+    const c = coffreOpenBao({ url: "http://coffre.test", jeton: "jeton-d-essai", fetch: reponse(200, '{"data":{"version":3}}') });
+    expect(await c.ranger(CHEMIN, "valeur-d-essai")).toBe(3);
     expect(vus[0]?.url).toBe("http://coffre.test/v1/technique/data/donnees/cli_0123456789ab/app");
     expect((vus[0]?.init.headers as Record<string, string>)["X-Vault-Token"]).toBe("jeton-d-essai");
-    for (const mauvais of ["technique/donnees/../clients/x/app", "technique/donnees/cli_0123456789ab/autre", "clients/cli_0123456789ab/app"]) await expect(c.existe(mauvais)).rejects.toMatchObject({ code: "chemin_refuse" });
+    for (const mauvais of ["technique/donnees/../clients/x/app", "technique/donnees/cli_0123456789ab/autre", "clients/cli_0123456789ab/app"]) await expect(c.version(mauvais)).rejects.toMatchObject({ code: "chemin_refuse" });
     const refus = coffreOpenBao({ url: "http://coffre.test", jeton: "j", fetch: reponse(500, "valeur-d-essai") });
     await expect(refus.ranger(CHEMIN, "valeur-d-essai")).rejects.not.toThrow(/valeur-d-essai/);
-    expect(await coffreOpenBao({ url: "http://coffre.test", jeton: "j", fetch: reponse(404) }).existe(CHEMIN)).toBe(false);
+    expect(await coffreOpenBao({ url: "http://coffre.test", jeton: "j", fetch: reponse(404) }).version(CHEMIN)).toBeUndefined();
+    expect(await coffreOpenBao({ url: "http://coffre.test", jeton: "j", fetch: reponse(200, '{"data":{"current_version":7}}') }).version(CHEMIN)).toBe(7);
+    await expect(coffreOpenBao({ url: "http://coffre.test", jeton: "j", fetch: reponse(200, "pas du json") }).ranger(CHEMIN, "v")).rejects.toMatchObject({ code: "coffre_indisponible" });
   });
 
   it("[C-498] le balayage redépose chaque base encore en_creation (même identifiant de tâche)", async () => {

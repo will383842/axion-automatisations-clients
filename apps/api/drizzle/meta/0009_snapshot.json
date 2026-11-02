@@ -5978,10 +5978,6 @@
           "name": "factures_ttc_coherent",
           "value": "\"factures\".\"montant_ttc_centimes\" = \"factures\".\"montant_ht_centimes\" + \"factures\".\"montant_tva_centimes\""
         },
-        "factures_tva_arrondie": {
-          "name": "factures_tva_arrondie",
-          "value": "\"factures\".\"montant_tva_centimes\" = floor((\"factures\".\"montant_ht_centimes\"::numeric * \"factures\".\"taux_tva_points_de_base\" + 5000) / 10000)"
-        },
         "factures_avoir_origine": {
           "name": "factures_avoir_origine",
           "value": "(\"factures\".\"nature\" = 'avoir') = (\"factures\".\"facture_origine_id\" IS NOT NULL)"

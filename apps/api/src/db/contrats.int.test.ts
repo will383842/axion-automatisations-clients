@@ -169,7 +169,7 @@ describe("contrats, devis, factures et activation, avec le socle", { timeout: 30
     await expect(d({ statut: "perdu" })).rejects.toMatchObject({ code: "22P02" });
     await d();
     await expect(d()).rejects.toMatchObject({ code: "23505" });
-    await expect(d({ numero_hub: "DEV-0002", statut: "annule" })).rejects.toMatchObject({ code: "42501" }); // un devis naît en brouillon (la base refuse avant la contrainte)
+    await expect(d({ numero_hub: "DEV-0002", statut: "annule" })).rejects.toMatchObject({ code: "23514" }); // un devis annulé garde motif, date et auteur de l'annulation (la copie complète passe, voir les essais de statuts)
     const b = await d({ numero_hub: "DEV-0003" });
     await expect(majDevis(A, b["id"], `statut = 'annule', annule_par = '${APPELANT.acteur}'`)).rejects.toMatchObject({ code: "23514" }); // annulé sans motif ni date
   });
@@ -288,8 +288,9 @@ describe("contrats, devis, factures et activation, avec le socle", { timeout: 30
     expect((await changerStatut(A, g["id"], "annulee")).rowCount).toBe(1); // annulée sans avoir
     // Rien n'est libre sans appelant nommé ni sans l'auteur du changement.
     await expect(changerStatut(A, f["id"], "impayee", null)).rejects.toMatchObject({ code: "42501" });
-    await expect(majFacture(A, f["id"], "statut = 'impayee'")).rejects.toMatchObject({ code: "42501" });
     await expect(majFacture(A, f["id"], "statut = 'impayee', statut_par = 'systeme'")).rejects.toMatchObject({ code: "42501" });
+    const neuve = await facture(A, periode(7));
+    await expect(majFacture(A, neuve["id"], "statut = 'impayee'")).rejects.toMatchObject({ code: "42501" }); // statut sans auteur du changement
     expect((await ecrire(app, A, (c) => c.query("SELECT statut, statut_par FROM factures WHERE id = $1", [f["id"]]))).rows[0]).toEqual({ statut: "payee", statut_par: "agent-essai" });
   });
 

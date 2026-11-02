@@ -3,8 +3,8 @@ import { sql } from "drizzle-orm";
 import { tableClient } from "./aides.ts";
 import { instances, organisations } from "./clients.ts";
 
-// Contrats, devis, factures et apporteurs (C5, lot 2, ADR 0053). Copie des faits du Hub : console_app écrit ces copies (insertion, puis statut seul et son auteur) sous un appelant nommé ;
-// elle n'invente ni ne corrige jamais un montant, un numéro ni un PDF.
+// Contrats, devis, factures et apporteurs (C5, lot 2, ADR 0053). Le Hub fait foi ; la console copie et ne corrige jamais : console_app écrit ces copies (insertion, puis statut seul et son auteur)
+// sous un appelant nommé ; elle n'invente ni ne corrige jamais un montant, un numéro ni un PDF, et la base n'impose aucune règle métier que le Hub possède (statuts, arrondi, avoirs).
 // Vocabulaires provisoires : une valeur s'ajoute plus tard (additif), jamais ne se renomme.
 export const typeContrat = pgEnum("type_contrat", ["contrat_service", "sous_traitance_art28", "bon_de_commande", "autre"]);
 export const statutDevis = pgEnum("statut_devis", ["brouillon", "envoye", "accepte", "refuse", "expire", "annule"]);
@@ -90,7 +90,7 @@ export const factures = tableClient(
     periodeDebut: date("periode_debut").notNull(),
     periodeFin: date("periode_fin").notNull(),
     montantHtCentimes: bigint("montant_ht_centimes", { mode: "number" }).notNull(),
-    // TVA toujours ajoutée (jamais d'exonération) : taux en points de base (2000 = 20 %), TVA arrondie au centime le plus proche (moitié vers le haut).
+    // TVA toujours ajoutée (jamais d'exonération) : taux en points de base (2000 = 20 %) ; montants copiés du Hub, qui fait foi.
     tauxTvaPointsDeBase: integer("taux_tva_points_de_base").notNull(),
     montantTvaCentimes: bigint("montant_tva_centimes", { mode: "number" }).notNull(),
     montantTtcCentimes: bigint("montant_ttc_centimes", { mode: "number" }).notNull(),
@@ -125,8 +125,7 @@ export const factures = tableClient(
       // 1 à 2000 points de base (0,01 % à 20 %) : jamais d'exonération, jamais de taux au-dessus du taux normal.
       check("factures_taux_tva_borne", sql`${t["tauxTvaPointsDeBase"]} BETWEEN 1 AND 2000`),
       check("factures_ttc_coherent", sql`${t["montantTtcCentimes"]} = ${t["montantHtCentimes"]} + ${t["montantTvaCentimes"]}`),
-      // Arrondi au centime le plus proche, moitié vers le haut. Calcul en numeric : aucun dépassement d'entier long (22003) près de 2^53. La formule suppose des montants >= 0 (borne ci-dessus).
-      check("factures_tva_arrondie", sql`${t["montantTvaCentimes"]} = floor((${t["montantHtCentimes"]}::numeric * ${t["tauxTvaPointsDeBase"]} + 5000) / 10000)`),
+      // Le Hub fait foi pour l'arrondi (peut-être par ligne) : la base ne recalcule pas la TVA ; l'écart avec le calcul d'ensemble est une dette (rapprochement, ADR 0053).
       check("factures_avoir_origine", sql`(${t["nature"]} = 'avoir') = (${t["factureOrigineId"]} IS NOT NULL)`),
       check("factures_avoir_pas_lui_meme", sql`${t["factureOrigineId"]} IS DISTINCT FROM ${t["id"]}`),
       check("factures_instance_requise", sql`${t["nature"]} NOT IN ('abonnement', 'complement_prorata') OR ${t["instanceId"]} IS NOT NULL`),

@@ -22,8 +22,8 @@
     {"fichier":"0009_contrats.sql","nom":"instances_exiger_sous_traitance","empreinte":"21469c5354b8b64437a8fd5a9cc52986f0910e58d1ddd0a33d85882563602972","adr":"0053"},
     {"fichier":"0009_contrats.sql","nom":"echeances_verifier_facture","empreinte":"e269d06ca33f0c71c3132cc3c0310843707c903b2a70c64369549433ffd26ec3","adr":"0053"},
     {"fichier":"0009_contrats.sql","nom":"contrats_garder_revocation","empreinte":"d6b29c2542f93394d6b3ffcfc0e21b976de9b41c9070071998718fc6c70b56f5","adr":"0053"},
-    {"fichier":"0009_contrats.sql","nom":"devis_garder_transition","empreinte":"15e6e96bfe3a57c1d9f0f6f59ab2bc1e4e4445cfd0f31c97e2fe769e10c75308","adr":"0053"},
-    {"fichier":"0009_contrats.sql","nom":"factures_garder_transition","empreinte":"e6464fe53a948bc45824a2d73018034e555b5b50b33ad5f5dff7dd6e7e08e915","adr":"0053"},
+    {"fichier":"0009_contrats.sql","nom":"devis_garder_transition","empreinte":"7a509c3a4fb311e3cc371b820554cc55cf6cbb0af750cc351a3ea667ead6bfa2","adr":"0053"},
+    {"fichier":"0009_contrats.sql","nom":"factures_figer_copie","empreinte":"4a90569b50d87c2ef6948d0cb5a46135f7437303aa68990ae1bde308c54db46d","adr":"0053"},
     {"fichier":"0009_contrats.sql","nom":"factures_verifier_origine","empreinte":"44c405503d72f22f28415ed5e8f5ce2abd28551d810d46b56a77d073c11c30d3","adr":"0053"}
   ]
 }

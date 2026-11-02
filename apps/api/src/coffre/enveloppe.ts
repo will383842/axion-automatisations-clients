@@ -21,6 +21,13 @@ const IV = 12;
 const ETIQUETTE = 16;
 const FORME_CLE_CHIFFREE = /^vault:v(\d+):[A-Za-z0-9+/]+={0,2}$/;
 const nomCle = (tenantId: string) => `cli-${validerTenant(tenantId)}`;
+// Données associées : le client, puis (si fourni) le contexte lié au chiffré (colonne et ligne, ou clé d'objet) : « <tenantId>|<contexte> ».
+// Un chiffré recopié ailleurs (autre ligne, autre colonne, autre objet) ne s'authentifie plus. Sans contexte : forme d'avant, pour lire les anciens chiffrés.
+function donneesAssociees(tenantId: string, contexte: string | undefined): Buffer {
+  if (contexte === undefined) return Buffer.from(tenantId);
+  if (typeof contexte !== "string" || contexte === "") throw new Error("contexte_invalide");
+  return Buffer.from(`${tenantId}|${contexte}`);
+}
 const refus = (code: ConstructorParameters<typeof ErreurCoffre>[0] = "coffre_indisponible") => new ErreurCoffre(code);
 
 function lireCle(base64: unknown): Buffer {
@@ -49,7 +56,8 @@ export function creerEnveloppe(o: OptionsEnveloppe) {
     async creerCleClient(tenantId: string): Promise<void> {
       await appeler(o, "POST", `transit/keys/${nomCle(tenantId)}`, { type: "aes256-gcm96", exportable: false });
     },
-    async chiffrer(tenantId: string, octets: Buffer): Promise<Enveloppe> {
+    async chiffrer(tenantId: string, octets: Buffer, contexte?: string): Promise<Enveloppe> {
+      const aad = donneesAssociees(tenantId, contexte);
       const donnees = (await appeler(o, "POST", `transit/datakey/plaintext/${nomCle(tenantId)}`, {})) as { data?: { plaintext?: unknown; ciphertext?: unknown } } | undefined;
       const cle = lireCle(donnees?.data?.plaintext);
       try {
@@ -62,21 +70,22 @@ export function creerEnveloppe(o: OptionsEnveloppe) {
         }
         const iv = randomBytes(IV);
         const c = createCipheriv("aes-256-gcm", cle, iv);
-        c.setAAD(Buffer.from(tenantId));
+        c.setAAD(aad);
         const chiffre = Buffer.concat([iv, c.update(octets), c.final(), c.getAuthTag()]);
         return { chiffre, cleChiffree: cleChiffree as string, version };
       } finally {
         finir(cle);
       }
     },
-    async dechiffrer(tenantId: string, enveloppe: Enveloppe): Promise<Buffer> {
+    async dechiffrer(tenantId: string, enveloppe: Enveloppe, contexte?: string): Promise<Buffer> {
+      const aad = donneesAssociees(tenantId, contexte);
       const nom = nomCle(tenantId);
       if (versionDe(enveloppe.cleChiffree) !== enveloppe.version || enveloppe.chiffre.length < IV + ETIQUETTE) throw refus("dechiffrement_impossible");
       const donnees = (await appeler(o, "POST", `transit/decrypt/${nom}`, { ciphertext: enveloppe.cleChiffree })) as { data?: { plaintext?: unknown } } | undefined;
       const cle = lireCle(donnees?.data?.plaintext);
       try {
         const d = createDecipheriv("aes-256-gcm", cle, enveloppe.chiffre.subarray(0, IV));
-        d.setAAD(Buffer.from(tenantId));
+        d.setAAD(aad);
         d.setAuthTag(enveloppe.chiffre.subarray(enveloppe.chiffre.length - ETIQUETTE));
         return Buffer.concat([d.update(enveloppe.chiffre.subarray(IV, enveloppe.chiffre.length - ETIQUETTE)), d.final()]);
       } catch {

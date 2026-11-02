@@ -144,4 +144,10 @@ describe("interrupteurs des canaux", () => {
     expect(chargerConfig({ NODE_ENV: "test", RETENTION_PURGE_ACTIVE: "true" }, dossier()).retentionPurgeActive).toBe(true);
     refus({ NODE_ENV: "test", RETENTION_PURGE_ACTIVE: "oui" });
   });
+  it("[C-047] le retrait des anciens dumps est fermé par défaut ; seules 1 et true l'ouvrent ; toute autre valeur est refusée", () => {
+    expect(chargerConfig({ NODE_ENV: "test" }, dossier()).sauvegardesRetraitActif).toBe(false);
+    expect(chargerConfig({ NODE_ENV: "test", SAUVEGARDES_RETRAIT_ACTIF: "" }, dossier()).sauvegardesRetraitActif).toBe(false);
+    expect(chargerConfig({ NODE_ENV: "test", SAUVEGARDES_RETRAIT_ACTIF: "true" }, dossier()).sauvegardesRetraitActif).toBe(true);
+    expect(refus({ NODE_ENV: "test", SAUVEGARDES_RETRAIT_ACTIF: "oui" })).toContain("SAUVEGARDES_RETRAIT_ACTIF");
+  });
 });

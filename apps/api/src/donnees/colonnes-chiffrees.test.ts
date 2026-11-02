@@ -2,7 +2,7 @@ import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { ErreurCoffre, type OptionsBao } from "../coffre/coffre.js";
 import { creerEnveloppe } from "../coffre/enveloppe.js";
-import { contexteChamp, creerColonnesChiffrees, delierContexte, lireEnveloppeChamp, normaliserEmail, normaliserTelephone } from "./colonnes-chiffrees.js";
+import { contexteChamp, creerColonnesChiffrees, lierContexte, lireEnveloppeChamp, normaliserEmail, normaliserTelephone, serialiserEnveloppe } from "./colonnes-chiffrees.js";
 
 // Faux OpenBao (moteur transit) : clés par client, versions, clés de données, HMAC. Tout est généré à l'exécution.
 function creerFauxTransit() {
@@ -134,7 +134,7 @@ describe("colonnes chiffrées par la clé du client", () => {
     const clairDeA = bao.etat.clairs[0] as Buffer;
     const permissif = creerEnveloppe({ url: "http://bao.test", jeton: "j", fetch: async () => new Response(JSON.stringify({ data: { plaintext: clairDeA.toString("base64") } })) });
     await refus(permissif.dechiffrer(B, e), "dechiffrement_impossible");
-    expect(delierContexte(contexteChamp(CTX), await enveloppe.dechiffrer(A, e)).toString()).toBe(MARQUEUR);
+    expect((await enveloppe.dechiffrer(A, e, contexteChamp(CTX))).toString()).toBe(MARQUEUR);
   });
 
   it("[A-243] la recherche par empreinte retrouve la personne sans déchiffrer ; les empreintes de deux clients diffèrent", async () => {
@@ -188,6 +188,42 @@ describe("colonnes chiffrées par la clé du client", () => {
     const octets = await colonnes.chiffrerChamp(A, MARQUEUR, CTX);
     await refus(colonnes.dechiffrerChamp(A, octets, autre), "dechiffrement_impossible");
     expect(await colonnes.dechiffrerChamp(A, octets, CTX)).toBe(MARQUEUR);
+  });
+
+  it("[A-243] @isolation un chiffré recopié sur une autre ligne, une autre colonne ou une autre clé d'objet est refusé par les données associées (AAD), pas par un en-tête du clair", async () => {
+    const { bao, colonnes, enveloppe } = monter();
+    await bao.creerClient(A);
+    const octets = await colonnes.chiffrerChamp(A, MARQUEUR, CTX);
+    const e = lireEnveloppeChamp(octets);
+    // Le clair déchiffré est la valeur seule : le contexte n'est plus écrit dans les données.
+    expect((await enveloppe.dechiffrer(A, e, contexteChamp(CTX))).toString()).toBe(MARQUEUR);
+    for (const autre of [contexteChamp({ colonne: CTX.colonne, idLigne: randomUUID() }), contexteChamp({ colonne: "personnes.telephone_chiffre", idLigne: CTX.idLigne }), "fichier:exports/a.bin"]) {
+      await refus(enveloppe.dechiffrer(A, e, autre), "dechiffrement_impossible");
+    }
+    await refus(enveloppe.dechiffrer(A, e), "dechiffrement_impossible");
+  });
+
+  it("[A-243] pendant la transition, un ancien chiffré (contexte en tête du clair, format 1) se lit encore, et seulement à sa place", async () => {
+    const { bao, colonnes, enveloppe } = monter();
+    await bao.creerClient(A);
+    const ancien = serialiserEnveloppe(await enveloppe.chiffrer(A, lierContexte(contexteChamp(CTX), Buffer.from(MARQUEUR))), 1);
+    expect(await colonnes.dechiffrerChamp(A, ancien, CTX)).toBe(MARQUEUR);
+    await refus(colonnes.dechiffrerChamp(A, ancien, { colonne: CTX.colonne, idLigne: randomUUID() }), "dechiffrement_impossible");
+    expect(ancien[0]).toBe(1);
+    expect((await colonnes.chiffrerChamp(A, MARQUEUR, CTX))[0]).toBe(2);
+  });
+
+  it("[A-243] reprendre : un champ déjà à la version courante n'est pas refait ; un champ ancien est réenveloppé et relu égal", async () => {
+    const { bao, colonnes } = monter();
+    await bao.creerClient(A);
+    const ancien = await colonnes.chiffrerChamp(A, MARQUEUR, CTX);
+    const courant = await colonnes.reprendre(A, ancien, contexteChamp(CTX));
+    expect(courant.etat).toBe("a_jour");
+    await colonnes.pivoterCle(A);
+    const refait = await colonnes.reprendre(A, ancien, contexteChamp(CTX));
+    expect(refait.etat).toBe("reenveloppe");
+    expect(lireEnveloppeChamp(refait.octets).version).toBe(2);
+    expect(await colonnes.dechiffrerChamp(A, refait.octets, CTX)).toBe(MARQUEUR);
   });
 
   it("[A-243] @isolation courriel et téléphone échangés sur la même ligne : refus dans les deux sens", async () => {

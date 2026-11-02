@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { ErreurCoffre, type OptionsBao } from "../coffre/coffre.js";
 import { creerEnveloppe } from "../coffre/enveloppe.js";
-import { creerColonnesChiffrees } from "../donnees/colonnes-chiffrees.js";
+import { contexteFichier, creerColonnesChiffrees, lierContexte, lireEnveloppeChamp, serialiserEnveloppe } from "../donnees/colonnes-chiffrees.js";
 import { creerFichiersClient, type PortFichiers } from "./fichiers-client.js";
 
 // Faux transit minimal (clés de données seulement) et faux stockage : un « compartiment » par client, clés d'essai générées à l'exécution.
@@ -104,6 +104,24 @@ describe("fichiers du compartiment chiffrés par la clé du client", () => {
     await m.fichiers.deposerFichier(A, `${CTX.colonne}:${CTX.idLigne}`, Buffer.from("marc@exemple.fr"));
     const fichier = (await m.stockage.lire(A, `${CTX.colonne}:${CTX.idLigne}`)) as Uint8Array;
     await refus(m.colonnes.dechiffrerChamp(A, fichier, CTX), "dechiffrement_impossible");
+  });
+
+  it("[A-243] @isolation le contexte de l'objet est dans les données associées (AAD) : déchiffrer sans lui ou avec la clé d'un autre objet est refusé", async () => {
+    const m = monter();
+    m.creerClient(A);
+    await m.fichiers.deposerFichier(A, "exports/a.bin", CONTENU);
+    const e = lireEnveloppeChamp(m.objets.get(`${A}/exports/a.bin`)!);
+    expect((await m.enveloppe.dechiffrer(A, e, contexteFichier("exports/a.bin"))).equals(CONTENU)).toBe(true);
+    await refus(m.enveloppe.dechiffrer(A, e, contexteFichier("exports/b.bin")), "dechiffrement_impossible");
+    await refus(m.enveloppe.dechiffrer(A, e), "dechiffrement_impossible");
+  });
+
+  it("[A-243] un ancien objet (format 1, contexte en tête du clair) se lit encore pendant la transition", async () => {
+    const m = monter();
+    m.creerClient(A);
+    m.objets.set(`${A}/exports/vieux.bin`, serialiserEnveloppe(await m.enveloppe.chiffrer(A, lierContexte(contexteFichier("exports/vieux.bin"), CONTENU)), 1));
+    expect((await m.fichiers.lireFichier(A, "exports/vieux.bin"))!.equals(CONTENU)).toBe(true);
+    await refus(m.fichiers.lireFichier(A, "exports/vieux.bin").then(() => { m.objets.set(`${A}/exports/autre.bin`, m.objets.get(`${A}/exports/vieux.bin`)!); return m.fichiers.lireFichier(A, "exports/autre.bin"); }), "dechiffrement_impossible");
   });
 
   it("[A-244] le compartiment et les colonnes utilisent la même clé du client, sans clé en clair dans l'objet", async () => {

@@ -94,11 +94,12 @@ describe("fermeture des bases sur une grappe jetable", () => { // fiche: T2-35
     const b = await creerClient();
     const ra = nomsRoles(a.id);
     const rb = nomsRoles(b.id);
+    // Contrôles positifs : chaque rôle _app entre par PgBouncer sur SA base (sans eux, un refus ne prouverait rien).
     expect(await connecter(a.base, ra.app, MDP[ra.app]!, BOUNCER)).toBe("ok");
-    // Refus précis : mot de passe ou entrée refusés par PgBouncer (28P01), protocole refusé (08P01) ou CONNECT refusé par le serveur et relayé (42501, constaté sur le socle) ; jamais un autre code (ex. grappe injoignable).
-    const REFUS = ["28P01", "08P01", "42501"];
-    expect(REFUS).toContain(await connecter(a.base, rb.app, MDP[rb.app]!, BOUNCER));
-    expect(REFUS).toContain(await connecter(b.base, ra.app, MDP[ra.app]!, BOUNCER));
+    expect(await connecter(b.base, rb.app, MDP[rb.app]!, BOUNCER)).toBe("ok");
+    // Refus : EXACTEMENT 42501. Le mot de passe est bon (PgBouncer authentifie), c'est le CONNECT de la base qui est refusé par le serveur et relayé ; 28P01 ou 08P01 (authentification, protocole) ne prouveraient rien sur CONNECT.
+    expect(await connecter(a.base, rb.app, MDP[rb.app]!, BOUNCER)).toBe("42501");
+    expect(await connecter(b.base, ra.app, MDP[ra.app]!, BOUNCER)).toBe("42501");
   }, 60_000);
 
   it("[A-216] un secret désaccordé après la fermeture ne peut plus être corrigé par le provisionneur (échec, décision humaine)", async () => {

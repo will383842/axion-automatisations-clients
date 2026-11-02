@@ -20,10 +20,11 @@ export type Appliquee = { version: number; empreinte: string };
 export type Options = { url: string; dossier?: string; module?: string };
 
 // Entrées du journal drizzle, dans l'ordre : la version N est la N-ième migration (la première vaut 1).
-export function lireEntrees(dossier: string): EntreeMigration[] {
+// `lire` : lecteur de fichier, remplaçable pour qu'un même tampon serve au filtre, à l'empreinte et à l'exécution (migrations de module).
+export function lireEntrees(dossier: string, lire: (chemin: string) => Buffer = (c) => readFileSync(c)): EntreeMigration[] {
   if (!existsSync(`${dossier}/meta/_journal.json`)) return [];
   const journal = JSON.parse(readFileSync(`${dossier}/meta/_journal.json`, "utf8")) as { entries: { tag: string }[] };
-  return journal.entries.map((e, i) => ({ version: i + 1, tag: e.tag, empreinte: createHash("sha256").update(readFileSync(`${dossier}/${e.tag}.sql`)).digest("hex") }));
+  return journal.entries.map((e, i) => ({ version: i + 1, tag: e.tag, empreinte: createHash("sha256").update(lire(`${dossier}/${e.tag}.sql`)).digest("hex") }));
 }
 
 // Migrations manquantes jusqu'à la version cible, dans l'ordre. Refuse : version cible inconnue, trou dans les versions déjà appliquées, fichier modifié après coup.
@@ -115,9 +116,11 @@ async function poserDroits(client: pg.Client, nomBase: string): Promise<void> {
   }
 }
 
-// Migrations d'un module (T2-35). BARRIÈRE PRINCIPALE = DROITS POSTGRESQL : le module s'exécute sous un rôle de migration PROPRE au module (cli_<id>_mod_<code>), qui possède et écrit
-// le seul schéma a_<code> et n'a aucun droit sur commun, trace ni public. Même un texte qui échapperait au filtre ne peut donc rien faire ailleurs (42501).
-// Le filtre du texte (ci-dessous) est une seconde barrière, durcie : commentaires retirés avant contrôle, liste blanche des ordres. Rien n'est jamais détruit ni écrit hors de a_<code>.
+// Migrations d'un module (T2-35). ÉTAT HONNÊTE : le texte du module s'exécute sur la session du provisionneur après SET ROLE vers un rôle de migration propre au module (cli_<id>_mod_<code>).
+// Un RESET ROLE écrit dans ce texte rendrait l'identité du provisionneur (CREATEROLE, CREATEDB) : la barrière de droits PostgreSQL N'EST DONC PAS SÛRE à elle seule et le FILTRE DU TEXTE (ci-dessous) est
+// aujourd'hui la barrière qui protège. Correctif de conception connu (audit B1) : exécuter le texte sur une connexion distincte dont l'utilisateur est le rôle du module ; il demande une règle pg_hba
+// pour ce rôle dans init.sql (hors fiche), voir la dette LOT2-dette-T2-35-connexion-module de spec/preuves.md.
+// Le filtre : commentaires retirés PARTOUT (corps de fonction et blocs $…$ compris) avant contrôle, liste blanche des ordres, aucune destruction de données.
 const CODE_MODULE = /^[a-z][a-z0-9_]{1,30}$/;
 export function roleMigrationModule(nomBase: string, code: string): string {
   if (!NOM_BASE.test(nomBase) || !CODE_MODULE.test(code)) throw new Error("migrerBase : base ou code de module invalide");
@@ -126,7 +129,9 @@ export function roleMigrationModule(nomBase: string, code: string): string {
 const SCHEMAS_PROTEGES = "commun|public|trace|pg_catalog|pg_temp|information_schema|pgbouncer|provisionnement";
 export const REGLES_MODULE: [RegExp, string][] = [
   [/\bsearch_path\b|\bset_config\b/i, "changement du chemin de recherche"],
-  [/\b(set|reset)\s+(local\s+|session\s+)?(role|session\s+authorization|all)\b/i, "changement de rôle ou de session"],
+  [/\b(set|reset)\s+(local\s+|session\s+)?"?(role|session\s+authorization|all)"?(?![a-z0-9_])/i, "changement de rôle ou de session"],
+  [/\bdrop\s+(table|column)\b|\balter\s+(foreign\s+)?table\b[^;]*?\bdrop\s+(?!constraint\b|not\b|default\b|identity\b|expression\b)/i, "suppression de table ou de colonne"],
+  [/\b(delete\s+from|truncate)\b/i, "suppression de données"],
   [/\b(commit|rollback|abort|begin|savepoint|release|discard)\b|\b(start|prepare)\s+transaction\b/i, "contrôle de la transaction"],
   [/\b(alter|create|drop)\s+(role|user|group|database|schema|extension|tablespace|server|foreign|publication|subscription|event\s+trigger|system|default\s+privileges|owned)\b/i, "ordre d'administration"],
   [/\b(grant|revoke|reassign|security\s+definer)\b|\bowner\s+to\b/i, "droits ou propriété"],
@@ -136,6 +141,51 @@ export const REGLES_MODULE: [RegExp, string][] = [
   [new RegExp(`(?:^|[^a-z0-9_])"?(${SCHEMAS_PROTEGES})"?\\s*\\.`, "i"), "schéma protégé"],
 ];
 const HEADS_ADMIS = new Set(["create", "alter", "comment", "insert"]);
+// Texte à contrôler : les commentaires (-- et /* */ imbriqués) sont retirés PARTOUT, y compris dans les corps de fonction et les blocs $…$, en respectant chaînes et identifiants (un « -- » écrit dans
+// une chaîne ne cache rien). Un bloc $…$ qui ne se lit pas comme du SQL (apostrophe d'un texte français) est contrôlé sous trois formes : tel quel, sans /* */, sans /* */ ni --. Mal terminé → undefined.
+function sansCommentaires(sql: string): string | undefined {
+  let sortie = "";
+  for (let i = 0; i < sql.length; ) {
+    const c = sql[i]!;
+    const deux = sql.slice(i, i + 2);
+    if (deux === "--") { const f = sql.indexOf("\n", i); i = f < 0 ? sql.length : f; sortie += " "; continue; }
+    if (deux === "/*") {
+      let prof = 1;
+      for (i += 2; i < sql.length && prof > 0; ) { const d = sql.slice(i, i + 2); if (d === "/*") { prof++; i += 2; } else if (d === "*/") { prof--; i += 2; } else i++; }
+      if (prof > 0) return undefined;
+      sortie += " ";
+      continue;
+    }
+    if (c === "'" || c === '"') {
+      const echappe = c === "'" && /(?:^|[^a-z0-9_])e$/i.test(sortie);
+      let j = i + 1;
+      for (; j < sql.length; j++) {
+        if (echappe && sql[j] === "\\") { j++; continue; }
+        if (sql[j] === c) { if (sql[j + 1] === c) { j++; continue; } break; }
+      }
+      if (j >= sql.length) return undefined;
+      sortie += sql.slice(i, j + 1);
+      i = j + 1;
+      continue;
+    }
+    if (c === "$") {
+      const balise = /^\$(?:[A-Za-z_\u0080-\uffff][A-Za-z0-9_\u0080-\uffff]*)?\$/.exec(sql.slice(i));
+      if (balise) {
+        const f = sql.indexOf(balise[0], i + balise[0].length);
+        if (f < 0) return undefined;
+        const corps = sql.slice(i + balise[0].length, f);
+        const lu = sansCommentaires(corps);
+        const formes = lu !== undefined ? [lu] : [corps, corps.replace(/\/\*[\s\S]*?\*\//g, " "), corps.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/--[^\n]*/g, " ")];
+        sortie += formes.map((x) => `${balise[0]}${x}${balise[0]}`).join(" ; ");
+        i = f + balise[0].length;
+        continue;
+      }
+    }
+    sortie += c;
+    i++;
+  }
+  return sortie;
+}
 // Sépare le texte en ordres et retire les commentaires (chacun devient une espace, comme pour PostgreSQL). Les chaînes, identifiants entre guillemets et blocs $…$ sont recopiés tels quels,
 // pour qu'un « /* » ou un « ; » écrit dedans ne cache rien. Texte mal terminé → undefined (refusé).
 export function decouperSql(sql: string): string[] | undefined {
@@ -185,7 +235,8 @@ export function verifierMigrationModule(sql: string, code: string): string[] {
   if (typeof code !== "string" || !CODE_MODULE.test(code)) throw new Error("migrerBase : code de module invalide");
   const ordres = decouperSql(sql);
   if (!ordres) return ["migration de module refusée : texte mal terminé (commentaire, chaîne ou bloc $ ouvert)"];
-  const texte = ordres.join(";\n");
+  const texte = sansCommentaires(ordres.join(";\n"));
+  if (texte === undefined) return ["migration de module refusée : texte mal terminé (commentaire, chaîne ou bloc $ ouvert)"];
   // « ON DELETE / ON UPDATE » des clés étrangères ne détruisent que dans le schéma du module ; tout autre DELETE, UPDATE ou TRUNCATE est refusé.
   const sansCle = texte.replace(/\bon\s+(delete|update)\b/gi, " ");
   const refus = REGLES_MODULE.filter(([re]) => re.test(texte)).map(([, motif]) => `migration de module refusée : ${motif}`);
@@ -204,8 +255,11 @@ const comptesHors = async (client: pg.Client, schema: string): Promise<string> =
 async function appliquerModule(client: pg.Client, nomBase: string, dossier: string, versionCible: number, code: string): Promise<void> {
   const schema = `a_${code}`;
   const m = roleMigrationModule(nomBase, code);
-  const entrees = lireEntrees(dossier);
-  const refus = entrees.flatMap((e) => verifierMigrationModule(readFileSync(`${dossier}/${e.tag}.sql`, "utf8"), code).map((r) => `${e.tag} : ${r}`));
+  // Chaque fichier est lu UNE fois : le même tampon sert au filtre, à l'empreinte et à l'exécution (aucun changement possible entre le contrôle et l'usage).
+  const tampons = new Map<string, Buffer>();
+  const lire = (chemin: string) => tampons.get(chemin) ?? tampons.set(chemin, readFileSync(chemin)).get(chemin)!;
+  const entrees = lireEntrees(dossier, lire);
+  const refus = entrees.flatMap((e) => verifierMigrationModule(lire(`${dossier}/${e.tag}.sql`).toString("utf8"), code).map((r) => `${e.tag} : ${r}`));
   if (refus.length) throw new Error(`migrations de module refusées :\n${refus.join("\n")}`);
   const { rows } = await client.query<{ role: string }>("SELECT session_user AS role");
   if (!rows[0] || ROLE_INTERDIT.test(rows[0].role)) throw new Error(`migrerBase refuse le rôle de session « ${rows[0]?.role} »`);
@@ -239,7 +293,7 @@ async function appliquerModule(client: pg.Client, nomBase: string, dossier: stri
       try {
         const avant = await comptesHors(client, schema);
         await client.query(`SET LOCAL search_path = ${citer(schema)}`);
-        for (const morceau of readFileSync(`${dossier}/${mig.tag}.sql`, "utf8").split(MARQUEUR)) if (morceau.trim()) await client.query(morceau);
+        for (const morceau of lire(`${dossier}/${mig.tag}.sql`).toString("utf8").split(MARQUEUR)) if (morceau.trim()) await client.query(morceau);
         if ((await comptesHors(client, schema)) !== avant) throw new Error(`migrerBase : la migration ${mig.tag} a créé un objet hors de ${schema}`);
         await client.query(`INSERT INTO ${citer(schema)}.version_structure (version, empreinte) VALUES ($1, $2)`, [mig.version, mig.empreinte]);
         await client.query("COMMIT");

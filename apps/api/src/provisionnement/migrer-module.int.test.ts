@@ -95,7 +95,7 @@ describe("migrations d'un module (grappe jetable)", () => { // fiche: T2-35
     const m = roleMigrationModule(c.base, "essai");
     const q = async (sql: string) => (await c.dans.query(sql)).rows[0] as Record<string, boolean>;
     expect(await q(`SELECT has_schema_privilege('${m}', 'commun', 'USAGE') AS u, has_schema_privilege('${m}', 'commun', 'CREATE') AS c, has_schema_privilege('${m}', 'public', 'CREATE') AS p`)).toEqual({ u: false, c: false, p: false });
-    // Après la migration, le provisionneur ne garde pas la main sur ce rôle (il ne lirait pas les données du module d'un client fermé).
+    // Après la migration, le provisionneur ne reprend plus ce rôle par SET ROLE (GRANT retiré). Cela ne couvre PAS un RESET ROLE écrit dans le texte du module, qui rend l'identité du provisionneur : seul le filtre du texte l'arrête aujourd'hui (dette LOT2-dette-T2-35-connexion-module).
     await c.dans.query("RESET ROLE");
     await expect(c.dans.query(`SET ROLE ${m}`)).rejects.toMatchObject({ code: "42501" });
     // Sous ce rôle, même les ordres que le filtre laisserait passer échouent hors du schéma du module.

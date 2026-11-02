@@ -36,29 +36,43 @@ async function lancer(): Promise<OptionsBao> {
 
 describe("colonnes et fichiers chiffrés, OpenBao réel", () => {
   it("[A-245] après destruction de la clé, champs et fichiers sont illisibles, y compris avec un cache chaud", async () => {
-    const bao = await lancer();
-    const env = creerEnveloppe(bao);
-    const colonnes = creerColonnesChiffrees(bao);
-    const objets = new Map<string, Uint8Array>();
-    const stockage: PortFichiers = { deposer: async (t, c, o) => void objets.set(`${t}/${c}`, o), lire: async (t, c) => objets.get(`${t}/${c}`) };
-    const fichiers = creerFichiersClient({ stockage, enveloppe: env });
-    const A = randomUUID();
-    const B = randomUUID();
-    for (const t of [A, B]) {
-      await env.creerCleClient(t);
-      await appeler(bao, "POST", `transit/keys/cli-${t}-recherche`, { type: "hmac", exportable: false });
+    let etape = "lancement";
+    const marquer = (e: string) => { etape = e; };
+    try {
+      const bao = await lancer();
+      marquer("clés");
+      const env = creerEnveloppe(bao);
+      const colonnes = creerColonnesChiffrees(bao);
+      const objets = new Map<string, Uint8Array>();
+      const stockage: PortFichiers = { deposer: async (t, c, o) => void objets.set(`${t}/${c}`, o), lire: async (t, c) => objets.get(`${t}/${c}`) };
+      const fichiers = creerFichiersClient({ stockage, enveloppe: env });
+      const A = randomUUID();
+      const B = randomUUID();
+      for (const t of [A, B]) {
+        await env.creerCleClient(t);
+        await appeler(bao, "POST", `transit/keys/cli-${t}-recherche`, { type: "hmac", exportable: false });
+      }
+      marquer("chiffrement");
+      const champ = await colonnes.chiffrerChamp(A, "essai@exemple.fr");
+      const champB = await colonnes.chiffrerChamp(B, "essai@exemple.fr");
+      await fichiers.deposerFichier(A, "exports/a.bin", Buffer.from("fichier fictif"));
+      marquer("empreintes");
+      expect(await colonnes.empreinteRecherche(A, "essai@exemple.fr")).not.toBe(await colonnes.empreinteRecherche(B, "essai@exemple.fr"));
+      expect(await colonnes.dechiffrerChamp(A, champ)).toBe("essai@exemple.fr"); // cache chaud
+      marquer("rotation");
+      await colonnes.pivoterCle(A);
+      expect(await colonnes.dechiffrerChamp(A, champ)).toBe("essai@exemple.fr");
+      marquer("croisé");
+      await expect(colonnes.dechiffrerChamp(B, champ)).rejects.toBeInstanceOf(ErreurCoffre);
+      marquer("destruction");
+      await env.detruireCleClient(A, `detruire-${A}`); // client fictif créé par ce test
+      await expect(colonnes.dechiffrerChamp(A, champ)).rejects.toBeInstanceOf(ErreurCoffre);
+      await expect(fichiers.lireFichier(A, "exports/a.bin")).rejects.toBeInstanceOf(ErreurCoffre);
+      expect(await colonnes.dechiffrerChamp(B, champB)).toBe("essai@exemple.fr");
+    } catch (e) {
+      // Seul le code ressort (ErreurCoffre : message = code) : aucun secret, pour lire l'échec dans le journal de la CI.
+      console.log(`COLONNES-INT échec à l'étape « ${etape} » : ${(e as Error).name} ${(e as Error).message.slice(0, 120)}`);
+      throw e;
     }
-    const champ = await colonnes.chiffrerChamp(A, "essai@exemple.fr");
-    const champB = await colonnes.chiffrerChamp(B, "essai@exemple.fr");
-    await fichiers.deposerFichier(A, "exports/a.bin", Buffer.from("fichier fictif"));
-    expect(await colonnes.empreinteRecherche(A, "essai@exemple.fr")).not.toBe(await colonnes.empreinteRecherche(B, "essai@exemple.fr"));
-    expect(await colonnes.dechiffrerChamp(A, champ)).toBe("essai@exemple.fr"); // cache chaud
-    await colonnes.pivoterCle(A);
-    expect(await colonnes.dechiffrerChamp(A, champ)).toBe("essai@exemple.fr");
-    await expect(colonnes.dechiffrerChamp(B, champ)).rejects.toBeInstanceOf(ErreurCoffre);
-    await env.detruireCleClient(A, `detruire-${A}`); // client fictif créé par ce test
-    await expect(colonnes.dechiffrerChamp(A, champ)).rejects.toBeInstanceOf(ErreurCoffre);
-    await expect(fichiers.lireFichier(A, "exports/a.bin")).rejects.toBeInstanceOf(ErreurCoffre);
-    expect(await colonnes.dechiffrerChamp(B, champB)).toBe("essai@exemple.fr");
   }, 120_000);
 });

@@ -33,7 +33,11 @@ export type SessionDonnees = z.infer<typeof Session>;
 
 const refus = (code: "action_interdite" | "introuvable" | "schema_invalide" | "porte_fermee", message: string) => new ErreurApi(code, message);
 
-export function creerServiceDonnees(ports: PortsDonnees, liste: Readonly<Record<string, Requete>> = LISTE_BLANCHE) {
+// Compatibilité N / N-1 (A-229) : une requête peut avoir plusieurs textes ; la variante est choisie d'après la version de structure LUE dans la base du client (public.version_structure),
+// jamais d'après une valeur de la session ou de la requête. `depuis` : première version où le texte vaut ; le texte de base sert en dessous. Version illisible : le texte le plus ancien.
+export type RequeteAvecVariantes = Requete & { variantes?: readonly { depuis: number; sql: string }[] };
+
+export function creerServiceDonnees(ports: PortsDonnees, liste: Readonly<Record<string, RequeteAvecVariantes>> = LISTE_BLANCHE) {
   const pools = new Map<string, { connexion: Promise<Connexion>; dernierUsage: number; enCours: number }>();
 
   function pool(nomBase: string, role: RoleConnexion): Promise<Connexion> {
@@ -88,10 +92,16 @@ export function creerServiceDonnees(ports: PortsDonnees, liste: Readonly<Record<
         // L'équipe n'a pas d'établissements dans sa session : ceux du client sont lus dans sa base, par la connexion de lecture.
         const etablissements = session.role === "client" ? session.etablissements : (await (await pool(base.nomBase, "lecture")).requete("SELECT id FROM commun.etablissements", [])).map((l) => String(l["id"]));
         const valeurs = r.valeurs(p.data as never);
-        const texte = r.sql.replaceAll(EMPLACEMENT_FILTRE, `etablissement_id = ANY($${valeurs.length + 1}::uuid[])`);
+        let modele = r.sql;
+        if (r.variantes?.length) {
+          const lue = Number((await connexion.requete("SELECT coalesce(max(version), 0) AS v FROM public.version_structure", []))[0]?.["v"]);
+          const choisie = Number.isInteger(lue) ? [...r.variantes].filter((v) => v.depuis <= lue).sort((a, b) => b.depuis - a.depuis)[0] : undefined;
+          if (choisie) modele = choisie.sql;
+        }
+        const texte = modele.replaceAll(EMPLACEMENT_FILTRE, `etablissement_id = ANY($${valeurs.length + 1}::uuid[])`);
         // Les numéros $n écrits dans la requête sont exactement 1..N, N = nombre de valeurs de la requête ; le service y ajoute le tableau d'établissements en $N+1 (B-173).
         // Ni valeur orpheline, ni numéro sans valeur, ni numéro pris deux fois par le filtre.
-        const numeros = new Set([...r.sql.matchAll(/\$(\d+)/g)].map((m) => Number(m[1])));
+        const numeros = new Set([...modele.matchAll(/\$(\d+)/g)].map((m) => Number(m[1])));
         if (numeros.size !== valeurs.length || valeurs.some((_, i) => !numeros.has(i + 1))) throw refus("schema_invalide", "Requête invalide.");
         const envoyees = r.parEtablissement ? [...valeurs, etablissements] : valeurs;
         const lignes = await connexion.requete(texte, envoyees);

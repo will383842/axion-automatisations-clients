@@ -21,6 +21,9 @@ export interface Config {
   // Rétention (A-180, C-041) : le retrait des exécutions anciennes et la proposition de suppression des notes restent fermés tant que l'interrupteur n'est pas ouvert.
   retentionPurgeActive?: boolean;
   retentionOuvertePar?: string;
+  // Migrations « contracter » (T2-38) : fermé par défaut, y compris en production, tant que Will ne l'a pas ouvert (lot 8a). Version de structure du code déployé : lue ici, absente = inconnue.
+  contracterOuvert?: boolean;
+  versionStructureCode?: number;
   // Retrait des anciens dumps de client sur la cible de sauvegarde (T2-39, C-047) : fermé par défaut.
   sauvegardesRetraitActif?: boolean;
   // Retrait des exports de 30 jours (A-252) : ne touche que la copie d'export ; fermé par défaut, suspendu par un gel pour litige.
@@ -70,6 +73,8 @@ const Schema = z.object({
   CONSOLE_HUB_ACTIF: interrupteur,
   CONSOLE_CRM_ACTIF: interrupteur,
   RETENTION_PURGE_ACTIVE: interrupteur,
+  CONTRACTER_OUVERT: interrupteur,
+  VERSION_STRUCTURE_CODE: z.preprocess((v) => (v === "" ? undefined : v), z.coerce.number().int().min(0).optional()),
   SAUVEGARDES_RETRAIT_ACTIF: interrupteur,
   EXPORTS_RETRAIT_ACTIF: interrupteur,
   RETENTION_OUVERTE_PAR: z.preprocess((v) => (v === "" ? undefined : v), z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((d) => !Number.isNaN(Date.parse(d))).optional()),
@@ -92,6 +97,6 @@ export function chargerConfig(env: NodeJS.ProcessEnv, dossierApi = fileURLToPath
     if (!v.APP_DATABASE_URL) throw new ConfigInvalide("configuration invalide : APP_DATABASE_URL");
   }
   const { APP_DATABASE_URL: base, HUB_URL: hub, CRM_URL: crm, EQUIPE_ADRESSE_WILL: will } = v;
-  const actifs = { hubActif: v.CONSOLE_HUB_ACTIF, crmActif: v.CONSOLE_CRM_ACTIF, retentionPurgeActive: v.RETENTION_PURGE_ACTIVE, sauvegardesRetraitActif: v.SAUVEGARDES_RETRAIT_ACTIF, exportsRetraitActif: v.EXPORTS_RETRAIT_ACTIF, ...(v.RETENTION_OUVERTE_PAR ? { retentionOuvertePar: v.RETENTION_OUVERTE_PAR } : {}) };
+  const actifs = { hubActif: v.CONSOLE_HUB_ACTIF, crmActif: v.CONSOLE_CRM_ACTIF, retentionPurgeActive: v.RETENTION_PURGE_ACTIVE, sauvegardesRetraitActif: v.SAUVEGARDES_RETRAIT_ACTIF, exportsRetraitActif: v.EXPORTS_RETRAIT_ACTIF, contracterOuvert: v.CONTRACTER_OUVERT, ...(v.VERSION_STRUCTURE_CODE !== undefined ? { versionStructureCode: v.VERSION_STRUCTURE_CODE } : {}), ...(v.RETENTION_OUVERTE_PAR ? { retentionOuvertePar: v.RETENTION_OUVERTE_PAR } : {}) };
   return { env: v.NODE_ENV, port: v.PORT, ...actifs, ...(base ? { appDatabaseUrl: base } : {}), ...(hub ? { hubUrl: hub } : {}), ...(crm ? { crmUrl: crm } : {}), ...(will ? { adressesEquipe: { will } } : {}) };
 }

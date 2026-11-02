@@ -1,8 +1,9 @@
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, createHmac, pbkdf2Sync, randomBytes } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
-import { verifierDossier } from "../../../../scripts/garde-migrations.ts";
+import { estPhaseContracter, verifierDossier } from "../../../../scripts/garde-migrations.ts";
+import { contracterPermis, verifierDescente, type EtatContracter } from "./regles-versions.ts";
 
 // Outil de migration des bases des clients (T2-32, ADR 0046) : applique apps/api/drizzle-cli/ avec le rôle PROPRIÉTAIRE de la base, jamais _app ni _lecture.
 // Le journal des migrations de chaque base est public.version_structure (A-225) : une ligne par migration, avec l'empreinte du fichier.
@@ -17,7 +18,17 @@ const ROLE_MODELE = "modele_proprietaire";
 export type EntreeMigration = { version: number; tag: string; empreinte: string };
 export type Appliquee = { version: number; empreinte: string };
 // `module` : code d'un module (schéma a_<code> de la base du client, T2-35) ; les migrations du dossier sont alors celles de CE module (jamais le modèle).
-export type Options = { url: string; dossier?: string; module?: string };
+// `etatContracter` : lecteur de l'état (interrupteur, versions de TOUTES les bases du registre, version du code), fourni par vagues (lireEtatContracter) ; migrerBase appelle lui-même contracterPermis (regles-versions.ts). Sans lecteur, un fichier « phase: contracter » est refusé.
+export type LecteurEtatContracter = (versionN: number) => Promise<EtatContracter>;
+export type Options = { url: string; dossier?: string; module?: string; etatContracter?: LecteurEtatContracter };
+
+// Décision prise ici, au moment d'appliquer : N est la version qui précède le fichier contracter. Un fichier ordinaire passe sans lire l'état.
+export async function verifierContracter(tag: string, version: number, texte: string, lire: LecteurEtatContracter | undefined): Promise<void> {
+  if (!estPhaseContracter(texte)) return;
+  if (!lire) throw new Error(`migrerBase : la migration ${tag} est en phase contracter, refusée sans lecteur d'état du registre`);
+  const decision = contracterPermis(await lire(version - 1));
+  if (!decision.permis) throw new Error(`migrerBase : la migration ${tag} est refusée : ${decision.raison}`);
+}
 
 // Entrées du journal drizzle, dans l'ordre : la version N est la N-ième migration (la première vaut 1).
 // `lire` : lecteur de fichier, remplaçable pour qu'un même tampon serve au filtre, à l'empreinte et à l'exécution (migrations de module).
@@ -28,7 +39,8 @@ export function lireEntrees(dossier: string, lire: (chemin: string) => Buffer = 
 }
 
 // Migrations manquantes jusqu'à la version cible, dans l'ordre. Refuse : version cible inconnue, trou dans les versions déjà appliquées, fichier modifié après coup.
-export function migrationsAAppliquer(entrees: EntreeMigration[], appliquees: Appliquee[], versionCible: number): EntreeMigration[] {
+// En production (NODE_ENV lu ici, pas passé par l'appelant), une cible plus basse que la dernière version appliquée est refusée : le retour arrière est celui du code seulement (A-232).
+export function migrationsAAppliquer(entrees: EntreeMigration[], appliquees: Appliquee[], versionCible: number, production: boolean = process.env["NODE_ENV"] === "production"): EntreeMigration[] {
   if (!Number.isInteger(versionCible) || versionCible < 1 || versionCible > entrees.length) throw new Error(`migrerBase : version cible ${versionCible} inconnue (1 à ${entrees.length})`);
   const deja = new Map(appliquees.map((a) => [a.version, a.empreinte]));
   const derniere = Math.max(0, ...deja.keys());
@@ -37,6 +49,7 @@ export function migrationsAAppliquer(entrees: EntreeMigration[], appliquees: App
     const attendue = entrees[v - 1]?.empreinte;
     if (attendue !== deja.get(v)) throw new Error(`migrerBase : empreinte différente pour la version ${v} (fichier de migration modifié après application)`);
   }
+  verifierDescente(derniere, versionCible, production);
   return entrees.filter((e) => e.version > derniere && e.version <= versionCible);
 }
 
@@ -58,7 +71,7 @@ export function verifierRole(nomBase: string, url: string): void {
 const citer = (nom: string) => `"${nom.replaceAll('"', '""')}"`;
 
 // Applique les migrations manquantes dans une transaction par migration, sous verrou ; `proprietaire` est le rôle dont la session prend l'identité.
-async function appliquer(client: pg.Client, proprietaire: string, dossier: string, versionCible: number): Promise<void> {
+async function appliquer(client: pg.Client, proprietaire: string, dossier: string, versionCible: number, etatContracter?: LecteurEtatContracter): Promise<void> {
   const refus = verifierDossier(dossier);
   if (refus.length) throw new Error(`migrations refusées :\n${refus.join("\n")}`);
   const { rows } = await client.query<{ role: string }>("SELECT session_user AS role");
@@ -72,9 +85,12 @@ async function appliquer(client: pg.Client, proprietaire: string, dossier: strin
     const existe = (await client.query<{ t: string | null }>("SELECT to_regclass('public.version_structure')::text AS t")).rows[0]?.t;
     const deja = existe ? (await client.query<{ version: number; empreinte: string }>("SELECT version, empreinte FROM public.version_structure")).rows : [];
     for (const m of migrationsAAppliquer(lireEntrees(dossier), deja, versionCible)) {
+      const texte = readFileSync(`${dossier}/${m.tag}.sql`, "utf8");
+      // « contracter » : seule migration qui peut supprimer ; refusée sans la décision de regles-versions.ts. Chaque contracter appliqué est tracé au journal d'audit par l'appelant (vagues).
+      await verifierContracter(m.tag, m.version, texte, etatContracter);
       await client.query("BEGIN");
       try {
-        for (const morceau of readFileSync(`${dossier}/${m.tag}.sql`, "utf8").split(MARQUEUR)) if (morceau.trim()) await client.query(morceau);
+        for (const morceau of texte.split(MARQUEUR)) if (morceau.trim()) await client.query(morceau);
         await client.query("INSERT INTO public.version_structure (version, empreinte) VALUES ($1, $2)", [m.version, m.empreinte]);
         await client.query("COMMIT");
       } catch (e) {
@@ -252,6 +268,14 @@ const comptesHors = async (client: pg.Client, schema: string): Promise<string> =
   )).rows[0]!.n;
 
 const noop = () => undefined;
+// Empreinte SCRAM-SHA-256 d'un mot de passe ASCII (RFC 5802, 4096 tours, sel aléatoire) : ce que PostgreSQL range lui-même ; il l'accepte telle quelle dans ALTER ROLE … PASSWORD.
+export function empreinteScram(motDePasse: string): string {
+  const sel = randomBytes(16);
+  const sale = pbkdf2Sync(motDePasse, sel, 4096, 32, "sha256");
+  const hmac = (cle: Buffer, texte: string) => createHmac("sha256", cle).update(texte).digest();
+  const stockee = createHash("sha256").update(hmac(sale, "Client Key")).digest();
+  return `SCRAM-SHA-256$4096:${sel.toString("base64")}$${stockee.toString("base64")}:${hmac(sale, "Server Key").toString("base64")}`;
+}
 export type ConnexionModule = { client: pg.Client; fermer: () => Promise<void> };
 // Prépare le rôle du module, le schéma a_<code> et ses droits (le provisionneur, `admin`, connecté à la base du client), puis ouvre la connexion du rôle du module.
 // `urlAdmin` : adresse du provisionneur vers la base du client (même socket) ; celle du module s'en déduit en changeant seulement l'utilisateur et le mot de passe. `fermer` ferme la connexion et remet le rôle NOLOGIN sans mot de passe.
@@ -275,14 +299,14 @@ export async function ouvrirConnexionModule(admin: pg.Client, urlAdmin: string, 
   }
   // Droits relus : le rôle du module n'a rien dans commun, trace ni public, aucun attribut d'administration, aucune appartenance ; sinon refus avant toute migration.
   const hors = (await admin.query<{ ko: boolean }>(
-    "SELECT (has_schema_privilege($1, 'commun', 'USAGE') OR has_schema_privilege($1, 'commun', 'CREATE') OR has_schema_privilege($1, 'trace', 'USAGE') OR has_schema_privilege($1, 'trace', 'CREATE') OR has_schema_privilege($1, 'public', 'CREATE') OR EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1 AND (rolsuper OR rolcreaterole OR rolcreatedb OR rolbypassrls OR rolreplication OR rolinherit)) OR EXISTS (SELECT 1 FROM pg_auth_members WHERE member = $1::regrole)) AS ko",
-    [m],
+    "SELECT (has_schema_privilege($1, 'commun', 'USAGE') OR has_schema_privilege($1, 'commun', 'CREATE') OR has_schema_privilege($1, 'trace', 'USAGE') OR has_schema_privilege($1, 'trace', 'CREATE') OR has_schema_privilege($1, 'public', 'CREATE') OR has_database_privilege($1, $2, 'CREATE') OR has_database_privilege($1, $2, 'TEMP') OR EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1 AND (rolsuper OR rolcreaterole OR rolcreatedb OR rolbypassrls OR rolreplication OR rolinherit)) OR EXISTS (SELECT 1 FROM pg_auth_members WHERE member = $1::regrole)) AS ko",
+    [m, nomBase],
   )).rows[0]?.ko;
   if (hors !== false) throw new Error(`migrerBase : le rôle de migration du module a un droit hors de ${schema}, refus`);
-  // 3. LOGIN avec un mot de passe aléatoire à usage unique (littéral hexadécimal, jamais affiché), puis connexion distincte par la même socket que le provisionneur.
+  // 3. LOGIN avec un mot de passe aléatoire à usage unique, puis connexion distincte par la même socket que le provisionneur. Le rôle ne reste jamais LOGIN avec un secret perdu : le ALTER ROLE est DANS le try,
+  // et toute sortie en échec remet NOLOGIN sans mot de passe. Le serveur ne reçoit que l'empreinte SCRAM calculée ici (comme poserRole) : le mot de passe n'apparaît dans aucun journal du serveur (log_min_error_statement).
   const secret = randomBytes(32).toString("hex");
   const remettre = () => admin.query(`ALTER ROLE ${citer(m)} NOLOGIN PASSWORD NULL`);
-  await admin.query(`ALTER ROLE ${citer(m)} LOGIN CONNECTION LIMIT 2 PASSWORD '${secret}'`);
   const u = lireUrl(urlAdmin);
   u.username = m;
   u.password = secret;
@@ -290,6 +314,7 @@ export async function ouvrirConnexionModule(admin: pg.Client, urlAdmin: string, 
   const client = new pg.Client({ connectionString: u.toString() });
   client.on("error", noop);
   try {
+    await admin.query(`ALTER ROLE ${citer(m)} LOGIN CONNECTION LIMIT 2 PASSWORD '${empreinteScram(secret)}'`);
     await client.connect();
   } catch (e) {
     await remettre().catch(noop);
@@ -319,6 +344,9 @@ async function appliquerModule(admin: pg.Client, urlAdmin: string, nomBase: stri
   const tampons = new Map<string, Buffer>();
   const lire = (chemin: string) => tampons.get(chemin) ?? tampons.set(chemin, readFileSync(chemin)).get(chemin)!;
   const entrees = lireEntrees(dossier, lire);
+  // Une migration de module ne contracte jamais : elle ne détruit aucune donnée (REGLES_MODULE), même marquée « phase: contracter ».
+  const contracteurs = entrees.filter((e) => estPhaseContracter(lire(`${dossier}/${e.tag}.sql`).toString("utf8"))).map((e) => `${e.tag} : phase contracter interdite pour un module`);
+  if (contracteurs.length) throw new Error(`migrations de module refusées :\n${contracteurs.join("\n")}`);
   const refus = entrees.flatMap((e) => verifierMigrationModule(lire(`${dossier}/${e.tag}.sql`).toString("utf8"), code).map((r) => `${e.tag} : ${r}`));
   if (refus.length) throw new Error(`migrations de module refusées :\n${refus.join("\n")}`);
   const { rows } = await admin.query<{ role: string }>("SELECT session_user AS role");
@@ -380,7 +408,7 @@ export async function migrerBase(nomBase: string, versionCible: number, options:
   await client.connect();
   try {
     if (options.module !== undefined) return await appliquerModule(client, options.url, nomBase, options.dossier!, versionCible, options.module);
-    await appliquer(client, `${nomBase}_proprietaire`, options.dossier ?? DOSSIER_CLI, versionCible);
+    await appliquer(client, `${nomBase}_proprietaire`, options.dossier ?? DOSSIER_CLI, versionCible, options.etatContracter);
     await poserDroits(client, nomBase);
   } finally {
     await client.end();

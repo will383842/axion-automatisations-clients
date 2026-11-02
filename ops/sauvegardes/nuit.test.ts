@@ -18,7 +18,7 @@ afterAll(() => {
   for (const d of temporaires) rmSync(d, { recursive: true, force: true });
 });
 
-const SCRIPTS = ["sauvegarder-nuit.sh", "expirer.sh", "controle-fraicheur.sh", "journaliser.sh", "retention.ts"];
+const SCRIPTS = ["sauvegarder-nuit.sh", "expirer.sh", "controle-fraicheur.sh", "journaliser.sh", "restaurer.sh", "retention.ts"];
 
 interface Banc {
   dir: string;
@@ -251,6 +251,55 @@ describe("sauvegarde de nuit : expiration automatique coupée, rythme, journal (
     const fichiers = fichiersJournal(b, "restauration");
     expect(fichiers).toHaveLength(2);
     expect(fichiers.map((f) => readFileSync(f, "utf8").split("\t")[4]).sort()).toEqual(["echec", "ok"]);
+  });
+
+  it("[C-049] huit passages lancés dans la même seconde écrivent huit lignes, sans en perdre ni échouer", () => {
+    const b = banc();
+    const un = (n: number) => `(journal_ecrire restauration ponctuelle restauration 1 - ok ${n} id${n} || echo "perdu ${n}" >&2) & `;
+    const appel = `source "${join(b.scripts, "journaliser.sh")}"; ${[1, 2, 3, 4, 5, 6, 7, 8].map(un).join("")} wait`;
+    const r = spawnSync("bash", ["-c", appel], { encoding: "utf8", env: b.env });
+    expect(r.stderr).not.toMatch(/perdu|cannot overwrite|écriture impossible/);
+    expect(fichiersJournal(b, "restauration")).toHaveLength(8);
+  });
+
+  it("[C-045] si le journal ne s'écrit pas après une restauration réussie, le conteneur restauré est détruit et la sortie est le code 3", () => {
+    const b = banc();
+    const appelsDocker = join(b.dir, "docker.txt");
+    writeFileSync(appelsDocker, "");
+    const ecrire = (chemin: string, texte: string) => {
+      writeFileSync(chemin, texte);
+      chmodSync(chemin, 0o755);
+    };
+    ecrire(
+      join(b.dir, "bin", "docker"),
+      `#!/usr/bin/env bash
+echo "$*" >>"${appelsDocker}"
+case "$1" in
+  ps) echo cid-essai ;;
+  inspect) case "$*" in *State.Running*) echo true ;; *) echo reseau ;; esac ;;
+  exec) case "$*" in *du*) printf '100\t/tmp/donnees\n' ;; esac ;;
+esac
+exit 0
+`,
+    );
+    // Un fichier à la place du dossier du journal : mkdir échoue, l'écriture est impossible.
+    const bloc = join(b.dir, "pas-un-dossier");
+    writeFileSync(bloc, "");
+    const r = lancer(b, "restaurer.sh", [], { SAUVEGARDE_ESSAI: "1", SAUVEGARDE_JOURNAL: bloc });
+    expect(r.status, r.stderr).toBe(3);
+    expect(r.stderr).toMatch(/restauration-\d+/);
+    expect(r.stderr).toMatch(/détruit/);
+    expect(readFileSync(appelsDocker, "utf8")).toMatch(/rm -f -v restauration-\d+/);
+  });
+
+  it("[C-523] restaurer.sh monte l'autorité du réseau interne et le known_hosts dans le conteneur, et la configuration stricte garde le type de hachage", () => {
+    const sh = lignesActives(lire("restaurer.sh")).join("\n");
+    expect(sh).toMatch(/-v "\$BAO_CA_FICHIER:\$BAO_CA_FICHIER:ro"/);
+    expect(sh).toMatch(/-v "\$SFTP_KNOWN_HOSTS:\$SFTP_KNOWN_HOSTS:ro"/);
+    expect(sh).toMatch(/preparer-configuration\.sh/);
+    const prep = lignesActives(lire("preparer-configuration.sh")).join("\n");
+    expect(prep).not.toMatch(/hash/);
+    expect(lire("pgbackrest.conf.modele")).toMatch(/^repo1-sftp-host-key-hash-type=sha256$/m);
   });
 
   it("[C-049] tout script du dossier qui range un fichier passe par journaliser.sh (un seul endroit par système et par usage)", () => {

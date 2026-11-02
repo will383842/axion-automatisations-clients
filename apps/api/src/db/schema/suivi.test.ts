@@ -3,7 +3,6 @@ import { getTableConfig, PgDialect } from "drizzle-orm/pg-core";
 import { describe, expect, it } from "vitest";
 import { EXCEPTIONS_UNICITE, TABLES_COMMUNES } from "../../../../../packages/contrats/src/c5/invariants.ts";
 import { TABLES_CLIENT, TABLES_COMMUNES_SCHEMA } from "./aides.ts";
-import { executions } from "./exploitation.ts";
 import {
   audits, besoins, cellules, demandes, notes, outilsClient, propositions, propositionsAutomatisations, registreTraitements, THEME_AXION, themeEffectif, themesClient,
   typeNote,
@@ -71,10 +70,10 @@ describe("suivi : entités de la base commune (T2-07)", () => {
     expect(themeEffectif([])).toEqual(THEME_AXION);
     expect(themeEffectif([{ actif: false, ton: "formel" }])).toEqual(THEME_AXION);
     expect(themeEffectif([{ actif: false, ton: "formel" }, { actif: true, ton: "chaleureux" }]).ton).toBe("chaleureux");
-    expect(colonnes(themesClient)).toEqual(expect.arrayContaining(["logo_ref", "jeton_couleur_principale", "jeton_couleur_accent", "police", "ton", "signature", "mentions_legales", "actif"]));
+    expect(colonnes(themesClient)).toEqual(expect.arrayContaining(["logo_ref", "couleur_principale", "couleur_accent", "police", "ton", "signature", "mentions_legales", "actif"]));
     expect(migration).toMatch(/CREATE UNIQUE INDEX "themes_client_un_actif" ON "themes_client" USING btree \("tenant_id"\) WHERE .*"actif"/);
     // Aucune couleur en dur : des jetons de design (noms), jamais un code hexadécimal.
-    expect(verifications(themesClient).filter((c) => c.includes("jeton_couleur")).length).toBeGreaterThanOrEqual(2);
+    expect(verifications(themesClient).filter((c) => c.includes("couleur_")).length).toBeGreaterThanOrEqual(2);
     expect(JSON.stringify(THEME_AXION)).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
   });
 
@@ -165,17 +164,10 @@ describe("suivi : entités de la base commune (T2-07)", () => {
     expect(empreintes.fonctions.filter((f) => f.fichier === "0011_suivi.sql")).toEqual([]);
   });
 
-  it("[C-034] les colonnes de texte des exécutions et des alertes (auteur, terminé par, assigné à) gagnent une longueur maximale, posée sans verrou long (NOT VALID)", () => {
-    for (const [table, colonne] of [["executions", "auteur"], ["executions", "termine_par"], ["alertes", "assignee_a"]] as const) {
-      expect(migration).toMatch(new RegExp(`ALTER TABLE "public"\\."${table}" ADD CONSTRAINT "${table}_${colonne}_longueur" CHECK \\([^;]*char_length\\("${colonne}"\\) <= 200\\) NOT VALID;`));
-    }
-    expect(verifications(executions).some((c) => c.includes('char_length("auteur") <= 200'))).toBe(true);
-    expect(adr).toMatch(/VALIDATE CONSTRAINT/);
-  });
-
   it("[A-119] l'ADR 0055 écrit le choix des tables, le Hub qui fait foi (aucun prix), la TVA jamais en exonération et les dettes", () => {
     expect(adr).toMatch(/Le Hub fait foi/);
     expect(adr).toMatch(/## Dettes/);
+    expect(adr).toMatch(/executions\.auteur[^\n]*executions\.termine_par[^\n]*alertes\.assignee_a/);
     expect(adr).toMatch(/aucun prix/i);
     expect(adr).toMatch(/chaîne des migrations/);
     expect(migration).not.toMatch(/exon[ée]r/i);
@@ -183,25 +175,17 @@ describe("suivi : entités de la base commune (T2-07)", () => {
 });
 
 describe("suivi : instantané et journal Drizzle de la migration 0011", () => {
-  type Snapshot = { id: string; prevId: string; tables: Record<string, { checkConstraints?: Record<string, unknown> }>; enums: Record<string, unknown> } & Record<string, unknown>;
+  type Snapshot = { id: string; prevId: string; tables: Record<string, unknown>; enums: Record<string, unknown> } & Record<string, unknown>;
   const snapshot = (n: string) => JSON.parse(lire(`../../../drizzle/meta/${n}_snapshot.json`)) as Snapshot;
-  it("[A-119] l'instantané 0011 ne diffère de 0010 que par les 10 tables et les énumérations nouvelles, et par les trois contraintes de longueur (prevId = id de 0010)", () => {
+  it("[A-119] l'instantané 0011 ne diffère de 0010 que par les 10 tables et les énumérations nouvelles : aucune table existante ne change (prevId = id de 0010)", () => {
     const [s10, s11] = [snapshot("0010"), snapshot("0011")];
     expect(s11.prevId).toBe(s10.id);
-    const modifiees: string[] = [];
-    for (const [nom, table] of Object.entries(s10.tables)) {
-      if (JSON.stringify(s11.tables[nom]) !== JSON.stringify(table)) modifiees.push(nom);
-    }
-    expect(modifiees.sort()).toEqual(["public.alertes", "public.executions"]);
-    for (const nom of modifiees) {
-      const { checkConstraints: avant, ...resteAvant } = s10.tables[nom] ?? {};
-      const { checkConstraints: apres, ...resteApres } = s11.tables[nom] ?? {};
-      expect(resteApres, nom).toEqual(resteAvant);
-      for (const cle of Object.keys(avant ?? {})) expect(apres?.[cle], `${nom}.${cle}`).toEqual(avant?.[cle]);
-      expect(Object.keys(apres ?? {}).filter((k) => !(k in (avant ?? {}))).every((k) => k.endsWith("_longueur"))).toBe(true);
-    }
-    for (const [nom, e] of Object.entries(s10.enums)) expect(s11.enums[nom], nom).toEqual(e);
+    for (const [nom, table] of Object.entries(s10.tables)) expect(s11.tables[nom], `table ${nom} de 0010 changée dans 0011`).toEqual(table);
+    for (const [nom, e] of Object.entries(s10.enums)) expect(s11.enums[nom], `énumération ${nom} de 0010 changée dans 0011`).toEqual(e);
     expect(Object.keys(s11.tables).filter((t) => !(t in s10.tables)).sort()).toEqual([...CLIENT, ...COMMUNES].map((t) => `public.${t}`).sort());
+    expect(Object.keys(s11.enums).filter((e) => !(e in s10.enums)).sort()).toEqual(
+      ["base_legale", "canal_demande", "etat_cellule", "mode_cellule", "niveau_priorite", "statut_demande", "statut_proposition", "ton_theme", "type_audit", "type_note"].map((e) => `public.${e}`),
+    );
     for (const cle of Object.keys(s10).filter((k) => !["id", "prevId", "tables", "enums"].includes(k))) expect(s11[cle], cle).toEqual(s10[cle]);
   });
 

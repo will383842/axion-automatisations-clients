@@ -192,13 +192,13 @@ describe("suivi, avec le socle", { timeout: 90_000 }, () => {
     await creerOrg(B);
     expect((await ecrire(app, A, (c) => c.query("SELECT count(*)::int AS n FROM themes_client WHERE actif"))).rows[0]?.n).toBe(0);
     const theme = (T: string, extra: Record<string, unknown> = {}) =>
-      inserer(T, "themes_client", { organisation_id: T, logo_ref: "logos/lemoine-renovation.png", jeton_couleur_principale: "axion-primaire", jeton_couleur_accent: "axion-accent", police: "police-titre", ton: "formel", signature: "L'équipe Lemoine Rénovation", mentions_legales: "Mentions de l'atelier.", actif: false, ...extra });
+      inserer(T, "themes_client", { organisation_id: T, logo_ref: "logos/lemoine-renovation.png", couleur_principale: "axion-primaire", couleur_accent: "axion-accent", police: "police-titre", ton: "formel", signature: "L'équipe Lemoine Rénovation", mentions_legales: "Mentions de l'atelier.", actif: false, ...extra });
     const t1 = await theme(A);
     await theme(B, { actif: true });
     await maj(A, "UPDATE themes_client SET actif = true WHERE id = $1", [t1["id"]]);
     const t2 = await theme(A);
     await expect(maj(A, "UPDATE themes_client SET actif = true WHERE id = $1", [t2["id"]])).rejects.toMatchObject({ code: "23505" });
-    await expect(theme(A, { jeton_couleur_principale: "#12ab34" })).rejects.toMatchObject({ code: "23514" });
+    await expect(theme(A, { couleur_principale: "#12ab34" })).rejects.toMatchObject({ code: "23514" });
     await expect(theme(A, { logo_ref: "../secret" })).rejects.toMatchObject({ code: "23514" });
     await expect(maj(A, "DELETE FROM themes_client WHERE id = $1", [t1["id"]])).rejects.toMatchObject({ code: "42501" });
     expect((await ecrire(app, A, (c) => c.query("SELECT count(*)::int AS n FROM themes_client WHERE actif"))).rows[0]?.n).toBe(1);
@@ -253,14 +253,6 @@ describe("suivi, avec le socle", { timeout: 90_000 }, () => {
     await creerInstance(A);
     await expect(ecrire(app, A, (c) => c.query("SELECT * FROM instances"))).rejects.toMatchObject({ code: "42501" });
     expect((await ecrire(app, A, (c) => c.query("SELECT id FROM instances"))).rows).toHaveLength(1);
-  });
-
-  it("[C-034] alertes.assignee_a refuse un texte de plus de 200 caractères (executions.auteur et termine_par : même contrainte, lue dans le catalogue)", async () => {
-    const A = randomUUID();
-    await creerOrg(A);
-    await expect(inserer(A, "alertes", { organisation_id: A, type: "quota_proche", gravite: "avertissement", regle: "quota_70_pour_cent", assignee_a: "x".repeat(201) })).rejects.toMatchObject({ code: "23514" });
-    const { rows } = await migration.query("SELECT conname FROM pg_constraint WHERE conrelid = 'public.executions'::regclass AND conname IN ('executions_auteur_longueur', 'executions_termine_par_longueur') ORDER BY 1");
-    expect(rows.map((r) => r["conname"])).toEqual(["executions_auteur_longueur", "executions_termine_par_longueur"]);
   });
 
   it("[A-119] invariants C5 sans écart après la migration de T2-07 (tables communes comprises), et la liste EXCEPTIONS_UNICITE reste vide", async () => {

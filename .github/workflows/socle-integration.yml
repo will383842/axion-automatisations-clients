@@ -35,9 +35,6 @@ jobs:
         run: pnpm exec vitest run --project integration --reporter=json --outputFile=rapport-integration.json
         env:
           SOCLE_INTEGRATION: "1"
-      - name: Lister les tests d'intégration en échec
-        if: failure()
-        run: node scripts/lister-echecs-integration.ts rapport-integration.json
       - name: Compter les tests d'intégration
         run: node scripts/compter-tests.ts --projet integration --rapport rapport-integration.json
       - name: Arrêter le socle

@@ -64,11 +64,13 @@ async function lancerPostgres(): Promise<{ pool: pg.Pool; conteneur: string }> {
 
 // Cherche une suite d'octets dans tous les fichiers du répertoire de données (tables, journal d'écriture) après un point de reprise.
 function dansLesFichiers(conteneur: string, motif: string): number {
+  // grep rend 0 s'il trouve, 1 s'il ne trouve rien ; tout autre code (docker exec ou grep en erreur) fait échouer l'essai au lieu de passer pour « absent ».
   try {
-    docker("exec", conteneur, "sh", "-c", `grep -rlaF -e '${motif}' "$PGDATA" | head -1 | grep .`);
+    docker("exec", conteneur, "sh", "-c", `grep -rqaF -e '${motif}' "$PGDATA" >/dev/null`);
     return 1;
-  } catch {
-    return 0;
+  } catch (e) {
+    if ((e as { status?: number }).status === 1) return 0;
+    throw new Error(`recherche dans les fichiers de la base en erreur : ${String(e)}`);
   }
 }
 
@@ -95,7 +97,8 @@ describe("commun.personnes chiffrée, PostgreSQL et OpenBao réels", () => {
     const id = await personnes.ranger(A, { etablissementId: etab, nom: "Pellegrand", prenom: "Lucien", courriel: marqueur });
     const hex = Buffer.from(marqueur).toString("hex");
     const brut = (await pool.query<{ t: string }>("SELECT p::text AS t FROM commun.personnes p")).rows.map((r) => r.t).join("\n");
-    expect(brut).toContain("courriel"); // le texte brut n'est pas vide : la ligne y est bien
+    expect(brut).toContain(id); // la ligne est bien dans le texte brut (SELECT p::text ne rend pas les noms de colonnes) : l'absence du marqueur ci-dessous prouve quelque chose
+    expect(brut).toContain("Pellegrand");
     expect(brut).not.toContain(marqueur);
     expect(brut).not.toContain(hex);
     expect(brut).not.toContain(marqueur.split("@")[0]!);

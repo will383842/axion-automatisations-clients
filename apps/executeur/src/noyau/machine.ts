@@ -5,13 +5,14 @@ import { CoupureProcessus, type Ports } from "./ports.ts";
 
 type Module = ReturnType<typeof defineAutomation>;
 const DELAI_MAX_SECONDES = 3600;
-export type Statut = "terminee" | "a_trancher" | "echec" | "pause" | "ignoree" | "en_cours";
+export type Statut = "terminee" | "a_trancher" | "echec" | "pause" | "ignoree" | "en_cours" | "reportee";
 
 // Machine rejouable : une étape inscrite « faite » est sautée ; tout effet passe par une intention écrite avant.
 export class Machine {
-  constructor(private o: { module: Module; ports: Ports }) {}
+  // reporter : une erreur passagère n'est pas rejouée ici mais rendue à l'appelant (statut « reportee », cause), qui compte les essais et choisit l'attente (ADR 0102, plafond total de 5).
+  constructor(private o: { module: Module; ports: Ports; reporter?: boolean }) {}
 
-  async lancer(instanceId: string, executionId: string): Promise<{ statut: Statut; etape?: string }> {
+  async lancer(instanceId: string, executionId: string): Promise<{ statut: Statut; etape?: string; cause?: unknown }> {
     const { module, ports } = this.o;
     const { console, journal, horloge } = ports;
     const voulu = await console.lireEtatVoulu(instanceId);
@@ -49,6 +50,7 @@ export class Machine {
         }
         const d = decider(issue, essai, horloge);
         if (d.action === "reessayer") {
+          if (this.o.reporter) return { statut: "reportee", etape: decl.nom, cause: issue };
           await horloge.attendre(d.attenteMs);
           continue;
         }

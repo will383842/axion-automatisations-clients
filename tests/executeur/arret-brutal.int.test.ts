@@ -138,7 +138,10 @@ function lancerTravailleur(travail: object) {
     reste = lignes.pop() ?? "";
     for (const l of lignes) {
       if (l === "ECRITE") signaux.ecrites++;
-      else if (l.startsWith("VERIFIE ")) (signaux.verifiees++, l === "VERIFIE trouvee" && signaux.trouvees++);
+      else if (l.startsWith("VERIFIE ")) {
+        signaux.verifiees++;
+        if (l === "VERIFIE trouvee") signaux.trouvees++;
+      }
       else writeSync(2, `enfant : ${l}\n`);
     }
   });

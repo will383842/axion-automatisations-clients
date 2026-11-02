@@ -11,7 +11,7 @@ import { Machine } from "../noyau/machine.ts";
 import { BoitePostgres } from "../noyau/postgres/boite-envoi.ts";
 import { JournalPostgres } from "../noyau/postgres/journal-etapes.ts";
 import { decider, ErreurConnecteur } from "../noyau/politique-erreurs.ts";
-import type { Connecteurs, Console, Horloge } from "../noyau/ports.ts";
+import { CoupureProcessus, type Connecteurs, type Console, type Horloge } from "../noyau/ports.ts";
 import type { Cellule } from "./cellule.ts";
 import type { Semaphore } from "./semaphore.ts";
 
@@ -28,6 +28,8 @@ export interface Dependances {
   cellule: Cellule;
   semaphore: Semaphore;
   executer(travail: Travail): Promise<void>;
+  // Erreur d'identification hors de la machine : la console met l'instance en pause (A-322).
+  mettreEnPause?(instanceId: string): Promise<void>;
   delaiRemiseMs?: number;
 }
 
@@ -75,32 +77,54 @@ export async function traiter(travail: Travail, d: Dependances): Promise<Resulta
 
 const horlogeSysteme = new HorlogeSysteme();
 
-export function creerTravailleur(
-  connexion: Redis,
-  config: ConfigExecuteur,
-  d: Omit<Dependances, "delaiRemiseMs">,
-  lire: (job: Job) => Travail,
-): Worker {
-  return new Worker(
-    d.cellule.nomFile,
-    async (job, token) => {
-      let r: Resultat;
-      try {
-        r = await traiter(lire(job), { ...d, delaiRemiseMs: config.delaiRemiseMs });
-      } catch (e) {
-        // Délai calculé par la politique ; BullMQ ne fait que garder le travail jusque-là.
-        const p = planifierReprise(e, job.attemptsMade + 1, horlogeSysteme);
-        if (p.action !== "reporter") throw new UnrecoverableError(p.code);
-        await job.moveToDelayed(Date.now() + p.delaiMs, token);
-        throw new DelayedError();
+export type Gestionnaire = (job: Pick<Job, "data" | "updateData" | "moveToDelayed">, token?: string) => Promise<void>;
+
+const PG_PASSAGERES = new Set(["57P01", "57P03", "40001", "40P01"]);
+const RESEAU = new Set(["ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "EPIPE", "ENOTFOUND", "EAI_AGAIN", "EHOSTUNREACH", "ENETUNREACH"]);
+
+// Seule une ErreurConnecteur définitive (ou le bac fermé) abandonne le travail. Tout le reste (base ou Redis injoignable, PgBouncer qui redémarre,
+// coupure du processus, erreur inattendue) est passager : l'exécution reprendra, sous le plafond de 5 essais.
+export function normaliserErreur(e: unknown): ErreurConnecteur {
+  if (e instanceof ErreurConnecteur) return e;
+  if (e instanceof BacFerme) return new ErreurConnecteur("definitive", "bac_ferme");
+  if (e instanceof CoupureProcessus) return new ErreurConnecteur("passagere", "coupure_processus");
+  const code = typeof (e as { code?: unknown } | null)?.code === "string" ? (e as { code: string }).code : "";
+  if (code.startsWith("08") || PG_PASSAGERES.has(code)) return new ErreurConnecteur("passagere", "base_injoignable");
+  if (RESEAU.has(code)) return new ErreurConnecteur("passagere", "reseau");
+  return new ErreurConnecteur("passagere", "erreur_inattendue");
+}
+
+// Le compte des essais est dans les données du travail : moveToDelayed ne fait pas monter attemptsMade (skipAttempt de BullMQ).
+export function creerGestionnaire(config: Pick<ConfigExecuteur, "delaiRemiseMs">, d: Omit<Dependances, "delaiRemiseMs">, lire: (job: Pick<Job, "data">) => Travail, horloge: Horloge = horlogeSysteme): Gestionnaire {
+  return async (job, token) => {
+    const travail = lire(job);
+    let r: Resultat;
+    try {
+      r = await traiter(travail, { ...d, delaiRemiseMs: config.delaiRemiseMs });
+    } catch (e) {
+      const dejaFaits = Number((job.data as { essais?: unknown }).essais);
+      const essais = (Number.isInteger(dejaFaits) && dejaFaits > 0 ? dejaFaits : 0) + 1;
+      // Délai calculé par la politique ; BullMQ ne fait que garder le travail jusque-là.
+      const p = planifierReprise(normaliserErreur(e), essais, horloge);
+      if (p.action === "pause") {
+        if (!d.mettreEnPause) throw new UnrecoverableError(p.code);
+        await d.mettreEnPause(travail.instanceId);
+        return;
       }
-      if (r.statut === "remis") {
-        await job.moveToDelayed(Date.now() + r.delaiMs, token);
-        throw new DelayedError();
-      }
-    },
-    { connection: connexion, prefix: "axion", concurrency: config.concurrence },
-  );
+      if (p.action === "abandon") throw new UnrecoverableError(p.code);
+      await job.updateData({ ...(job.data as object), essais });
+      await job.moveToDelayed(Date.now() + p.delaiMs, token);
+      throw new DelayedError();
+    }
+    if (r.statut === "remis") {
+      await job.moveToDelayed(Date.now() + r.delaiMs, token);
+      throw new DelayedError();
+    }
+  };
+}
+
+export function creerTravailleur(connexion: Redis, config: ConfigExecuteur, d: Omit<Dependances, "delaiRemiseMs">, lire: (job: Job) => Travail): Worker {
+  return new Worker(d.cellule.nomFile, creerGestionnaire(config, d, (job) => lire(job as Job)), { connection: connexion, prefix: "axion", concurrency: config.concurrence });
 }
 
 export type Reprise = { action: "reporter"; delaiMs: number } | { action: "pause"; code: string } | { action: "abandon"; code: string };
@@ -121,12 +145,29 @@ export interface BrancheMoteur {
   horloge: Horloge;
 }
 
+// Une seule boîte d'envoi par client et par processus : le bail et les échecs connus y sont partagés entre les travaux du même client.
+// Entre processus, l'âge de l'intention en base fait foi (ADR 0102).
+const boites = new WeakMap<Pool, Map<string, BoitePostgres>>();
+function boiteDe(pool: Pool, clientId: string): BoitePostgres {
+  let parClient = boites.get(pool);
+  if (!parClient) boites.set(pool, (parClient = new Map()));
+  let boite = parClient.get(clientId);
+  if (!boite) parClient.set(clientId, (boite = new BoitePostgres(pool, clientId)));
+  return boite;
+}
+
 // Remplace les ports en mémoire : journal et boîte d'envoi sont ceux de la base moteur, pour le client du travail.
 export function executerAvecMoteur(b: BrancheMoteur): Dependances["executer"] {
   return async (travail) => {
-    const ports = { journal: new JournalPostgres(b.pool, travail.clientId), boite: new BoitePostgres(b.pool, travail.clientId), connecteurs: b.connecteurs, console: b.console, horloge: b.horloge };
-    const r = await new Machine({ module: b.module, ports }).lancer(travail.instanceId, travail.id);
+    const ports = { journal: new JournalPostgres(b.pool, travail.clientId), boite: boiteDe(b.pool, travail.clientId), connecteurs: b.connecteurs, console: b.console, horloge: b.horloge };
+    // reporter : le plafond total de 5 essais est compté par le travailleur, la machine ne rejoue plus les erreurs passagères (ADR 0102).
+    const r = await new Machine({ module: b.module, ports, reporter: true }).lancer(travail.instanceId, travail.id);
+    if (r.statut === "reportee") throw r.cause;
     // Hors de la machine : seul un travail qui n'a ni fini ni échoué est relancé par BullMQ.
     if (r.statut === "en_cours") throw new ErreurConnecteur("passagere", "intention_en_cours");
   };
+}
+
+export function mettreEnPauseAvecMoteur(b: BrancheMoteur): NonNullable<Dependances["mettreEnPause"]> {
+  return (instanceId) => b.console.mettreEnPause(instanceId);
 }

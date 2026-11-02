@@ -247,6 +247,17 @@ describe("colonnes chiffrées par la clé du client", () => {
     }
   });
 
+  it("[A-243] empreinteRecherche refuse une valeur qui n'est pas du texte, sans appeler le coffre et sans écho de la donnée", async () => {
+    const { bao, colonnes } = monter();
+    await bao.creerClient(A);
+    const avant = bao.etat.appels.length;
+    for (const v of [undefined, null, 42, { includes: () => true }, ["a@exemple.fr"], Buffer.from("a@exemple.fr")]) {
+      const e = await colonnes.empreinteRecherche(A, v as unknown as string).then(() => undefined, (x: unknown) => x);
+      expect(e).toBeInstanceOf(Error);
+      expect((e as Error).message).toBe("valeur_invalide");
+    }
+    expect(bao.etat.appels.length).toBe(avant);
+  });
   it("[A-243] clé du client absente ou identité invalide : refus, jamais de repli sur une autre clé", async () => {
     const { bao, colonnes } = monter();
     await bao.creerClient(A);

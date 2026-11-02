@@ -7,7 +7,8 @@ import { lireYaml } from "../../../../scripts/garde-compose.js";
 import { appeler, ErreurCoffre, type OptionsBao } from "../coffre/coffre.js";
 import { creerEnveloppe } from "../coffre/enveloppe.js";
 import { creerFichiersClient, type PortFichiers } from "../stockage/fichiers-client.js";
-import { creerColonnesChiffrees } from "./colonnes-chiffrees.js";
+import { balayer, type SourceChiffres } from "./balayage-chiffres.js";
+import { contexteChamp, creerColonnesChiffrees, lireEnveloppeChamp } from "./colonnes-chiffrees.js";
 import { journalEchecs } from "../provisionnement/journal-echecs.js";
 // Journal des échecs (CI) : le rapport JSON n'est pas publié ; la cause de chaque test rouge s'imprime ici, adresses de connexion masquées.
 journalEchecs(import.meta.url);
@@ -89,6 +90,39 @@ describe("colonnes et fichiers chiffrés, OpenBao réel", () => {
       trace(`COLONNES-INT terminé en ${Date.now() - debut} ms`);
     } catch (e) {
       // Seul le code ressort (ErreurCoffre : message = code) : aucun secret, pour lire l'échec dans le journal de la CI.
+      trace(`COLONNES-INT échec à l'étape « ${etape} » : ${(e as Error).name} ${(e as Error).message.slice(0, 300)}`);
+      throw e;
+    }
+  }, 120_000);
+
+  it("[A-243] avec le jeton api et la politique du dépôt, reenvelopper() d'un champ après rotation rend la version courante, données identiques", async () => {
+    let etape = "lancement";
+    try {
+      const bao = await lancer();
+      const env = creerEnveloppe(bao);
+      const colonnes = creerColonnesChiffrees(bao);
+      const T = randomUUID();
+      const ctx = { colonne: "personnes.courriel_chiffre", idLigne: randomUUID() };
+      etape = "clé";
+      await env.creerCleClient(T);
+      const champ = await colonnes.chiffrerChamp(T, "essai@exemple.fr", ctx);
+      etape = "rotation";
+      await colonnes.pivoterCle(T);
+      etape = "reenvelopper";
+      const refait = await colonnes.reenvelopper(T, champ);
+      expect(lireEnveloppeChamp(refait).version).toBe(2);
+      expect(lireEnveloppeChamp(refait).chiffre.equals(lireEnveloppeChamp(champ).chiffre)).toBe(true);
+      expect(await colonnes.dechiffrerChamp(T, refait, ctx)).toBe("essai@exemple.fr");
+      etape = "balayage";
+      const lignes = new Map<string, Uint8Array>([["l1", champ]]);
+      const source: SourceChiffres = {
+        lire: async (_t, curseur) => ({ elements: curseur ? [] : [...lignes].map(([id, octets]) => ({ id, contexte: contexteChamp(ctx), octets })) }),
+        remplacer: async (_t, id, ancien, nouveau) => (Buffer.from(lignes.get(id)!).equals(Buffer.from(ancien)) ? (lignes.set(id, nouveau), true) : false),
+      };
+      const bilan = await balayer({ colonnes, sources: { champs: source } }, T);
+      expect(bilan).toMatchObject({ examines: 1, termine: true, echecs: 0 });
+      expect(await colonnes.dechiffrerChamp(T, lignes.get("l1")!, ctx)).toBe("essai@exemple.fr");
+    } catch (e) {
       trace(`COLONNES-INT échec à l'étape « ${etape} » : ${(e as Error).name} ${(e as Error).message.slice(0, 300)}`);
       throw e;
     }

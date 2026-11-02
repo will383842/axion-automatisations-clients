@@ -76,7 +76,7 @@ function ouTrouverDansFichiers(dossier: string, marqueur: string): string[] {
   });
 }
 
-describe.skipIf(!pret)("sonde de minimisation (pas la garde de bout en bout : dette LOT2-dette-T2-47-garde)", () => { // fiche: T2-48
+describe.skipIf(!pret)("sonde de minimisation (pas la garde de bout en bout : dette LOT2-dette-T2-47-garde)", () => { // fiche: T2-47b
   async function deposer(marqueur: string): Promise<{ client: Requeteur; id: unknown }> {
     const client = await ouvrir(E[nom("CLIENT_URL")] as string);
     const etab = await client.query("INSERT INTO commun.etablissements (nom) VALUES ('Atelier Bertin') RETURNING id");
@@ -117,5 +117,5 @@ describe.skipIf(!pret)("sonde de minimisation (pas la garde de bout en bout : de
   }, 60_000);
 
   // DETTE LOT2-dette-T2-47-garde : aucune route d'import n'existe dans apps/api/src ; tant qu'elle manque, la garde de bout en bout ne peut pas être écrite.
-  it.todo("un marqueur importé par l'API, passé par une exécution d'essai puis le lot de nuit, est absent de console, moteur, Valkey, journaux API et CI et compartiments communs");
+  it.todo("un marqueur importé par l'API, passé par une exécution d'essai puis le lot de nuit, est absent de console, moteur, Valkey, journaux API et CI et compartiments communs"); // fiche: T2-47b
 });

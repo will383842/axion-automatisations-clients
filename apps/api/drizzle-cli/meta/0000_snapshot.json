@@ -1,0 +1,635 @@
+{
+  "id": "f0711d2e-e8a6-49d1-af97-12a57cfa3ffd",
+  "prevId": "00000000-0000-0000-0000-000000000000",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "commun.entreprises": {
+      "name": "entreprises",
+      "schema": "commun",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "raison_sociale": {
+          "name": "raison_sociale",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "siren": {
+          "name": "siren",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cree_le": {
+          "name": "cree_le",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "entreprises_raison_longueur": {
+          "name": "entreprises_raison_longueur",
+          "value": "char_length(\"raison_sociale\") <= 500"
+        },
+        "entreprises_siren_forme": {
+          "name": "entreprises_siren_forme",
+          "value": "\"commun\".\"entreprises\".\"siren\" IS NULL OR \"commun\".\"entreprises\".\"siren\" ~ '^[0-9]{9}$'"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "commun.etablissements": {
+      "name": "etablissements",
+      "schema": "commun",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "nom": {
+          "name": "nom",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "cree_le": {
+          "name": "cree_le",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "etablissements_nom_longueur": {
+          "name": "etablissements_nom_longueur",
+          "value": "char_length(\"nom\") <= 500"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "commun.exclusions": {
+      "name": "exclusions",
+      "schema": "commun",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "genre": {
+          "name": "genre",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "empreinte": {
+          "name": "empreinte",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "cree_le": {
+          "name": "cree_le",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "exclusions_genre_empreinte_unique": {
+          "name": "exclusions_genre_empreinte_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "genre",
+            "empreinte"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "exclusions_genre": {
+          "name": "exclusions_genre",
+          "value": "\"commun\".\"exclusions\".\"genre\" IN ('courriel', 'telephone')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "commun.index_fichiers": {
+      "name": "index_fichiers",
+      "schema": "commun",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "etablissement_id": {
+          "name": "etablissement_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "cle_objet": {
+          "name": "cle_objet",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "empreinte": {
+          "name": "empreinte",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "taille_octets": {
+          "name": "taille_octets",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "type_contenu": {
+          "name": "type_contenu",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "cree_le": {
+          "name": "cree_le",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "index_fichiers_etablissement_fk": {
+          "name": "index_fichiers_etablissement_fk",
+          "tableFrom": "index_fichiers",
+          "tableTo": "etablissements",
+          "schemaTo": "commun",
+          "columnsFrom": [
+            "etablissement_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "index_fichiers_cle_unique": {
+          "name": "index_fichiers_cle_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "etablissement_id",
+            "cle_objet"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "index_fichiers_taille": {
+          "name": "index_fichiers_taille",
+          "value": "\"commun\".\"index_fichiers\".\"taille_octets\" BETWEEN 0 AND 9007199254740991"
+        },
+        "index_fichiers_cle_longueur": {
+          "name": "index_fichiers_cle_longueur",
+          "value": "char_length(\"cle_objet\") <= 500"
+        },
+        "index_fichiers_empreinte_forme": {
+          "name": "index_fichiers_empreinte_forme",
+          "value": "\"commun\".\"index_fichiers\".\"empreinte\" ~ '^[0-9a-f]{64}$'"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "commun.listes_prospects": {
+      "name": "listes_prospects",
+      "schema": "commun",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "etablissement_id": {
+          "name": "etablissement_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "nom": {
+          "name": "nom",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "cree_le": {
+          "name": "cree_le",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "listes_prospects_etablissement_fk": {
+          "name": "listes_prospects_etablissement_fk",
+          "tableFrom": "listes_prospects",
+          "tableTo": "etablissements",
+          "schemaTo": "commun",
+          "columnsFrom": [
+            "etablissement_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "listes_prospects_nom_longueur": {
+          "name": "listes_prospects_nom_longueur",
+          "value": "char_length(\"nom\") <= 500"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "commun.listes_prospects_personnes": {
+      "name": "listes_prospects_personnes",
+      "schema": "commun",
+      "columns": {
+        "liste_id": {
+          "name": "liste_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "personne_id": {
+          "name": "personne_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "lpp_liste_fk": {
+          "name": "lpp_liste_fk",
+          "tableFrom": "listes_prospects_personnes",
+          "tableTo": "listes_prospects",
+          "schemaTo": "commun",
+          "columnsFrom": [
+            "liste_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "lpp_personne_fk": {
+          "name": "lpp_personne_fk",
+          "tableFrom": "listes_prospects_personnes",
+          "tableTo": "personnes",
+          "schemaTo": "commun",
+          "columnsFrom": [
+            "personne_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "listes_prospects_personnes_liste_id_personne_id_pk": {
+          "name": "listes_prospects_personnes_liste_id_personne_id_pk",
+          "columns": [
+            "liste_id",
+            "personne_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "commun.personnes": {
+      "name": "personnes",
+      "schema": "commun",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "etablissement_id": {
+          "name": "etablissement_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "entreprise_id": {
+          "name": "entreprise_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "nom": {
+          "name": "nom",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "prenom": {
+          "name": "prenom",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "courriel_chiffre": {
+          "name": "courriel_chiffre",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "courriel_empreinte": {
+          "name": "courriel_empreinte",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "telephone_chiffre": {
+          "name": "telephone_chiffre",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "telephone_empreinte": {
+          "name": "telephone_empreinte",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cree_le": {
+          "name": "cree_le",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "personnes_courriel_empreinte_idx": {
+          "name": "personnes_courriel_empreinte_idx",
+          "columns": [
+            {
+              "expression": "etablissement_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "courriel_empreinte",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "personnes_telephone_empreinte_idx": {
+          "name": "personnes_telephone_empreinte_idx",
+          "columns": [
+            {
+              "expression": "etablissement_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "telephone_empreinte",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "personnes_etablissement_fk": {
+          "name": "personnes_etablissement_fk",
+          "tableFrom": "personnes",
+          "tableTo": "etablissements",
+          "schemaTo": "commun",
+          "columnsFrom": [
+            "etablissement_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "personnes_entreprise_fk": {
+          "name": "personnes_entreprise_fk",
+          "tableFrom": "personnes",
+          "tableTo": "entreprises",
+          "schemaTo": "commun",
+          "columnsFrom": [
+            "entreprise_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "personnes_nom_longueur": {
+          "name": "personnes_nom_longueur",
+          "value": "char_length(\"nom\") <= 500"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.version_structure": {
+      "name": "version_structure",
+      "schema": "",
+      "columns": {
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "appliquee_le": {
+          "name": "appliquee_le",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "empreinte": {
+          "name": "empreinte",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "version_structure_version": {
+          "name": "version_structure_version",
+          "value": "\"version_structure\".\"version\" >= 1"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "trace.evenements": {
+      "name": "evenements",
+      "schema": "trace",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "qui": {
+          "name": "qui",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "quoi": {
+          "name": "quoi",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "objet": {
+          "name": "objet",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "quand": {
+          "name": "quand",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "evenements_quand_idx": {
+          "name": "evenements_quand_idx",
+          "columns": [
+            {
+              "expression": "quand",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "evenements_quoi": {
+          "name": "evenements_quoi",
+          "value": "\"trace\".\"evenements\".\"quoi\" IN ('import', 'modification', 'export')"
+        },
+        "evenements_longueur": {
+          "name": "evenements_longueur",
+          "value": "char_length(\"trace\".\"evenements\".\"qui\") <= 200 AND char_length(\"trace\".\"evenements\".\"objet\") <= 500"
+        }
+      },
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {
+    "commun": "commun",
+    "trace": "trace"
+  },
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

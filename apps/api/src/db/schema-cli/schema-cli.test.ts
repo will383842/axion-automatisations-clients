@@ -6,7 +6,7 @@ import * as cli from "./index.ts";
 
 // Modèle des bases des clients (T2-32, ADR 0046) : structure lue dans le schéma Drizzle et dans le SQL généré. Aucune base n'est ouverte ici.
 const racine = (chemin: string) => fileURLToPath(new URL(`../../../../../${chemin}`, import.meta.url));
-const tables = Object.values(cli).filter((v): v is PgTable => typeof v === "object" && v !== null && "_" in (v as object) === false && Symbol.for("drizzle:Name") in (v as object));
+const tables: PgTable[] = [cli.etablissements, cli.entreprises, cli.personnes, cli.listesProspects, cli.listesProspectsPersonnes, cli.exclusions, cli.indexFichiers, cli.evenements, cli.versionStructure];
 const config = (nom: string) => {
   const t = tables.map((x) => getTableConfig(x)).find((c) => c.name === nom);
   if (!t) throw new Error(`table ${nom} absente du schéma cli`);
@@ -59,8 +59,8 @@ describe("modèle des bases des clients", () => {
     const sql = sqlDe("apps/api/drizzle-cli");
     expect(sql).toMatch(/CREATE TRIGGER \w+ BEFORE UPDATE OR DELETE ON "trace"\."evenements"/);
     expect(sql).toMatch(/SET search_path = pg_catalog, pg_temp/);
-    expect(sql).toMatch(/REVOKE ALL ON FUNCTION [\w."]+ FROM PUBLIC/);
-    expect(sql).toMatch(/CHECK \("quoi" IN \('import', ?'modification', ?'export'\)\)|IN \('import','modification','export'\)/);
+    expect(sql).toMatch(/REVOKE ALL ON FUNCTION [\w."]+\(\) FROM PUBLIC/);
+    expect(sql).toMatch(/IN \('import', 'modification', 'export'\)/);
   });
 
   it("[B-348] le modèle ne contient aucune ligne : aucune instruction INSERT dans les migrations", () => {

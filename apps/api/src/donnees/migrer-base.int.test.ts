@@ -75,10 +75,19 @@ describe.skipIf(!ADMIN)("modèle de base client (grappe jetable)", () => {
     await migrerBase(base, 2, { url: vers(base), dossier: copie }); // rejouer ne change rien
   }, 60_000);
 
-  it("[A-212] migrerBase refuse de tourner avec le rôle application : même en base, le rôle _app n'écrit pas version_structure", async () => {
+  it("[A-212] les droits posés par migrerBase : _app lit et écrit commun et insère dans trace, _lecture lit, aucun n'écrit version_structure", async () => {
     const base = await creerClient();
-    await admin.query(`GRANT "${base}_app" TO CURRENT_USER`);
-    await expect(sur(base, (c) => c.query("INSERT INTO public.version_structure(version, empreinte) VALUES (99, 'x')"), `${base}_app`)).rejects.toThrow(/permission|privilège/i);
+    await migrerBase(base, 1, { url: vers(base) });
+    await admin.query(`GRANT "${base}_app", "${base}_lecture" TO CURRENT_USER`);
+    const app = (f: (c: pg.Client) => Promise<unknown>) => sur(base, f, `${base}_app`);
+    const lecture = (f: (c: pg.Client) => Promise<unknown>) => sur(base, f, `${base}_lecture`);
+    await app((c) => c.query("INSERT INTO commun.etablissements (nom) VALUES ('Siège Garage Fontaine')"));
+    await app((c) => c.query("INSERT INTO trace.evenements (qui, quoi, objet) VALUES ('agent-essai', 'export', 'liste d''essai')"));
+    await expect(app((c) => c.query("INSERT INTO public.version_structure(version, empreinte) VALUES (99, 'x')"))).rejects.toThrow(/permission|privilège/i);
+    await expect(app((c) => c.query("DELETE FROM commun.etablissements"))).rejects.toThrow(/permission|privilège/i);
+    expect(await lecture(async (c) => (await c.query("SELECT count(*)::int AS n FROM commun.etablissements")).rows[0]?.n)).toBe(1);
+    await expect(lecture((c) => c.query("INSERT INTO commun.etablissements (nom) VALUES ('x')"))).rejects.toThrow(/permission|privilège/i);
+    await expect(lecture((c) => c.query("INSERT INTO trace.evenements (qui, quoi, objet) VALUES ('a', 'import', 'b')"))).rejects.toThrow(/permission|privilège/i);
   });
 
   it("[B-173] une personne sans établissement est refusée", async () => {

@@ -81,7 +81,7 @@ describe("détection des données interdites à l'import", () => {
     await expect(verifierImport(client, "", ["IBAN"])).rejects.toThrow(/acteur/);
   });
 
-  it("[C-060] le refus ne lève pas : l'appelant transactionnel valide la trace (COMMIT) avant de renvoyer l'erreur", async () => {
+  it("[C-060] le refus ne lève pas : l'appelant peut donc enchaîner son propre COMMIT (la survie de la trace au COMMIT est prouvée par le critère 3 de la fiche T2-47b, pas ici)", async () => {
     const journal: string[] = [];
     const client = { query: async (t: string) => (journal.push(t), { rows: [], rowCount: 1 }) };
     // Si verifierImport levait dans la transaction, le ROLLBACK annulerait la trace du refus.

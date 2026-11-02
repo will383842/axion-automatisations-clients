@@ -34,6 +34,7 @@ async function lancer(): Promise<OptionsBao> {
   return { url, jeton: r.auth.client_token };
 }
 
+// Le transit calcule un HMAC avec une clé de tout type : la clé de recherche est créée ici en aes256-gcm96, comme les clés des clients.
 // Écrit sur la sortie d'erreur : le rapport JSON de la CI avale console.log.
 const trace = (m: string) => writeSync(2, `${m}\n`);
 
@@ -58,7 +59,7 @@ describe("colonnes et fichiers chiffrés, OpenBao réel", () => {
         await env.creerCleClient(t);
         marquer("clé de recherche");
         // Appel direct : l'état HTTP et le texte d'erreur d'OpenBao (sans secret) disent pourquoi la création échoue, ce que ErreurCoffre ne dit pas.
-        const r = await fetch(`${bao.url}/v1/transit/keys/cli-${t}-recherche`, { method: "POST", headers: { "X-Vault-Token": bao.jeton, "Content-Type": "application/json" }, body: JSON.stringify({ type: "hmac", exportable: false }) });
+        const r = await fetch(`${bao.url}/v1/transit/keys/cli-${t}-recherche`, { method: "POST", headers: { "X-Vault-Token": bao.jeton, "Content-Type": "application/json" }, body: JSON.stringify({ type: "aes256-gcm96", exportable: false }) });
         if (!r.ok) throw new Error(`création de la clé de recherche : HTTP ${r.status} ${(await r.text()).slice(0, 200)}`);
       }
       marquer("chiffrement");

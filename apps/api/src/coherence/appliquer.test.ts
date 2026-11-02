@@ -37,16 +37,16 @@ describe("appliquer une proposition", () => {
 
   it("[C-365] une ligne déjà tranchée, absente ou sans exécuteur (à examiner à la main) n'applique rien", async () => {
     const e1 = deps(ligne("aligner_statut_hub", "hub", "tranche"));
-    await expect(appliquerProposition(e1.d, ID, appelant, true)).rejects.toMatchObject({ code: "deja_tranche" });
+    await expect(appliquerProposition(e1.d, ID, appelant, true)).rejects.toMatchObject({ code: "regle_metier", message: expect.stringContaining("tranchée") });
     await expect(appliquerProposition(deps(null).d, ID, appelant, true)).rejects.toMatchObject({ code: "introuvable" });
     const e3 = deps(ligne("a_examiner", "console"));
-    await expect(appliquerProposition(e3.d, ID, appelant, true)).rejects.toMatchObject({ code: "action_non_applicable" });
+    await expect(appliquerProposition(e3.d, ID, appelant, true)).rejects.toMatchObject({ code: "regle_metier", message: expect.stringContaining("à la main") });
     expect(e3.executeur).not.toHaveBeenCalled();
   });
 
   it("[C-365] si la ligne a été fermée entre-temps, l'action n'est pas gardée (transaction annulée)", async () => {
     const { d } = deps(ligne("aligner_statut_hub", "hub"), false);
-    await expect(appliquerProposition(d, ID, appelant, true)).rejects.toMatchObject({ code: "deja_tranche" });
+    await expect(appliquerProposition(d, ID, appelant, true)).rejects.toMatchObject({ code: "regle_metier", message: expect.stringContaining("tranchée") });
   });
 
   it("[C-365] écarter exige un motif, ferme la ligne et n'exécute rien", async () => {

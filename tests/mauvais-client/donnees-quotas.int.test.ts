@@ -1,5 +1,5 @@
-import Fastify from "fastify";
 import { describe, expect, it } from "vitest";
+import { fastifyVide as Fastify } from "../../scripts/liste-routes.js";
 import { brancherErreurs } from "../../apps/api/src/plugins/erreurs.js";
 import { lireConfigQuotas } from "../../apps/api/src/quotas/paliers.js";
 import { CHEMIN_CONSOLE, CHEMIN_PORTAIL, gestionnairesDonneesQuotas, type SourceEtat } from "../../apps/api/src/routes/donnees-quotas.js";

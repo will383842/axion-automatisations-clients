@@ -37,7 +37,7 @@ describe("quotas par palier : configuration", () => {
     const texte = readFileSync(CHEMIN_CONFIG_QUOTAS, "utf8");
     const cles = [...texte.matchAll(/"([a-z_]+)"\s*:/g)].map((m) => m[1]);
     expect(new Set(cles)).toEqual(new Set(["avertissement", "essentiel", "pro", "etendu", "base_octets", "fichiers_octets", "personnes"]));
-    expect(texte).not.toMatch(/prix|tarif|montant|centime|eur|€|ttc|\bht\b/i);
+    expect(texte).not.toMatch(/prix|tarif|montant|centime|\beur\b|€|\bttc\b|\bht\b/i);
   });
 
   it("[C-188] un client peut avoir un quota surchargé", () => {

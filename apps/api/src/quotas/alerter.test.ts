@@ -89,7 +89,7 @@ describe("quotas : blocage doux à 100 %", () => {
     expect(await alerter(p, T, mesures(1_000), QUOTAS)).toBe("quota_atteint");
     expect(envoyees.map((a) => a.type)).toEqual(["quota_atteint"]);
     expect(new Set(appels)).toEqual(new Set(["dejaEnvoyee", "envoyer", "marquer"]));
-    expect(Object.keys(p).sort()).toEqual(["dejaEnvoyee", "envoyer", "marquer", "maintenant"]);
+    expect(Object.keys(p).sort()).toEqual(["dejaEnvoyee", "envoyer", "maintenant", "marquer"]);
   });
 
   it("[A-248] le refus ne dit que le motif : ni mesure, ni quota, ni client", () => {

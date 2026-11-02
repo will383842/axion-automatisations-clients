@@ -3,15 +3,16 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { readFileSync, writeSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
-import { afterAll, afterEach, describe, expect, it, onTestFailed } from "vitest";
+import { afterAll, describe, expect, it, onTestFailed } from "vitest";
 import { lireYaml } from "../../../../scripts/garde-compose.js";
 import type { ErreurCoffre as ErreurCoffreType, OptionsBao } from "../coffre/coffre.js";
 import { ErreurCoffre } from "../coffre/coffre.js";
 import { creerEnveloppe } from "../coffre/enveloppe.js";
 import { creerColonnesChiffrees } from "./colonnes-chiffrees.js";
 import { creerPersonnesChiffrees } from "./personnes-chiffrees.js";
+import { journalEchecs } from "../provisionnement/journal-echecs.js";
 // Journal des échecs (CI) : le rapport JSON n'est pas publié ; la cause de chaque test rouge s'imprime ici, adresses de connexion masquées.
-afterEach((ctx) => { const e = ctx.task.result?.errors?.[0]; if (e) console.log("ECHEC", ctx.task.name, "::", String(e.message ?? "").split("\n")[0]!.replace(/:\/\/[^@\s]*@/g, "://***@").slice(0, 400)); });
+journalEchecs(import.meta.url);
 
 // T2-54 : commun.personnes sur un VRAI PostgreSQL et un VRAI OpenBao, lancés par le test (mêmes images que le socle). Mots de passe et jetons tirés au lancement.
 // Chaque essai cherche le marqueur, en clair et en hexadécimal, dans le texte brut de la table puis dans les fichiers de la base.

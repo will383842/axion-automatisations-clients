@@ -1,11 +1,12 @@
 import { execFileSync } from "node:child_process";
 import { createHash, createHmac, pbkdf2Sync, randomBytes, randomUUID } from "node:crypto";
 import pg from "pg";
-import { afterAll, afterEach, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import { sqlPg } from "./adaptateur-sql.js";
 import { adminPg, nomBaseDe, nomsRoles, type Admin } from "./etapes-base.js";
+import { ecrireEchec, journalEchecs } from "./journal-echecs.js";
 // Journal des échecs (CI) : le rapport JSON n'est pas publié ; la cause de chaque test rouge s'imprime ici, adresses de connexion masquées.
-afterEach((ctx) => { const e = ctx.task.result?.errors?.[0]; if (e) console.log("ECHEC", ctx.task.name, "::", String(e.message ?? "").split("\n")[0]!.replace(/:\/\/[^@\s]*@/g, "://***@").slice(0, 400)); });
+journalEchecs(import.meta.url);
 
 // Dettes de T2-34 n° 9 et n° 8 (propriétaire T2-35) : essais sur une grappe jetable où init.sql a été joué.
 // T235_PG_ADMIN_URL = adresse DIRECTE du rôle provisionneur vers la base d'administration ; T235_PGBOUNCER_URL = adresse de PgBouncer (même grappe) ; sans elles, calculées sur le socle.
@@ -14,7 +15,7 @@ afterEach((ctx) => { const e = ctx.task.result?.errors?.[0]; if (e) console.log(
 // Adresses : les variables restent prioritaires ; sinon calculées sur la grappe jetable du socle (socket Unix de l'hôte posée par compose.zz-essai-donnees.yml, IP de PgBouncer). Échec, jamais saut.
 const docker = (...a: string[]) => {
   try { return execFileSync("docker", a, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim(); } catch (e) {
-    console.log("ECHEC docker", a[0], "::", String((e as { stderr?: string }).stderr ?? (e as Error).message).split("\n")[0]!.slice(0, 300));
+    ecrireEchec("docker", a[0] ?? "", (e as { stderr?: string }).stderr ?? (e as Error).message, 300);
     throw e;
   }
 };
@@ -44,10 +45,12 @@ const adresse = (base: string, utilisateur?: string, motDePasse?: string, hote =
   return u.toString();
 };
 const pools: pg.Pool[] = [];
-const pool = (base: string) => { const p = new pg.Pool({ connectionString: adresse(base), max: 1 }); pools.push(p); return p; };
+// Un pool sans écouteur « error » fait tomber le processus (connexion inactive coupée à la fermeture d'une base) : l'erreur reste dans l'essai.
+const pool = (base: string) => { const p = new pg.Pool({ connectionString: adresse(base), max: 1, connectionTimeoutMillis: 15_000 }); p.on("error", () => undefined); pools.push(p); return p; };
 // Connexion avec un rôle de client ; rend le code d'erreur PostgreSQL (« 28P01 », « 42501 »…) ou « ok ».
 async function connecter(base: string, role: string, motDePasse: string, hote = ADMIN): Promise<string> {
-  const c = new pg.Client({ connectionString: adresse(base, role, motDePasse, hote) });
+  const c = new pg.Client({ connectionString: adresse(base, role, motDePasse, hote), connectionTimeoutMillis: 15_000 });
+  c.on("error", () => undefined);
   try { await c.connect(); await c.query("SELECT 1"); return "ok"; } catch (e) { return (e as { code?: string }).code ?? "erreur"; } finally { await c.end().catch(() => undefined); }
 }
 const admin_ = pool("postgres");
@@ -68,7 +71,8 @@ afterAll(async () => { await Promise.all(pools.map((p) => p.end().catch(() => un
 describe("fermeture des bases sur une grappe jetable", () => { // fiche: T2-35
   it("la grappe jetable et PgBouncer répondent (échec, pas saut)", async () => {
     expect((await admin_.query("SELECT current_user AS u")).rows[0]?.u).toBe("provisionneur");
-    const c = new pg.Client({ connectionString: BOUNCER });
+    const c = new pg.Client({ connectionString: BOUNCER, connectionTimeoutMillis: 15_000 });
+    c.on("error", () => undefined);
     await c.connect().then(() => c.end(), (e: { code?: string }) => { expect(["28P01", "08P01"]).toContain(e.code); });
   }, 30_000);
   it("[A-216] @isolation le rôle _app d'un autre client ne se connecte pas à cli_<id>, le sien oui", async () => {

@@ -5,18 +5,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
-import { afterAll, afterEach, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import { DOSSIER_CLI, lireEntrees, migrerBase, roleMigrationModule } from "../donnees/migrer-base.js";
 import { sqlPg } from "./adaptateur-sql.js";
 import { adminPg, nomBaseDe, nomsRoles } from "./etapes-base.js";
+import { ecrireEchec, journalEchecs } from "./journal-echecs.js";
 // Journal des échecs (CI) : le rapport JSON n'est pas publié ; la cause de chaque test rouge s'imprime ici, adresses de connexion masquées.
-afterEach((ctx) => { const e = ctx.task.result?.errors?.[0]; if (e) console.log("ECHEC", ctx.task.name, "::", String(e.message ?? "").split("\n")[0]!.replace(/:\/\/[^@\s]*@/g, "://***@").slice(0, 400)); });
+journalEchecs(import.meta.url);
 
 // Étape 6 sur une grappe jetable (T235_PG_ADMIN_URL : adresse DIRECTE du rôle provisionneur, init.sql joué ; sans elle, calculée sur le socle : socket Unix de l'hôte posée par compose.zz-essai-donnees.yml). La base est créée par la vraie recette (adminPg) mais
 // n'est PAS fermée : la fermeture retire au provisionneur le droit de prendre le rôle propriétaire (dette : T2-38 fixe qui lance les migrations après la fermeture).
 const docker = (...a: string[]) => {
   try { return execFileSync("docker", a, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim(); } catch (e) {
-    console.log("ECHEC docker", a[0], "::", String((e as { stderr?: string }).stderr ?? (e as Error).message).split("\n")[0]!.slice(0, 300));
+    ecrireEchec("docker", a[0] ?? "", (e as { stderr?: string }).stderr ?? (e as Error).message, 300);
     throw e;
   }
 };
@@ -33,7 +34,7 @@ const ADMIN = process.env["T235_PG_ADMIN_URL"] ?? adresseAdmin();
 const ESSAI = fileURLToPath(new URL("../../../../tests/modules/essai/migrations", import.meta.url));
 const vers = (base: string) => { const u = new URL(ADMIN); u.pathname = `/${base}`; return u.toString(); };
 const pools: pg.Pool[] = [];
-const pool = (base: string) => { const p = new pg.Pool({ connectionString: vers(base), max: 1 }); pools.push(p); return p; };
+const pool = (base: string) => { const p = new pg.Pool({ connectionString: vers(base), max: 1 }); p.on("error", () => undefined); pools.push(p); return p; };
 afterAll(async () => { await Promise.all(pools.map((p) => p.end().catch(() => undefined))); });
 const empreinteVide = `SCRAM-SHA-256$4096:${randomBytes(16).toString("base64")}$${randomBytes(32).toString("base64")}:${randomBytes(32).toString("base64")}`;
 

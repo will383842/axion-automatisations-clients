@@ -44,6 +44,8 @@ const mot = (nom: string) => new RegExp(`(?<![A-Za-z0-9_])"?${nom}"?(?![A-Za-z0-
 // puis : un seul SELECT de premier niveau ; aucun mot de la liste noire (IS, NOT, OR, UNION…) ; {{filtre}} seulement comme conjonct AND de premier niveau d'un WHERE,
 // suivi de AND, ORDER BY, LIMIT ou de la fin. Seule exception : une sous-requête de PROJECTION « (SELECT … WHERE {{filtre}} …) » d'un SELECT sans FROM, jamais ailleurs.
 const MOTS_REFUSES = new Set(["IS", "NOT", "OR", "UNION", "INTERSECT", "EXCEPT", "EXISTS", "BETWEEN", "CASE", "WITH", "INTO", "FOR", "VALUES", "LATERAL", "DISTINCT_FROM", "UPDATE", "DELETE", "INSERT", "TRUNCATE", "DROP", "ALTER", "CREATE", "GRANT", "COPY", "CALL", "DO", "SET"]);
+// Dans un FROM : un seul nom de table (alias permis), jamais de jointure, de virgule ni de table dérivée (le filtre ne porterait alors que sur une des tables).
+const MOTS_JOINTURE = new Set(["JOIN", "CROSS", "NATURAL", "INNER", "LEFT", "RIGHT", "FULL", "OUTER", "ON", "USING", "TABLESAMPLE", "ROWS"]);
 const CLAUSES = new Set(["FROM", "WHERE", "GROUP", "HAVING", "ORDER", "LIMIT", "OFFSET", "WINDOW", "FETCH"]);
 function jetons(cle: string, sql: string): string[] {
   const texte = sql;
@@ -57,7 +59,7 @@ function validerFormeFiltree(cle: string, sql: string): void {
   const mot = (j: string | undefined) => (j !== undefined && /^[A-Za-z_]/.test(j) ? j.toUpperCase() : "");
   if (mot(t[0]) !== "SELECT") throw new Error(`requête filtrée : seul un SELECT simple est permis : ${cle}`);
   // Chaque niveau de parenthèses a sa pile : dernier mot-clé de clause vu, et SELECT déjà ouvert ?
-  type Niveau = { selectEstSousRequete: boolean; projection?: boolean; clause: string; fromVu: boolean };
+  type Niveau = { selectEstSousRequete: boolean; projection?: boolean; clause: string; fromVu: boolean; filtre?: boolean };
   const pile: Niveau[] = [{ selectEstSousRequete: false, clause: "SELECT", fromVu: false }];
   let selectsPremierNiveau = 0;
   let filtresTrouves = 0;
@@ -66,6 +68,7 @@ function validerFormeFiltree(cle: string, sql: string): void {
     const m = mot(j);
     const niv = pile[pile.length - 1]!;
     if (m && MOTS_REFUSES.has(m)) throw new Error(`mot interdit « ${m} » dans une requête filtrée : ${cle}`);
+    if (niv.clause === "FROM" && (j === "," || j === "(" || MOTS_JOINTURE.has(m))) throw new Error(`le FROM n'admet qu'une table, sans jointure, virgule ni sous-requête : ${cle}`);
     if (j === "(") {
       const sousRequete = mot(t[i + 1]) === "SELECT";
       if (sousRequete) {
@@ -78,7 +81,9 @@ function validerFormeFiltree(cle: string, sql: string): void {
     }
     if (j === ")") {
       if (pile.length === 1) throw new Error(`parenthèse fermante en trop : ${cle}`);
-      pile.pop();
+      const fermee = pile.pop()!;
+      // Toute sous-requête qui lit une table porte elle-même le filtre.
+      if (fermee.selectEstSousRequete && fermee.fromVu && !fermee.filtre) throw new Error(`sous-requête sans filtre : ${cle}`);
       continue;
     }
     if (m === "SELECT") {
@@ -87,13 +92,14 @@ function validerFormeFiltree(cle: string, sql: string): void {
       continue;
     }
     if (CLAUSES.has(m) && niv.clause !== "EXPRESSION") {
-      if (m === "FROM") niv.fromVu = true;
+      if (m === "FROM") { if (niv.fromVu) throw new Error(`un seul FROM par SELECT : ${cle}`); niv.fromVu = true; }
       if (niv.clause === "WHERE" && (m === "WHERE" || m === "FROM")) throw new Error(`clause mal placée : ${cle}`);
       niv.clause = m;
       continue;
     }
     if (j === EMPLACEMENT_FILTRE) {
       filtresTrouves++;
+      niv.filtre = true;
       const avant = mot(t[i - 1]);
       const apres = mot(t[i + 1]);
       const finNiveau = t[i + 1] === undefined || (t[i + 1] === ")" && niv.selectEstSousRequete);
@@ -136,6 +142,7 @@ export function verifierListeBlanche(liste: Record<string, Requete>): void {
     if (r.colonnes.some((c) => COLONNES_CHIFFREES.has(c) || /_chiffre$|_empreinte$/.test(c))) throw new Error(`colonne chiffrée rendue : ${cle}`);
     if (r.mode === "ecriture" && r.metadonnees) throw new Error(`écriture déclarée métadonnée : ${cle}`);
     const texte = r.sql.replaceAll(EMPLACEMENT_FILTRE, " ");
+    if (r.parEtablissement && mot("etablissement_id").test(texte)) throw new Error(`etablissement_id nommé dans le SQL (seul le filtre le porte) : ${cle}`);
     for (const c of COLONNES_CHIFFREES) if (mot(c).test(texte)) throw new Error(`colonne chiffrée nommée dans le SQL : ${cle}`);
     if (/\bselect\s+(distinct\s+)?\*|,\s*\*|\.\*/i.test(texte)) throw new Error(`étoile dans le SQL : ${cle}`);
     for (const m of texte.matchAll(/\bAS\s+"?([A-Za-z_][A-Za-z0-9_]*)"?/gi)) if (!r.colonnes.includes(m[1] ?? "")) throw new Error(`alias hors des colonnes rendues : ${cle}`);

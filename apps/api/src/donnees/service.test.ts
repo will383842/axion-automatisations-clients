@@ -190,6 +190,8 @@ describe("service des données client", () => {
     const vues: string[] = [];
     const ports: PortsDonnees = {
       async base(t) { return { nomBase: t === A ? "cli_1111" : "cli_2222", etat: "active" }; },
+      accordValide: async () => false,
+      vueRangee: async () => undefined,
       async ouvrir(base): Promise<Connexion> {
         return {
           async requete(texte) {

@@ -27,11 +27,11 @@ export function premieresRequetes(): Record<string, Requete> {
   const etatDonnees: Requete = {
     nom: "etatDonnees",
     schema: z.object({}),
-    sql: "SELECT (SELECT count(*)::int FROM commun.personnes WHERE {{filtre}}) AS personnes, (SELECT coalesce(sum(taille_octets), 0)::float8 FROM commun.index_fichiers WHERE {{filtre}}) AS taille_fichiers, (SELECT max(version) FROM version_structure) AS version_structure",
+    sql: "SELECT (SELECT count(*)::int FROM commun.personnes WHERE {{filtre}}) AS personnes, (SELECT coalesce(sum(taille_octets), 0)::float8 FROM commun.index_fichiers WHERE {{filtre}}) AS taille_fichiers",
     mode: "lecture",
     metadonnees: true,
     parEtablissement: true,
-    colonnes: ["personnes", "taille_fichiers", "version_structure"],
+    colonnes: ["personnes", "taille_fichiers"],
     valeurs: () => [],
   };
   return { compterPersonnes, listerListesProspects, etatDonnees };

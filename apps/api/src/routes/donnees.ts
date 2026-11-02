@@ -10,8 +10,8 @@ export interface DepsRoutesDonnees {
   roleEquipe?(requete: FastifyRequest): Promise<string | undefined>;
   executer(session: SessionDonnees, nom: string, parametres: unknown): Promise<unknown[]>;
 }
-// Comme la route de reprise du provisionnement (A-224) : ni lecteur ni qualifieur, même dans l'équipe.
-const ROLES_SANS_DONNEES = new Set(["lecteur", "qualifieur"]);
+// Liste FERMÉE des rôles d'équipe admis (RM-05 : par défaut, refus). Un rôle inconnu, vide ou d'une autre casse est refusé ; lecteur et qualifieur n'y sont pas (comme A-224).
+const ROLES_EQUIPE_ADMIS: ReadonlySet<string> = new Set(["administrateur"]);
 const NOM = /^[a-z][A-Za-z0-9]{0,63}$/;
 
 export function routeDonnees(serveur: FastifyInstance, d: DepsRoutesDonnees): void {
@@ -20,7 +20,7 @@ export function routeDonnees(serveur: FastifyInstance, d: DepsRoutesDonnees): vo
     const session = await d.session(requete);
     if (session.role === "equipe") {
       const role = await d.roleEquipe?.(requete).catch(() => undefined);
-      if (!role || ROLES_SANS_DONNEES.has(role)) throw new ErreurApi("action_interdite", "Réservé à l'équipe.");
+      if (!role || !ROLES_EQUIPE_ADMIS.has(role)) throw new ErreurApi("action_interdite", "Réservé à l'équipe.");
     }
     return { lignes: await d.executer(session, requete.params.nom, requete.body ?? {}) };
   });

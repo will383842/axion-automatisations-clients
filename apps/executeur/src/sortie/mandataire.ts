@@ -18,8 +18,9 @@ export interface Mandataire {
 
 const resoudreSysteme: Resolveur = async (h) => (await lookup(h, { all: true })).map((a) => a.address);
 const REPONSES: Record<number, string> = { 200: "Connection Established", 403: "Forbidden", 405: "Method Not Allowed", 502: "Bad Gateway", 504: "Gateway Timeout" };
-// Délai maximal d'inactivité (ou d'établissement) d'une connexion, côté client comme côté amont.
-const DELAI_MS = 10_000;
+// Avant l'ouverture du tunnel : 10 s pour l'établissement. Ensuite : 60 s d'inactivité, des deux côtés.
+const DELAI_ETABLISSEMENT_MS = 10_000;
+const DELAI_INACTIVITE_MS = 60_000;
 const reponse = (code: number) => `HTTP/1.1 ${code} ${REPONSES[code]}\r\nConnection: close\r\n\r\n`;
 
 // Seul chemin réseau de l'exécution : CONNECT vers les couples hôte:port déclarés par les connecteurs de l'instance.
@@ -31,7 +32,7 @@ export async function demarrerMandataire(opts: OptionsMandataire): Promise<Manda
   const resoudre = opts.resoudre ?? resoudreSysteme;
   const srv: Server = createServer((socket) => {
     socket.on("error", () => socket.destroy());
-    socket.setTimeout(DELAI_MS);
+    socket.setTimeout(DELAI_ETABLISSEMENT_MS);
     // Expiration avant l'ouverture du tunnel : 504 si possible ; sinon on coupe. Rien de la cible n'est consigné.
     socket.on("timeout", () => (socket.writable && !socket.destroyed ? socket.end(reponse(504)) : socket.destroy()));
     let tampon = Buffer.alloc(0);
@@ -60,14 +61,19 @@ export async function demarrerMandataire(opts: OptionsMandataire): Promise<Manda
       const entete = lignes.slice(1).find((l) => /^host:/i.test(l))?.slice(5).trim();
       if (entete !== undefined && entete.toLowerCase() !== cible.toLowerCase()) return refus(403, "entete_incoherent");
       const v = await evaluer(dest, opts.declarees, { resoudre, ...(opts.exceptions ? { exceptions: opts.exceptions } : {}), env: process.env.NODE_ENV });
+      // Le client est parti (ou a été clos par l'expiration des 10 s) pendant la résolution : on n'ouvre rien vers l'amont.
+      if (socket.destroyed || !socket.writable) {
+        if (!v.autorise) refuser(v.raison);
+        return;
+      }
       if (!v.autorise) return refus(403, v.raison);
       const sortant = connect({ host: v.adresse, port: dest.port });
-      sortant.setTimeout(DELAI_MS);
+      sortant.setTimeout(DELAI_ETABLISSEMENT_MS);
       let ouvert = false;
       sortant.on("timeout", () => {
-        sortant.destroy();
         if (ouvert) socket.destroy();
         else socket.end(reponse(504));
+        sortant.destroy();
       });
       sortant.on("error", () => (ouvert ? socket.destroy() : socket.end(reponse(502))));
       socket.on("close", () => sortant.destroy());
@@ -75,6 +81,8 @@ export async function demarrerMandataire(opts: OptionsMandataire): Promise<Manda
       sortant.once("connect", () => {
         ouvert = true;
         socket.removeAllListeners("timeout");
+        socket.setTimeout(DELAI_INACTIVITE_MS);
+        sortant.setTimeout(DELAI_INACTIVITE_MS);
         socket.on("timeout", () => sortant.destroy());
         socket.write(reponse(200));
         if (reste.length > 0) sortant.write(reste);

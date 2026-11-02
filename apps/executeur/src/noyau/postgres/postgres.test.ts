@@ -2,128 +2,12 @@ import { randomUUID } from "node:crypto";
 import { deriverCleIntention } from "@axion-auto/contrats/src/c4/intention.ts";
 import { defineAutomation, type Garantie } from "@axion-auto/sdk-module";
 import { manifesteExemple } from "@axion-auto/sdk-module/exemples/module-exemple.ts";
-import type { Pool } from "pg";
 import { describe, expect, it } from "vitest";
 import { ConnecteurFactice, ConsoleFactice, CoupureProcessus, HorlogeFactice, Machine, type ContexteEtape } from "../index.ts";
 import { BoitePostgres } from "./boite-envoi.ts";
 import { CurseursPostgres } from "./curseurs.ts";
+import { FauxMoteur } from "./faux-moteur.ts";
 import { JournalPostgres } from "./journal-etapes.ts";
-
-// Imitation minimale de la base moteur pour les tests ordinaires : les transactions sont copiées au BEGIN et reprises au COMMIT.
-// Elle ne comprend que les requêtes des adaptateurs PostgreSQL (reconnues par leur début) ; la vraie base est essayée dans les *.int.test.ts.
-interface Etat {
-  executions: { id: string; instanceId: string; debut: Date }[];
-  intentions: { cle: string; executionId: string; garantie: string; etat: string }[];
-  journal: { executionId: string; etape: string; cle: string; statut: string; creeLe: Date }[];
-  curseurs: { instanceId: string; declencheur: string; valeur: string }[];
-}
-
-class FauxMoteur {
-  etat: Etat = { executions: [], intentions: [], journal: [], curseurs: [] };
-  requetes: string[] = [];
-  // Nombre de requêtes avant la mort du processus (undefined : jamais) ; les suivantes lèvent CoupureProcessus.
-  mortApres: number | undefined;
-  // Début de requête qui tue le processus (avant son effet).
-  mortSur: string | undefined;
-  #vues = 0;
-  #horloge = 0;
-
-  ouvrirExecution(instanceId: string, executionId: string) {
-    this.etat.executions.push({ id: executionId, instanceId, debut: new Date(Date.UTC(2026, 10, 1)) });
-  }
-  // Un nouveau processus : le compteur repart, la base garde ce qui était validé.
-  redemarrer(mortApres?: number) {
-    this.#vues = 0;
-    this.mortApres = mortApres;
-  }
-  get requetesVues() {
-    return this.#vues;
-  }
-
-  pool(): Pool {
-    return {
-      connect: async () => {
-        let copie: Etat | undefined;
-        return {
-          release: () => undefined,
-          query: async (texte: string, params: unknown[] = []) => {
-            const sql = texte.replace(/\s+/g, " ").trim();
-            this.requetes.push(sql);
-            if (this.mortSur && sql.startsWith(this.mortSur)) throw new CoupureProcessus();
-            if (this.mortApres !== undefined && this.#vues >= this.mortApres) throw new CoupureProcessus();
-            this.#vues++;
-            if (sql === "BEGIN") {
-              copie = structuredClone(this.etat);
-              return { rows: [], rowCount: 0 };
-            }
-            if (sql === "COMMIT") {
-              if (copie) this.etat = copie;
-              copie = undefined;
-              return { rows: [], rowCount: 0 };
-            }
-            if (sql === "ROLLBACK") {
-              copie = undefined;
-              return { rows: [], rowCount: 0 };
-            }
-            const e = copie ?? this.etat;
-            return this.#executer(e, sql, params);
-          },
-        };
-      },
-    } as unknown as Pool;
-  }
-
-  #executer(e: Etat, sql: string, p: unknown[]): { rows: Record<string, unknown>[]; rowCount: number } {
-    const rien = { rows: [], rowCount: 0 };
-    if (sql.startsWith("SELECT set_config")) return rien;
-    if (sql.startsWith("SELECT debut FROM executions")) {
-      const x = e.executions.find((v) => v.id === p[1] && v.instanceId === p[2]);
-      return x ? { rows: [{ debut: x.debut }], rowCount: 1 } : rien;
-    }
-    if (sql.startsWith("INSERT INTO intentions")) {
-      if (e.intentions.some((v) => v.cle === p[3])) return rien;
-      e.intentions.push({ cle: p[3] as string, executionId: p[1] as string, garantie: p[4] as string, etat: "ecrite" });
-      return { rows: [], rowCount: 1 };
-    }
-    if (sql.startsWith("SELECT etat, garantie FROM intentions")) {
-      const x = e.intentions.find((v) => v.cle === p[1]);
-      return x ? { rows: [{ etat: x.etat, garantie: x.garantie, execution_id: x.executionId }], rowCount: 1 } : rien;
-    }
-    if (sql.startsWith("UPDATE intentions SET etat")) {
-      const x = e.intentions.find((v) => v.cle === p[1] && v.etat === "ecrite");
-      if (!x) return rien;
-      x.etat = p[2] as string;
-      return { rows: [], rowCount: 1 };
-    }
-    if (sql.startsWith("INSERT INTO journal_etape")) {
-      if (e.journal.some((v) => v.executionId === p[1] && v.etape === p[3] && v.cle === p[4])) return rien;
-      e.journal.push({ executionId: p[1] as string, etape: p[3] as string, cle: p[4] as string, statut: "en_cours", creeLe: new Date(Date.UTC(2026, 10, 1, 0, 0, this.#horloge++)) });
-      return { rows: [], rowCount: 1 };
-    }
-    if (sql.startsWith("UPDATE journal_etape SET statut")) {
-      const x = e.journal.find((v) => v.executionId === p[1] && v.etape === p[2] && v.cle === p[3]);
-      if (!x) return rien;
-      x.statut = p[4] as string;
-      return { rows: [], rowCount: 1 };
-    }
-    if (sql.startsWith("SELECT j.etape")) {
-      const rows = e.journal.filter((v) => v.executionId === p[1]).map((v) => ({ etape: v.etape, cle: v.cle, statut: v.statut, cree_le: v.creeLe }));
-      return { rows, rowCount: rows.length };
-    }
-    if (sql.startsWith("SELECT valeur FROM curseurs")) {
-      const x = e.curseurs.find((v) => v.instanceId === p[1] && v.declencheur === p[2]);
-      return x ? { rows: [{ valeur: x.valeur }], rowCount: 1 } : rien;
-    }
-    if (sql.startsWith("INSERT INTO curseurs")) {
-      const x = e.curseurs.find((v) => v.instanceId === p[1] && v.declencheur === p[2]);
-      if (x) x.valeur = p[3] as string;
-      else e.curseurs.push({ instanceId: p[1] as string, declencheur: p[2] as string, valeur: p[3] as string });
-      return { rows: [], rowCount: 1 };
-    }
-    throw new Error(`requête inconnue du faux moteur : ${sql.slice(0, 80)}`);
-  }
-}
-
 
 const TENANT = randomUUID();
 const INSTANCE = randomUUID();

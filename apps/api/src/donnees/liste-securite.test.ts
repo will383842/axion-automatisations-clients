@@ -40,12 +40,41 @@ describe("liste blanche : colonnes chiffrées", () => {
 describe("liste blanche : filtre d'établissement", () => {
   it("[B-173] le filtre est en position de condition conjonctive : WHERE ou AND, jamais après un OR", () => {
     expect(refuse("SELECT id FROM commun.personnes WHERE {{filtre}}")).not.toThrow();
-    expect(refuse("SELECT id FROM commun.personnes WHERE nom IS NOT NULL AND {{filtre}}")).not.toThrow();
+    expect(refuse("SELECT id FROM commun.personnes WHERE nom = 'a' AND {{filtre}}")).not.toThrow();
     expect(refuse("SELECT id FROM commun.personnes WHERE nom IS NULL OR {{filtre}}")).toThrow();
     expect(refuse("SELECT id FROM commun.personnes WHERE {{filtre}} OR nom IS NULL")).toThrow();
     expect(refuse("SELECT id FROM commun.personnes WHERE nom = 'a' or {{filtre}}")).toThrow();
     expect(refuse("SELECT id FROM commun.personnes WHERE ({{filtre}})")).toThrow();
     expect(refuse("SELECT id FROM commun.personnes GROUP BY {{filtre}}")).toThrow();
+  });
+
+  it("[B-173] contournements : IS, NOT, UNION, sous-requête non corrélée, tout est refusé (liste blanche de formes)", () => {
+    const f = "{{filtre}}";
+    for (const sql of [
+      `SELECT id FROM commun.personnes WHERE ${f} IS NOT TRUE`,
+      `SELECT id FROM commun.personnes WHERE ${f} IS FALSE`,
+      `SELECT id FROM commun.personnes WHERE ${f} IS DISTINCT FROM true`,
+      `SELECT id FROM commun.personnes WHERE ${f} IS NULL`,
+      `SELECT id FROM commun.personnes WHERE NOT ${f}`,
+      `SELECT id FROM commun.personnes WHERE ${f} UNION SELECT id FROM commun.personnes`,
+      `SELECT id FROM commun.personnes WHERE ${f} INTERSECT SELECT id FROM commun.personnes`,
+      `SELECT id FROM commun.personnes WHERE ${f} EXCEPT SELECT id FROM commun.exclusions`,
+      `SELECT id FROM commun.personnes WHERE EXISTS (SELECT 1 FROM commun.exclusions WHERE ${f})`,
+      `SELECT id FROM commun.personnes WHERE id IN (SELECT id FROM commun.exclusions WHERE ${f})`,
+      `SELECT id FROM commun.personnes WHERE ${f} = true`,
+      `SELECT id FROM commun.personnes WHERE ${f}::boolean`,
+      `SELECT id FROM commun.personnes WHERE x BETWEEN 1 AND ${f}`,
+      `SELECT id FROM commun.personnes WHERE ${f} -- fin`,
+      `SELECT id FROM commun.personnes WHERE ${f}; SELECT id FROM commun.personnes`,
+      `SELECT id FROM commun.personnes UNION SELECT id FROM commun.personnes WHERE ${f}`,
+      `SELECT id FROM commun.personnes ORDER BY id`,
+    ]) expect(refuse(sql), sql).toThrow();
+  });
+
+  it("[B-173] formes permises : conjonctions AND de premier niveau, ORDER BY, LIMIT, sous-requête de projection", () => {
+    const f = "{{filtre}}";
+    expect(refuse(`SELECT id FROM commun.personnes WHERE ${f} AND nom = 'a' ORDER BY id LIMIT $1`)).not.toThrow();
+    expect(refuse(`SELECT (SELECT count(*)::int FROM commun.personnes WHERE ${f}) AS id`)).not.toThrow();
   });
 
   it("[B-173] OR n'est permis nulle part dans une requête filtrée par établissement", () => {

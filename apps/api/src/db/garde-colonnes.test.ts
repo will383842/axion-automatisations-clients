@@ -35,8 +35,8 @@ describe("garde des colonnes : aucun secret en base", () => {
   });
 });
 
-// Garde « aucun texte libre » (C-034) : dans demandes, executions et alertes, toute colonne `text` figure dans une liste fermée avec sa longueur maximale, Un motif borné compte pour n + 1 caractères au plus (un caractère d'attaque possible avant la classe répétée).
-// et le schéma porte un CHECK qui la borne (char_length(col) <= N, ou une expression régulière à quantificateur borné {m,n}). Chaque ajout se relit en 2 tours.
+// Garde « aucun texte libre » (C-034) : dans demandes, executions et alertes, toute colonne `text` figure dans une liste fermée avec sa longueur maximale,
+// et le schéma porte un CHECK qui la borne (char_length(col) <= N, ou une expression régulière à quantificateur borné {m,n}). Un motif borné compte pour n + 1 caractères au plus (un caractère d'attaque possible avant la classe répétée). Chaque ajout se relit en 2 tours.
 export const TEXTE_PERMIS: Readonly<Record<string, number>> = Object.freeze({
   "demandes.categorie": 64,
   "demandes.reference_texte": 64,

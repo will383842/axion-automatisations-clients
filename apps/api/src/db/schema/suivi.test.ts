@@ -169,6 +169,7 @@ describe("suivi : entités de la base commune (T2-07)", () => {
     expect(adr).toMatch(/## Dettes/);
     expect(adr).toMatch(/executions\.auteur[^\n]*executions\.termine_par[^\n]*alertes\.assignee_a/);
     expect(adr).toMatch(/aucun prix/i);
+    expect(adr).not.toMatch(/juriste/i);
     expect(adr).toMatch(/chaîne des migrations/);
     expect(migration).not.toMatch(/exon[ée]r/i);
   });

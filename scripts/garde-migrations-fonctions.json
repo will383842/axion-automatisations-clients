@@ -25,6 +25,6 @@
     {"fichier":"0009_contrats.sql","nom":"devis_garder_transition","empreinte":"7a509c3a4fb311e3cc371b820554cc55cf6cbb0af750cc351a3ea667ead6bfa2","adr":"0053"},
     {"fichier":"0009_contrats.sql","nom":"factures_figer_copie","empreinte":"4a90569b50d87c2ef6948d0cb5a46135f7437303aa68990ae1bde308c54db46d","adr":"0053"},
     {"fichier":"0009_contrats.sql","nom":"factures_verifier_origine","empreinte":"44c405503d72f22f28415ed5e8f5ce2abd28551d810d46b56a77d073c11c30d3","adr":"0053"},
-    {"fichier":"0010_exploitation.sql","nom":"executions_proteger_partitions","empreinte":"cb6c9d69d75c4b31fdaa55a314d71a2fa705097523700b0cd92e008136073d96","adr":"0054"}
+    {"fichier":"0010_exploitation.sql","nom":"executions_proteger_partitions","empreinte":"6e17336446f6a59937f21bb60314c593205455dbd1d88e37cd3e1bec58ddac9c","adr":"0054"}
   ]
 }

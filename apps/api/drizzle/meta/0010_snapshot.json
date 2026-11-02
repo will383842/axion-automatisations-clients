@@ -1,5 +1,5 @@
 {
-  "id": "1c05f2be-443f-47ff-8d82-a8149c01641b",
+  "id": "afd6489a-83ca-4919-a1fb-fc6c61d1361e",
   "prevId": "3af3f390-027f-4122-a7fd-4d68a0f2a81d",
   "version": "7",
   "dialect": "postgresql",
@@ -4299,871 +4299,6 @@
       },
       "isRLSEnabled": false
     },
-    "public.agregats_quotidiens": {
-      "name": "agregats_quotidiens",
-      "schema": "",
-      "columns": {
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "instance_id": {
-          "name": "instance_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "jour": {
-          "name": "jour",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "nombre": {
-          "name": "nombre",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "echecs": {
-          "name": "echecs",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "duree_totale_ms": {
-          "name": "duree_totale_ms",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "cout_micro_centimes": {
-          "name": "cout_micro_centimes",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "auteur": {
-          "name": "auteur",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {
-        "agregats_quotidiens_tenant_id_idx": {
-          "name": "agregats_quotidiens_tenant_id_idx",
-          "columns": [
-            {
-              "expression": "tenant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "agregats_quotidiens_instance_fk": {
-          "name": "agregats_quotidiens_instance_fk",
-          "tableFrom": "agregats_quotidiens",
-          "tableTo": "instances",
-          "columnsFrom": [
-            "tenant_id",
-            "instance_id"
-          ],
-          "columnsTo": [
-            "tenant_id",
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "agregats_quotidiens_tenant_id_id_pk": {
-          "name": "agregats_quotidiens_tenant_id_id_pk",
-          "columns": [
-            "tenant_id",
-            "id"
-          ]
-        }
-      },
-      "uniqueConstraints": {
-        "agregats_quotidiens_tenant_id_id_unique": {
-          "name": "agregats_quotidiens_tenant_id_id_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "tenant_id",
-            "id"
-          ]
-        },
-        "agregats_quotidiens_tenant_id_instance_id_jour_unique": {
-          "name": "agregats_quotidiens_tenant_id_instance_id_jour_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "tenant_id",
-            "instance_id",
-            "jour"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {
-        "agregats_quotidiens_comptes": {
-          "name": "agregats_quotidiens_comptes",
-          "value": "\"agregats_quotidiens\".\"nombre\" >= 0 AND \"agregats_quotidiens\".\"echecs\" BETWEEN 0 AND \"agregats_quotidiens\".\"nombre\""
-        },
-        "agregats_quotidiens_duree_positive": {
-          "name": "agregats_quotidiens_duree_positive",
-          "value": "\"agregats_quotidiens\".\"duree_totale_ms\" >= 0"
-        },
-        "agregats_quotidiens_cout_positif": {
-          "name": "agregats_quotidiens_cout_positif",
-          "value": "\"agregats_quotidiens\".\"cout_micro_centimes\" BETWEEN 0 AND 9007199254740991"
-        },
-        "agregats_quotidiens_auteur_non_vide": {
-          "name": "agregats_quotidiens_auteur_non_vide",
-          "value": "length(btrim(\"agregats_quotidiens\".\"auteur\")) > 0"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.alertes": {
-      "name": "alertes",
-      "schema": "",
-      "columns": {
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "organisation_id": {
-          "name": "organisation_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "type": {
-          "name": "type",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "gravite": {
-          "name": "gravite",
-          "type": "gravite_alerte",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "regle": {
-          "name": "regle",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "etat": {
-          "name": "etat",
-          "type": "etat_alerte",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'ouverte'"
-        },
-        "assignee_a": {
-          "name": "assignee_a",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "cree_le": {
-          "name": "cree_le",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "alertes_tenant_id_idx": {
-          "name": "alertes_tenant_id_idx",
-          "columns": [
-            {
-              "expression": "tenant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "alertes_organisation_fk": {
-          "name": "alertes_organisation_fk",
-          "tableFrom": "alertes",
-          "tableTo": "organisations",
-          "columnsFrom": [
-            "tenant_id",
-            "organisation_id"
-          ],
-          "columnsTo": [
-            "tenant_id",
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "alertes_tenant_id_id_pk": {
-          "name": "alertes_tenant_id_id_pk",
-          "columns": [
-            "tenant_id",
-            "id"
-          ]
-        }
-      },
-      "uniqueConstraints": {
-        "alertes_tenant_id_id_unique": {
-          "name": "alertes_tenant_id_id_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "tenant_id",
-            "id"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {
-        "alertes_type_code": {
-          "name": "alertes_type_code",
-          "value": "\"alertes\".\"type\" ~ '^[a-z][a-z0-9_.-]{0,63}$'"
-        },
-        "alertes_regle_code": {
-          "name": "alertes_regle_code",
-          "value": "\"alertes\".\"regle\" ~ '^[a-z][a-z0-9_.-]{0,63}$'"
-        },
-        "alertes_assignee_non_vide": {
-          "name": "alertes_assignee_non_vide",
-          "value": "\"alertes\".\"assignee_a\" IS NULL OR length(btrim(\"alertes\".\"assignee_a\")) > 0"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.configurations": {
-      "name": "configurations",
-      "schema": "",
-      "columns": {
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "instance_id": {
-          "name": "instance_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "numero": {
-          "name": "numero",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "donnees": {
-          "name": "donnees",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "version_schema": {
-          "name": "version_schema",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "auteur": {
-          "name": "auteur",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "motif_changement": {
-          "name": "motif_changement",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "active": {
-          "name": "active",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "cree_le": {
-          "name": "cree_le",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "configurations_tenant_id_idx": {
-          "name": "configurations_tenant_id_idx",
-          "columns": [
-            {
-              "expression": "tenant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "configurations_une_active_par_instance": {
-          "name": "configurations_une_active_par_instance",
-          "columns": [
-            {
-              "expression": "tenant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "instance_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"configurations\".\"active\"",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "configurations_instance_fk": {
-          "name": "configurations_instance_fk",
-          "tableFrom": "configurations",
-          "tableTo": "instances",
-          "columnsFrom": [
-            "tenant_id",
-            "instance_id"
-          ],
-          "columnsTo": [
-            "tenant_id",
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "configurations_tenant_id_id_pk": {
-          "name": "configurations_tenant_id_id_pk",
-          "columns": [
-            "tenant_id",
-            "id"
-          ]
-        }
-      },
-      "uniqueConstraints": {
-        "configurations_tenant_id_id_unique": {
-          "name": "configurations_tenant_id_id_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "tenant_id",
-            "id"
-          ]
-        },
-        "configurations_tenant_id_instance_id_numero_unique": {
-          "name": "configurations_tenant_id_instance_id_numero_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "tenant_id",
-            "instance_id",
-            "numero"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {
-        "configurations_numero_positif": {
-          "name": "configurations_numero_positif",
-          "value": "\"configurations\".\"numero\" >= 1"
-        },
-        "configurations_donnees_objet": {
-          "name": "configurations_donnees_objet",
-          "value": "jsonb_typeof(\"configurations\".\"donnees\") = 'object'"
-        },
-        "configurations_version_schema_format": {
-          "name": "configurations_version_schema_format",
-          "value": "\"configurations\".\"version_schema\" ~ '^[0-9]+\\.[0-9]+\\.[0-9]+$'"
-        },
-        "configurations_auteur_non_vide": {
-          "name": "configurations_auteur_non_vide",
-          "value": "length(btrim(\"configurations\".\"auteur\")) > 0"
-        },
-        "configurations_motif_non_vide": {
-          "name": "configurations_motif_non_vide",
-          "value": "length(btrim(\"configurations\".\"motif_changement\")) > 0"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.connexions": {
-      "name": "connexions",
-      "schema": "",
-      "columns": {
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "organisation_id": {
-          "name": "organisation_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "outil": {
-          "name": "outil",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "connecteur": {
-          "name": "connecteur",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "reference_coffre": {
-          "name": "reference_coffre",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "portee": {
-          "name": "portee",
-          "type": "portee_connexion",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "expire_le": {
-          "name": "expire_le",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "dernier_test_le": {
-          "name": "dernier_test_le",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "etat": {
-          "name": "etat",
-          "type": "etat_connexion",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'a_tester'"
-        },
-        "cree_le": {
-          "name": "cree_le",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "connexions_tenant_id_idx": {
-          "name": "connexions_tenant_id_idx",
-          "columns": [
-            {
-              "expression": "tenant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "connexions_organisation_fk": {
-          "name": "connexions_organisation_fk",
-          "tableFrom": "connexions",
-          "tableTo": "organisations",
-          "columnsFrom": [
-            "tenant_id",
-            "organisation_id"
-          ],
-          "columnsTo": [
-            "tenant_id",
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "connexions_tenant_id_id_pk": {
-          "name": "connexions_tenant_id_id_pk",
-          "columns": [
-            "tenant_id",
-            "id"
-          ]
-        }
-      },
-      "uniqueConstraints": {
-        "connexions_tenant_id_id_unique": {
-          "name": "connexions_tenant_id_id_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "tenant_id",
-            "id"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {
-        "connexions_outil_code": {
-          "name": "connexions_outil_code",
-          "value": "\"connexions\".\"outil\" ~ '^[a-z][a-z0-9_.-]{0,63}$'"
-        },
-        "connexions_connecteur_code": {
-          "name": "connexions_connecteur_code",
-          "value": "\"connexions\".\"connecteur\" ~ '^[a-z][a-z0-9_.-]{0,63}$'"
-        },
-        "connexions_reference_coffre_du_client": {
-          "name": "connexions_reference_coffre_du_client",
-          "value": "\"connexions\".\"reference_coffre\" ~ ('^bao:clients/' || \"connexions\".\"tenant_id\"::text || '/[a-z0-9][a-z0-9_./-]*$') AND \"connexions\".\"reference_coffre\" !~ '\\.\\.'"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.connexions_instances": {
-      "name": "connexions_instances",
-      "schema": "",
-      "columns": {
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "connexion_id": {
-          "name": "connexion_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "instance_id": {
-          "name": "instance_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {
-        "connexions_instances_tenant_id_idx": {
-          "name": "connexions_instances_tenant_id_idx",
-          "columns": [
-            {
-              "expression": "tenant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "connexions_instances_connexion_fk": {
-          "name": "connexions_instances_connexion_fk",
-          "tableFrom": "connexions_instances",
-          "tableTo": "connexions",
-          "columnsFrom": [
-            "tenant_id",
-            "connexion_id"
-          ],
-          "columnsTo": [
-            "tenant_id",
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "connexions_instances_instance_fk": {
-          "name": "connexions_instances_instance_fk",
-          "tableFrom": "connexions_instances",
-          "tableTo": "instances",
-          "columnsFrom": [
-            "tenant_id",
-            "instance_id"
-          ],
-          "columnsTo": [
-            "tenant_id",
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "connexions_instances_tenant_id_connexion_id_instance_id_pk": {
-          "name": "connexions_instances_tenant_id_connexion_id_instance_id_pk",
-          "columns": [
-            "tenant_id",
-            "connexion_id",
-            "instance_id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.executions": {
-      "name": "executions",
-      "schema": "",
-      "columns": {
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "instance_id": {
-          "name": "instance_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "debut": {
-          "name": "debut",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "duree_ms": {
-          "name": "duree_ms",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "statut": {
-          "name": "statut",
-          "type": "statut_execution",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'en_cours'"
-        },
-        "elements_traites": {
-          "name": "elements_traites",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "unites_ia": {
-          "name": "unites_ia",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "cout_micro_centimes": {
-          "name": "cout_micro_centimes",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "code_erreur": {
-          "name": "code_erreur",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "auteur": {
-          "name": "auteur",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {
-        "executions_tenant_id_idx": {
-          "name": "executions_tenant_id_idx",
-          "columns": [
-            {
-              "expression": "tenant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "executions_tenant_instance_debut_idx": {
-          "name": "executions_tenant_instance_debut_idx",
-          "columns": [
-            {
-              "expression": "tenant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "instance_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "debut",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "executions_instance_fk": {
-          "name": "executions_instance_fk",
-          "tableFrom": "executions",
-          "tableTo": "instances",
-          "columnsFrom": [
-            "tenant_id",
-            "instance_id"
-          ],
-          "columnsTo": [
-            "tenant_id",
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "executions_tenant_id_id_debut_pk": {
-          "name": "executions_tenant_id_id_debut_pk",
-          "columns": [
-            "tenant_id",
-            "id",
-            "debut"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "executions_duree_selon_statut": {
-          "name": "executions_duree_selon_statut",
-          "value": "(\"executions\".\"statut\" = 'en_cours') = (\"executions\".\"duree_ms\" IS NULL)"
-        },
-        "executions_duree_positive": {
-          "name": "executions_duree_positive",
-          "value": "\"executions\".\"duree_ms\" IS NULL OR \"executions\".\"duree_ms\" >= 0"
-        },
-        "executions_elements_positifs": {
-          "name": "executions_elements_positifs",
-          "value": "\"executions\".\"elements_traites\" >= 0 AND \"executions\".\"unites_ia\" >= 0"
-        },
-        "executions_cout_positif": {
-          "name": "executions_cout_positif",
-          "value": "\"executions\".\"cout_micro_centimes\" BETWEEN 0 AND 9007199254740991"
-        },
-        "executions_code_erreur_selon_statut": {
-          "name": "executions_code_erreur_selon_statut",
-          "value": "(\"executions\".\"statut\" = 'echec') = (\"executions\".\"code_erreur\" IS NOT NULL)"
-        },
-        "executions_code_erreur_format": {
-          "name": "executions_code_erreur_format",
-          "value": "\"executions\".\"code_erreur\" IS NULL OR \"executions\".\"code_erreur\" ~ '^[a-z0-9_.-]{1,64}$'"
-        },
-        "executions_auteur_non_vide": {
-          "name": "executions_auteur_non_vide",
-          "value": "length(btrim(\"executions\".\"auteur\")) > 0"
-        }
-      },
-      "isRLSEnabled": false
-    },
     "public.abonnements": {
       "name": "abonnements",
       "schema": "",
@@ -5559,6 +4694,28 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "echeances_facture_unique": {
+          "name": "echeances_facture_unique",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "facture_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"echeances\".\"facture_id\" IS NOT NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -5569,6 +4726,21 @@
           "columnsFrom": [
             "tenant_id",
             "plan_id"
+          ],
+          "columnsTo": [
+            "tenant_id",
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "echeances_facture_fk": {
+          "name": "echeances_facture_fk",
+          "tableFrom": "echeances",
+          "tableTo": "factures",
+          "columnsFrom": [
+            "tenant_id",
+            "facture_id"
           ],
           "columnsTo": [
             "tenant_id",
@@ -5627,6 +4799,14 @@
         "echeances_paiement_coherent": {
           "name": "echeances_paiement_coherent",
           "value": "(\"echeances\".\"statut\" = 'payee') = (\"echeances\".\"date_paiement\" IS NOT NULL)"
+        },
+        "echeances_paiement_apres_emission": {
+          "name": "echeances_paiement_apres_emission",
+          "value": "\"echeances\".\"date_paiement\" IS NULL OR \"echeances\".\"date_emission\" IS NULL OR \"echeances\".\"date_paiement\" >= \"echeances\".\"date_emission\""
+        },
+        "echeances_annulee_facture_datee": {
+          "name": "echeances_annulee_facture_datee",
+          "value": "\"echeances\".\"statut\" <> 'annulee' OR \"echeances\".\"facture_id\" IS NULL OR \"echeances\".\"date_emission\" IS NOT NULL"
         }
       },
       "isRLSEnabled": false
@@ -5678,8 +4858,8 @@
           "primaryKey": false,
           "notNull": true
         },
-        "montant_centimes": {
-          "name": "montant_centimes",
+        "montant_ht_centimes": {
+          "name": "montant_ht_centimes",
           "type": "bigint",
           "primaryKey": false,
           "notNull": true
@@ -5781,7 +4961,7 @@
         },
         "phases_plan_montant_entier": {
           "name": "phases_plan_montant_entier",
-          "value": "\"phases_plan\".\"montant_centimes\" BETWEEN 0 AND 9007199254740991"
+          "value": "\"phases_plan\".\"montant_ht_centimes\" BETWEEN 0 AND 9007199254740991"
         },
         "phases_plan_periode_valide": {
           "name": "phases_plan_periode_valide",
@@ -5812,21 +4992,14 @@
           "primaryKey": false,
           "notNull": true
         },
-        "formule": {
-          "name": "formule",
-          "type": "formule_instance",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "frais_mise_en_place_centimes": {
-          "name": "frais_mise_en_place_centimes",
+        "frais_mise_en_place_ht_centimes": {
+          "name": "frais_mise_en_place_ht_centimes",
           "type": "bigint",
           "primaryKey": false,
           "notNull": true
         },
-        "prix_recurrent_mensuel_centimes": {
-          "name": "prix_recurrent_mensuel_centimes",
+        "prix_recurrent_mensuel_ht_centimes": {
+          "name": "prix_recurrent_mensuel_ht_centimes",
           "type": "bigint",
           "primaryKey": false,
           "notNull": true
@@ -6002,17 +5175,13 @@
           "name": "plans_commerciaux_auteur_non_vide",
           "value": "length(btrim(\"plans_commerciaux\".\"auteur\")) > 0"
         },
-        "plans_commerciaux_formule_v1": {
-          "name": "plans_commerciaux_formule_v1",
-          "value": "\"plans_commerciaux\".\"formule\" = 'abonnement'"
-        },
         "plans_commerciaux_frais_entier": {
           "name": "plans_commerciaux_frais_entier",
-          "value": "\"plans_commerciaux\".\"frais_mise_en_place_centimes\" BETWEEN 0 AND 9007199254740991"
+          "value": "\"plans_commerciaux\".\"frais_mise_en_place_ht_centimes\" BETWEEN 0 AND 9007199254740991"
         },
         "plans_commerciaux_prix_entier": {
           "name": "plans_commerciaux_prix_entier",
-          "value": "\"plans_commerciaux\".\"prix_recurrent_mensuel_centimes\" BETWEEN 0 AND 9007199254740991"
+          "value": "\"plans_commerciaux\".\"prix_recurrent_mensuel_ht_centimes\" BETWEEN 0 AND 9007199254740991"
         },
         "plans_commerciaux_periode_valide": {
           "name": "plans_commerciaux_periode_valide",
@@ -6071,6 +5240,18 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true
+        },
+        "siren": {
+          "name": "siren",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "siren_actif_verifie_le": {
+          "name": "siren_actif_verifie_le",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -6141,9 +5322,17 @@
           "name": "apporteurs_clients_taux_borne",
           "value": "\"apporteurs_clients\".\"taux_points_de_base\" BETWEEN 0 AND 10000"
         },
-        "apporteurs_clients_commissions_positives": {
-          "name": "apporteurs_clients_commissions_positives",
-          "value": "\"apporteurs_clients\".\"commissions_dues_centimes\" >= 0"
+        "apporteurs_clients_commissions_bornees": {
+          "name": "apporteurs_clients_commissions_bornees",
+          "value": "\"apporteurs_clients\".\"commissions_dues_centimes\" BETWEEN 0 AND 9007199254740991"
+        },
+        "apporteurs_clients_siren_format": {
+          "name": "apporteurs_clients_siren_format",
+          "value": "\"apporteurs_clients\".\"siren\" ~ '^[0-9]{9}$'"
+        },
+        "apporteurs_clients_commission_siren_actif": {
+          "name": "apporteurs_clients_commission_siren_actif",
+          "value": "\"apporteurs_clients\".\"commissions_dues_centimes\" = 0 OR (\"apporteurs_clients\".\"siren\" IS NOT NULL AND \"apporteurs_clients\".\"siren_actif_verifie_le\" IS NOT NULL)"
         }
       },
       "isRLSEnabled": false
@@ -6201,6 +5390,24 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "auteur": {
+          "name": "auteur",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "revoque_le": {
+          "name": "revoque_le",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "revoque_par": {
+          "name": "revoque_par",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -6258,6 +5465,14 @@
       },
       "policies": {},
       "checkConstraints": {
+        "contrats_auteur_non_vide": {
+          "name": "contrats_auteur_non_vide",
+          "value": "length(btrim(\"contrats\".\"auteur\")) > 0"
+        },
+        "contrats_revocation_complete": {
+          "name": "contrats_revocation_complete",
+          "value": "(\"contrats\".\"revoque_le\" IS NULL) = (\"contrats\".\"revoque_par\" IS NULL) AND (\"contrats\".\"revoque_par\" IS NULL OR length(btrim(\"contrats\".\"revoque_par\")) > 0)"
+        },
         "contrats_pdf_ref_format": {
           "name": "contrats_pdf_ref_format",
           "value": "\"contrats\".\"pdf_ref\" ~ '^[A-Za-z0-9][A-Za-z0-9_./-]{0,254}$'"
@@ -6426,6 +5641,10 @@
           "name": "devis_validite_positive",
           "value": "\"devis\".\"duree_validite_jours\" > 0"
         },
+        "devis_envoye_date": {
+          "name": "devis_envoye_date",
+          "value": "\"devis\".\"statut\" <> 'envoye' OR \"devis\".\"date_envoi\" IS NOT NULL"
+        },
         "devis_annulation_complete": {
           "name": "devis_annulation_complete",
           "value": "(\"devis\".\"statut\" = 'annule' AND coalesce(length(btrim(\"devis\".\"motif_annulation\")), 0) > 0 AND \"devis\".\"annule_le\" IS NOT NULL AND coalesce(length(btrim(\"devis\".\"annule_par\")), 0) > 0) OR (\"devis\".\"statut\" <> 'annule' AND \"devis\".\"motif_annulation\" IS NULL AND \"devis\".\"annule_le\" IS NULL AND \"devis\".\"annule_par\" IS NULL)"
@@ -6510,6 +5729,24 @@
           "primaryKey": false,
           "notNull": true
         },
+        "taux_tva_points_de_base": {
+          "name": "taux_tva_points_de_base",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "montant_tva_centimes": {
+          "name": "montant_tva_centimes",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "montant_ttc_centimes": {
+          "name": "montant_ttc_centimes",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
         "statut": {
           "name": "statut",
           "type": "statut_facture",
@@ -6517,6 +5754,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'emise'"
+        },
+        "facture_origine_id": {
+          "name": "facture_origine_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
         },
         "pdf_ref": {
           "name": "pdf_ref",
@@ -6536,6 +5779,18 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "auteur": {
+          "name": "auteur",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "statut_par": {
+          "name": "statut_par",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -6564,6 +5819,12 @@
               "nulls": "last"
             },
             {
+              "expression": "instance_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
               "expression": "plan",
               "isExpression": false,
               "asc": true,
@@ -6577,7 +5838,7 @@
             }
           ],
           "isUnique": true,
-          "where": "\"factures\".\"nature\" = 'abonnement'",
+          "where": "\"factures\".\"nature\" = 'abonnement' AND \"factures\".\"statut\" <> 'annulee'",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -6599,7 +5860,7 @@
             }
           ],
           "isUnique": true,
-          "where": "\"factures\".\"nature\" = 'mise_en_place'",
+          "where": "\"factures\".\"nature\" = 'mise_en_place' AND \"factures\".\"statut\" <> 'annulee'",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -6613,6 +5874,21 @@
           "columnsFrom": [
             "tenant_id",
             "organisation_id"
+          ],
+          "columnsTo": [
+            "tenant_id",
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "factures_origine_fk": {
+          "name": "factures_origine_fk",
+          "tableFrom": "factures",
+          "tableTo": "factures",
+          "columnsFrom": [
+            "tenant_id",
+            "facture_origine_id"
           ],
           "columnsTo": [
             "tenant_id",
@@ -6682,9 +5958,45 @@
           "name": "factures_empreinte_format",
           "value": "\"factures\".\"empreinte_sha256\" ~ '^[0-9a-f]{64}$'"
         },
-        "factures_montant_positif": {
-          "name": "factures_montant_positif",
-          "value": "\"factures\".\"montant_ht_centimes\" >= 0"
+        "factures_auteur_non_vide": {
+          "name": "factures_auteur_non_vide",
+          "value": "length(btrim(\"factures\".\"auteur\")) > 0"
+        },
+        "factures_montants_bornes": {
+          "name": "factures_montants_bornes",
+          "value": "\"factures\".\"montant_ht_centimes\" BETWEEN 0 AND 9007199254740991 AND \"factures\".\"montant_tva_centimes\" BETWEEN 0 AND 9007199254740991 AND \"factures\".\"montant_ttc_centimes\" BETWEEN 0 AND 9007199254740991"
+        },
+        "factures_statut_par_non_vide": {
+          "name": "factures_statut_par_non_vide",
+          "value": "\"factures\".\"statut_par\" IS NULL OR length(btrim(\"factures\".\"statut_par\")) > 0"
+        },
+        "factures_taux_tva_borne": {
+          "name": "factures_taux_tva_borne",
+          "value": "\"factures\".\"taux_tva_points_de_base\" BETWEEN 1 AND 2000"
+        },
+        "factures_ttc_coherent": {
+          "name": "factures_ttc_coherent",
+          "value": "\"factures\".\"montant_ttc_centimes\" = \"factures\".\"montant_ht_centimes\" + \"factures\".\"montant_tva_centimes\""
+        },
+        "factures_avoir_origine": {
+          "name": "factures_avoir_origine",
+          "value": "(\"factures\".\"nature\" = 'avoir') = (\"factures\".\"facture_origine_id\" IS NOT NULL)"
+        },
+        "factures_avoir_pas_lui_meme": {
+          "name": "factures_avoir_pas_lui_meme",
+          "value": "\"factures\".\"facture_origine_id\" IS DISTINCT FROM \"factures\".\"id\""
+        },
+        "factures_instance_requise": {
+          "name": "factures_instance_requise",
+          "value": "\"factures\".\"nature\" NOT IN ('abonnement', 'complement_prorata') OR \"factures\".\"instance_id\" IS NOT NULL"
+        },
+        "factures_plan_non_vide": {
+          "name": "factures_plan_non_vide",
+          "value": "length(btrim(\"factures\".\"plan\")) > 0"
+        },
+        "factures_code_non_vide": {
+          "name": "factures_code_non_vide",
+          "value": "length(btrim(\"factures\".\"code_automatisation\")) > 0"
         },
         "factures_periode_ordonnee": {
           "name": "factures_periode_ordonnee",
@@ -6693,6 +6005,966 @@
         "factures_cle_unicite_presente": {
           "name": "factures_cle_unicite_presente",
           "value": "(\"factures\".\"nature\" <> 'abonnement' OR \"factures\".\"plan\" IS NOT NULL) AND (\"factures\".\"nature\" <> 'mise_en_place' OR \"factures\".\"code_automatisation\" IS NOT NULL)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.agregats_quotidiens": {
+      "name": "agregats_quotidiens",
+      "schema": "",
+      "columns": {
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "instance_id": {
+          "name": "instance_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "jour": {
+          "name": "jour",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "nombre": {
+          "name": "nombre",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "echecs": {
+          "name": "echecs",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "duree_totale_ms": {
+          "name": "duree_totale_ms",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "cout_micro_centimes": {
+          "name": "cout_micro_centimes",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "auteur": {
+          "name": "auteur",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "agregats_quotidiens_tenant_id_idx": {
+          "name": "agregats_quotidiens_tenant_id_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "agregats_quotidiens_instance_fk": {
+          "name": "agregats_quotidiens_instance_fk",
+          "tableFrom": "agregats_quotidiens",
+          "tableTo": "instances",
+          "columnsFrom": [
+            "tenant_id",
+            "instance_id"
+          ],
+          "columnsTo": [
+            "tenant_id",
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "agregats_quotidiens_tenant_id_id_pk": {
+          "name": "agregats_quotidiens_tenant_id_id_pk",
+          "columns": [
+            "tenant_id",
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "agregats_quotidiens_tenant_id_id_unique": {
+          "name": "agregats_quotidiens_tenant_id_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "tenant_id",
+            "id"
+          ]
+        },
+        "agregats_quotidiens_tenant_id_instance_id_jour_unique": {
+          "name": "agregats_quotidiens_tenant_id_instance_id_jour_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "tenant_id",
+            "instance_id",
+            "jour"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "agregats_quotidiens_comptes": {
+          "name": "agregats_quotidiens_comptes",
+          "value": "\"agregats_quotidiens\".\"nombre\" >= 0 AND \"agregats_quotidiens\".\"echecs\" BETWEEN 0 AND \"agregats_quotidiens\".\"nombre\""
+        },
+        "agregats_quotidiens_duree_bornee": {
+          "name": "agregats_quotidiens_duree_bornee",
+          "value": "\"agregats_quotidiens\".\"duree_totale_ms\" BETWEEN 0 AND 9007199254740991"
+        },
+        "agregats_quotidiens_cout_positif": {
+          "name": "agregats_quotidiens_cout_positif",
+          "value": "\"agregats_quotidiens\".\"cout_micro_centimes\" BETWEEN 0 AND 9007199254740991"
+        },
+        "agregats_quotidiens_auteur_non_vide": {
+          "name": "agregats_quotidiens_auteur_non_vide",
+          "value": "length(btrim(\"agregats_quotidiens\".\"auteur\")) > 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.alertes": {
+      "name": "alertes",
+      "schema": "",
+      "columns": {
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "organisation_id": {
+          "name": "organisation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "type": {
+          "name": "type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "gravite": {
+          "name": "gravite",
+          "type": "gravite_alerte",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "regle": {
+          "name": "regle",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "etat": {
+          "name": "etat",
+          "type": "etat_alerte",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'ouverte'"
+        },
+        "assignee_a": {
+          "name": "assignee_a",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cree_le": {
+          "name": "cree_le",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "alertes_tenant_id_idx": {
+          "name": "alertes_tenant_id_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "alertes_organisation_fk": {
+          "name": "alertes_organisation_fk",
+          "tableFrom": "alertes",
+          "tableTo": "organisations",
+          "columnsFrom": [
+            "tenant_id",
+            "organisation_id"
+          ],
+          "columnsTo": [
+            "tenant_id",
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "alertes_tenant_id_id_pk": {
+          "name": "alertes_tenant_id_id_pk",
+          "columns": [
+            "tenant_id",
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "alertes_tenant_id_id_unique": {
+          "name": "alertes_tenant_id_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "tenant_id",
+            "id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "alertes_type_code": {
+          "name": "alertes_type_code",
+          "value": "\"alertes\".\"type\" ~ '^[a-z][a-z0-9_.-]{0,63}$'"
+        },
+        "alertes_regle_code": {
+          "name": "alertes_regle_code",
+          "value": "\"alertes\".\"regle\" ~ '^[a-z][a-z0-9_.-]{0,63}$'"
+        },
+        "alertes_assignee_non_vide": {
+          "name": "alertes_assignee_non_vide",
+          "value": "\"alertes\".\"assignee_a\" IS NULL OR length(btrim(\"alertes\".\"assignee_a\")) > 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.configurations": {
+      "name": "configurations",
+      "schema": "",
+      "columns": {
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "instance_id": {
+          "name": "instance_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "numero": {
+          "name": "numero",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "donnees": {
+          "name": "donnees",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "version_schema": {
+          "name": "version_schema",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "auteur": {
+          "name": "auteur",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "motif_changement": {
+          "name": "motif_changement",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "active": {
+          "name": "active",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "active_par": {
+          "name": "active_par",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cree_le": {
+          "name": "cree_le",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "configurations_tenant_id_idx": {
+          "name": "configurations_tenant_id_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "configurations_une_active_par_instance": {
+          "name": "configurations_une_active_par_instance",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "instance_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"configurations\".\"active\"",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "configurations_instance_fk": {
+          "name": "configurations_instance_fk",
+          "tableFrom": "configurations",
+          "tableTo": "instances",
+          "columnsFrom": [
+            "tenant_id",
+            "instance_id"
+          ],
+          "columnsTo": [
+            "tenant_id",
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "configurations_tenant_id_id_pk": {
+          "name": "configurations_tenant_id_id_pk",
+          "columns": [
+            "tenant_id",
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "configurations_tenant_id_id_unique": {
+          "name": "configurations_tenant_id_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "tenant_id",
+            "id"
+          ]
+        },
+        "configurations_tenant_id_instance_id_numero_unique": {
+          "name": "configurations_tenant_id_instance_id_numero_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "tenant_id",
+            "instance_id",
+            "numero"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "configurations_numero_positif": {
+          "name": "configurations_numero_positif",
+          "value": "\"configurations\".\"numero\" >= 1"
+        },
+        "configurations_donnees_objet": {
+          "name": "configurations_donnees_objet",
+          "value": "jsonb_typeof(\"configurations\".\"donnees\") = 'object'"
+        },
+        "configurations_version_schema_format": {
+          "name": "configurations_version_schema_format",
+          "value": "\"configurations\".\"version_schema\" ~ '^[0-9]+\\.[0-9]+\\.[0-9]+$'"
+        },
+        "configurations_auteur_non_vide": {
+          "name": "configurations_auteur_non_vide",
+          "value": "length(btrim(\"configurations\".\"auteur\")) > 0"
+        },
+        "configurations_motif_non_vide": {
+          "name": "configurations_motif_non_vide",
+          "value": "length(btrim(\"configurations\".\"motif_changement\")) > 0"
+        },
+        "configurations_active_par_non_vide": {
+          "name": "configurations_active_par_non_vide",
+          "value": "\"configurations\".\"active_par\" IS NULL OR length(btrim(\"configurations\".\"active_par\")) > 0"
+        },
+        "configurations_active_tracee": {
+          "name": "configurations_active_tracee",
+          "value": "NOT \"configurations\".\"active\" OR \"configurations\".\"active_par\" IS NOT NULL"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.connexions": {
+      "name": "connexions",
+      "schema": "",
+      "columns": {
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "organisation_id": {
+          "name": "organisation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "outil": {
+          "name": "outil",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "connecteur": {
+          "name": "connecteur",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reference_coffre": {
+          "name": "reference_coffre",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "portee": {
+          "name": "portee",
+          "type": "portee_connexion",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "expire_le": {
+          "name": "expire_le",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "dernier_test_le": {
+          "name": "dernier_test_le",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "etat": {
+          "name": "etat",
+          "type": "etat_connexion",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'a_tester'"
+        },
+        "cree_le": {
+          "name": "cree_le",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "connexions_tenant_id_idx": {
+          "name": "connexions_tenant_id_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "connexions_organisation_fk": {
+          "name": "connexions_organisation_fk",
+          "tableFrom": "connexions",
+          "tableTo": "organisations",
+          "columnsFrom": [
+            "tenant_id",
+            "organisation_id"
+          ],
+          "columnsTo": [
+            "tenant_id",
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "connexions_tenant_id_id_pk": {
+          "name": "connexions_tenant_id_id_pk",
+          "columns": [
+            "tenant_id",
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "connexions_tenant_id_id_unique": {
+          "name": "connexions_tenant_id_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "tenant_id",
+            "id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "connexions_outil_code": {
+          "name": "connexions_outil_code",
+          "value": "\"connexions\".\"outil\" ~ '^[a-z][a-z0-9_.-]{0,63}$'"
+        },
+        "connexions_connecteur_code": {
+          "name": "connexions_connecteur_code",
+          "value": "\"connexions\".\"connecteur\" ~ '^[a-z][a-z0-9_.-]{0,63}$'"
+        },
+        "connexions_reference_coffre_du_client": {
+          "name": "connexions_reference_coffre_du_client",
+          "value": "\"connexions\".\"reference_coffre\" ~ ('^bao:clients/' || \"connexions\".\"tenant_id\"::text || '/[a-z0-9][a-z0-9_./-]*$') AND \"connexions\".\"reference_coffre\" !~ '\\.\\.'"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.connexions_instances": {
+      "name": "connexions_instances",
+      "schema": "",
+      "columns": {
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "connexion_id": {
+          "name": "connexion_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "instance_id": {
+          "name": "instance_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "delie_le": {
+          "name": "delie_le",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "delie_par": {
+          "name": "delie_par",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "connexions_instances_tenant_id_idx": {
+          "name": "connexions_instances_tenant_id_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "connexions_instances_liaison_active": {
+          "name": "connexions_instances_liaison_active",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "connexion_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "instance_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"connexions_instances\".\"delie_le\" IS NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "connexions_instances_connexion_fk": {
+          "name": "connexions_instances_connexion_fk",
+          "tableFrom": "connexions_instances",
+          "tableTo": "connexions",
+          "columnsFrom": [
+            "tenant_id",
+            "connexion_id"
+          ],
+          "columnsTo": [
+            "tenant_id",
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "connexions_instances_instance_fk": {
+          "name": "connexions_instances_instance_fk",
+          "tableFrom": "connexions_instances",
+          "tableTo": "instances",
+          "columnsFrom": [
+            "tenant_id",
+            "instance_id"
+          ],
+          "columnsTo": [
+            "tenant_id",
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "connexions_instances_tenant_id_id_pk": {
+          "name": "connexions_instances_tenant_id_id_pk",
+          "columns": [
+            "tenant_id",
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "connexions_instances_tenant_id_id_unique": {
+          "name": "connexions_instances_tenant_id_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "tenant_id",
+            "id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "connexions_instances_delie_coherent": {
+          "name": "connexions_instances_delie_coherent",
+          "value": "(\"connexions_instances\".\"delie_le\" IS NULL) = (\"connexions_instances\".\"delie_par\" IS NULL)"
+        },
+        "connexions_instances_delie_par_non_vide": {
+          "name": "connexions_instances_delie_par_non_vide",
+          "value": "\"connexions_instances\".\"delie_par\" IS NULL OR length(btrim(\"connexions_instances\".\"delie_par\")) > 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.executions": {
+      "name": "executions",
+      "schema": "",
+      "columns": {
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "instance_id": {
+          "name": "instance_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "debut": {
+          "name": "debut",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "duree_ms": {
+          "name": "duree_ms",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "statut": {
+          "name": "statut",
+          "type": "statut_execution",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'en_cours'"
+        },
+        "elements_traites": {
+          "name": "elements_traites",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "unites_ia": {
+          "name": "unites_ia",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "cout_micro_centimes": {
+          "name": "cout_micro_centimes",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "code_erreur": {
+          "name": "code_erreur",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "auteur": {
+          "name": "auteur",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "termine_par": {
+          "name": "termine_par",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "executions_tenant_id_idx": {
+          "name": "executions_tenant_id_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "executions_tenant_instance_debut_idx": {
+          "name": "executions_tenant_instance_debut_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "instance_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "debut",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "executions_instance_fk": {
+          "name": "executions_instance_fk",
+          "tableFrom": "executions",
+          "tableTo": "instances",
+          "columnsFrom": [
+            "tenant_id",
+            "instance_id"
+          ],
+          "columnsTo": [
+            "tenant_id",
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "executions_tenant_id_id_debut_pk": {
+          "name": "executions_tenant_id_id_debut_pk",
+          "columns": [
+            "tenant_id",
+            "id",
+            "debut"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "executions_duree_selon_statut": {
+          "name": "executions_duree_selon_statut",
+          "value": "(\"executions\".\"statut\" = 'en_cours') = (\"executions\".\"duree_ms\" IS NULL)"
+        },
+        "executions_duree_positive": {
+          "name": "executions_duree_positive",
+          "value": "\"executions\".\"duree_ms\" IS NULL OR \"executions\".\"duree_ms\" BETWEEN 0 AND 9007199254740991"
+        },
+        "executions_elements_positifs": {
+          "name": "executions_elements_positifs",
+          "value": "\"executions\".\"elements_traites\" >= 0"
+        },
+        "executions_unites_ia_bornees": {
+          "name": "executions_unites_ia_bornees",
+          "value": "\"executions\".\"unites_ia\" BETWEEN 0 AND 9007199254740991"
+        },
+        "executions_cout_positif": {
+          "name": "executions_cout_positif",
+          "value": "\"executions\".\"cout_micro_centimes\" BETWEEN 0 AND 9007199254740991"
+        },
+        "executions_code_erreur_selon_statut": {
+          "name": "executions_code_erreur_selon_statut",
+          "value": "(\"executions\".\"statut\" = 'echec') = (\"executions\".\"code_erreur\" IS NOT NULL)"
+        },
+        "executions_code_erreur_format": {
+          "name": "executions_code_erreur_format",
+          "value": "\"executions\".\"code_erreur\" IS NULL OR \"executions\".\"code_erreur\" ~ '^[a-z0-9_.-]{1,64}$'"
+        },
+        "executions_auteur_non_vide": {
+          "name": "executions_auteur_non_vide",
+          "value": "length(btrim(\"executions\".\"auteur\")) > 0"
+        },
+        "executions_termine_par_selon_statut": {
+          "name": "executions_termine_par_selon_statut",
+          "value": "(\"executions\".\"statut\" = 'en_cours') = (\"executions\".\"termine_par\" IS NULL)"
+        },
+        "executions_termine_par_non_vide": {
+          "name": "executions_termine_par_non_vide",
+          "value": "\"executions\".\"termine_par\" IS NULL OR length(btrim(\"executions\".\"termine_par\")) > 0"
         }
       },
       "isRLSEnabled": false
@@ -7077,36 +7349,6 @@
         "visible_clients"
       ]
     },
-    "public.etat_connexion": {
-      "name": "etat_connexion",
-      "schema": "public",
-      "values": [
-        "a_tester",
-        "active",
-        "en_echec",
-        "expiree",
-        "revoquee"
-      ]
-    },
-    "public.portee_connexion": {
-      "name": "portee_connexion",
-      "schema": "public",
-      "values": [
-        "lecture",
-        "ecriture",
-        "lecture_ecriture"
-      ]
-    },
-    "public.statut_execution": {
-      "name": "statut_execution",
-      "schema": "public",
-      "values": [
-        "en_cours",
-        "reussie",
-        "echec",
-        "annulee"
-      ]
-    },
     "public.mode_avance": {
       "name": "mode_avance",
       "schema": "public",
@@ -7193,6 +7435,36 @@
         "sous_traitance_art28",
         "bon_de_commande",
         "autre"
+      ]
+    },
+    "public.etat_connexion": {
+      "name": "etat_connexion",
+      "schema": "public",
+      "values": [
+        "a_tester",
+        "active",
+        "en_echec",
+        "expiree",
+        "revoquee"
+      ]
+    },
+    "public.portee_connexion": {
+      "name": "portee_connexion",
+      "schema": "public",
+      "values": [
+        "lecture",
+        "ecriture",
+        "lecture_ecriture"
+      ]
+    },
+    "public.statut_execution": {
+      "name": "statut_execution",
+      "schema": "public",
+      "values": [
+        "en_cours",
+        "reussie",
+        "echec",
+        "annulee"
       ]
     }
   },

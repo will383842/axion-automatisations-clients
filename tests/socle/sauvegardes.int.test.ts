@@ -262,7 +262,7 @@ describe("sauvegardes (archivage continu, complète de nuit, restauration)", () 
 
   it("[C-593] aucun rôle applicatif ni equipe n'est superutilisateur ni membre de pg_read_server_files", () => {
     // Seul « postgres » (maintenance) est superutilisateur : la limite est écrite dans le README.
-    const autres = sql("postgres", "select rolname from pg_roles r where (r.rolsuper or pg_has_role(r.oid, 'pg_read_server_files', 'member')) and r.rolname <> 'postgres' order by 1");
+    const autres = sql("postgres", "select rolname from pg_roles r where (r.rolsuper or pg_has_role(r.oid, 'pg_read_server_files', 'member')) and r.rolname <> 'postgres' and r.rolname !~ '^pg_' order by 1");
     expect(autres).toBe("");
     const applicatifs = sql("postgres", "select count(*) from pg_roles where rolname ~ '(_app|_equipe|_migration|_purge)$'");
     expect(Number(applicatifs)).toBeGreaterThanOrEqual(6);
@@ -281,17 +281,16 @@ describe("sauvegardes (archivage continu, complète de nuit, restauration)", () 
     const info = (fichier: string) =>
       spawnSync(
         "docker",
-        ["exec", "-e", "PGBACKREST_REPO1_SFTP_HOST_KEY_CHECK_TYPE=strict", "-e", `PGBACKREST_REPO1_SFTP_KNOWN_HOST=${fichier}`, conteneur("postgres"), "pgbackrest", "--stanza=commun", "info", "--output=json"],
+        ["exec", "-e", "PGBACKREST_REPO1_SFTP_HOST_KEY_CHECK_TYPE=strict", "-e", `PGBACKREST_REPO1_SFTP_KNOWN_HOST=${fichier}`, conteneur("postgres"), "pgbackrest", "repo-ls"],
         { encoding: "utf8" },
       );
     try {
       // Témoin : l'empreinte épinglée est acceptée.
       const bon = info("/dev/shm/known-hosts-bon");
       expect(bon.status, bon.stderr + bon.stdout).toBe(0);
-      // Une autre empreinte : refus, et aucune liste de sauvegardes n'est rendue.
+      // Une autre empreinte : refus (« info » rend 0 même cible illisible ; « repo-ls » échoue).
       const faux = info("/dev/shm/known-hosts-faux");
       expect(faux.status).not.toBe(0);
-      expect(faux.stdout).not.toMatch(/"backup"/);
     } finally {
       spawnSync("docker", ["exec", conteneur("postgres"), "rm", "-f", "/dev/shm/known-hosts-bon", "/dev/shm/known-hosts-faux"]);
     }

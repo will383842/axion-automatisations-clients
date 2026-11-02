@@ -35,7 +35,7 @@ describe("image axion-moteur", () => {
     expect(verifierCompose("compose.executeur.yml", compose)).toEqual([]);
     expect(compose).not.toMatch(/docker\.sock|user:\s*"?(root|0)\b/);
   });
-  it.todo("[A-327] le service axion-moteur du compose est non root et sans écriture hors /tmp (à prouver quand le service existe)");
+  it.todo("[A-327] le service axion-moteur du compose est non root et sans écriture hors /tmp (à prouver quand le service existe)"); // fiche: T4-20
   it("[C-495] l'image ne contient aucun binaire headscale ni tailscale", () => {
     expect(dockerfile).not.toMatch(/headscale|tailscale/i);
     expect(entree).not.toMatch(/headscale|tailscale/i);
@@ -45,5 +45,5 @@ describe("image axion-moteur", () => {
     for (const l of compose.split("\n").filter((x) => /^\s*image:/.test(x))) expect(l).toMatch(/@sha256:[0-9a-f]{64}\s*$/);
     if (aService) expect(compose).toMatch(/image:\s*\S+@sha256:[0-9a-f]{64}/);
   });
-  it.todo("[A-347] le service axion-moteur du compose porte l'image par empreinte (à prouver quand le service existe)");
+  it.todo("[A-347] le service axion-moteur du compose porte l'image par empreinte (à prouver quand le service existe)"); // fiche: T4-20
 });

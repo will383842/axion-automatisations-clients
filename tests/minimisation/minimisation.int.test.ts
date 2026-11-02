@@ -4,13 +4,16 @@ import { createRequire } from "node:module";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-// T2-47 : garde de minimisation. Un MARQUEUR unique est déposé dans la base d'un client fictif ; il ne doit se trouver nulle part ailleurs.
-// Cibles (grappe jetable, jamais de vraies données) : T247_CLIENT_URL (base du client), T247_CONSOLE_URL, T247_MOTEUR_URL, T247_VALKEY_URL, T247_JOURNAUX (dossier de journaux, facultatif).
-// Sans ces variables ces essais ne tournent pas. Dette T2-48 : la porte du lot doit les faire ÉCHOUER (et non sauter) quand elles manquent ; critère : job rouge sans les variables.
+// T2-47 : sonde de minimisation. Un marqueur unique par essai est déposé dans la base d'un client fictif ; la sonde vérifie qu'on le retrouve dans cette base et nulle part ailleurs.
+// ATTENTION : ce n'est PAS la garde de bout en bout. Le dépôt se fait ici directement en SQL, sans passer par la plateforme (pas de route d'import dans apps/api/src à ce jour).
+// Dette LOT2-dette-T2-47-garde (fiche T2-48) : faire entrer le marqueur par l'API d'import.
+// Cibles (grappe jetable, jamais de vraies données) : variables T247_* : voir pret ci-dessous. Toutes sont obligatoires.
+// Sans elles ces essais sautent ; critère de la dette : le job « socle-integration » ÉCHOUE si l'une d'elles manque.
 const E = process.env;
-const pret = Boolean(E["T247_CLIENT_URL"] && E["T247_CONSOLE_URL"] && E["T247_MOTEUR_URL"] && E["T247_VALKEY_URL"]);
+const VARIABLES = ["T247_CLIENT_URL", "T247_CONSOLE_URL", "T247_MOTEUR_URL", "T247_VALKEY_URL", "T247_JOURNAUX", "T247_COMMUNS"] as const;
+const pret = VARIABLES.every((v) => Boolean(E[v]));
 const api = createRequire(new URL("../../apps/api/package.json", import.meta.url));
-const MARQUEUR = `MARQUEUR-ESSAI-${randomBytes(12).toString("hex")}`;
+const nouveauMarqueur = () => `MARQUEUR-ESSAI-${randomBytes(12).toString("hex")}`;
 
 type Requeteur = { query(t: string, v?: unknown[]): Promise<{ rows: Record<string, unknown>[] }>; end(): Promise<void> };
 async function ouvrir(url: string): Promise<Requeteur> {
@@ -20,15 +23,16 @@ async function ouvrir(url: string): Promise<Requeteur> {
   return c as unknown as Requeteur;
 }
 
-// Toutes les colonnes texte et jsonb de toutes les tables, listées depuis information_schema (présentes et futures), jamais à la main.
+// Toutes les colonnes texte, jsonb, bytea, tableaux et types définis (citext…) de toutes les tables, listées depuis information_schema (présentes et futures), jamais à la main.
 export async function ouTrouverEnBase(c: Requeteur, marqueur: string): Promise<string[]> {
   const cols = await c.query(
-    `SELECT c.table_schema, c.table_name, c.column_name FROM information_schema.columns c JOIN information_schema.tables t USING (table_schema, table_name)
-     WHERE t.table_type = 'BASE TABLE' AND c.table_schema NOT IN ('pg_catalog', 'information_schema') AND c.data_type IN ('text', 'character varying', 'character', 'jsonb', 'json', 'bytea', 'ARRAY')`,
+    `SELECT c.table_schema, c.table_name, c.column_name, c.data_type FROM information_schema.columns c JOIN information_schema.tables t USING (table_schema, table_name)
+     WHERE t.table_type = 'BASE TABLE' AND c.table_schema NOT IN ('pg_catalog', 'information_schema') AND c.data_type IN ('text', 'character varying', 'character', 'jsonb', 'json', 'bytea', 'ARRAY', 'USER-DEFINED')`,
   );
   const trouves: string[] = [];
-  for (const { table_schema: s, table_name: t, column_name: k } of cols.rows as { table_schema: string; table_name: string; column_name: string }[]) {
-    const r = await c.query(`SELECT 1 FROM "${s}"."${t}" WHERE position($1 in convert_from(convert_to("${k}"::text, 'UTF8'), 'UTF8')) > 0 LIMIT 1`, [marqueur]);
+  for (const { table_schema: s, table_name: t, column_name: k, data_type: d } of cols.rows as { table_schema: string; table_name: string; column_name: string; data_type: string }[]) {
+    const test = d === "bytea" ? `position(convert_to($1, 'UTF8') in "${k}") > 0` : `position($1 in "${k}"::text) > 0`;
+    const r = await c.query(`SELECT 1 FROM "${s}"."${t}" WHERE ${test} LIMIT 1`, [marqueur]);
     if (r.rows.length) trouves.push(`${s}.${t}.${k}`);
   }
   return trouves;
@@ -49,7 +53,11 @@ async function ouTrouverDansValkey(url: string, marqueur: string): Promise<{ tro
         const valeur =
           type === "string" ? [await r.get(cle)] : type === "hash" ? Object.entries(await r.hgetall(cle)).flat() : type === "list" ? await r.lrange(cle, 0, -1) : type === "set" ? await r.smembers(cle) : type === "zset" ? await r.zrange(cle, 0, -1) : JSON.stringify(await r.xrange(cle, "-", "+"));
         if (cle.includes(marqueur) || JSON.stringify(valeur).includes(marqueur)) trouves.push(`${cle} (${type})`);
-        if (["list", "zset", "stream"].includes(type) && valeur.length > 0) filesNonVides.push(cle);
+        // Longueur mesurée (llen/zcard/xlen), seulement sur les listes d'attente BullMQ ; completed/failed ne sont pas exigées vides : on y cherche le marqueur (ci-dessus).
+        if (/:(wait|active|delayed)$/.test(cle)) {
+          const n = type === "list" ? await r.llen(cle) : type === "zset" ? await r.zcard(cle) : type === "stream" ? await r.xlen(cle) : 0;
+          if (n > 0) filesNonVides.push(cle);
+        }
       }
     } while (curseur !== "0");
   } finally {
@@ -66,56 +74,46 @@ function ouTrouverDansFichiers(dossier: string, marqueur: string): string[] {
   });
 }
 
-describe.skipIf(!pret)("minimisation : aucun contenu de travail hors de la base du client", () => { // fiche: T2-48
-  async function deposer(): Promise<Requeteur> {
+describe.skipIf(!pret)("sonde de minimisation (pas la garde de bout en bout : dette LOT2-dette-T2-47-garde)", () => { // fiche: T2-48
+  async function deposer(marqueur: string): Promise<{ client: Requeteur; id: unknown }> {
     const client = await ouvrir(E["T247_CLIENT_URL"] as string);
     const etab = await client.query("INSERT INTO commun.etablissements (nom) VALUES ('Atelier Bertin') RETURNING id");
-    await client.query("INSERT INTO commun.personnes (etablissement_id, nom) VALUES ($1, $2)", [etab.rows[0]?.["id"], MARQUEUR]);
-    return client;
+    const p = await client.query("INSERT INTO commun.personnes (etablissement_id, nom) VALUES ($1, $2) RETURNING id", [etab.rows[0]?.["id"], marqueur]);
+    return { client, id: p.rows[0]?.["id"] };
   }
 
-  it("[A-033] aucun contenu en transit n'est conservé hors de la base du client (marqueur absent de console, moteur, Valkey, journaux)", async () => {
-    const client = await deposer();
+  it("le marqueur déposé dans la base du client est absent de la console, du moteur, de Valkey, des journaux et des compartiments communs", async () => {
+    const marqueur = nouveauMarqueur();
+    const { client } = await deposer(marqueur);
     const console_ = await ouvrir(E["T247_CONSOLE_URL"] as string);
     const moteur = await ouvrir(E["T247_MOTEUR_URL"] as string);
     try {
       // Preuve que la recherche fonctionne : le marqueur est bien trouvable dans la base du client.
-      expect(await ouTrouverEnBase(client, MARQUEUR)).toContain("commun.personnes.nom");
-      expect(await ouTrouverEnBase(console_, MARQUEUR)).toEqual([]);
-      expect(await ouTrouverEnBase(moteur, MARQUEUR)).toEqual([]);
-      expect((await ouTrouverDansValkey(E["T247_VALKEY_URL"] as string, MARQUEUR)).trouves).toEqual([]);
-      expect(ouTrouverDansFichiers(E["T247_JOURNAUX"] ?? "/nonexistent", MARQUEUR)).toEqual([]);
+      expect(await ouTrouverEnBase(client, marqueur)).toContain("commun.personnes.nom");
+      expect(await ouTrouverEnBase(console_, marqueur)).toEqual([]);
+      expect(await ouTrouverEnBase(moteur, marqueur)).toEqual([]);
+      const valkey = await ouTrouverDansValkey(E["T247_VALKEY_URL"] as string, marqueur);
+      expect(valkey.trouves).toEqual([]);
+      expect(valkey.filesNonVides).toEqual([]);
+      expect(ouTrouverDansFichiers(E["T247_JOURNAUX"] as string, marqueur)).toEqual([]);
+      expect(ouTrouverDansFichiers(E["T247_COMMUNS"] as string, marqueur)).toEqual([]);
     } finally {
       await Promise.all([client.end(), console_.end(), moteur.end()]);
     }
   }, 120_000);
 
-  it("[A-198] la plateforme ne garde aucun contenu en transit", async () => {
-    await (await deposer()).end();
-    const { trouves, filesNonVides } = await ouTrouverDansValkey(E["T247_VALKEY_URL"] as string, MARQUEUR);
-    expect(trouves).toEqual([]);
-    expect(filesNonVides).toEqual([]); // files vides après traitement
-  }, 60_000);
-
-  it("[C-027] les données de travail ne vivent que dans la base et le compartiment du client", async () => {
-    const client = await deposer();
-    const console_ = await ouvrir(E["T247_CONSOLE_URL"] as string);
+  it("[C-043] sans purge, la ligne déposée reste dans la base du client en un seul exemplaire (un marqueur par essai)", async () => {
+    const marqueur = nouveauMarqueur();
+    const { client, id } = await deposer(marqueur);
     try {
-      expect((await ouTrouverEnBase(client, MARQUEUR)).length).toBeGreaterThan(0);
-      expect(await ouTrouverEnBase(console_, MARQUEUR)).toEqual([]);
-    } finally {
-      await Promise.all([client.end(), console_.end()]);
-    }
-  }, 120_000);
-
-  it("[C-043] les données de travail restent dans la base du client tant que le contrat court", async () => {
-    const client = await deposer();
-    try {
-      // Aucune purge : après les traitements, la ligne est toujours là (et en un seul exemplaire).
-      const r = await client.query("SELECT count(*)::int AS n FROM commun.personnes WHERE nom = $1", [MARQUEUR]);
-      expect(r.rows[0]?.["n"]).toBe(1);
+      const r = await client.query("SELECT id FROM commun.personnes WHERE nom = $1", [marqueur]);
+      expect(r.rows).toHaveLength(1);
+      expect(r.rows[0]?.["id"]).toEqual(id);
     } finally {
       await client.end();
     }
   }, 60_000);
+
+  // DETTE LOT2-dette-T2-47-garde : aucune route d'import n'existe dans apps/api/src ; tant qu'elle manque, la garde de bout en bout ne peut pas être écrite.
+  it.todo("un marqueur importé par l'API, passé par une exécution d'essai puis le lot de nuit, est absent de console, moteur, Valkey, journaux API et CI et compartiments communs");
 });

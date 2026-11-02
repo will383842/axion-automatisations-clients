@@ -29,7 +29,7 @@ describe("instances → cellule et version de l'état voulu (migration 0018)", (
     expect(migration).toMatch(/CREATE FUNCTION public\.instances_version_etat_voulu\(\)[\s\S]*SET search_path = pg_catalog, pg_temp/);
     expect(migration).not.toMatch(/SECURITY DEFINER/i);
     expect(migration).toMatch(/REVOKE ALL ON FUNCTION public\.instances_version_etat_voulu\(\) FROM PUBLIC/);
-    expect(migration).toMatch(/CREATE TRIGGER instances_etat_voulu_version BEFORE UPDATE ON "public"\."instances"/);
+    expect(migration).toMatch(/CREATE TRIGGER instances_etat_voulu_version BEFORE INSERT OR UPDATE ON "public"\."instances"/);
     expect(migration).toMatch(/GRANT SELECT \("cellule_code", "arret_envois", "version_etat_voulu"\) ON TABLE "public"\."instances" TO console_app/);
     expect(migration).toMatch(/CREATE INDEX "instances_id_cellule_idx" ON "public"\."instances" USING btree \("id","cellule_code"\)/);
   });

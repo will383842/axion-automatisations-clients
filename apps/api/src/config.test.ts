@@ -121,4 +121,20 @@ describe("interrupteurs des canaux", () => {
     expect(chargerConfig({ NODE_ENV: "test", CONSOLE_CRM_ACTIF: "true" }, dossier())).toMatchObject({ hubActif: false, crmActif: true });
     expect(refus({ NODE_ENV: "test", CONSOLE_HUB_ACTIF: "oui" })).toContain("CONSOLE_HUB_ACTIF");
   });
+
+  it("[A-180] la purge de rétention est fermée par défaut", () => {
+    expect(chargerConfig(prod(), dossier()).retentionPurgeActive).toBe(false);
+    expect(chargerConfig({ NODE_ENV: "development", RETENTION_PURGE_ACTIVE: "" }, dossier()).retentionPurgeActive).toBe(false);
+  });
+
+  it("[A-180] en production, RETENTION_PURGE_ACTIVE=true sans date d'ouverture empêche le démarrage", () => {
+    expect(refus(prod({ RETENTION_PURGE_ACTIVE: "true" }))).toContain("RETENTION_OUVERTE_PAR");
+    expect(refus(prod({ RETENTION_PURGE_ACTIVE: "1", RETENTION_OUVERTE_PAR: "pas une date" }))).toContain("RETENTION_OUVERTE_PAR");
+    expect(chargerConfig(prod({ RETENTION_PURGE_ACTIVE: "true", RETENTION_OUVERTE_PAR: "2027-01-15" }), dossier()).retentionPurgeActive).toBe(true);
+  });
+
+  it("[A-180] hors production, l'interrupteur s'ouvre sans date, et une valeur inconnue est refusée", () => {
+    expect(chargerConfig({ NODE_ENV: "test", RETENTION_PURGE_ACTIVE: "true" }, dossier()).retentionPurgeActive).toBe(true);
+    refus({ NODE_ENV: "test", RETENTION_PURGE_ACTIVE: "oui" });
+  });
 });

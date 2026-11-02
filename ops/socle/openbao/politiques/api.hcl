@@ -14,3 +14,8 @@ path "transit/datakey/plaintext/cli-*" {
 path "transit/decrypt/cli-*" {
   capabilities = ["update"]
 }
+# Empreinte de recherche (T2-33) : HMAC par la clé cli-<id>-recherche du client. Vault n'a pas de joker au milieu d'un segment : le préfixe cli-* couvre aussi
+# la clé de chiffrement cli-<id> (écart à la fiche, consigné dans spec/preuves.md : LOT2-dette-T2-33-hmac-prefixe).
+path "transit/hmac/cli-*" {
+  capabilities = ["update"]
+}

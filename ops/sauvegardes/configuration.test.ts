@@ -111,10 +111,20 @@ describe("configuration des sauvegardes (lecture statique)", () => {
   });
 
   it("[C-593] BAO_ESSAI_SANS_TLS n'apparaît dans aucun compose ou script qui n'est pas d'essai (jeton et phrase jamais en clair)", () => {
-    const fichiers = spawnSync("git", ["ls-files", "--full-name", "--", "*.sh", "*compose*.yml", "*compose*.yaml"], { encoding: "utf8", cwd: dossierScripts }).stdout.split("\n").filter(Boolean);
+    // Lancé depuis la racine du dépôt : un cwd dans ops/sauvegardes/ ne verrait ni les compose du socle ni ceux d'ops/.
+    const racine = fileURLToPath(new URL("../../", import.meta.url));
+    const fichiers = spawnSync("git", ["ls-files", "--full-name", "--", "*.sh", "*compose*.yml", "*compose*.yaml"], { encoding: "utf8", cwd: racine }).stdout.split("\n").filter(Boolean);
     expect(fichiers.length).toBeGreaterThan(5);
-    // Admis : le script gardé lui-même (testé ci-dessous), les fichiers d'essai (nom « essai » ou tests) et les fixtures.
-    const fautifs = fichiers.filter((f) => !/essai|\.test\.|__fixtures__|(^|\/)lire-phrase-chiffrement\.sh$/.test(f)).filter((f) => /BAO_ESSAI_SANS_TLS/.test(lireRacine(f)));
+    // Garde contre un parcours vide ou limité à un seul dossier : au moins un compose du socle et un script doivent être lus.
+    expect(fichiers.filter((f) => /(^|\/)compose[^/]*\.ya?ml$/.test(f)).length).toBeGreaterThan(0);
+    expect(fichiers).toContain("ops/socle/compose.sauvegardes.yml");
+    // Admis : le script gardé lui-même (testé ci-dessous), les fichiers d'essai (nom « essai » ou tests), les fixtures,
+    // et la liste explicite des compose d'essai qui posent SAUVEGARDE_ESSAI: "1" (aucun ne pose BAO_ESSAI_SANS_TLS aujourd'hui).
+    const composeEssaiAdmis: string[] = [];
+    const fautifs = fichiers
+      .filter((f) => !/essai|\.test\.|__fixtures__|(^|\/)lire-phrase-chiffrement\.sh$/.test(f))
+      .filter((f) => !composeEssaiAdmis.includes(f))
+      .filter((f) => /BAO_ESSAI_SANS_TLS/.test(lireRacine(f)));
     expect(fautifs).toEqual([]);
   });
 

@@ -1,12 +1,15 @@
 import { execFileSync } from "node:child_process";
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
+import { demarrerBouchonHub } from "../../../../tests/bouchons/hub/serveur.ts";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { avecClient } from "../db/client-actif.js";
 import { migrer } from "../db/migrer.js";
 import { deposer, transactionOuverte } from "./boite-envoi.js";
+import { creerExpediteur } from "./expediteur.js";
 import { magasinPg } from "./relais.js";
+import { creerSigneur } from "./signer.js";
 
 // Boîte d'envoi (T2-14) sur la vraie base. Socle lancé par ops/socle/lancer.sh (job socle-integration).
 // Les essais tournent en parallèle sur une base partagée : identifiants de client tirés au hasard.
@@ -96,7 +99,8 @@ describe("boîte d'envoi avec le socle", { timeout: 30_000 }, () => {
     await magasin.reporter(ref, { prochainEssai: new Date(maintenant.getTime() + 60_000), erreur: "reseau", compter: true });
     expect((await magasin.dues("hub", maintenant, 10)).some((x) => x.id === d.id)).toBe(false);
     expect((await magasin.dues("hub", new Date(maintenant.getTime() + 61_000), 10)).some((x) => x.id === d.id)).toBe(true);
-    await magasin.prendre(ref, maintenant);
+    expect(await magasin.prendre(ref, maintenant)).toBeNull();
+    await magasin.prendre(ref, new Date(maintenant.getTime() + 61_000));
     await magasin.conclure(ref, { etat: "echec", erreur: "reseau" });
     expect((await magasin.echecs()).find((e) => e.id === d.id)).toMatchObject({ tenantId: A, nombreEssais: 2, derniereErreur: "reseau" });
     expect(await magasin.renvoyer(ref, APPELANT)).toBe(true);
@@ -134,5 +138,48 @@ describe("boîte d'envoi avec le socle", { timeout: 30_000 }, () => {
     expect(await magasin.renvoyer(recente, APPELANT)).toBe(true);
     const lignes = await avecClient(app, A, async (c) => (await c.query("SELECT acteur, entite_id FROM public.journal_audit WHERE tenant_id = $1 AND entite = 'boite_envoi' AND action = 'modification' AND nouvelle->>'action' = 'renvoi'", [A])).rows);
     expect(lignes.map((l) => [l["acteur"], l["entite_id"]]).sort()).toEqual([["agent-essai", vieille.id], ["agent-essai", recente.id]].sort());
+  });
+  it("[C-535] @anti-doublon 10 prises parallèles de la même ligne : une seule réussit", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    const d = await avecClient(app, A, (c) => deposer(transactionOuverte(c), intention("prises")));
+    const magasin = magasinPg(app, equipe);
+    const prises = await Promise.all(Array.from({ length: 10 }, () => magasin.prendre({ tenantId: A, id: d.id }, new Date())));
+    expect(prises.filter((p) => p !== null)).toHaveLength(1);
+  });
+
+  it("[C-403] la prise ne dépasse jamais le maximum d'essais", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    const d = await avecClient(app, A, (c) => deposer(transactionOuverte(c), intention("maximum")));
+    const magasin = magasinPg(app, equipe);
+    const ref = { tenantId: A, id: d.id };
+    const t = new Date();
+    for (let i = 0; i < 2; i++) { expect(await magasin.prendre(ref, t, 2)).not.toBeNull(); await magasin.reporter(ref, { prochainEssai: t, erreur: "reseau", compter: true }); }
+    expect(await magasin.prendre(ref, t, 2)).toBeNull();
+  });
+
+  it("[C-535] @anti-doublon la console tuée entre l'envoi et la réponse : même clé au second essai et le Hub ne crée rien de plus (base réelle)", async () => {
+    const kid = "emi-int";
+    const secretHub = randomBytes(32);
+    const hub = await demarrerBouchonHub({ cles: { [kid]: secretHub.toString("base64") } });
+    try {
+      const A = randomUUID();
+      await creerOrg(A);
+      const d = await avecClient(app, A, (c) => deposer(transactionOuverte(c), { ...intention("tue"), corps: corpsHub("tue-" + A.slice(0, 8)) }));
+      const magasin = magasinPg(app, equipe);
+      const signeur = creerSigneur({ cles: { cleActive: async () => ({ kid, secret: secretHub }) }, actif: () => true });
+      const horloge = { t: Date.now() };
+      const expediteur = creerExpediteur({ magasin, signeur, urls: { hub: hub.url, crm: hub.url }, alerter: () => undefined, maintenant: () => horloge.t, aleatoire: () => 0.5 });
+      const ref = { tenantId: A, id: d.id };
+      const avant = hub.etat().effets.length;
+      hub.tuerApresReception();
+      expect(await expediteur.executer(ref)).toBe("reessai");
+      expect(hub.etat().effets.length).toBe(avant + 1);
+      horloge.t += 120_000;
+      expect(await expediteur.executer(ref)).toBe("envoye");
+      expect(hub.etat().effets.length).toBe(avant + 1);
+      expect((await avecClient(app, A, async (c) => (await c.query("SELECT etat, nombre_essais FROM boite_envoi WHERE tenant_id = $1 AND id = $2", [A, d.id])).rows[0]))).toMatchObject({ etat: "envoye", nombre_essais: 2 });
+    } finally { await hub.arreter(); }
   });
 });

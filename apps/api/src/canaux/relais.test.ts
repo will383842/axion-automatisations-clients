@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { cleDIntention } from "../../../../packages/contrats/src/commun/idempotence.js";
 import { magasinEnMemoire, type Ref } from "./expediteur.js";
 import { creerRelais, fileEnMemoire } from "./relais.js";
@@ -84,5 +84,23 @@ describe("relais de la boîte d'envoi", () => {
     await m.files.hub.vider();
     expect(m.envoyes).toHaveLength(100);
     expect(new Set(m.envoyes).size).toBe(100);
+  });
+  it("[A-088] @envoi un balayage qui échoue est journalisé par un code, sans donnée, et le suivant repart", async () => {
+    vi.useFakeTimers();
+    try {
+      const magasin = magasinEnMemoire();
+      let pannes = 1;
+      const reprendre = magasin.reprendre.bind(magasin);
+      magasin.reprendre = async (avant) => { if (pannes-- > 0) throw new Error("secret interne"); return reprendre(avant); };
+      const journal: string[] = [];
+      const files = { hub: fileEnMemoire(async () => undefined), crm: fileEnMemoire(async () => undefined) };
+      const relais = creerRelais({ magasin, files, ouverte: () => true, journaliser: (code) => journal.push(code) });
+      relais.demarrer(1000);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(journal).toEqual(["balayage_echoue"]);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(journal).toEqual(["balayage_echoue"]);
+      relais.arreter();
+    } finally { vi.useRealTimers(); }
   });
 });

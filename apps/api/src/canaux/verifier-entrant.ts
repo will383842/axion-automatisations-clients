@@ -19,6 +19,11 @@ const DELAI_MEMOIRE_MS = 2000;
 const CLES_MEMOIRE_SECONDES = 30;
 const RELECTURE_MIN_SECONDES = 5;
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+// D2 (T2-16b) : le corps d'un fait du Hub ne dépasse pas 128 Ko ; au-delà, 413 avant toute lecture, signature ou écriture.
+export const LIMITE_CORPS_C2 = 128 * 1024;
+// Limite de débit du canal c2 : fenêtre fixe, comptée avant la lecture du corps. Valeur par défaut large pour un Hub légitime ; réglable par DepsEntrant.debit.
+export const DEBIT_C2 = { max: 600, fenetreSecondes: 60 } as const;
+const MESSAGE_REFUS = "Signature invalide.";
 const ECRITURES = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
 export interface Memoire {
@@ -28,6 +33,8 @@ export interface DepsEntrant {
   cles: { clesAcceptees(canal: string, sens: Sens): Promise<CleEchange[]> };
   memoire: Memoire;
   actif: (canal: Canal) => boolean;
+  // Limite de débit du canal (par défaut DEBIT_C2 pour le Hub, aucune pour le CRM tant qu'elle n'est pas fournie).
+  debit?: { max: number; fenetreSecondes: number };
   journal?: Journal;
   maintenant?: () => number;
 }
@@ -63,9 +70,12 @@ export function enregistrerCanal(serveur: FastifyInstance, nom: keyof typeof CAN
   serveur.register(
     async (s) => {
       s.removeAllContentTypeParsers();
+      const debit = deps.debit ?? (nom === "hub" ? DEBIT_C2 : undefined);
+      if (debit && (!Number.isSafeInteger(debit.max) || debit.max < 1 || !Number.isSafeInteger(debit.fenetreSecondes) || debit.fenetreSecondes < 1)) throw new Error("limite de débit invalide");
+      let fenetre = { debut: 0, nombre: 0 };
       // Analyseur JSON de Fastify (refuse __proto__ et constructor.prototype), appelé seulement après la signature.
       const analyser = serveur.getDefaultJsonParser("error", "error");
-      s.addContentTypeParser("*", { parseAs: "buffer" }, (r, corps, fin) => {
+      s.addContentTypeParser("*", { parseAs: "buffer", ...(nom === "hub" ? { bodyLimit: LIMITE_CORPS_C2 } : {}) }, (r, corps, fin) => {
         r.corpsBrut = corps as Buffer;
         fin(null, corps);
       });
@@ -101,13 +111,24 @@ export function enregistrerCanal(serveur: FastifyInstance, nom: keyof typeof CAN
           trace(r, "porte_fermee");
           throw new ErreurApi("porte_fermee", "Service indisponible.");
         }
+        if (debit) {
+          const t = maintenant();
+          if (t - fenetre.debut >= debit.fenetreSecondes || t < fenetre.debut) fenetre = { debut: t, nombre: 0 };
+          if (++fenetre.nombre > debit.max) {
+            trace(r, "debit_depasse");
+            throw new ErreurApi("debit_depasse", "Trop de requêtes.");
+          }
+        }
       });
 
       // preValidation : avant la validation du schéma du corps, qui ne doit jamais voir une requête non authentifiée.
-      s.addHook("preValidation", async (r) => {
+      s.addHook("preValidation", async (r, reponse) => {
+        // Refus neutres (T2-16b, D3) : horodatage périmé, rejeu, signature fausse et clé inconnue donnent le même 401 au même corps.
+        // Seul le journal interne garde la cause.
         const refuser = (code: "signature_invalide" | "horodatage_perime" | "rejeu" | "schema_invalide", message: string): never => {
           trace(r, code);
-          throw new ErreurApi(code, message);
+          if (code === "schema_invalide") throw new ErreurApi(code, message);
+          throw new ErreurApi("signature_invalide", MESSAGE_REFUS);
         };
         const corps = r.corpsBrut ?? Buffer.alloc(0);
         const { cle: kid, horodatage, signature } = { cle: enTete(r, EN_TETES.cle), horodatage: enTete(r, EN_TETES.horodatage), signature: enTete(r, EN_TETES.signature) };
@@ -133,9 +154,14 @@ export function enregistrerCanal(serveur: FastifyInstance, nom: keyof typeof CAN
           trace(r, "memoire_indisponible");
           throw e;
         });
-        if (!neuf) return refuser("rejeu", "Requête déjà reçue.");
         const chemin = (r.raw.url ?? "").split("?")[0];
         const exempte = r.method === "POST" && nom === "hub" && chemin === `${prefixe}/faits`;
+        // Un envoi signé déjà reçu sur la route des faits : 200 « duplicate », rien n'est rangé (le Hub renvoie pendant 72 h tant qu'il n'a pas de 200).
+        if (!neuf && exempte) {
+          trace(r, "rejeu");
+          return reponse.code(200).send({ statut: "duplicate" });
+        }
+        if (!neuf) return refuser("rejeu", "Requête déjà reçue.");
         if (ECRITURES.has(r.method) && !exempte && !UUID_V4.test(enTete(r, "idempotency-key") ?? "")) return refuser("schema_invalide", "Idempotency-Key obligatoire.");
         if (corps.length > 0) {
           try {

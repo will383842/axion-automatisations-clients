@@ -62,3 +62,16 @@ describe("activer une instance", () => {
     expect(appels.some((a) => a.texte.startsWith("UPDATE"))).toBe(false);
   });
 });
+
+describe("activer une instance : fait C3", () => {
+  it("[C-346] automatisation.activee part dans la transaction de l'activation, jamais pour une activation refusée", async () => {
+    const faits: string[] = [];
+    const emetteur = { automatisationActivee: async (_i: unknown, _t: string, code: string) => void faits.push(code) };
+    const { client } = faux({ contrat: false });
+    await activerInstance(client, A, I, emetteur as never).catch(() => undefined);
+    expect(faits).toEqual([]);
+    const ok = faux({ contrat: true });
+    await activerInstance(ok.client, A, I, emetteur as never);
+    expect(faits).toHaveLength(1);
+  });
+});

@@ -20,10 +20,11 @@ export class JournalPostgres implements JournalEtapes {
     await avecClient(this.pool, this.tenantId, async (c) => {
       const exec = await c.query<{ debut: Date }>("SELECT debut FROM executions WHERE tenant_id = $1 AND id = $2 AND instance_id = $3", [this.tenantId, e.executionId, e.instanceId]);
       if (!exec.rows[0]) throw new Error("execution_inconnue");
+      // `debut` reste dans la base (SELECT) : un aller-retour par un Date JavaScript perd les microsecondes et casse la clé étrangère.
       // La base n'accepte une étape qu'en cours : elle passe à son statut final dans la même transaction.
       await c.query(
-        "INSERT INTO journal_etape (tenant_id, id, execution_id, debut_execution, etape, cle) VALUES ($1, gen_random_uuid(), $2, $3, $4, $5) ON CONFLICT (tenant_id, execution_id, etape, cle) DO NOTHING",
-        [this.tenantId, e.executionId, exec.rows[0].debut, e.etape, cle],
+        "INSERT INTO journal_etape (tenant_id, id, execution_id, debut_execution, etape, cle) SELECT x.tenant_id, gen_random_uuid(), x.id, x.debut, $4, $5 FROM executions x WHERE x.tenant_id = $1 AND x.id = $2 AND x.instance_id = $3 ON CONFLICT (tenant_id, execution_id, etape, cle) DO NOTHING",
+        [this.tenantId, e.executionId, e.instanceId, e.etape, cle],
       );
       await c.query("UPDATE journal_etape SET statut = $5 WHERE tenant_id = $1 AND execution_id = $2 AND etape = $3 AND cle = $4", [this.tenantId, e.executionId, e.etape, cle, STATUT_BASE[e.statut]]);
     });

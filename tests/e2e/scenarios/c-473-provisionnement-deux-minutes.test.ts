@@ -4,7 +4,7 @@ import { formaterMesure, mesurerCreations, SEUIL_CREATION_MS } from "../../../ap
 
 // Critère C-473 : une base client est provisionnée en moins de 2 minutes. Il n'est VRAI que si une mesure réelle de cinq créations de bout en bout est écrite
 // dans ops/donnees/mesure-provisionnement.md (ligne produite par formaterMesure, seuil respecté). Tant qu'elle manque : test.fails. À passer en test quand la mesure existe (dette LOT2-dette-T2-35).
-test.fails("[C-473] une base client est provisionnée en moins de 2 minutes", () => {
+test.fails("[C-473] une base client est provisionnée en moins de 2 minutes @lot-2b", () => {
   const texte = readFileSync(new URL("../../../ops/donnees/mesure-provisionnement.md", import.meta.url), "utf8");
   expect(texte).toMatch(/^Mesure du \d{4}-\d{2}-\d{2} sur .+ : 5 créations, médiane \d+ s, maximum \d+ s, seuil 120 s : respecté\.$/m);
 });

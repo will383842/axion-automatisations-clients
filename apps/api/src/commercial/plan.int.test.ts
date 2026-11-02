@@ -90,7 +90,8 @@ describe("plan commercial calculé, contre PostgreSQL", () => {
     const a = await client(12);
     const instance = a.instance as string;
     await avecClient(app, a.A, async (c) => enregistrerPlan(c, a.A, await preparerPlan(c, a.A, instance, {}), "agent-essai", "mise en place"), APPELANT);
-    const { rows } = await migration.query("SELECT frais_mise_en_place_ht_centimes AS f, prix_recurrent_mensuel_ht_centimes AS p, source_engagement AS s, auteur FROM plans_commerciaux WHERE tenant_id = $1 AND instance_id = $2", [a.A, instance]);
+    // Lecture par le rôle de l'application (la RLS est forcée, y compris pour le rôle de migration).
+    const { rows } = await avecClient(app, a.A, (c) => c.query("SELECT frais_mise_en_place_ht_centimes AS f, prix_recurrent_mensuel_ht_centimes AS p, source_engagement AS s, auteur FROM plans_commerciaux WHERE tenant_id = $1 AND instance_id = $2", [a.A, instance]), APPELANT);
     expect(rows).toEqual([{ f: "100", p: "200", s: "client", auteur: "agent-essai" }]);
     await expect(avecClient(app, a.A, async (c) => enregistrerPlan(c, a.A, await preparerPlan(c, a.A, instance, {}), "agent-essai", "second"), APPELANT)).rejects.toMatchObject({ motif: "plan_existant" });
   });

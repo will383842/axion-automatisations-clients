@@ -158,7 +158,7 @@ describe("balayage des colonnes et fichiers chiffrés", () => {
     f.etat.rewrapFautif = true;
     const c = creerSource(champs);
     const bilan = await balayer({ colonnes: f.colonnes, sources: { champs: c.source } }, T);
-    expect(bilan).toMatchObject({ examines: 3, reenveloppes: 0, echecs: 3, termine: true });
+    expect(bilan).toMatchObject({ examines: 3, reenveloppes: 0, echecs: 3, termine: false });
     expect(c.etat.ecritures).toBe(0);
     for (const [id, v] of avant) expect(c.valeurs.get(id)!.equals(v)).toBe(true);
   });
@@ -170,8 +170,20 @@ describe("balayage des colonnes et fichiers chiffrés", () => {
     const abime: ElementChiffre = { id: "c1", contexte: "personnes.courriel_chiffre:autre-ligne", octets: champs[1]!.octets };
     const c = creerSource([champs[0]!, abime, champs[2]!]);
     const bilan = await balayer({ colonnes: f.colonnes, sources: { champs: c.source } }, T);
-    expect(bilan).toMatchObject({ examines: 3, reenveloppes: 2, echecs: 1, termine: true });
+    expect(bilan).toMatchObject({ examines: 3, reenveloppes: 2, echecs: 1, termine: false });
     expect(c.valeurs.get("c1")!.equals(Buffer.from(champs[1]!.octets))).toBe(true);
+  });
+
+  it("[A-243] le balayage n'est pas terminé tant qu'il reste un échec ou un conflit (retrait du format 1 refusé)", async () => {
+    const f = creerFaux();
+    const { champs } = await remplir(f, 2, 0);
+    await f.colonnes.pivoterCle(T);
+    const c = creerSource(champs);
+    const rendre = c.source.remplacer;
+    c.source.remplacer = async () => false;
+    const bilan = await balayer({ colonnes: f.colonnes, sources: { champs: c.source } }, T);
+    c.source.remplacer = rendre;
+    expect(bilan).toMatchObject({ conflits: 2, echecs: 0, termine: false });
   });
 
   it("[A-201] le balayage est borné : taille et nombre de lots invalides refusés, aucune lecture", async () => {

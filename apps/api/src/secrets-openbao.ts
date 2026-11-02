@@ -11,8 +11,9 @@ export interface OptionsLecteur extends OptionsBao {
 }
 
 const DELAI_MS = 5000;
-// Segments simples en minuscules : ni « .. », ni « ? », ni « % », ni barre double ou finale.
-const NOM = /^[a-z0-9]+(?:-[a-z0-9]+)*(?:\/[a-z0-9]+(?:-[a-z0-9]+)*)*$/;
+// Segments simples en minuscules : ni « .. », ni « ? », ni « % », ni barre double ou finale. Seul trait bas admis : le segment cli_<12 hex> d'une base cliente (T2-34).
+const SEGMENT = "(?:[a-z0-9]+(?:-[a-z0-9]+)*|cli_[0-9a-f]{12})";
+const NOM = new RegExp(`^${SEGMENT}(?:/${SEGMENT})*$`);
 
 export function creerLecteurSecretsOpenBao(o: OptionsLecteur): LecteurSecrets {
   return {

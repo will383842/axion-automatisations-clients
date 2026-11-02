@@ -16,7 +16,8 @@ const ROLE_MODELE = "modele_proprietaire";
 
 export type EntreeMigration = { version: number; tag: string; empreinte: string };
 export type Appliquee = { version: number; empreinte: string };
-export type Options = { url: string; dossier?: string };
+// `module` : code d'un module (schéma a_<code> de la base du client, T2-35) ; les migrations du dossier sont alors celles de CE module (jamais le modèle).
+export type Options = { url: string; dossier?: string; module?: string };
 
 // Entrées du journal drizzle, dans l'ordre : la version N est la N-ième migration (la première vaut 1).
 export function lireEntrees(dossier: string): EntreeMigration[] {
@@ -114,12 +115,83 @@ async function poserDroits(client: pg.Client, nomBase: string): Promise<void> {
   }
 }
 
+// Migrations d'un module (T2-35) : seulement dans le schéma a_<code>. Le rôle propriétaire possède aussi commun et public : la barrière est donc le texte (refus avant toute exécution)
+// PUIS le comptage des objets hors du schéma avant et après chaque migration (refus avant COMMIT). Rien n'est jamais détruit ni écrit hors de a_<code>.
+const CODE_MODULE = /^[a-z][a-z0-9_]{1,30}$/;
+const SCHEMAS_PROTEGES = "commun|public|trace|pg_catalog|pg_temp|information_schema|pgbouncer|provisionnement";
+const REGLES_MODULE: [RegExp, string][] = [
+  [/\bsearch_path\b|\bset_config\b/i, "changement du chemin de recherche"],
+  [/\b(set|reset)\s+(local\s+|session\s+)?(role|session\s+authorization|all)\b/i, "changement de rôle ou de session"],
+  [/\b(alter|create|drop)\s+(role|user|group|database|schema|extension|tablespace|server|foreign|publication|subscription|event\s+trigger|system|default\s+privileges|owned)\b/i, "ordre d'administration"],
+  [/\b(grant|revoke|reassign|security\s+definer)\b/i, "droits ou propriété"],
+  [/\bset\s+schema\b|\b(do|execute|copy|listen|notify|load|call)\b|\bpg_[a-z_]+\s*\(|\blo_[a-z_]+\s*\(|\bdblink/i, "exécution dynamique, fichier ou fonction système"],
+  [new RegExp(`(?:^|[^a-z0-9_])"?(${SCHEMAS_PROTEGES})"?\\s*\\.`, "i"), "schéma protégé"],
+];
+export function verifierMigrationModule(sql: string, code: string): string[] {
+  if (typeof code !== "string" || !CODE_MODULE.test(code)) throw new Error("migrerBase : code de module invalide");
+  const refus = REGLES_MODULE.filter(([re]) => re.test(sql)).map(([, motif]) => `migration de module refusée : ${motif}`);
+  for (const m of sql.matchAll(/(?:^|[^a-z0-9_])"?(a_[a-z0-9_]+)"?\s*\./gi)) if (m[1]!.toLowerCase() !== `a_${code}`) refus.push("migration de module refusée : schéma d'un autre module");
+  return refus;
+}
+const comptesHors = async (client: pg.Client, schema: string): Promise<string> =>
+  (await client.query<{ n: string }>(
+    "SELECT (SELECT count(*) FROM pg_class c JOIN pg_namespace s ON s.oid = c.relnamespace WHERE s.nspname <> $1 AND s.nspname NOT LIKE 'pg\\_toast%') || '/' || (SELECT count(*) FROM pg_proc p JOIN pg_namespace s ON s.oid = p.pronamespace WHERE s.nspname <> $1) || '/' || (SELECT count(*) FROM pg_namespace) AS n",
+    [schema],
+  )).rows[0]!.n;
+
+async function appliquerModule(client: pg.Client, nomBase: string, dossier: string, versionCible: number, code: string): Promise<void> {
+  const schema = `a_${code}`;
+  const entrees = lireEntrees(dossier);
+  const refus = entrees.flatMap((e) => verifierMigrationModule(readFileSync(`${dossier}/${e.tag}.sql`, "utf8"), code).map((r) => `${e.tag} : ${r}`));
+  if (refus.length) throw new Error(`migrations de module refusées :\n${refus.join("\n")}`);
+  const { rows } = await client.query<{ role: string }>("SELECT session_user AS role");
+  if (!rows[0] || ROLE_INTERDIT.test(rows[0].role)) throw new Error(`migrerBase refuse le rôle de session « ${rows[0]?.role} »`);
+  await client.query("SET standard_conforming_strings = on; SET client_encoding = 'UTF8'");
+  await client.query(`SET ROLE ${citer(`${nomBase}_proprietaire`)}`);
+  await client.query("SELECT pg_advisory_lock($1)", [VERROU_MIGRATION_BASE.toString()]);
+  try {
+    await client.query(`CREATE SCHEMA IF NOT EXISTS ${citer(schema)}`);
+    await client.query(`CREATE TABLE IF NOT EXISTS ${citer(schema)}.version_structure (version integer PRIMARY KEY CHECK (version >= 1), appliquee_le timestamptz NOT NULL DEFAULT now(), empreinte text NOT NULL)`);
+    const deja = (await client.query<Appliquee>(`SELECT version, empreinte FROM ${citer(schema)}.version_structure`)).rows;
+    for (const m of migrationsAAppliquer(entrees, deja, versionCible)) {
+      await client.query("BEGIN");
+      try {
+        const avant = await comptesHors(client, schema);
+        await client.query(`SET LOCAL search_path = ${citer(schema)}`);
+        for (const morceau of readFileSync(`${dossier}/${m.tag}.sql`, "utf8").split(MARQUEUR)) if (morceau.trim()) await client.query(morceau);
+        if ((await comptesHors(client, schema)) !== avant) throw new Error(`migrerBase : la migration ${m.tag} a créé un objet hors de ${schema}`);
+        await client.query(`INSERT INTO ${citer(schema)}.version_structure (version, empreinte) VALUES ($1, $2)`, [m.version, m.empreinte]);
+        await client.query("COMMIT");
+      } catch (e) {
+        await client.query("ROLLBACK").catch(() => undefined);
+        throw e;
+      }
+    }
+    // Droits posés par le propriétaire, jamais par le module : l'application lit et écrit sans DELETE, la lecture lit.
+    const presents = (await client.query<{ rolname: string }>("SELECT rolname FROM pg_roles WHERE rolname = ANY($1)", [[`${nomBase}_app`, `${nomBase}_lecture`]])).rows.map((r) => r.rolname);
+    for (const r of presents) {
+      const ecrit = r.endsWith("_app");
+      await client.query(`GRANT USAGE ON SCHEMA ${citer(schema)} TO ${citer(r)}`);
+      await client.query(`GRANT ${ecrit ? "SELECT, INSERT, UPDATE" : "SELECT"} ON ALL TABLES IN SCHEMA ${citer(schema)} TO ${citer(r)}`);
+      if (ecrit) await client.query(`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA ${citer(schema)} TO ${citer(r)}`);
+    }
+  } finally {
+    await client.query("SELECT pg_advisory_unlock($1)", [VERROU_MIGRATION_BASE.toString()]).catch(() => undefined);
+  }
+}
+
 export async function migrerBase(nomBase: string, versionCible: number, options: Options): Promise<void> {
   if (!NOM_BASE.test(nomBase)) throw new Error("migrerBase : nom de base invalide (attendu cli_ suivi de 12 caractères hexadécimaux)");
   verifierRole(nomBase, options.url);
+  if (options.module !== undefined) {
+    // Le code du module est validé avant toute connexion ; le dossier de migrations du module est obligatoire (jamais celui du modèle).
+    if (!options.dossier) throw new Error("migrerBase : dossier de migrations du module absent");
+    verifierMigrationModule("", options.module);
+  }
   const client = new pg.Client({ connectionString: options.url });
   await client.connect();
   try {
+    if (options.module !== undefined) return await appliquerModule(client, nomBase, options.dossier!, versionCible, options.module);
     await appliquer(client, `${nomBase}_proprietaire`, options.dossier ?? DOSSIER_CLI, versionCible);
     await poserDroits(client, nomBase);
   } finally {

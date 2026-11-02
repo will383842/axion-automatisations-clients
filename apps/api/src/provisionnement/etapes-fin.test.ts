@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { contexteBase } from "./etapes-base.js";
-import { assemblerEtapes, etapesFin, type PortsFin } from "./etapes-fin.js";
+import { assemblerEtapes, etapesFin, type ConnexionApp, type PortsFin } from "./etapes-fin.js";
 import { creerMachine, type LigneBase, type Registre } from "./machine.js";
 
 const T = randomUUID();
@@ -17,12 +17,13 @@ function monter(options: { pannes?: Partial<Record<"ecrire" | "relire" | "objet"
       ouverts++;
       journal.push(`connexion:${nomBase}`);
       return {
-        requete: async (texte, valeurs) => {
+        requete: (async (texte: string, valeurs?: unknown[]) => {
           journal.push(texte.split(" ").slice(0, 2).join(" "));
-          if (/^INSERT/.test(texte)) { if (pannes.ecrire) throw new Error("refus"); base.set("p", String((valeurs ?? [])[1])); return []; }
+          if (/^INSERT INTO commun.etablissements/.test(texte)) return [{ id: "e1" }];
+          if (/^INSERT/.test(texte)) { if (pannes.ecrire) throw new Error("refus"); base.set("p", String((valeurs ?? [])[2])); return []; }
           if (/^SELECT/.test(texte)) return pannes.relire ? [] : [{ courriel_chiffre: Buffer.from(base.get("p") ?? "") }];
           return [];
-        },
+        }) as unknown as ConnexionApp["requete"],
         fermer: async () => { ouverts--; journal.push("fermer"); },
       };
     },

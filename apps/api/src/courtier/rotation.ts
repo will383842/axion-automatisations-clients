@@ -10,7 +10,8 @@ export const PERIODE_DEFAUT_JOURS = 30;
 export const DELAI_GRACE_MS = 10 * 60_000;
 const JOUR_MS = 86_400_000;
 const EMPREINTE = /^SCRAM-SHA-256\$[0-9]+:[A-Za-z0-9+/=]+\$[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+$/;
-const OPTIONS = { attempts: 5, backoff: { type: "exponential" as const, delay: 5000 }, removeOnComplete: true } as const;
+export const ESSAIS_ROTATION = 5;
+const OPTIONS = { attempts: ESSAIS_ROTATION, backoff: { type: "exponential" as const, delay: 5000 }, removeOnComplete: true } as const;
 
 export function periodeDe(date: Date, jours: number): number {
   if (!Number.isInteger(jours) || jours < 1) throw new Error("période invalide");
@@ -36,7 +37,12 @@ export async function deposerRotation(file: FileRotation, tenantId: string, main
 }
 
 export interface AdminRotation { changerMotDePasse(role: string, empreinte: string, version: number, validJusqua: Date): Promise<void> }
+export interface SessionsBase { couper(nomBase: string, role: string): Promise<void> }
 export interface PortsRotation {
+  // Coupe les sessions ouvertes de la base (PgBouncer puis base), pour la rotation immédiate.
+  sessions(grappe: string): SessionsBase;
+  // Alerte vers l'équipe : un code et des identifiants, jamais une valeur secrète.
+  alerte: { envoyer(e: { evenement: string; tenantId: string; base: string; essais: number; code: string }): Promise<void> };
   base(tenantId: string): Promise<{ etat: LigneBase["etat"]; grappe: string; nomBase: string } | undefined>;
   admin(grappe: string): AdminRotation;
   coffre: { ranger(chemin: string, valeur: string): Promise<number> };
@@ -59,6 +65,27 @@ export function adminRotationPg(sql: Pick<Sql, "requete">): AdminRotation {
       const lit = async (v: string) => (await sql.requete<{ lit: string }>("SELECT quote_literal($1) AS lit", [v]))[0]!.lit;
       await sql.requete(`ALTER ROLE ${q} PASSWORD ${await lit(empreinte)} VALID UNTIL ${await lit(validJusqua.toISOString())}`);
       await sql.requete(`COMMENT ON ROLE ${q} IS 'secret:v${version}'`);
+    },
+  };
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const NOM_BASE = /^cli_[0-9a-f]{12}$/;
+// Connexion directe à la grappe (pg_terminate_backend) et console d'administration de PgBouncer (KILL puis RESUME). Noms validés avant tout ordre ; la base n'est jamais laissée en pause.
+// Sont coupés : le rôle _app et les rôles dynamiques (accès humain) rattachés à cli_<id>_lecture.
+export function sessionsPg(grappe: Pick<Sql, "requete">, bouncer: Pick<Sql, "requete">): SessionsBase {
+  return {
+    async couper(nomBase, role) {
+      if (!NOM_BASE.test(nomBase) || role !== `${nomBase}_app`) throw new Error("nom refusé");
+      await bouncer.requete(`KILL ${nomBase}`);
+      try {
+        await grappe.requete(
+          "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE pid <> pg_backend_pid() AND (usename = $1 OR usename IN (SELECT m.rolname FROM pg_auth_members a JOIN pg_roles r ON r.oid = a.roleid JOIN pg_roles m ON m.oid = a.member WHERE r.rolname = $2))",
+          [role, `${nomBase}_lecture`],
+        );
+      } finally {
+        await bouncer.requete(`RESUME ${nomBase}`);
+      }
     },
   };
 }
@@ -103,7 +130,44 @@ export function creerRotation(p: PortsRotation) {
       const m = typeof motif === "string" ? motif.trim() : "";
       if (m === "" || m.length > 500) throw new ErreurApi("schema_invalide", "Requête invalide.");
       p.journal.tracer({ evenement: "rotation_immediate", tenantId: tenantId.toLowerCase(), acteur, motif: m });
-      return pivoter(tenantId, file);
+      const r = await pivoter(tenantId, file);
+      if (r === "occupe") {
+        // Une rotation planifiée tient le verrou : rien n'a changé, donc couper maintenant ne servirait à rien (l'ancien mot de passe reste valable). La demande échoue de façon visible : trace, alerte, code.
+        const id = tenantId.toLowerCase();
+        p.journal.tracer({ evenement: "rotation_immediate_non_faite", tenantId: id, acteur });
+        try {
+          await p.alerte.envoyer({ evenement: "rotation_immediate_non_faite", tenantId: id, base: nomBaseDe(id), essais: 0, code: "rotation_occupee" });
+        } catch {
+          p.journal.tracer({ evenement: "alerte_non_envoyee", tenantId: id });
+        }
+        throw new ErreurCourtier("rotation_occupee");
+      }
+      // Les sessions ouvertes avant le changement portent encore l'ancien mot de passe : on les coupe (échec visible, jamais silencieux).
+      const id = tenantId.toLowerCase();
+      const ligne = await p.base(id);
+      try {
+        await p.sessions(ligne!.grappe).couper(nomBaseDe(id), nomsRoles(id).app);
+      } catch {
+        p.journal.tracer({ evenement: "sessions_non_coupees", tenantId: id, acteur });
+        throw new ErreurCourtier("coupure_echouee");
+      }
+      p.journal.tracer({ evenement: "sessions_coupees", tenantId: id, acteur });
+      return r;
+    },
+    // Écouteur « failed » de la file : après le dernier essai, une alerte part (code seul). Une alerte qui échoue est tracée et lève : la panne reste visible.
+    async surEchec(tache: { name?: string; data?: { tenantId?: unknown }; attemptsMade: number; opts: { attempts?: number } }, erreur: unknown): Promise<void> {
+      if (tache.name !== "rotation" || tache.attemptsMade < (tache.opts.attempts ?? ESSAIS_ROTATION)) return;
+      // Un tenantId absent ou mal formé ne doit jamais faire perdre l'alerte : nomBaseDe lèverait hors du try.
+      const brut = (tache.data as { tenantId?: unknown } | undefined)?.tenantId;
+      const valide = typeof brut === "string" && UUID.test(brut.toLowerCase());
+      const tenantId = valide ? brut.toLowerCase() : "invalide";
+      const code = erreur instanceof ErreurCourtier || (typeof erreur === "object" && erreur !== null && typeof (erreur as { code?: unknown }).code === "string") ? String((erreur as { code: string }).code) : "inconnu";
+      try {
+        await p.alerte.envoyer({ evenement: "rotation_echec_definitif", tenantId, base: valide ? nomBaseDe(tenantId) : "inconnue", essais: tache.attemptsMade, code: /^[a-z0-9_.-]{1,64}$/.test(code) ? code : "inconnu" });
+      } catch {
+        p.journal.tracer({ evenement: "alerte_non_envoyee", tenantId });
+        throw new ErreurCourtier("alerte_non_envoyee");
+      }
     },
   };
 }

@@ -1,4 +1,4 @@
-import { bigint, check, date, foreignKey, integer, jsonb, pgEnum, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
+import { bigint, check, date, foreignKey, index, integer, jsonb, pgEnum, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { tableClient } from "./aides.ts";
 import { organisations } from "./clients.ts";
@@ -11,7 +11,7 @@ export const etatEnvoi = pgEnum("etat_envoi", ["a_envoyer", "en_cours", "envoye"
 export const sourceCanal = pgEnum("source_canal", ["hub", "crm"]);
 export const resultatFait = pgEnum("resultat_fait", ["traite", "ignore", "a_trancher", "erreur"]);
 export const etatLienCrm = pgEnum("etat_lien_crm", ["actif", "absorbe"]);
-export const motifATrancher = pgEnum("motif_a_trancher", ["siren_absent_ressemblance", "ressaisie_manuelle", "email_change", "fiche_absorbee", "incoherence_nuit"]);
+export const motifATrancher = pgEnum("motif_a_trancher", ["siren_absent_ressemblance", "ressaisie_manuelle", "email_change", "fiche_absorbee", "incoherence_nuit", "lien_crm_different", "identifiant_crm_incoherent"]);
 export const etatATrancher = pgEnum("etat_a_trancher", ["ouvert", "tranche"]);
 export const porteeExclusion = pgEnum("portee_exclusion", ["client", "plateforme"]);
 export const motifExclusion = pgEnum("motif_exclusion", ["rebond", "plainte", "desabonnement", "demande_client"]);
@@ -67,12 +67,17 @@ export const faitsRecus = tableClient(
     recuLe: timestamp("recu_le", { withTimezone: true }).notNull().defaultNow(),
     traiteLe: timestamp("traite_le", { withTimezone: true }),
     resultat: resultatFait("resultat"),
+    // Contenu allégé du fait (liste autorisée de champs, jamais de lien ni de PII) : la base est la source, la file n'en est qu'une copie (T2-16b).
+    payload: jsonb("payload"),
   },
   {
     audit: false,
     contraintes: (t) => [
       unique("faits_recus_tenant_id_source_event_id_unique").on(t["tenantId"] as never, t["source"] as never, t["eventId"] as never),
       check("faits_recus_traitement_complet", sql`(${t["traiteLe"]} IS NULL) = (${t["resultat"]} IS NULL)`),
+      // Ordre par sujet et balayage des faits non traités (T2-16b) : toujours bornés par le client.
+      index("faits_recus_sujet_idx").on(t["tenantId"] as never, t["sujet"] as never, t["sequence"] as never),
+      index("faits_recus_non_traites_idx").on(t["tenantId"] as never, t["recuLe"] as never).where(sql`${t["traiteLe"]} IS NULL`),
     ],
   },
 );

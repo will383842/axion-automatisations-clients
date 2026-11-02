@@ -84,4 +84,35 @@ describe("machine de provisionnement", () => {
     expect(await vide.executer(T)).toBe("ligne_absente");
     expect(m.alertes).toEqual([{ type: "provisionnement_echec", clientId: T, code: "ligne_absente" }]);
   });
+
+  it("[A-224] un tenantId en majuscules est normalisé avant le try : l'échec est rangé avec son code et alerté sous l'identifiant en minuscules", async () => {
+    const m = monter();
+    m.cassee.add(1);
+    await expect(m.machine.executer(T.toUpperCase())).rejects.toThrow("panne_essai");
+    expect(m.erreurs).toContain("panne_essai");
+    expect(m.alertes).toEqual([{ type: "provisionnement_echec", clientId: T, code: "panne_essai" }]);
+    expect(idTacheProvisionnement(T.toUpperCase())).toBe(`provision-${T}`);
+  });
+
+  it("[A-213] @anti-doublon un verrou par client : une exécution qui chevauche une autre n'exécute aucune étape", async () => {
+    const m = monter();
+    const pris: string[] = [];
+    let libre = true;
+    const verrou = { prendre: async (t: string) => { if (!libre) return undefined; libre = false; pris.push(t); return async () => { libre = true; }; } };
+    const etapes: Etape<{ tenantId: string }>[] = [{ numero: 1, nom: "lente", dejaFait: async () => false, faire: async () => { expect(await seconde.executer(T)).toBe("occupe"); } }];
+    const seconde = creerMachine({ etapes, registre: m.registre, alertes: { envoyer: async () => undefined }, contexte: (tenantId) => ({ tenantId }), verrou });
+    expect(await seconde.executer(T)).toBe("a_jour");
+    expect(pris).toEqual([T]);
+    expect(libre).toBe(true);
+  });
+
+  it("[A-213] le verrou est rendu même quand une étape échoue", async () => {
+    const m = monter();
+    let libre = true;
+    const verrou = { prendre: async () => { libre = false; return async () => { libre = true; }; } };
+    const casse: Etape<{ tenantId: string }>[] = [{ numero: 1, nom: "x", dejaFait: async () => false, faire: async () => { throw new ErreurEtape("panne_essai"); } }];
+    const machine = creerMachine({ etapes: casse, registre: m.registre, alertes: { envoyer: async () => undefined }, contexte: (tenantId) => ({ tenantId }), verrou });
+    await expect(machine.executer(T)).rejects.toThrow();
+    expect(libre).toBe(true);
+  });
 });

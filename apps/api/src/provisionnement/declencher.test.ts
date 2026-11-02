@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { cleEvenementContratSigne, declencherProvisionnement, surContratSigne, type EvenementContratSigne, type Transaction } from "./declencher.js";
+import { cleEvenementContratSigne, declencherProvisionnement, deposerProvisionnement, type FileProvisionnement, surContratSigne, type EvenementContratSigne, type Transaction } from "./declencher.js";
 
 const ORG = randomUUID();
 const evenement = (organisation = ORG): EvenementContratSigne => ({ type: "contrat_signe", organisation, devis: "devis-001", emisLe: "2026-11-02T10:00:00.000Z" });
@@ -46,5 +46,30 @@ describe("déclenchement du provisionnement", () => {
     const r = await declencherProvisionnement({ query: async (t) => { textes.push(t); return { rows: [] }; } }, ORG);
     expect(r).toEqual({ cree: false });
     expect(textes[0]).toMatch(/ON CONFLICT .* DO NOTHING/s);
+  });
+
+  it("[A-224] reprise manuelle : une tâche restée dans l'ensemble failed est retirée puis redéposée, un nouvel add n'est plus ignoré en silence", async () => {
+    const ajouts: { nom: string; donnees: unknown; options: Record<string, unknown> }[] = [];
+    const retires: string[] = [];
+    let etat: string | undefined = "failed";
+    const file: FileProvisionnement = {
+      getJob: async (id) => (etat === undefined ? undefined : { getState: async () => etat!, remove: async () => { retires.push(id); etat = undefined; } }),
+      add: async (nom, donnees, options) => void ajouts.push({ nom, donnees, options }),
+    };
+    await deposerProvisionnement(file, ORG);
+    expect(retires).toEqual([`provision-${ORG}`]);
+    expect(ajouts).toHaveLength(1);
+    expect(ajouts[0]!.donnees).toEqual({ tenantId: ORG });
+    expect(ajouts[0]!.options).toMatchObject({ jobId: `provision-${ORG}`, attempts: 5 });
+  });
+
+  it("[C-498] @anti-doublon une tâche en attente, active ou différée n'est ni retirée ni doublée ; en majuscules, même identifiant", async () => {
+    for (const etat of ["waiting", "active", "delayed"]) {
+      const ajouts: unknown[] = [];
+      const retires: string[] = [];
+      const file: FileProvisionnement = { getJob: async () => ({ getState: async () => etat, remove: async () => void retires.push(etat) }), add: async (...a) => void ajouts.push(a) };
+      await deposerProvisionnement(file, ORG.toUpperCase());
+      expect([ajouts, retires]).toEqual([[], []]);
+    }
   });
 });

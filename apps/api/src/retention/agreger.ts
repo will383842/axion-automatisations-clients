@@ -24,6 +24,8 @@ export interface Agregat {
 // Port : l'adaptateur SQL lit `executions` du jour (debut en UTC) et écrit par le upsert ci-dessous (SQL_UPSERT_AGREGAT).
 export interface DepotAgregats {
   executionsDuJour(jour: string): Promise<LigneExecution[]>;
+  // Jours terminés (strictement avant `avant`, AAAA-MM-JJ en UTC) qui ont des exécutions mais aucune ligne d'agrégat, du plus ancien au plus récent.
+  joursTerminesSansAgregat(avant: string): Promise<string[]>;
   enregistrer(agregat: Agregat): Promise<void>;
 }
 
@@ -54,12 +56,16 @@ export function calculerAgregats(lignes: LigneExecution[], jour: string): Agrega
   return [...parCle.values()];
 }
 
-export async function agregerVeille(depot: DepotAgregats, maintenant: Date): Promise<{ jour: string; agregats: number }> {
-  const jour = veilleDe(maintenant);
+// Traite TOUS les jours terminés sans agrégat (nuit manquée, panne, changement d'heure), pas seulement la veille.
+// Les jours sont calculés en UTC : une exécution du 25 octobre à 01:30 à Paris (heure d'hiver) est du 24 à 23:30Z.
+export async function agregerVeille(depot: DepotAgregats, maintenant: Date): Promise<{ jours: string[]; agregats: number }> {
+  const aujourdhui = maintenant.toISOString().slice(0, 10);
+  const jours = await depot.joursTerminesSansAgregat(aujourdhui);
   // Tout est calculé avant la première écriture : une borne dépassée n'écrit rien.
-  const agregats = calculerAgregats(await depot.executionsDuJour(jour), jour);
-  for (const a of agregats) await depot.enregistrer(a);
-  return { jour, agregats: agregats.length };
+  const calcules = [];
+  for (const jour of jours) calcules.push(...calculerAgregats(await depot.executionsDuJour(jour), jour));
+  for (const a of calcules) await depot.enregistrer(a);
+  return { jours, agregats: calcules.length };
 }
 
 // Une tâche par nuit : même jour, même jobId, BullMQ n'en garde qu'une. Le planificateur nocturne est branché à la mise en service.

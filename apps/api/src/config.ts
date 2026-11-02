@@ -18,7 +18,7 @@ export interface Config {
   crmActif?: boolean;
   // Adresses de l'équipe pour les e-mails de service (A-116) : le seul endroit où une adresse de destinataire est lue.
   adressesEquipe?: { will?: string };
-  // Rétention (A-180, C-041) : le retrait des exécutions anciennes et des notes reste fermé tant que l'interrupteur n'est pas ouvert.
+  // Rétention (A-180, C-041) : le retrait des exécutions anciennes et la proposition de suppression des notes restent fermés tant que l'interrupteur n'est pas ouvert.
   retentionPurgeActive?: boolean;
   retentionOuvertePar?: string;
 }

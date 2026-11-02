@@ -6,6 +6,8 @@ import { bigint, check, customType, foreignKey, index, pgSchema, primaryKey, tex
 // Les e-mails et téléphones sont chiffrés par la clé du client (T2-33) : `<champ>_chiffre` (bytea) et `<champ>_empreinte` (bytea) pour la recherche.
 const bytea = customType<{ data: Buffer }>({ dataType: () => "bytea" });
 const MAX_TEXTE = 500;
+const EMPREINTE_OCTETS = 32; // empreinte SHA-256 : exactement 32 octets
+const empreinteValide = (nom: string, colonne: string, nullable: boolean) => check(`${nom}_taille`, sql.raw(`${nullable ? `"${colonne}" IS NULL OR ` : ""}octet_length("${colonne}") = ${EMPREINTE_OCTETS}`));
 const borne = (nom: string, colonne: string) => check(`${nom}_longueur`, sql.raw(`char_length("${colonne}") <= ${MAX_TEXTE}`));
 
 export const commun = pgSchema("commun");
@@ -47,6 +49,9 @@ export const personnes = commun.table(
     index("personnes_courriel_empreinte_idx").on(t.etablissementId, t.courrielEmpreinte),
     index("personnes_telephone_empreinte_idx").on(t.etablissementId, t.telephoneEmpreinte),
     borne("personnes_nom", t.nom.name),
+    borne("personnes_prenom", t.prenom.name),
+    empreinteValide("personnes_courriel_empreinte", t.courrielEmpreinte.name, true),
+    empreinteValide("personnes_telephone_empreinte", t.telephoneEmpreinte.name, true),
   ],
 );
 
@@ -58,7 +63,8 @@ export const listesProspects = commun.table(
 
 export const listesProspectsPersonnes = commun.table(
   "listes_prospects_personnes",
-  { listeId: uuid("liste_id").notNull(), personneId: uuid("personne_id").notNull() },
+  // Sortir quelqu'un d'une liste : on marque `retire_le`, on ne supprime jamais la ligne (aucun DELETE accordé).
+  { listeId: uuid("liste_id").notNull(), personneId: uuid("personne_id").notNull(), retireLe: timestamp("retire_le", { withTimezone: true }) },
   (t) => [
     primaryKey({ columns: [t.listeId, t.personneId] }),
     foreignKey({ name: "lpp_liste_fk", columns: [t.listeId], foreignColumns: [listesProspects.id] }),
@@ -66,11 +72,11 @@ export const listesProspectsPersonnes = commun.table(
   ],
 );
 
-// Liste d'exclusion : seulement des empreintes, jamais l'adresse ni le numéro.
+// Liste d'exclusion : seulement des empreintes, jamais l'adresse ni le numéro. Une opposition ne s'efface jamais : ajout seul pour l'application (ni UPDATE ni DELETE).
 export const exclusions = commun.table(
   "exclusions",
   { id: uuid("id").primaryKey().defaultRandom(), genre: text("genre").notNull(), empreinte: bytea("empreinte").notNull(), creeLe: timestamp("cree_le", { withTimezone: true }).notNull().defaultNow() },
-  (t) => [unique("exclusions_genre_empreinte_unique").on(t.genre, t.empreinte), check("exclusions_genre", sql`${t.genre} IN ('courriel', 'telephone')`)],
+  (t) => [unique("exclusions_genre_empreinte_unique").on(t.genre, t.empreinte), check("exclusions_genre", sql`${t.genre} IN ('courriel', 'telephone')`), empreinteValide("exclusions_empreinte", t.empreinte.name, false)],
 );
 
 // Index des fichiers : la clé d'objet, l'empreinte, la taille et le type ; jamais le fichier lui-même.
@@ -90,6 +96,7 @@ export const indexFichiers = commun.table(
     unique("index_fichiers_cle_unique").on(t.etablissementId, t.cleObjet),
     check("index_fichiers_taille", sql`${t.tailleOctets} BETWEEN 0 AND 9007199254740991`),
     borne("index_fichiers_cle", t.cleObjet.name),
+    borne("index_fichiers_type", t.typeContenu.name),
     check("index_fichiers_empreinte_forme", sql`${t.empreinte} ~ '^[0-9a-f]{64}$'`),
   ],
 );

@@ -85,20 +85,28 @@ async function appliquer(client: pg.Client, proprietaire: string, dossier: strin
   }
 }
 
-// Droits de `cli_<id>_app` (lit et écrit commun, insère dans trace) et de `cli_<id>_lecture` (lit), posés par le propriétaire après les migrations.
+// Droits de `cli_<id>_app` (lit et écrit commun, sans DELETE ni UPDATE sur les exclusions ; insère dans trace) et de `cli_<id>_lecture` (lit), posés par le propriétaire après les migrations.
 // GRANT d'un rôle qui ne possède pas l'objet n'échoue pas : il avertit et ne donne rien. On relit donc les droits et on refuse s'ils manquent.
 async function poserDroits(client: pg.Client, nomBase: string): Promise<void> {
   const [app, lecture] = [`${nomBase}_app`, `${nomBase}_lecture`];
   const presents = (await client.query<{ rolname: string }>("SELECT rolname FROM pg_roles WHERE rolname = ANY($1)", [[app, lecture]])).rows.map((r) => r.rolname);
   const grants: string[] = [];
   if (presents.includes(app)) {
-    grants.push(`GRANT USAGE ON SCHEMA commun, trace TO ${citer(app)}`, `GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA commun TO ${citer(app)}`, `GRANT DELETE ON commun.listes_prospects_personnes TO ${citer(app)}`, `GRANT INSERT ON trace.evenements TO ${citer(app)}`, `GRANT SELECT ON public.version_structure TO ${citer(app)}`);
+    grants.push(`GRANT USAGE ON SCHEMA commun, trace TO ${citer(app)}`, `GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA commun TO ${citer(app)}`, `REVOKE UPDATE ON commun.exclusions FROM ${citer(app)}`, `GRANT INSERT ON trace.evenements TO ${citer(app)}`, `GRANT SELECT ON public.version_structure TO ${citer(app)}`);
   }
   if (presents.includes(lecture)) {
     grants.push(`GRANT USAGE ON SCHEMA commun, trace TO ${citer(lecture)}`, `GRANT SELECT ON ALL TABLES IN SCHEMA commun, trace TO ${citer(lecture)}`, `GRANT SELECT ON public.version_structure TO ${citer(lecture)}`);
   }
   for (const g of grants) await client.query(g);
   const attendus: [string, string, string][] = [[app, "commun.personnes", "INSERT"], [app, "trace.evenements", "INSERT"], [lecture, "commun.personnes", "SELECT"], [lecture, "trace.evenements", "SELECT"]];
+  // Règles de Will : aucun DELETE accordé, une opposition (exclusions) ne s'efface ni ne se modifie. Droits à relire, pas seulement à poser.
+  const interdits: [string, string, string][] = [];
+  for (const role of presents) for (const table of ["commun.personnes", "commun.listes_prospects_personnes", "commun.exclusions", "trace.evenements"]) interdits.push([role, table, "DELETE"]);
+  if (presents.includes(app)) interdits.push([app, "commun.exclusions", "UPDATE"]);
+  for (const [role, table, droit] of interdits) {
+    const ok = (await client.query<{ ok: boolean }>("SELECT has_table_privilege($1, $2, $3) AS ok", [role, table, droit])).rows[0]?.ok;
+    if (ok) throw new Error(`migrerBase : ${role} a le droit ${droit} sur ${table}, interdit`);
+  }
   for (const [role, table, droit] of attendus) {
     if (!presents.includes(role)) continue;
     const ok = (await client.query<{ ok: boolean }>("SELECT has_table_privilege($1, $2, $3) AS ok", [role, table, droit])).rows[0]?.ok;
@@ -132,6 +140,8 @@ export async function construireModele(n: number, options: Options): Promise<voi
     if (!(await admin.query("SELECT 1 FROM pg_roles WHERE rolname = $1", [ROLE_MODELE])).rowCount) await admin.query(`CREATE ROLE ${ROLE_MODELE} NOLOGIN NOBYPASSRLS`);
     await admin.query(`GRANT ${ROLE_MODELE} TO CURRENT_USER WITH SET TRUE`);
     await admin.query(`CREATE DATABASE ${citer(nom)} OWNER ${ROLE_MODELE}`);
+    // Fermé tout de suite : personne d'autre que le propriétaire ne se connecte au modèle pendant sa construction.
+    await admin.query(`REVOKE CONNECT ON DATABASE ${citer(nom)} FROM PUBLIC`);
     const u = lireUrl(options.url);
     u.pathname = `/${nom}`;
     const modele = new pg.Client({ connectionString: u.toString() });
@@ -141,7 +151,9 @@ export async function construireModele(n: number, options: Options): Promise<voi
     } finally {
       await modele.end();
     }
-    await admin.query(`REVOKE CONNECT ON DATABASE ${citer(nom)} FROM PUBLIC`);
+    // La dernière version est notée en commentaire de la base : le modèle est fermé, la recette (T2-34) ne peut pas lire version_structure.
+    const derniere = lireEntrees(options.dossier ?? DOSSIER_CLI).length;
+    await admin.query(`COMMENT ON DATABASE ${citer(nom)} IS 'version_structure=${derniere}'`);
     await admin.query(`ALTER DATABASE ${citer(nom)} WITH IS_TEMPLATE true ALLOW_CONNECTIONS false`);
   } finally {
     await admin.end();

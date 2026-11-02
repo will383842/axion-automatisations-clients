@@ -58,9 +58,27 @@ describe("modèle des bases des clients", () => {
   it("[A-207] la trace est en ajout seul : un déclencheur refuse UPDATE et DELETE, et le propriétaire garde la table", () => {
     const sql = sqlDe("apps/api/drizzle-cli");
     expect(sql).toMatch(/CREATE TRIGGER \w+ BEFORE UPDATE OR DELETE ON "trace"\."evenements"/);
-    expect(sql).toMatch(/SET search_path = pg_catalog, pg_temp/);
-    expect(sql).toMatch(/REVOKE ALL ON FUNCTION [\w."]+\(\) FROM PUBLIC/);
+    // Chaque fonction créée a SON search_path figé et SON REVOKE ALL ... FROM PUBLIC : en retirer un seul rougit l'essai.
+    const fonctions = [...sql.matchAll(/CREATE FUNCTION ([\w."]+)\(\)([\s\S]*?)\$fonction\$;/g)];
+    expect(fonctions.length).toBeGreaterThan(0);
+    for (const [, nom, corps] of fonctions) {
+      expect(corps, `${nom} : search_path`).toContain("SET search_path = pg_catalog, pg_temp");
+      expect(sql, `${nom} : REVOKE`).toContain(`REVOKE ALL ON FUNCTION ${nom}() FROM PUBLIC`);
+    }
     expect(sql).toMatch(/IN \('import', 'modification', 'export'\)/);
+  });
+
+  it("[C-034] prénom et type de contenu sont bornés, les empreintes ont 32 octets, retire_le existe", () => {
+    const sql = sqlDe("apps/api/drizzle-cli");
+    for (const c of ["prenom", "type_contenu"]) expect(sql, c).toContain(`CHECK (char_length("${c}") <= 500)`);
+    for (const c of ["courriel_empreinte", "telephone_empreinte", "empreinte"]) expect(sql, c).toContain(`octet_length("${c}") = 32`);
+    expect(config("listes_prospects_personnes").columns.map((c) => c.name)).toContain("retire_le");
+  });
+
+  it("[A-212] les droits : aucun DELETE accordé, exclusions sans UPDATE", () => {
+    const source = readFileSync(racine("apps/api/src/donnees/migrer-base.ts"), "utf8");
+    expect(source).not.toMatch(/GRANT[^`]*DELETE/);
+    expect(source).toContain("REVOKE UPDATE ON commun.exclusions FROM");
   });
 
   it("[B-348] le modèle ne contient aucune ligne : aucune instruction INSERT dans les migrations", () => {

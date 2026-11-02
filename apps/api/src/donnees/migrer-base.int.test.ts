@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { construireModele, migrerBase } from "./migrer-base.ts";
 
 // T2-32 : modèle modele_vN et outil de migration, contre une grappe PostgreSQL où un rôle administrateur peut créer des bases et des rôles
@@ -42,11 +42,20 @@ async function creerClient(): Promise<string> {
   return base;
 }
 
+// Dette T2-34 : le job socle-integration doit ÉCHOUER (et non sauter ces essais) quand T232_PG_ADMIN_URL manque ; critère : job rouge sans la variable.
 describe.skipIf(!ADMIN)("modèle de base client (grappe jetable)", () => { // fiche: T2-34
-  it("[A-207] une base créée depuis modele_vN a les schémas commun et trace et la table version_structure", async () => {
+  // Le modèle est construit une fois, avant tous les essais : aucun ne dépend de l'ordre des autres.
+  beforeAll(async () => {
     await construireModele(N, { url: vers("postgres") });
+  }, 60_000);
+
+  it("[A-207] une base créée depuis modele_vN a les schémas commun et trace et la table version_structure", async () => {
     const t = await admin.query("SELECT datistemplate, datallowconn FROM pg_database WHERE datname = $1", [`modele_v${N}`]);
     expect(t.rows[0]).toEqual({ datistemplate: true, datallowconn: false });
+    // CONNECT retiré à PUBLIC (aucune ligne d'ACL pour le grantee 0) et dernière version notée sur le modèle.
+    const acl = await admin.query("SELECT count(*)::int AS n FROM pg_database d, aclexplode(d.datacl) a WHERE d.datname = $1 AND a.grantee = 0 AND a.privilege_type = 'CONNECT'", [`modele_v${N}`]);
+    expect(acl.rows[0]?.n).toBe(0);
+    expect((await admin.query("SELECT shobj_description(oid, 'pg_database') AS c FROM pg_database WHERE datname = $1", [`modele_v${N}`])).rows[0]?.c).toBe("version_structure=1");
     const base = await creerClient();
     const r = await sur(base, (c) => c.query("SELECT nspname FROM pg_namespace WHERE nspname IN ('commun','trace') UNION ALL SELECT table_name FROM information_schema.tables WHERE table_name = 'version_structure'"));
     expect(r.rows.map((x) => x.nspname).sort()).toEqual(["commun", "trace", "version_structure"]);
@@ -85,9 +94,39 @@ describe.skipIf(!ADMIN)("modèle de base client (grappe jetable)", () => { // fi
     await app((c) => c.query("INSERT INTO trace.evenements (qui, quoi, objet) VALUES ('agent-essai', 'export', 'liste d''essai')"));
     await expect(app((c) => c.query("INSERT INTO public.version_structure(version, empreinte) VALUES (99, 'x')"))).rejects.toThrow(/permission|privilège/i);
     await expect(app((c) => c.query("DELETE FROM commun.etablissements"))).rejects.toThrow(/permission|privilège/i);
+    // Aucun DELETE accordé, même sur la table de liaison des listes ; une opposition ne se modifie ni ne s'efface.
+    await expect(app((c) => c.query("DELETE FROM commun.listes_prospects_personnes"))).rejects.toThrow(/permission|privilège/i);
+    await app((c) => c.query("INSERT INTO commun.exclusions (genre, empreinte) VALUES ('courriel', decode(repeat('ab', 32), 'hex'))"));
+    await expect(app((c) => c.query("UPDATE commun.exclusions SET genre = 'telephone'"))).rejects.toThrow(/permission|privilège/i);
+    await expect(app((c) => c.query("DELETE FROM commun.exclusions"))).rejects.toThrow(/permission|privilège/i);
+    await expect(app((c) => c.query("INSERT INTO commun.exclusions (genre, empreinte) VALUES ('courriel', '\\x00')"))).rejects.toThrow(/exclusions_empreinte_taille/);
     expect(await lecture(async (c) => (await c.query("SELECT count(*)::int AS n FROM commun.etablissements")).rows[0]?.n)).toBe(1);
     await expect(lecture((c) => c.query("INSERT INTO commun.etablissements (nom) VALUES ('x')"))).rejects.toThrow(/permission|privilège/i);
     await expect(lecture((c) => c.query("INSERT INTO trace.evenements (qui, quoi, objet) VALUES ('a', 'import', 'b')"))).rejects.toThrow(/permission|privilège/i);
+  });
+
+  it("[A-212] on sort quelqu'un d'une liste en marquant retire_le, sans suppression", async () => {
+    const base = await creerClient();
+    await migrerBase(base, 1, { url: vers(base) });
+    await admin.query(`GRANT "${base}_app" TO CURRENT_USER`);
+    await sur(base, async (c) => {
+      const e = (await c.query("INSERT INTO commun.etablissements (nom) VALUES ('Siège Boulangerie Rivoire') RETURNING id")).rows[0]?.id;
+      const p = (await c.query("INSERT INTO commun.personnes (etablissement_id, nom) VALUES ($1, 'Essai Personne') RETURNING id", [e])).rows[0]?.id;
+      const l = (await c.query("INSERT INTO commun.listes_prospects (etablissement_id, nom) VALUES ($1, 'Liste essai') RETURNING id", [e])).rows[0]?.id;
+      await c.query("INSERT INTO commun.listes_prospects_personnes (liste_id, personne_id) VALUES ($1, $2)", [l, p]);
+      await c.query("UPDATE commun.listes_prospects_personnes SET retire_le = now()");
+      expect((await c.query("SELECT count(*)::int AS n FROM commun.listes_prospects_personnes WHERE retire_le IS NOT NULL")).rows[0]?.n).toBe(1);
+    }, `${base}_app`);
+  });
+
+  it("[C-034] un prénom, un type de contenu trop longs ou une empreinte qui n'a pas 32 octets sont refusés", async () => {
+    const base = await creerClient();
+    await sur(base, async (c) => {
+      const e = (await c.query("INSERT INTO commun.etablissements (nom) VALUES ('Siège Garage Fontaine') RETURNING id")).rows[0]?.id;
+      await expect(c.query("INSERT INTO commun.personnes (etablissement_id, nom, prenom) VALUES ($1, 'N', repeat('x', 501))", [e])).rejects.toThrow(/prenom_longueur/);
+      await expect(c.query("INSERT INTO commun.personnes (etablissement_id, nom, courriel_empreinte) VALUES ($1, 'N', '\\x00')", [e])).rejects.toThrow(/empreinte_taille/);
+      await expect(c.query("INSERT INTO commun.index_fichiers (etablissement_id, cle_objet, empreinte, taille_octets, type_contenu) VALUES ($1, 'k', repeat('a', 64), 1, repeat('x', 501))", [e])).rejects.toThrow(/type_longueur/);
+    }, `${base}_proprietaire`);
   });
 
   it("[B-173] une personne sans établissement est refusée", async () => {

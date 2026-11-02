@@ -1,5 +1,5 @@
 {
-  "id": "f0711d2e-e8a6-49d1-af97-12a57cfa3ffd",
+  "id": "54008ad3-2641-45c6-8476-75091dc1ceb1",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -139,6 +139,10 @@
         "exclusions_genre": {
           "name": "exclusions_genre",
           "value": "\"commun\".\"exclusions\".\"genre\" IN ('courriel', 'telephone')"
+        },
+        "exclusions_empreinte_taille": {
+          "name": "exclusions_empreinte_taille",
+          "value": "octet_length(\"empreinte\") = 32"
         }
       },
       "isRLSEnabled": false
@@ -230,6 +234,10 @@
           "name": "index_fichiers_cle_longueur",
           "value": "char_length(\"cle_objet\") <= 500"
         },
+        "index_fichiers_type_longueur": {
+          "name": "index_fichiers_type_longueur",
+          "value": "char_length(\"type_contenu\") <= 500"
+        },
         "index_fichiers_empreinte_forme": {
           "name": "index_fichiers_empreinte_forme",
           "value": "\"commun\".\"index_fichiers\".\"empreinte\" ~ '^[0-9a-f]{64}$'"
@@ -311,6 +319,12 @@
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
+        },
+        "retire_le": {
+          "name": "retire_le",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {},
@@ -506,6 +520,18 @@
         "personnes_nom_longueur": {
           "name": "personnes_nom_longueur",
           "value": "char_length(\"nom\") <= 500"
+        },
+        "personnes_prenom_longueur": {
+          "name": "personnes_prenom_longueur",
+          "value": "char_length(\"prenom\") <= 500"
+        },
+        "personnes_courriel_empreinte_taille": {
+          "name": "personnes_courriel_empreinte_taille",
+          "value": "\"courriel_empreinte\" IS NULL OR octet_length(\"courriel_empreinte\") = 32"
+        },
+        "personnes_telephone_empreinte_taille": {
+          "name": "personnes_telephone_empreinte_taille",
+          "value": "\"telephone_empreinte\" IS NULL OR octet_length(\"telephone_empreinte\") = 32"
         }
       },
       "isRLSEnabled": false

@@ -4,7 +4,7 @@ Chaque client a sa propre base `cli_<id>` sur la grappe « données » (ADR 0046
 
 ## Structure du modèle
 - Schéma `commun` : `etablissements`, `entreprises`, `personnes`, `listes_prospects`, `listes_prospects_personnes`, `exclusions` (empreintes seulement), `index_fichiers` (clé d'objet, empreinte, taille, type ; jamais le fichier).
-- E-mails et téléphones : colonnes `bytea` `<champ>_chiffre` (chiffrées par la clé du client, T2-33) et `<champ>_empreinte` (recherche).
+- E-mails et téléphones : colonnes `bytea` `<champ>_chiffre` (chiffrées par la clé du client, T2-33) et `<champ>_empreinte` (recherche, exactement 32 octets). Les textes libres (prénom, type de contenu…) sont bornés à 500 caractères.
 - `etablissement_id` est obligatoire sur `personnes`, `listes_prospects` et `index_fichiers`. Ce n'est pas une RLS : le filtre par établissement est imposé par le service des données (T2-37).
 - Schéma `trace` : `evenements` (qui, quoi : `import`, `modification` ou `export`, objet, quand), en ajout seul : un déclencheur refuse UPDATE, DELETE et TRUNCATE.
 - `public.version_structure` : une ligne par migration appliquée, avec l'empreinte du fichier. C'est le journal des migrations de la base.
@@ -12,13 +12,13 @@ Chaque client a sa propre base `cli_<id>` sur la grappe « données » (ADR 0046
 
 ## Qui peut quoi
 - `cli_<id>_proprietaire` (sans connexion) possède la base, les schémas, `trace` et `version_structure` ; les migrations passent par lui.
-- `cli_<id>_app` lit et écrit `commun` (sans DELETE, sauf sur `listes_prospects_personnes`), insère dans `trace`, lit `version_structure`.
+- `cli_<id>_app` lit et écrit `commun` (aucun DELETE accordé nulle part ; `exclusions` en ajout seul : ni UPDATE ni DELETE, une opposition ne s'efface jamais), insère dans `trace`, lit `version_structure`. Pour sortir quelqu'un d'une liste, on marque `retire_le` sur `listes_prospects_personnes` : on ne supprime pas.
 - `cli_<id>_lecture` lit `commun`, `trace` et `version_structure`.
 - Aucun des deux ne peut changer la structure ni la trace.
 
 ## Outil de migration (`apps/api/src/donnees/migrer-base.ts`)
 - `migrerBase(nomBase, versionCible, { url })` : refuse tout rôle `_app`, `_lecture` ou `_equipe`, et PgBouncer ; prend l'identité du propriétaire ; applique dans l'ordre les migrations manquantes (une transaction chacune) ; écrit `version_structure` ; pose les droits ci-dessus et vérifie qu'ils sont bien là.
-- `construireModele(N, { url })` : crée `modele_v<N>` (propriétaire `modele_proprietaire`), y applique toutes les migrations, puis le marque `IS_TEMPLATE` et `ALLOW_CONNECTIONS false`. Il refuse si la base existe, il ne détruit rien.
+- `construireModele(N, { url })` : crée `modele_v<N>` (propriétaire `modele_proprietaire`), y applique toutes les migrations, puis le marque `IS_TEMPLATE` et `ALLOW_CONNECTIONS false`. `CONNECT` est retiré à tout le monde dès la création, et la dernière version est notée en commentaire de la base. Il refuse si la base existe, il ne détruit rien.
 - Une migration déjà appliquée dont le fichier a changé, un trou dans les versions ou une version cible inconnue sont refusés.
 - La garde `scripts/garde-migrations.ts` lit aussi `apps/*/drizzle-cli/` : aucun DROP, RENAME ni changement de type.
 

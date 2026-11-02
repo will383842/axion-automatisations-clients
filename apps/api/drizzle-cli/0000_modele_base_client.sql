@@ -24,7 +24,8 @@ CREATE TABLE "commun"."exclusions" (
 	"empreinte" "bytea" NOT NULL,
 	"cree_le" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "exclusions_genre_empreinte_unique" UNIQUE("genre","empreinte"),
-	CONSTRAINT "exclusions_genre" CHECK ("commun"."exclusions"."genre" IN ('courriel', 'telephone'))
+	CONSTRAINT "exclusions_genre" CHECK ("commun"."exclusions"."genre" IN ('courriel', 'telephone')),
+	CONSTRAINT "exclusions_empreinte_taille" CHECK (octet_length("empreinte") = 32)
 );
 --> statement-breakpoint
 CREATE TABLE "commun"."index_fichiers" (
@@ -38,6 +39,7 @@ CREATE TABLE "commun"."index_fichiers" (
 	CONSTRAINT "index_fichiers_cle_unique" UNIQUE("etablissement_id","cle_objet"),
 	CONSTRAINT "index_fichiers_taille" CHECK ("commun"."index_fichiers"."taille_octets" BETWEEN 0 AND 9007199254740991),
 	CONSTRAINT "index_fichiers_cle_longueur" CHECK (char_length("cle_objet") <= 500),
+	CONSTRAINT "index_fichiers_type_longueur" CHECK (char_length("type_contenu") <= 500),
 	CONSTRAINT "index_fichiers_empreinte_forme" CHECK ("commun"."index_fichiers"."empreinte" ~ '^[0-9a-f]{64}$')
 );
 --> statement-breakpoint
@@ -52,6 +54,7 @@ CREATE TABLE "commun"."listes_prospects" (
 CREATE TABLE "commun"."listes_prospects_personnes" (
 	"liste_id" uuid NOT NULL,
 	"personne_id" uuid NOT NULL,
+	"retire_le" timestamp with time zone,
 	CONSTRAINT "listes_prospects_personnes_liste_id_personne_id_pk" PRIMARY KEY("liste_id","personne_id")
 );
 --> statement-breakpoint
@@ -66,7 +69,10 @@ CREATE TABLE "commun"."personnes" (
 	"telephone_chiffre" "bytea",
 	"telephone_empreinte" "bytea",
 	"cree_le" timestamp with time zone DEFAULT now() NOT NULL,
-	CONSTRAINT "personnes_nom_longueur" CHECK (char_length("nom") <= 500)
+	CONSTRAINT "personnes_nom_longueur" CHECK (char_length("nom") <= 500),
+	CONSTRAINT "personnes_prenom_longueur" CHECK (char_length("prenom") <= 500),
+	CONSTRAINT "personnes_courriel_empreinte_taille" CHECK ("courriel_empreinte" IS NULL OR octet_length("courriel_empreinte") = 32),
+	CONSTRAINT "personnes_telephone_empreinte_taille" CHECK ("telephone_empreinte" IS NULL OR octet_length("telephone_empreinte") = 32)
 );
 --> statement-breakpoint
 CREATE TABLE "version_structure" (

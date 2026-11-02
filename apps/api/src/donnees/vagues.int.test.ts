@@ -46,14 +46,17 @@ async function creerBaseFictive(i: number): Promise<BaseRegistre> {
   const id = randomUUID();
   const base = nomBaseDe(id);
   const admin = adminPg(sqlPg(pool("postgres")), (b) => sqlPg(pool(b)));
-  await admin.creerBase(base, "modele_v1");
-  let v = 0;
-  for (const r of Object.values(nomsRoles(id))) await admin.poserRole(r, empreinteVide(), ++v);
-  const p = nomsRoles(id).proprietaire;
-  await pool(base).query(`GRANT ${p} TO CURRENT_USER WITH SET TRUE`);
-  // Comme migrer-module.int.test.ts : le propriétaire possède la base (il y crée donc les schémas commun et trace), PUBLIC n'a pas CONNECT, le provisionneur le garde.
-  await pool("postgres").query(`ALTER DATABASE ${base} OWNER TO ${p}; SET ROLE ${p}; REVOKE ALL ON DATABASE ${base} FROM PUBLIC; GRANT CONNECT ON DATABASE ${base} TO provisionneur; RESET ROLE`);
-  await fermerPool(base);
+  try {
+    await admin.creerBase(base, "modele_v1");
+    let v = 0;
+    for (const r of Object.values(nomsRoles(id))) await admin.poserRole(r, empreinteVide(), ++v);
+    const p = nomsRoles(id).proprietaire;
+    await pool(base).query(`GRANT ${p} TO CURRENT_USER WITH SET TRUE`);
+    // Comme migrer-module.int.test.ts : le propriétaire possède la base (il y crée donc les schémas commun et trace), PUBLIC n'a pas CONNECT, le provisionneur le garde.
+    await pool("postgres").query(`ALTER DATABASE ${base} OWNER TO ${p}; SET ROLE ${p}; REVOKE ALL ON DATABASE ${base} FROM PUBLIC; GRANT CONNECT ON DATABASE ${base} TO provisionneur; RESET ROLE`);
+  } finally {
+    await fermerPool(base);
+  }
   await migrerBase(base, lireEntrees(DOSSIER_CLI).length, { url: vers(base) });
   return { id: `id${i}`, tenantId: id, nomBase: base, versionStructure: lireEntrees(DOSSIER_CLI).length, etat: "active" };
 }
@@ -71,7 +74,15 @@ describe("vagues sur des bases fictives (grappe jetable)", () => { // fiche: T2-
     async noter(baseId, version, resultat) { notes.push(resultat); if (resultat === "ok") liste.find((b) => b.id === baseId)!.versionStructure = version; },
     async alerter(a) { alertes.push(a); },
   });
-  const versionDe = async (base: string) => { const c = new pg.Client({ connectionString: vers(base) }); await c.connect(); try { return (await c.query("SELECT max(version)::int AS v FROM public.version_structure")).rows[0]?.v as number; } finally { await c.end(); } };
+  // Le registre version_structure appartient au propriétaire de la base (comme en production : migrerBase prend ce rôle) ; le provisionneur le devient par SET ROLE, jamais par un GRANT de plus.
+  // Une connexion à la fois, fermée aussitôt (pas de pool laissé ouvert).
+  const sousProprietaire = async <T,>(base: string, f: (c: pg.Client) => Promise<T>): Promise<T> => {
+    const c = new pg.Client({ connectionString: vers(base) });
+    await c.connect();
+    try { await c.query(`SET ROLE "${base}_proprietaire"`); return await f(c); } finally { await c.end().catch(() => undefined); }
+  };
+  const versionDe = (base: string) => sousProprietaire(base, async (c) => (await c.query("SELECT max(version)::int AS v FROM public.version_structure")).rows[0]?.v as number);
+  const aColonne = (base: string) => sousProprietaire(base, async (c) => (await c.query("SELECT 1 FROM information_schema.columns WHERE table_name = 'etablissements' AND column_name = 'note_vagues'")).rowCount);
   beforeAll(async () => {
     dossierV2 = mkdtempSync(join(tmpdir(), "cli-v2-"));
     cpSync(DOSSIER_CLI, dossierV2, { recursive: true });
@@ -108,17 +119,14 @@ describe("vagues sur des bases fictives (grappe jetable)", () => { // fiche: T2-
     // Relu dans les bases elles-mêmes, pas seulement dans le registre.
     for (const base of [noms[0]!, noms[50]!, noms[99]!]) {
       expect(await versionDe(base)).toBe(cible);
-      expect((await pool(base).query("SELECT 1 FROM information_schema.columns WHERE table_name = 'etablissements' AND column_name = 'note_vagues'")).rowCount).toBe(1);
+      expect(await aColonne(base)).toBe(1);
     }
   }, 900_000);
 
   it("[A-228] sur de vraies bases, un échec reste isolé : la base en échec reste en version précédente, alerte, les autres migrent", async () => {
     const trois = [await creerBaseFictive(1000), await creerBaseFictive(1001), await creerBaseFictive(1002)];
     // La colonne existe déjà dans la deuxième : sa migration additive échoue (et se défait), les deux autres passent.
-    const p = pool(trois[1]!.nomBase);
-    await p.query(`SET ROLE ${nomsRoles(trois[1]!.tenantId).proprietaire}`);
-    await p.query('ALTER TABLE "commun"."etablissements" ADD COLUMN "note_vagues" text');
-    await p.query("RESET ROLE");
+    await sousProprietaire(trois[1]!.nomBase, (c) => c.query('ALTER TABLE "commun"."etablissements" ADD COLUMN "note_vagues" text'));
     const alertes: { clientId: string }[] = [];
     const notes: string[] = [];
     const ports = mondeDe(trois, alertes, notes);

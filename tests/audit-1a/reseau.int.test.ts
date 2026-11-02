@@ -148,12 +148,20 @@ describe("audit 1-A · réseau : rien d'interne hors du réseau interne", () => 
     expect(ouverts(etat)).toEqual(["postgres:5432"]);
   }, 120_000);
 
-  // Défaut constaté (T1A-19, PR 90, 1re exécution) : un conteneur du réseau « internal » joint l'hôte par l'adresse du pont (ici le SSH du
-  // runner). Docker ne filtre pas ce chemin : en production, tout service de l'hôte qui écoute sur 0.0.0.0 (SSH, Coolify) serait joignable
-  // depuis les conteneurs du socle. Correction au lot 1-B : pare-feu de l'hôte (chaîne INPUT) qui refuse les ponts des réseaux internes.
-  it.fails("[C-533] @lot-1b depuis le réseau « interne », un service de l'hôte (SSH) n'est pas joignable par le pont", () => {
+  // Défaut corrigé (T1B-12, point 3) : un conteneur du réseau « internal » joignait l'hôte par l'adresse du pont (ici le SSH du runner).
+  // Docker ne filtre pas ce chemin. Correction : pare-feu de l'hôte (chaîne INPUT) lancé par lancer.sh (ops/socle/pare-feu-ponts.sh).
+  it("[C-533] @lot-1b depuis le réseau « interne », un service de l'hôte (SSH) n'est pas joignable par le pont", () => {
     const etat = sonder("socle_interne", [{ nom: pont(), port: 22 }]);
     expect(ouverts(etat)).toEqual([]);
+  }, 120_000);
+
+  it("[C-533] @lot-1b depuis le réseau « interne », aucun autre port de l'hôte n'est joignable par le pont, et les services du réseau se joignent encore entre eux", () => {
+    const hote = pont();
+    const ports = [22, 80, 443, 2375, 2376, 8080, 8443, 9000];
+    const etat = sonder("socle_interne", [{ nom: "postgres", port: 5432 }, { nom: "valkey", port: 6379 }, ...ports.map((port) => ({ nom: hote, port }))]);
+    expect(etat.get("postgres:5432"), "témoin : les conteneurs du même réseau se joignent").toBe("OUVERT");
+    expect(etat.get("valkey:6379"), "témoin : les conteneurs du même réseau se joignent").toBe("OUVERT");
+    expect(ouverts(etat)).toEqual(["postgres:5432", "valkey:6379"]);
   }, 120_000);
 
   it("[A-066] depuis l'hôte, aucun port interne n'écoute sur 127.0.0.1 (témoin : 8443 répond)", async () => {

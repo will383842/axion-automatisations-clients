@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Pool } from "pg";
 import { ErreurApi } from "../plugins/erreurs.js";
-import { historique, modifier, revenir } from "./versions.js";
+import { historique, modifier, revenir, serviceAnnulationReglages } from "./versions.js";
 
 // Versions des réglages (A-175, A-176) : base simulée en mémoire ; la concurrence réelle est vérifiée par versions.int.test.ts.
 const TENANT = "11111111-1111-4111-8111-111111111111";
@@ -24,6 +24,7 @@ function base() {
       if (/INSERT INTO configurations/.test(sql)) { lignes.push({ id: String(p[0]), numero: Number(p[2]), donnees: JSON.parse(String(p[3])) as Record<string, unknown>, auteur: String(p[5]), motif_changement: String(p[6]), active: false, active_par: null }); return { rows: [] }; }
       if (/UPDATE configurations SET active = true/.test(sql)) { const l = lignes.find((x) => x.id === p[0])!; l.active = true; l.active_par = String(p[1]); return { rows: [] }; }
       if (/FROM configurations WHERE instance_id = \$1 AND numero = \$2/.test(sql)) return { rows: lignes.filter((l) => l.numero === p[1]) };
+      if (/numero FROM configurations WHERE instance_id = \$1 AND active/.test(sql)) return { rows: lignes.filter((l) => l.active) };
       if (/FROM configurations/.test(sql)) return { rows: [...lignes].sort((a, b) => b.numero - a.numero) };
       return { rows: [] };
     },
@@ -89,5 +90,15 @@ describe("versions des réglages", () => {
     expect(e).toMatchObject({ code: "introuvable" });
     await expect(historique(b.pool, AUTRE, INSTANCE)).rejects.toMatchObject({ code: "introuvable" });
     expect(b.lignes).toEqual([]);
+  });
+
+  it("[C-443] l'annulation d'une modification recrée la version précédente (rien n'est supprimé)", async () => {
+    const b = base();
+    await ecrire(b, 1); await ecrire(b, 2);
+    const client = await (b.pool as unknown as { connect(): Promise<never> }).connect();
+    const nouvelle = JSON.stringify({ instance_id: INSTANCE, numero: 2 });
+    await serviceAnnulationReglages.annuler(client, { id: "7", tenant_id: TENANT, entite: "configurations", entite_id: "x", action: "insertion", ancienne: null, nouvelle }, "agent-essai");
+    expect(b.lignes.map((l) => l.numero)).toEqual([1, 2, 3]);
+    expect(b.lignes[2]).toMatchObject({ donnees: { relance_jours: 1 }, active: true, motif_changement: "annulation de la version 2" });
   });
 });

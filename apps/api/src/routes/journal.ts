@@ -1,5 +1,6 @@
-import type { FastifyInstance, preHandlerAsyncHookHandler } from "fastify";
+import type { FastifyInstance, FastifyRequest, preHandlerAsyncHookHandler } from "fastify";
 import { z } from "zod";
+import type { Contexte } from "./reglages.js";
 import type { LigneJournal } from "../journal-audit/contenu-canonique.js";
 import { COLONNES, type Requete } from "../journal-audit/verifier.js";
 import { ErreurApi } from "../plugins/erreurs.js";
@@ -41,5 +42,17 @@ export function routeJournal(serveur: FastifyInstance, o: { exigerEquipe: preHan
     const { entite, entiteId, du, au, apres, limite } = p.data;
     const lignes = await o.lire({ entite, ...(entiteId ? { entiteId } : {}), ...(du ? { du } : {}), ...(au ? { au } : {}), ...(apres ? { apres } : {}), limite });
     return { lignes, suivant: lignes.length === limite ? (lignes[lignes.length - 1]?.id ?? null) : null };
+  });
+}
+
+// Annulation en un clic (A-030, C-443) : le client actif et l'auteur viennent de la session, jamais du corps ; la ligne se désigne par son numéro seulement.
+export function routeAnnulation(
+  serveur: FastifyInstance,
+  o: { exigerEquipe: preHandlerAsyncHookHandler; contexte: (requete: FastifyRequest) => Promise<Contexte>; annuler: (c: Contexte, idLigne: string) => Promise<{ entite: string; entite_id: string }> },
+): void {
+  serveur.post("/api/console/v1/journal/:id/annuler", { preHandler: o.exigerEquipe }, async (requete) => {
+    const p = z.strictObject({ id: z.string().regex(/^[0-9]{1,18}$/) }).safeParse(requete.params);
+    if (!p.success) throw new ErreurApi("schema_invalide", "Requête invalide.");
+    return o.annuler(await o.contexte(requete), p.data.id);
   });
 }

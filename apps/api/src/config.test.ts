@@ -122,6 +122,13 @@ describe("interrupteurs des canaux", () => {
     expect(refus({ NODE_ENV: "test", CONSOLE_HUB_ACTIF: "oui" })).toContain("CONSOLE_HUB_ACTIF");
   });
 
+  it("[A-252] le retrait des exports à 30 jours est fermé par défaut ; seules les valeurs 1 et true l'ouvrent", () => {
+    expect(chargerConfig(prod(), dossier()).exportsRetraitActif).toBe(false);
+    expect(chargerConfig({ NODE_ENV: "development", EXPORTS_RETRAIT_ACTIF: "" }, dossier()).exportsRetraitActif).toBe(false);
+    expect(chargerConfig({ NODE_ENV: "test", EXPORTS_RETRAIT_ACTIF: "true" }, dossier()).exportsRetraitActif).toBe(true);
+    expect(refus({ NODE_ENV: "test", EXPORTS_RETRAIT_ACTIF: "oui" })).toContain("EXPORTS_RETRAIT_ACTIF");
+  });
+
   it("[A-180] la purge de rétention est fermée par défaut", () => {
     expect(chargerConfig(prod(), dossier()).retentionPurgeActive).toBe(false);
     expect(chargerConfig({ NODE_ENV: "development", RETENTION_PURGE_ACTIVE: "" }, dossier()).retentionPurgeActive).toBe(false);
@@ -136,5 +143,11 @@ describe("interrupteurs des canaux", () => {
   it("[A-180] hors production, l'interrupteur s'ouvre sans date, et une valeur inconnue est refusée", () => {
     expect(chargerConfig({ NODE_ENV: "test", RETENTION_PURGE_ACTIVE: "true" }, dossier()).retentionPurgeActive).toBe(true);
     refus({ NODE_ENV: "test", RETENTION_PURGE_ACTIVE: "oui" });
+  });
+  it("[C-047] le retrait des anciens dumps est fermé par défaut ; seules 1 et true l'ouvrent ; toute autre valeur est refusée", () => {
+    expect(chargerConfig({ NODE_ENV: "test" }, dossier()).sauvegardesRetraitActif).toBe(false);
+    expect(chargerConfig({ NODE_ENV: "test", SAUVEGARDES_RETRAIT_ACTIF: "" }, dossier()).sauvegardesRetraitActif).toBe(false);
+    expect(chargerConfig({ NODE_ENV: "test", SAUVEGARDES_RETRAIT_ACTIF: "true" }, dossier()).sauvegardesRetraitActif).toBe(true);
+    expect(refus({ NODE_ENV: "test", SAUVEGARDES_RETRAIT_ACTIF: "oui" })).toContain("SAUVEGARDES_RETRAIT_ACTIF");
   });
 });

@@ -1,4 +1,4 @@
-import { lireEnveloppeChamp, serialiserEnveloppe } from "../donnees/colonnes-chiffrees.js";
+import { contexteFichier, delierContexte, lierContexte, lireEnveloppeChamp, serialiserEnveloppe } from "../donnees/colonnes-chiffrees.js";
 import type { creerEnveloppe } from "../coffre/enveloppe.js";
 
 // Fichiers du compartiment cli-<id> chiffrés par enveloppe avec la clé du client (A-201, A-244), même clé que les colonnes.
@@ -14,12 +14,19 @@ export interface PortFichiers {
 export function creerFichiersClient(o: { stockage: PortFichiers; enveloppe: Pick<ReturnType<typeof creerEnveloppe>, "chiffrer" | "dechiffrer"> }) {
   return {
     async deposerFichier(tenantId: string, cle: string, octets: Uint8Array): Promise<void> {
-      const e = await o.enveloppe.chiffrer(tenantId, Buffer.from(octets));
-      await o.stockage.deposer(tenantId, cle, serialiserEnveloppe(e));
+      // Le clair est précédé de « fichier:<cle> » : un objet déplacé sous une autre clé du compartiment, ou un champ, ne se lit pas.
+      const lie = lierContexte(contexteFichier(cle), Buffer.from(octets));
+      try {
+        await o.stockage.deposer(tenantId, cle, serialiserEnveloppe(await o.enveloppe.chiffrer(tenantId, lie)));
+      } finally {
+        lie.fill(0);
+      }
     },
     async lireFichier(tenantId: string, cle: string): Promise<Buffer | undefined> {
       const brut = await o.stockage.lire(tenantId, cle);
-      return brut === undefined ? undefined : o.enveloppe.dechiffrer(tenantId, lireEnveloppeChamp(brut));
+      if (brut === undefined) return undefined;
+      const attendu = contexteFichier(cle);
+      return delierContexte(attendu, await o.enveloppe.dechiffrer(tenantId, lireEnveloppeChamp(brut)));
     },
   };
 }

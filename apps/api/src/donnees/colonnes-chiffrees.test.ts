@@ -2,7 +2,7 @@ import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { ErreurCoffre, type OptionsBao } from "../coffre/coffre.js";
 import { creerEnveloppe } from "../coffre/enveloppe.js";
-import { creerColonnesChiffrees, lireEnveloppeChamp, normaliserEmail, normaliserTelephone } from "./colonnes-chiffrees.js";
+import { contexteChamp, creerColonnesChiffrees, delierContexte, lireEnveloppeChamp, normaliserEmail, normaliserTelephone } from "./colonnes-chiffrees.js";
 
 // Faux OpenBao (moteur transit) : clés par client, versions, clés de données, HMAC. Tout est généré à l'exécution.
 function creerFauxTransit() {
@@ -134,7 +134,7 @@ describe("colonnes chiffrées par la clé du client", () => {
     const clairDeA = bao.etat.clairs[0] as Buffer;
     const permissif = creerEnveloppe({ url: "http://bao.test", jeton: "j", fetch: async () => new Response(JSON.stringify({ data: { plaintext: clairDeA.toString("base64") } })) });
     await refus(permissif.dechiffrer(B, e), "dechiffrement_impossible");
-    expect((await enveloppe.dechiffrer(A, e)).toString()).toBe(MARQUEUR);
+    expect(delierContexte(contexteChamp(CTX), await enveloppe.dechiffrer(A, e)).toString()).toBe(MARQUEUR);
   });
 
   it("[A-243] la recherche par empreinte retrouve la personne sans déchiffrer ; les empreintes de deux clients diffèrent", async () => {

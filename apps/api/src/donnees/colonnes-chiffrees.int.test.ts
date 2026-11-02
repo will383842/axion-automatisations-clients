@@ -54,8 +54,12 @@ describe("colonnes et fichiers chiffrés, OpenBao réel", () => {
       const B = randomUUID();
       const ctx = { colonne: "personnes.courriel_chiffre", idLigne: randomUUID() };
       for (const t of [A, B]) {
+        marquer("clé de chiffrement");
         await env.creerCleClient(t);
-        await appeler(bao, "POST", `transit/keys/cli-${t}-recherche`, { type: "hmac", exportable: false });
+        marquer("clé de recherche");
+        // Appel direct : l'état HTTP et le texte d'erreur d'OpenBao (sans secret) disent pourquoi la création échoue, ce que ErreurCoffre ne dit pas.
+        const r = await fetch(`${bao.url}/v1/transit/keys/cli-${t}-recherche`, { method: "POST", headers: { "X-Vault-Token": bao.jeton, "Content-Type": "application/json" }, body: JSON.stringify({ type: "hmac", exportable: false }) });
+        if (!r.ok) throw new Error(`création de la clé de recherche : HTTP ${r.status} ${(await r.text()).slice(0, 200)}`);
       }
       marquer("chiffrement");
       const champ = await colonnes.chiffrerChamp(A, "essai@exemple.fr", ctx);
@@ -81,7 +85,7 @@ describe("colonnes et fichiers chiffrés, OpenBao réel", () => {
       trace(`COLONNES-INT terminé en ${Date.now() - debut} ms`);
     } catch (e) {
       // Seul le code ressort (ErreurCoffre : message = code) : aucun secret, pour lire l'échec dans le journal de la CI.
-      trace(`COLONNES-INT échec à l'étape « ${etape} » : ${(e as Error).name} ${(e as Error).message.slice(0, 120)}`);
+      trace(`COLONNES-INT échec à l'étape « ${etape} » : ${(e as Error).name} ${(e as Error).message.slice(0, 300)}`);
       throw e;
     }
   }, 120_000);

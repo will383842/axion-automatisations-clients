@@ -1,0 +1,5 @@
+# Modèle du fichier known_hosts de la cible SFTP (T1B-04, C-593). Copier en « known_hosts » (même dossier) et y mettre la clé PUBLIQUE de l'hôte :
+#   <hote> <type-de-cle> <cle-publique-en-base64>
+# L'empreinte est publique, pas un secret. Elle se relève sur le serveur lui-même (pas par le réseau : pas de confiance au premier contact).
+# REMPLACER ce modèle au branchement de la vraie cible (T1B-09) ; hors essai, preparer-configuration.sh refuse de démarrer tant que
+# known_hosts est absent ou ne contient aucune ligne de clé.

@@ -19,6 +19,7 @@ const expirer = lire("./expirer.sh");
 const restaurer = lire("./restaurer.sh");
 const bases = lire("../socle/postgres/init/01-bases.sql");
 const dossierScripts = fileURLToPath(new URL(".", import.meta.url));
+const lireRacine = (chemin: string) => readFileSync(new URL(`../../${chemin}`, import.meta.url), "utf8");
 const lignesActives = (texte: string) => texte.split("\n").filter((l) => !/^\s*(#|--)/.test(l));
 // Bloc d'un service du compose (de « nom: » au service ou à la section suivante, au même niveau).
 const service = (nom: string) => new RegExp(`^  ${nom}:\\n(?:(?:    .*|)\\n)+`, "m").exec(compose)?.[0] ?? "";
@@ -107,6 +108,28 @@ describe("configuration des sauvegardes (lecture statique)", () => {
     expect(r.status).not.toBe(0);
     expect(r.stdout).toBe("");
     expect(r.stderr).toMatch(/http:\/\/ refusé hors essai/);
+  });
+
+  it("[C-593] BAO_ESSAI_SANS_TLS n'apparaît dans aucun compose ou script qui n'est pas d'essai (jeton et phrase jamais en clair)", () => {
+    const fichiers = spawnSync("git", ["ls-files", "--full-name", "--", "*.sh", "*compose*.yml", "*compose*.yaml"], { encoding: "utf8", cwd: dossierScripts }).stdout.split("\n").filter(Boolean);
+    expect(fichiers.length).toBeGreaterThan(5);
+    // Admis : le script gardé lui-même (testé ci-dessous), les fichiers d'essai (nom « essai » ou tests) et les fixtures.
+    const fautifs = fichiers.filter((f) => !/essai|\.test\.|__fixtures__|(^|\/)lire-phrase-chiffrement\.sh$/.test(f)).filter((f) => /BAO_ESSAI_SANS_TLS/.test(lireRacine(f)));
+    expect(fautifs).toEqual([]);
+  });
+
+  it("[C-593] lire-phrase-chiffrement.sh refuse BAO_ESSAI_SANS_TLS=1 quand SAUVEGARDE_ESSAI n'est pas 1", () => {
+    const jeton = join(mkdtempSync(join(tmpdir(), "sauv-")), "jeton");
+    writeFileSync(jeton, "s.jeton-factice");
+    for (const essai of ["0", ""]) {
+      const r = spawnSync(join(dossierScripts, "lire-phrase-chiffrement.sh"), [], {
+        encoding: "utf8",
+        env: { PATH: process.env.PATH, BAO_ADDR: "http://openbao.test:8200", BAO_JETON_FICHIER: jeton, BAO_ESSAI_SANS_TLS: "1", SAUVEGARDE_ESSAI: essai },
+      });
+      expect(r.status).not.toBe(0);
+      expect(r.stdout).toBe("");
+      expect(r.stderr).toMatch(/BAO_ESSAI_SANS_TLS n'est admis qu'avec SAUVEGARDE_ESSAI=1/);
+    }
   });
 
   it("[C-593] lire-phrase-chiffrement.sh lit la phrase en HTTPS quand le certificat est signé par l'autorité donnée, et la refuse sinon", async () => {

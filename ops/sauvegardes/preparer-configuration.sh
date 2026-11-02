@@ -21,6 +21,7 @@ hors_essai=0
 known_hosts=""
 if [ "${SAUVEGARDE_ESSAI:-}" != "1" ]; then
   hors_essai=1
+  # Port SFTP autre que 22 : la ligne du fichier doit être de la forme « [hote]:port type clé » (sinon l'hôte est refusé).
   known_hosts="${SFTP_KNOWN_HOSTS:-$dossier/known_hosts}"
   if [ ! -s "$known_hosts" ] || ! grep -Evq '^[[:space:]]*(#|$)' "$known_hosts"; then
     echo "hors essai, l'empreinte de l'hôte SFTP doit être épinglée : known_hosts absent ou sans clé ($known_hosts ; modèle : known_hosts.modele)" >&2

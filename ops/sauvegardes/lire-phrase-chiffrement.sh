@@ -3,14 +3,23 @@
 #   Essai (SAUVEGARDE_ESSAI=1) : lue dans le fichier généré au lancement par le service cle-essai.
 #   Sinon : lue dans OpenBao, chemin technique/sauvegardes, champ « phrase ».
 #     BAO_ADDR            https://hote:port (T1B-04) : le certificat est vérifié (chaîne et nom) contre l'autorité du réseau interne,
-#                         BAO_CA_FICHIER (obligatoire, lisible). http://hote:port est REFUSÉ, sauf BAO_ESSAI_SANS_TLS=1 (OpenBao d'essai jetable).
+#                         BAO_CA_FICHIER (obligatoire, lisible). http://hote:port est REFUSÉ, sauf BAO_ESSAI_SANS_TLS=1 (OpenBao d'essai jetable),
+#                         qui n'est admis qu'avec SAUVEGARDE_ESSAI=1 (sinon refus net) et qui fait lire OpenBao au lieu de /cles/phrase.
+#                         Le nom d'hôte du certificat est vérifié (-verify_hostname) : une adresse IP n'est pas couverte et échoue (échec fermé),
+#                         utiliser un nom d'hôte présent dans le certificat.
 #     BAO_JETON_FICHIER   fichier qui contient le jeton (jamais le jeton lui-même dans l'environnement)
 #     BAO_DELAI           délai maximal, en secondes, de la connexion et de la lecture (défaut 10) : un OpenBao muet fait échouer le script
 #                         (code 1, message net) au lieu de bloquer le démarrage.
 # Une phrase de moins de 32 caractères est refusée : la production exige au moins 32 octets aléatoires (voir README).
 set -euo pipefail
 
-if [ "${SAUVEGARDE_ESSAI:-}" = "1" ]; then
+# Garde : le repli en clair n'existe qu'en essai. Hors essai, il est refusé même si la variable traîne dans l'environnement.
+if [ "${BAO_ESSAI_SANS_TLS:-}" = "1" ] && [ "${SAUVEGARDE_ESSAI:-}" != "1" ]; then
+  echo "BAO_ESSAI_SANS_TLS n'est admis qu'avec SAUVEGARDE_ESSAI=1 : jeton et phrase ne passent jamais en clair hors essai" >&2
+  exit 1
+fi
+
+if [ "${SAUVEGARDE_ESSAI:-}" = "1" ] && [ "${BAO_ESSAI_SANS_TLS:-}" != "1" ]; then
   phrase="$(cat /cles/phrase)"
 else
   [ -n "${BAO_ADDR:-}" ] || { echo "adresse d'OpenBao absente (BAO_ADDR)" >&2; exit 1; }

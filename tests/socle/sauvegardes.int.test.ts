@@ -111,7 +111,6 @@ const preparerOpenBao = () => {
     const jeton = exec(racine, "", "token", "create", "-policy=sauvegardes-lecture", "-no-default-policy", "-orphan", "-field=token").trim();
     // Un second secret, hors du chemin autorisé : le jeton ne doit pas pouvoir le lire (essai du test C-523).
     await reessayer(() => exec(racine, JSON.stringify({ valeur: "autre" }), "kv", "put", "-mount=technique", "autre-secret", "-"), "écriture de technique/autre-secret");
-    sortie("docker", ["exec", "-i", conteneur("postgres"), "sh", "-c", `umask 077 && cat > ${JETON_DANS_POSTGRES}-copie`], { input: jeton });
     jetonBao = jeton;
     expect(jeton.length).toBeGreaterThan(10);
     sortie("docker", ["exec", "-i", conteneur("postgres"), "sh", "-c", `umask 077 && cat > ${JETON_DANS_POSTGRES} && printf '%s' s.faux > ${JETON_DANS_POSTGRES}-faux`], { input: jeton });
@@ -119,8 +118,8 @@ const preparerOpenBao = () => {
   })();
   return baoPret;
 };
-// OpenBao du socle d'essai parle en HTTP simple : BAO_ESSAI_SANS_TLS=1 l'admet ; sans lui, http:// est refusé (T1B-04).
-const ENV_BAO = ["-e", "SAUVEGARDE_ESSAI=0", "-e", "BAO_ESSAI_SANS_TLS=1", "-e", "BAO_ADDR=http://openbao:8200", "-e", `BAO_JETON_FICHIER=${JETON_DANS_POSTGRES}`];
+// OpenBao du socle d'essai parle en HTTP simple : BAO_ESSAI_SANS_TLS=1 l'admet (avec SAUVEGARDE_ESSAI=1 seulement : le script refuse sinon) ; sans lui, http:// est refusé (T1B-04).
+const ENV_BAO = ["-e", "SAUVEGARDE_ESSAI=1", "-e", "BAO_ESSAI_SANS_TLS=1", "-e", "BAO_ADDR=http://openbao:8200", "-e", `BAO_JETON_FICHIER=${JETON_DANS_POSTGRES}`];
 
 describe("sauvegardes (archivage continu, complète de nuit, restauration)", () => {
   it("[C-045] l'archivage continu est actif et un segment de journal arrive sur la cible", async () => {
@@ -224,9 +223,15 @@ describe("sauvegardes (archivage continu, complète de nuit, restauration)", () 
     const lue = sortie("docker", ["exec", ...ENV_BAO, conteneur("postgres"), "/opt/sauvegardes/lire-phrase-chiffrement.sh"]).trim();
     expect(lue).toBe(phrase);
     // Un jeton refusé par OpenBao ne donne aucune phrase.
-    const refus = spawnSync("docker", ["exec", "-e", "SAUVEGARDE_ESSAI=0", "-e", "BAO_ADDR=http://openbao:8200", "-e", `BAO_JETON_FICHIER=${JETON_DANS_POSTGRES}-faux`, conteneur("postgres"), "/opt/sauvegardes/lire-phrase-chiffrement.sh"], { encoding: "utf8" });
+    const refus = spawnSync("docker", ["exec", "-e", "SAUVEGARDE_ESSAI=1", "-e", "BAO_ESSAI_SANS_TLS=1", "-e", "BAO_ADDR=http://openbao:8200", "-e", `BAO_JETON_FICHIER=${JETON_DANS_POSTGRES}-faux`, conteneur("postgres"), "/opt/sauvegardes/lire-phrase-chiffrement.sh"], { encoding: "utf8" });
     expect(refus.status).not.toBe(0);
     expect(refus.stdout).toBe("");
+    expect(refus.stderr).toMatch(/OpenBao a refusé la lecture/);
+    // BAO_ESSAI_SANS_TLS=1 hors essai (SAUVEGARDE_ESSAI=0) : refusé net, le repli en clair n'existe pas.
+    const horsEssai = spawnSync("docker", ["exec", "-e", "SAUVEGARDE_ESSAI=0", "-e", "BAO_ESSAI_SANS_TLS=1", "-e", "BAO_ADDR=http://openbao:8200", "-e", `BAO_JETON_FICHIER=${JETON_DANS_POSTGRES}`, conteneur("postgres"), "/opt/sauvegardes/lire-phrase-chiffrement.sh"], { encoding: "utf8" });
+    expect(horsEssai.status).not.toBe(0);
+    expect(horsEssai.stdout).toBe("");
+    expect(horsEssai.stderr).toMatch(/BAO_ESSAI_SANS_TLS n'est admis qu'avec SAUVEGARDE_ESSAI=1/);
     // Sans BAO_ESSAI_SANS_TLS, http:// est refusé (seul HTTPS passe) ; https:// sans autorité de certification est refusé aussi : jamais de repli sur le fichier d'essai.
     const http = spawnSync("docker", ["exec", "-e", "SAUVEGARDE_ESSAI=0", "-e", "BAO_ADDR=http://openbao:8200", "-e", `BAO_JETON_FICHIER=${JETON_DANS_POSTGRES}`, conteneur("postgres"), "/opt/sauvegardes/lire-phrase-chiffrement.sh"], { encoding: "utf8" });
     expect(http.status).not.toBe(0);
@@ -291,6 +296,8 @@ describe("sauvegardes (archivage continu, complète de nuit, restauration)", () 
       // Une autre empreinte : refus (« info » rend 0 même cible illisible ; « repo-ls » échoue).
       const faux = info("/dev/shm/known-hosts-faux");
       expect(faux.status).not.toBe(0);
+      // La cause : c'est bien la clé d'hôte qui est refusée, pas une autre panne (cible muette, fichier absent).
+      expect(faux.stderr + faux.stdout).toMatch(/host.?key|known.?host|fingerprint|mismatch/i);
     } finally {
       spawnSync("docker", ["exec", conteneur("postgres"), "rm", "-f", "/dev/shm/known-hosts-bon", "/dev/shm/known-hosts-faux"]);
     }

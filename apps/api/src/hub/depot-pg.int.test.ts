@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { writeSync } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
@@ -57,9 +58,9 @@ const enveloppe = (client: string, f: FaitRange) => ({
 // BILAN affiché dans le journal de la CI : le rapport JSON de l'intégration n'est pas publié, un échec n'y serait pas lisible.
 const essai = (nom: string, fn: () => Promise<void>) =>
   it(nom, async ({ onTestFailed }) => {
-    onTestFailed((resultat) => console.log(`BILAN depot-pg : ROUGE ${nom.slice(0, 60)} : ${String((resultat as unknown as { errors?: { message?: string }[] }).errors?.[0]?.message).slice(0, 400)}`));
+    onTestFailed((resultat) => writeSync(2, `BILAN depot-pg : ROUGE ${nom.slice(0, 60)} : ${String((resultat as unknown as { errors?: { message?: string }[] }).errors?.[0]?.message).slice(0, 400)}\n`));
     await fn();
-    console.log(`BILAN depot-pg : vert ${nom.slice(0, 60)}`);
+    writeSync(2, `BILAN depot-pg : vert ${nom.slice(0, 60)}\n`);
   });
 
 describe("adaptateur Postgres du récepteur C2", { timeout: 30_000 }, () => {

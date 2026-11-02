@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { empreinteScram, migrationsAAppliquer, migrerBase, verifierRole } from "./migrer-base.ts";
+import { empreinteScram, migrationsAAppliquer, migrerBase, verifierContracter, verifierRole } from "./migrer-base.ts";
 
 const E = (n: number, empreinte = `h${n}`) => ({ version: n, tag: `000${n - 1}_x`, empreinte });
 
@@ -62,5 +62,23 @@ describe("outil de migration des bases des clients", () => {
     expect(e).toMatch(/^SCRAM-SHA-256\$4096:[A-Za-z0-9+/]+=*\$[A-Za-z0-9+/]+=*:[A-Za-z0-9+/]+=*$/);
     expect(e).not.toContain("secret-a-usage-unique");
     expect(empreinteScram("secret-a-usage-unique")).not.toBe(e);
+  });
+});
+
+describe("migrerBase : phase contracter", () => {
+  const ouvert = { interrupteurOuvert: true, versionN: 2, versionsDesBases: [2, 2], versionCodeDeployee: 3 };
+  const TEXTE = "-- phase: contracter\nALTER TABLE a DROP COLUMN x;";
+  it("[A-230] un contracter sans lecteur d'état, ou dont l'état refuse, est refusé : un booléen de l'appelant ne suffit plus", async () => {
+    await expect(verifierContracter("0002_x", 3, TEXTE, undefined)).rejects.toThrow(/contracter/);
+    await expect(verifierContracter("0002_x", 3, TEXTE, (async () => ({ ...ouvert, interrupteurOuvert: false })))).rejects.toThrow(/interrupteur/);
+    await expect(verifierContracter("0002_x", 3, TEXTE, (async () => ({ ...ouvert, versionsDesBases: [2, 1] })))).rejects.toThrow(/toutes les bases/);
+    await expect(verifierContracter("0002_x", 3, TEXTE, (async () => ({ ...ouvert, versionCodeDeployee: 2 })))).rejects.toThrow(/code déployé/);
+  });
+  it("[A-226] le lecteur reçoit N, la version qui précède le contracter ; un fichier ordinaire n'appelle pas le lecteur", async () => {
+    const vus: number[] = [];
+    await verifierContracter("0002_x", 3, TEXTE, async (n) => { vus.push(n); return ouvert; });
+    expect(vus).toEqual([2]);
+    await verifierContracter("0001_x", 2, "ALTER TABLE a ADD COLUMN x int;", async (n) => { vus.push(n); return ouvert; });
+    expect(vus).toEqual([2]);
   });
 });

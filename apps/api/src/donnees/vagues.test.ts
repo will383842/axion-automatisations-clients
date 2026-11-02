@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deroulerPlan, deroulerVague, planifierVagues, type BaseRegistre, type PortsVagues } from "./vagues.ts";
+import { deroulerPlan, deroulerVague, lireEtatContracter, planifierVagues, type BaseRegistre, type PortsVagues } from "./vagues.ts";
 
 const nom = (i: number) => `cli_${i.toString(16).padStart(12, "0")}`;
 const base = (i: number, version = 1, etat = "active"): BaseRegistre => ({ id: `id${i}`, tenantId: `t${i}`, nomBase: nom(i), versionStructure: version, etat });
@@ -105,5 +105,22 @@ describe("migrations par vagues", () => {
     await expect(deroulerVague({ ...vague, bases: [{ ...vague.bases[0]!, nomBase: nom(4) }] }, m.ports)).rejects.toThrow(/registre/);
     await expect(deroulerVague({ ...vague, bases: [{ ...vague.bases[0]!, nomBase: "cli_ffffffffffff", id: "inconnu" }] }, m.ports)).rejects.toThrow(/registre/);
     expect(m.journal.migrees).toEqual([]);
+  });
+
+  it("[A-231] planifierVagues refuse la version N+1 tant qu'une base, même gelée ou en création, reste en N-1", async () => {
+    for (const etat of ["active", "gelee", "en_creation"]) {
+      const m = monde([base(1, 2), base(2, 2), base(3, 1, etat)]);
+      await expect(planifierVagues(3, CONFIG, m.ports), etat).rejects.toThrow(/N-1/);
+      expect(m.journal.graines.size).toBe(0);
+    }
+    // Les mêmes bases visent N sans refus : une base en N-1 se migre vers N.
+    await expect(planifierVagues(2, CONFIG, monde([base(1, 2), base(3, 1, "gelee")]).ports)).resolves.toBeDefined();
+    await expect(planifierVagues(3, CONFIG, monde([base(1, 2), base(2, 2)]).ports)).resolves.toBeDefined();
+  });
+
+  it("[A-230] l'état de contracter est lu sur TOUTES les bases du registre, gelées ou en création comprises, jamais fourni par l'appelant", async () => {
+    const m = monde([base(1, 3), base(2, 3, "gelee"), base(3, 2, "en_creation")]);
+    const lire = lireEtatContracter(m.ports, { interrupteurOuvert: true, versionCodeDeployee: 4 });
+    expect(await lire(3)).toEqual({ interrupteurOuvert: true, versionN: 3, versionsDesBases: [3, 3, 2], versionCodeDeployee: 4 });
   });
 });

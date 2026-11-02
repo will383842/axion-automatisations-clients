@@ -380,8 +380,14 @@ describe("garde des migrations : phase contracter (T2-38)", () => {
     // Hors de drizzle-cli/ (console, moteur) : le marqueur n'exempte rien.
     expect(gardeMigrations(racineAvec("drizzle", `-- phase: contracter\n${DROP}`), []).length).toBe(2);
   });
+  it("[A-226] un fichier contracter admet DROP TABLE, DROP COLUMN et DROP INDEX sans CASCADE", () => {
+    for (const sql of ["DROP TABLE b;", "DROP INDEX i;", "ALTER TABLE a DROP COLUMN x;", "DROP TABLE IF EXISTS b;"]) {
+      expect(gardeMigrations(racineAvec("drizzle-cli", `-- phase: contracter\n${sql}`), []), sql).toEqual([]);
+    }
+  });
   it("[A-226] un fichier contracter ne permet que DROP de table, colonne ou index : RENAME, TRUNCATE, rôle, base, fonction restent refusés", () => {
-    for (const sql of ["ALTER TABLE a RENAME COLUMN x TO y;", "TRUNCATE a;", "DROP ROLE r;", "DROP DATABASE d;", "DROP OWNED BY r;", "ALTER TABLE a ALTER COLUMN x TYPE text;", "CREATE FUNCTION f() RETURNS int LANGUAGE sql AS $$ SELECT 1 $$;", "DO $$ BEGIN DROP TABLE a; END $$;", "SET ROLE r;"]) {
+    for (const sql of ["ALTER TABLE a RENAME COLUMN x TO y;", "TRUNCATE a;", "DROP ROLE r;", "DROP DATABASE d;", "DROP OWNED BY r;", "ALTER TABLE a ALTER COLUMN x TYPE text;", "CREATE FUNCTION f() RETURNS int LANGUAGE sql AS $$ SELECT 1 $$;", "DO $$ BEGIN DROP TABLE a; END $$;", "SET ROLE r;",
+      "DROP POLICY p ON a;", "DROP SCHEMA s;", "DROP FUNCTION f();", "DROP TRIGGER t ON a;", "DROP VIEW v;", "DROP TABLE b CASCADE;", "DROP INDEX i CASCADE;", "ALTER TABLE a DROP COLUMN x CASCADE;", "ALTER TABLE a DROP CONSTRAINT c;", "DROP TABLE b; DROP POLICY p ON a;"]) {
       expect(gardeMigrations(racineAvec("drizzle-cli", `-- phase: contracter\n${sql}`), []).length, sql).toBeGreaterThan(0);
     }
   });

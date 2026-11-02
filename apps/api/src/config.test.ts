@@ -122,6 +122,13 @@ describe("interrupteurs des canaux", () => {
     expect(refus({ NODE_ENV: "test", CONSOLE_HUB_ACTIF: "oui" })).toContain("CONSOLE_HUB_ACTIF");
   });
 
+  it("[A-252] le retrait des exports à 30 jours est fermé par défaut ; seules les valeurs 1 et true l'ouvrent", () => {
+    expect(chargerConfig(prod(), dossier()).exportsRetraitActif).toBe(false);
+    expect(chargerConfig({ NODE_ENV: "development", EXPORTS_RETRAIT_ACTIF: "" }, dossier()).exportsRetraitActif).toBe(false);
+    expect(chargerConfig({ NODE_ENV: "test", EXPORTS_RETRAIT_ACTIF: "true" }, dossier()).exportsRetraitActif).toBe(true);
+    expect(refus({ NODE_ENV: "test", EXPORTS_RETRAIT_ACTIF: "oui" })).toContain("EXPORTS_RETRAIT_ACTIF");
+  });
+
   it("[A-180] la purge de rétention est fermée par défaut", () => {
     expect(chargerConfig(prod(), dossier()).retentionPurgeActive).toBe(false);
     expect(chargerConfig({ NODE_ENV: "development", RETENTION_PURGE_ACTIVE: "" }, dossier()).retentionPurgeActive).toBe(false);

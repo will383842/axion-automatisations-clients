@@ -67,9 +67,10 @@ const garder = <T>(f: () => T | Promise<T>) => async () => {
   }
 };
 
-// Faux fournisseur au format « chat completions » : usage déterministe, il répond « écho : <dernier message> » et n'écrit rien.
+// Faux fournisseur au format « chat completions » : identifiant de réponse UNIQUE (la passerelle s'en sert comme clé de ligne du journal de dépense : un identifiant fixe fusionnerait les appels de tous les clients en une seule ligne), usage déterministe, il répond « écho : <dernier message> » et n'écrit rien.
 const FAUX = `
 import json
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 class H(BaseHTTPRequestHandler):
     def log_message(self, *a):
@@ -90,7 +91,7 @@ class H(BaseHTTPRequestHandler):
         texte = " ".join(str(x.get("content", "")) for x in m)
         dernier = str(m[-1].get("content", "")) if m else ""
         e = len(texte.split())
-        self.repondre({"id": "faux", "object": "chat.completion", "created": 0, "model": q.get("model", "faux"),
+        self.repondre({"id": "faux-" + uuid.uuid4().hex, "object": "chat.completion", "created": 0, "model": q.get("model", "faux"),
             "choices": [{"index": 0, "message": {"role": "assistant", "content": "écho : " + dernier}, "finish_reason": "stop"}],
             "usage": {"prompt_tokens": e, "completion_tokens": 3, "total_tokens": e + 3}})
 ThreadingHTTPServer(("0.0.0.0", 4010), H).serve_forever()
@@ -135,6 +136,16 @@ let refB = "";
 let cleA = "";
 let cleB = "";
 let jetonB = "";
+// Clé d'équipe de MOINDRE privilège (T1B-12) : limitée par allowed_routes à la lecture de /spend/logs. Créée avec la clé maîtresse (banc d'essai seulement) ;
+// la clé maîtresse ne sert jamais à lire la dépense dans les essais de consommation. La valeur reste en mémoire : ni fichier, ni trace.
+let cleEquipe = "";
+const empreinteDe = (cle: string) => createHash("sha256").update(cle).digest("hex");
+const lignesDeDepense = async (cle: string, empreinte: string) => {
+  const r = await appeler(cle, "GET", `/spend/logs?api_key=${empreinte}&summarize=false`);
+  let lignes: unknown = [];
+  try { lignes = JSON.parse(r.texte); } catch { /* pas du JSON */ }
+  return { statut: r.statut, motif: r.statut === 200 ? "" : r.texte.replace(cleEquipe, "<clé d'équipe>").slice(0, 200), lignes: (Array.isArray(lignes) ? lignes : []) as Record<string, unknown>[] };
+};
 
 beforeAll(garder(async () => {
   docker("network", "create", RESEAU);
@@ -170,6 +181,9 @@ beforeAll(garder(async () => {
   }
   refA = (await cles().creerCleClient(A, { modelesPermis: ["claude-standard"] })).reference;
   refB = (await cles().creerCleClient(B, { modelesPermis: ["claude-standard", "mistral-souverain"] })).reference;
+  const equipe = JSON.parse((await appeler(MAITRE, "POST", "/key/generate", { key_alias: "equipe-lecture-depense", allowed_routes: ["/spend/logs"], metadata: { usage: "lecture de la dépense" } })).texte || "{}") as { key?: string };
+  cleEquipe = equipe.key ?? "";
+  if (!cleEquipe.startsWith("sk-")) throw new Error("clé d'équipe d'essai non créée");
   cleA = valeurs.get(refA) ?? "";
   cleB = valeurs.get(refB) ?? "";
   // Empreinte de la clé gardée par LiteLLM (SHA-256 hexadécimal de la clé) : c'est elle qui figure dans le journal de dépense.
@@ -183,9 +197,11 @@ beforeAll(garder(async () => {
   }
   // La dépense est écrite par lots : on attend qu'elle apparaisse pour les deux clés.
   for (let i = 0; ; i++) {
-    const depense = async (cle: string) => Number(((JSON.parse((await appeler(cle, "GET", "/key/info")).texte || "{}") as { info?: { spend?: number } }).info ?? {}).spend ?? 0);
-    if ((await depense(cleA)) > 0 && (await depense(cleB)) > 0) break;
-    if (i > 120) throw new Error("dépense jamais écrite par la passerelle d'essai");
+    const deA = await lignesDeDepense(cleEquipe, empreinteDe(cleA));
+    const deB = await lignesDeDepense(cleEquipe, empreinteDe(cleB));
+    if (deA.lignes.length >= 2 && deB.lignes.length >= 1) break;
+    // Diagnostic sans valeur secrète : statuts et nombres de lignes seulement.
+    if (i > 120) throw new Error(`dépense jamais écrite par la passerelle d'essai (statuts ${deA.statut}/${deB.statut}, lignes ${deA.lignes.length}/${deB.lignes.length}) ${deA.motif}`);
     await pause(1500);
   }
 }), 600_000);
@@ -208,7 +224,8 @@ describe("audit 1-A · passerelle d'IA (LiteLLM réel)", () => {
     const maitre = await lire(MAITRE, jetonA);
     // Forme de la réponse, sans aucune valeur : preuve rejouable lue dans le journal du job.
     writeSync(2, `FORME /spend/logs : clé de A ${parA.statut}, clé de A pour B ${parAPourB.statut}, maître ${maitre.statut} (${maitre.lignes.length} lignes, champs ${JSON.stringify(Object.keys(maitre.lignes[0] ?? {}).sort())})\n`);
-    expect({ parA: parA.statut, parAPourB: parAPourB.statut }).toEqual({ parA: 401, parAPourB: 401 });
+    // Refus de la route : 401 (rôle) ou 403 (allowed_routes de la clé), jamais 200 ni 404.
+    expect([parA.statut, parAPourB.statut].every((x) => x === 401 || x === 403), "la clé d'un client est refusée sur /spend/logs").toBe(true);
     expect(maitre.statut).toBe(200);
     expect(maitre.lignes.length).toBeGreaterThan(0);
     expect(maitre.lignes.every((l) => l.api_key === jetonA)).toBe(true);
@@ -216,15 +233,55 @@ describe("audit 1-A · passerelle d'IA (LiteLLM réel)", () => {
     expect(e).toBe("coffre_indisponible");
   }, 120_000);
 
-  // Défaut constaté (T1A-19, PR 90, 3e et 4e exécutions) : contre la passerelle épinglée (ops/briques/litellm.json), creerConsommation().lire
-  // échoue TOUJOURS en « reponse_invalide » : /key/info ne rend pas info.token (le schéma de consommation.ts l'exige), et /spend/logs refuse
-  // la clé d'un client (401, essai ci-dessus). La consommation d'un client (A-059) n'est donc pas lisible. Correction (lot 1-B) : lire la
-  // dépense côté serveur avec un jeton d'administration de la passerelle, filtrée par l'empreinte SHA-256 de la clé du client calculée
-  // localement, chaque ligne revérifiée ; les tests unitaires de consommation.ts doivent reprendre la forme réelle des réponses.
-  it.fails("[A-059] @isolation @lot-1b la consommation d'un client se lit contre la vraie passerelle (consommation.ts)", async () => {
-    const lue = await creerConsommation({ url, coffre }).lire(A, refA);
+  // Défaut corrigé (T1B-12, point 4) : la consommation se lit côté serveur avec la clé d'équipe de lecture (allowed_routes : /spend/logs),
+  // filtrée par l'empreinte SHA-256 calculée localement ; chaque ligne rendue est revérifiée.
+  it("[A-059] @isolation @lot-1b la consommation d'un client se lit contre la vraie passerelle (consommation.ts)", async () => {
+    const consommation = creerConsommation({ url, coffre, lireCleEquipe: async () => cleEquipe });
+    const lue = await consommation.lire(A, refA);
     expect(lue.jetonsEntree).toBeGreaterThan(0);
+    expect(lue.jetonsSortie).toBeGreaterThan(0);
+    expect(lue.coutMicroCentimes).toBeGreaterThan(0);
+    // B n'a fait qu'un appel, A en a fait deux : la lecture de A ne mélange rien.
+    const lueB = await consommation.lire(B, refB);
+    expect(lue.coutMicroCentimes).toBeGreaterThan(lueB.coutMicroCentimes);
+    // Forme réelle (noms des champs seulement) : les champs lus par consommation.ts existent dans la vraie réponse.
+    const reelle = (await lignesDeDepense(cleEquipe, empreinteDe(cleA))).lignes[0] ?? {};
+    writeSync(2, `FORME /spend/logs (ligne) : ${JSON.stringify(Object.keys(reelle).sort())}\n`);
+    expect(Object.keys(reelle)).toEqual(expect.arrayContaining(["api_key", "spend", "prompt_tokens", "completion_tokens", "request_id", "startTime"]));
   }, 60_000);
+
+  it("[A-059] @isolation une ligne d'un autre client dans la réponse réelle fait échouer la lecture (client_different)", async () => {
+    const melange: typeof fetch = async (entree, init) => {
+      const r = await fetch(entree, init);
+      const lignes = JSON.parse(await r.text()) as Record<string, unknown>[];
+      const autre = (await lignesDeDepense(cleEquipe, jetonB)).lignes[0] as Record<string, unknown>;
+      return new Response(JSON.stringify([...lignes, autre]), { status: 200 });
+    };
+    const e = await creerConsommation({ url, coffre, lireCleEquipe: async () => cleEquipe, fetch: melange }).lire(A, refA).then(() => "ok", (x: unknown) => (x instanceof ErreurConsommation ? x.code : "autre"));
+    expect(e).toBe("client_different");
+  }, 60_000);
+
+  it("[A-059] @isolation la clé d'équipe de lecture ne sert à rien d'autre qu'à lire la dépense : ni modèle, ni clé, ni information", async () => {
+    const interdits: [string, string, unknown][] = [
+      ["POST", "/v1/chat/completions", { model: "claude-standard", messages: [{ role: "user", content: "x" }] }],
+      ["GET", `/key/info?key=${jetonB}`, undefined],
+      ["POST", "/v2/key/info", { keys: [jetonB] }],
+      ["GET", "/key/list", undefined],
+      ["POST", "/key/generate", { key_alias: "intrus" }],
+      ["POST", "/key/update", { key: jetonB, models: ["gpt-option"] }],
+      ["POST", "/key/delete", { key_aliases: [`cli-${B}`] }],
+      ["GET", "/model/info", undefined],
+      ["GET", "/user/list", undefined],
+      ["GET", "/config/yaml", undefined],
+    ];
+    const acceptees: string[] = [];
+    for (const [m, chemin, corps] of interdits) {
+      const r = await appeler(cleEquipe, m, chemin, corps);
+      if (r.statut >= 200 && r.statut < 300) acceptees.push(`${m} ${chemin.split("?")[0]}`);
+    }
+    expect(acceptees).toEqual([]);
+    expect((await lignesDeDepense(cleEquipe, empreinteDe(cleA))).statut).toBe(200);
+  }, 120_000);
 
   it("[A-058] @isolation la clé de A ne lit ni la dépense, ni le journal, ni la liste des clés de B, par aucune route d'administration", async () => {
     const lectures = [
@@ -262,11 +319,10 @@ describe("audit 1-A · passerelle d'IA (LiteLLM réel)", () => {
     expect(fuites).toEqual([]);
   }, 180_000);
 
-  // Défaut constaté (T1A-19, PR 90, 4e exécution) : la clé d'un client lit la fiche d'une AUTRE clé dès qu'elle en donne l'empreinte
-  // (/key/info?key=<empreinte>, /v2/key/info) : 200 avec l'alias cli-<B> et le tenant_id de B, au lieu de la réponse d'une clé inexistante.
-  // Correction (lot 1-B) : clés de client créées avec allowed_routes limité aux routes d'appel de modèle (cles.ts), ou filtre de routes
-  // devant la passerelle ; la lecture de la fiche passe par le serveur (voir le défaut de consommation ci-dessus).
-  it.fails("[A-058] @isolation @lot-1b la clé de A ne lit pas la fiche de la clé de B en donnant son empreinte : même réponse qu'une empreinte inexistante", async () => {
+  // Défaut corrigé (T1B-12, point 5) : la clé d'un client lisait la fiche d'une AUTRE clé en donnant son empreinte (/key/info?key=<empreinte>,
+  // /v2/key/info). Les clés des clients sont créées avec allowed_routes limité aux routes d'appel de modèle (cles.ts) : refus identique,
+  // que l'empreinte existe ou non.
+  it("[A-058] @isolation @lot-1b la clé de A ne lit pas la fiche de la clé de B en donnant son empreinte : même réponse qu'une empreinte inexistante", async () => {
     const inexistante = createHash("sha256").update(`sk-${randomBytes(16).toString("hex")}`).digest("hex");
     const pourB = await appeler(cleA, "GET", `/key/info?key=${jetonB}`);
     const pourRien = await appeler(cleA, "GET", `/key/info?key=${inexistante}`);
@@ -275,6 +331,12 @@ describe("audit 1-A · passerelle d'IA (LiteLLM réel)", () => {
     expect(fuitesDans(pourB.texte, jetonB)).toEqual([]);
     expect(fuitesDans(v2.texte, jetonB)).toEqual([]);
     expect(pourB.statut).toBe(pourRien.statut);
+    // Un refus, pas un 404 : ni 200 (fiche rendue) ni 404 (« n'existe pas ») ; et la réponse est indiscernable.
+    expect([401, 403]).toContain(pourB.statut);
+    expect(pourB.texte).toBe(pourRien.texte);
+    const v2Rien = await appeler(cleA, "POST", "/v2/key/info", { keys: [inexistante] });
+    expect(v2.statut).toBe(v2Rien.statut);
+    expect([401, 403]).toContain(v2.statut);
   }, 60_000);
 
   it("[A-058] @isolation la clé de A n'administre rien : ni créer, ni modifier, ni bloquer, ni régénérer, ni supprimer la clé de B", async () => {

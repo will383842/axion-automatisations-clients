@@ -47,7 +47,10 @@ describe("audit-dependances", () => {
     expect(t).toContain("github/codeql-action/");
   });
   it("[C-531] controle-journaux.yml suit aussi nuit", () => {
-    expect(lire(".github/workflows/controle-journaux.yml")).toMatch(/workflows: \[CI, nuit\]/);
+    const t = lire(".github/workflows/controle-journaux.yml");
+    // Liste en bloc depuis T1B-12 (point 6) : tous les workflows publics, dont CI et nuit.
+    expect(t).toMatch(/^ {6}- CI$/m);
+    expect(t).toMatch(/^ {6}- nuit$/m);
   });
   it("[LOT0-audit] audit-dependances.yml tourne sur PR et la nuit, sans secret", () => {
     const t = lire(".github/workflows/audit-dependances.yml");

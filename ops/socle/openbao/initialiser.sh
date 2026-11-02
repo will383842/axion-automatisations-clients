@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Initialise l'OpenBao du socle (POUR LE TEST) : Shamir 5 parts / seuil 3, montages clients/ (KV v2) et transit/,
-# clé de signature des modules, politiques, jetons des rôles api, courtier, equipe, signature, echanges et secours, puis révocation du jeton racine.
+# clé de signature des modules, politiques, jetons des rôles api, courtier, equipe, signature, echanges, secours et provisionneur, puis révocation du jeton racine.
 #   initialiser.sh <fichier-de-sortie>   le fichier reçoit les parts et les jetons des rôles (droits 600), jamais la sortie standard
 # Les parts et les jetons restent dans des variables : masqués avant tout usage, jamais affichés, jamais versionnés.
 set -euo pipefail
@@ -41,5 +41,12 @@ for role in api courtier equipe signature echanges secours; do
   printf '%s=%s\n' "$(printf '%s' "$role" | tr '[:lower:]' '[:upper:]')" "$jeton" >>"$fichier"
   unset jeton
 done
+
+# Provisionnement des bases des clients (T2-34) : politique et jeton à part, lus par le seul dossier apps/api/src/provisionnement.
+bao policy write provisionneur - <"$dossier/politiques/provisionneur.hcl" >/dev/null
+jeton="$(bao token create -policy=provisionneur -no-default-policy -orphan -period=768h -format=json | jq -r '.auth.client_token')"
+masquer "$jeton"
+printf 'PROVISIONNEUR=%s\n' "$jeton" >>"$fichier"
+unset jeton
 
 bao token revoke -self >/dev/null

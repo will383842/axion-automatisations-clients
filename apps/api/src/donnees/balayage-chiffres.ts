@@ -71,7 +71,7 @@ export async function balayer(
       reprise[nom] = lot.suivant === undefined || lot.elements.length === 0 ? null : lot.suivant;
     }
   }
-  bilan.termine = true;
+  bilan.termine = bilan.echecs === 0 && bilan.conflits === 0;
   return bilan;
 }
 

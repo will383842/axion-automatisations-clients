@@ -73,6 +73,27 @@ describe("fenêtre d'occupation", () => {
   });
 });
 
+describe("fenêtre d'occupation, délai propre à l'étape", () => {
+  it("[A-324] delaiEtapeMs vaut le délai de l'étape (90 s), pas la valeur par défaut (120 s), même avec 70 s d'avance de l'horloge avant l'effet", async () => {
+    const relevés: number[] = [];
+    const b = banc({ e: async () => undefined }, "idempotent_par_cle", { delai: 90 });
+    const module = defineAutomation({
+      ...manifesteExemple,
+      etapes: [{ nom: "courte", delaiMaxSecondes: 90, executer: async (ctx) => { b.horloge.regler(b.horloge.maintenant() + 70_000); await ctx.effet("envoyer", "msg-2", { objet: "x" }); } }],
+      connecteurs: [{ famille: "messagerie", actions: ["envoyer", "classer"], portees: ["envoi"], garantie: "idempotent_par_cle" }],
+    });
+    const boite = new BoiteEnMemoire();
+    const ecrire = boite.ecrire.bind(boite);
+    boite.ecrire = async (intention, bail, maintenant) => {
+      relevés.push(bail.delaiEtapeMs);
+      return ecrire(intention, bail, maintenant);
+    };
+    const machine = new Machine({ module, ports: { journal: b.journal, boite, connecteurs: b.connecteur, console: b.console, horloge: b.horloge } });
+    expect((await b.horloge.piloter(machine.lancer("inst-1", "exec-2"))).statut).toBe("terminee");
+    expect(relevés).toEqual([90_000]);
+  });
+});
+
 describe("reprise", () => {
   it("[A-315] une exécution coupée après l'étape 2 reprend à l'étape 3", async () => {
     const vues: string[] = [];

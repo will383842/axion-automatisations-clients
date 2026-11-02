@@ -1,4 +1,4 @@
-# 0059 · Récepteur C3 : exclusion durable par empreinte, alertes rejouables, liens CRM
+# 0106 · Récepteur C3 : exclusion durable par empreinte, alertes rejouables, liens CRM
 
 Date : 02/11/2026 · Statut : proposé (T2-17) · Contrat touché : aucun · Migration : aucune (la fiche l'interdit).
 

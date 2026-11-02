@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
@@ -116,10 +116,9 @@ async function poserDroits(client: pg.Client, nomBase: string): Promise<void> {
   }
 }
 
-// Migrations d'un module (T2-35). ÉTAT HONNÊTE : le texte du module s'exécute sur la session du provisionneur après SET ROLE vers un rôle de migration propre au module (cli_<id>_mod_<code>).
-// Un RESET ROLE écrit dans ce texte rendrait l'identité du provisionneur (CREATEROLE, CREATEDB) : la barrière de droits PostgreSQL N'EST DONC PAS SÛRE à elle seule et le FILTRE DU TEXTE (ci-dessous) est
-// aujourd'hui la barrière qui protège. Correctif de conception connu (audit B1) : exécuter le texte sur une connexion distincte dont l'utilisateur est le rôle du module ; il demande une règle pg_hba
-// pour ce rôle dans init.sql (hors fiche), voir la dette LOT2-dette-T2-35-connexion-module de spec/preuves.md.
+// Migrations d'un module (T2-35, audit B1). Le texte du module s'exécute sur une CONNEXION DISTINCTE dont l'utilisateur de connexion est le rôle du module (cli_<id>_mod_<code>) : un RESET ROLE écrit dans le texte
+// ne rend rien d'autre que ce même rôle, sans aucun droit hors de a_<code> (ni CREATEROLE, ni appartenance à un autre rôle). La BARRIÈRE est donc un droit PostgreSQL réel ; le filtre du texte (ci-dessous)
+// n'est qu'une défense en profondeur. Le rôle n'est LOGIN que le temps de la migration, avec un mot de passe aléatoire à usage unique (jamais journalisé ni mis dans une erreur) ; la règle pg_hba est dans init.sql.
 // Le filtre : commentaires retirés PARTOUT (corps de fonction et blocs $…$ compris) avant contrôle, liste blanche des ordres, aucune destruction de données.
 const CODE_MODULE = /^[a-z][a-z0-9_]{1,30}$/;
 export function roleMigrationModule(nomBase: string, code: string): string {
@@ -252,40 +251,87 @@ const comptesHors = async (client: pg.Client, schema: string): Promise<string> =
     [schema],
   )).rows[0]!.n;
 
-async function appliquerModule(client: pg.Client, nomBase: string, dossier: string, versionCible: number, code: string): Promise<void> {
+const noop = () => undefined;
+export type ConnexionModule = { client: pg.Client; fermer: () => Promise<void> };
+// Prépare le rôle du module, le schéma a_<code> et ses droits (le provisionneur, `admin`, connecté à la base du client), puis ouvre la connexion du rôle du module.
+// `urlAdmin` : adresse du provisionneur vers la base du client (même socket) ; celle du module s'en déduit en changeant seulement l'utilisateur et le mot de passe. `fermer` ferme la connexion et remet le rôle NOLOGIN sans mot de passe.
+export async function ouvrirConnexionModule(admin: pg.Client, urlAdmin: string, nomBase: string, code: string): Promise<ConnexionModule> {
   const schema = `a_${code}`;
   const m = roleMigrationModule(nomBase, code);
+  // 1. Le rôle de migration du module : sans héritage, sans aucun droit propre, membre d'aucun rôle ; NOLOGIN tant que la migration ne commence pas.
+  if (!(await admin.query("SELECT 1 FROM pg_roles WHERE rolname = $1", [m])).rowCount) await admin.query(`CREATE ROLE ${citer(m)} NOLOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION`);
+  else await admin.query(`ALTER ROLE ${citer(m)} NOLOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION`);
+  // 2. Le propriétaire de la base crée le schéma, n'y donne que USAGE et CREATE au rôle du module (USAGE à l'application et à la lecture) et lui ouvre CONNECT sur CETTE base seulement.
+  try {
+    await admin.query(`SET ROLE ${citer(`${nomBase}_proprietaire`)}`);
+    await admin.query(`CREATE SCHEMA IF NOT EXISTS ${citer(schema)}`);
+    await admin.query(`GRANT USAGE, CREATE ON SCHEMA ${citer(schema)} TO ${citer(m)}`);
+    await admin.query(`GRANT CONNECT ON DATABASE ${citer(nomBase)} TO ${citer(m)}`);
+    const presents = (await admin.query<{ rolname: string }>("SELECT rolname FROM pg_roles WHERE rolname = ANY($1)", [[`${nomBase}_app`, `${nomBase}_lecture`]])).rows.map((r) => r.rolname);
+    for (const r of presents) await admin.query(`GRANT USAGE ON SCHEMA ${citer(schema)} TO ${citer(r)}`);
+  } finally {
+    await admin.query("RESET ROLE").catch(noop);
+  }
+  // Droits relus : le rôle du module n'a rien dans commun, trace ni public, aucun attribut d'administration, aucune appartenance ; sinon refus avant toute migration.
+  const hors = (await admin.query<{ ko: boolean }>(
+    "SELECT (has_schema_privilege($1, 'commun', 'USAGE') OR has_schema_privilege($1, 'commun', 'CREATE') OR has_schema_privilege($1, 'trace', 'USAGE') OR has_schema_privilege($1, 'trace', 'CREATE') OR has_schema_privilege($1, 'public', 'CREATE') OR EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1 AND (rolsuper OR rolcreaterole OR rolcreatedb OR rolbypassrls OR rolreplication)) OR EXISTS (SELECT 1 FROM pg_auth_members WHERE member = $1::regrole)) AS ko",
+    [m],
+  )).rows[0]?.ko;
+  if (hors !== false) throw new Error(`migrerBase : le rôle de migration du module a un droit hors de ${schema}, refus`);
+  // 3. LOGIN avec un mot de passe aléatoire à usage unique (littéral hexadécimal, jamais affiché), puis connexion distincte par la même socket que le provisionneur.
+  const secret = randomBytes(32).toString("hex");
+  const remettre = () => admin.query(`ALTER ROLE ${citer(m)} NOLOGIN PASSWORD NULL`);
+  await admin.query(`ALTER ROLE ${citer(m)} LOGIN CONNECTION LIMIT 2 PASSWORD '${secret}'`);
+  const u = lireUrl(urlAdmin);
+  u.username = m;
+  u.password = secret;
+  u.pathname = `/${nomBase}`;
+  const client = new pg.Client({ connectionString: u.toString() });
+  client.on("error", noop);
+  try {
+    await client.connect();
+  } catch (e) {
+    await remettre().catch(noop);
+    // Aucun détail de l'erreur de connexion : l'adresse porte le secret.
+    throw new Error(`migrerBase : connexion du rôle de migration du module refusée (${(e as { code?: string }).code ?? "sans code"})`);
+  }
+  const fermer = async () => {
+    await client.end().catch(noop);
+    await admin.query("RESET ROLE").catch(noop);
+    await remettre();
+  };
+  try {
+    const id = (await client.query<{ s: string; c: string }>("SELECT session_user AS s, current_user AS c")).rows[0];
+    if (id?.s !== m || id.c !== m) throw new Error("migrerBase : la connexion du module n'a pas l'identité du rôle de migration");
+    await client.query("SET standard_conforming_strings = on; SET client_encoding = 'UTF8'");
+    await client.query("SET lock_timeout = '30s'");
+  } catch (e) {
+    await fermer().catch(noop);
+    throw e;
+  }
+  return { client, fermer };
+}
+
+async function appliquerModule(admin: pg.Client, urlAdmin: string, nomBase: string, dossier: string, versionCible: number, code: string): Promise<void> {
+  const schema = `a_${code}`;
   // Chaque fichier est lu UNE fois : le même tampon sert au filtre, à l'empreinte et à l'exécution (aucun changement possible entre le contrôle et l'usage).
   const tampons = new Map<string, Buffer>();
   const lire = (chemin: string) => tampons.get(chemin) ?? tampons.set(chemin, readFileSync(chemin)).get(chemin)!;
   const entrees = lireEntrees(dossier, lire);
   const refus = entrees.flatMap((e) => verifierMigrationModule(lire(`${dossier}/${e.tag}.sql`).toString("utf8"), code).map((r) => `${e.tag} : ${r}`));
   if (refus.length) throw new Error(`migrations de module refusées :\n${refus.join("\n")}`);
-  const { rows } = await client.query<{ role: string }>("SELECT session_user AS role");
+  const { rows } = await admin.query<{ role: string }>("SELECT session_user AS role");
   if (!rows[0] || ROLE_INTERDIT.test(rows[0].role)) throw new Error(`migrerBase refuse le rôle de session « ${rows[0]?.role} »`);
-  await client.query("SET standard_conforming_strings = on; SET client_encoding = 'UTF8'");
+  await admin.query("SET standard_conforming_strings = on; SET client_encoding = 'UTF8'");
   // Un verrou pris trop longtemps échoue (55P03) au lieu d'attendre sans fin ; la tâche de provisionnement est rejouée.
-  await client.query("SET lock_timeout = '30s'");
-  await client.query("SELECT pg_advisory_lock($1)", [VERROU_MIGRATION_BASE.toString()]);
+  await admin.query("SET lock_timeout = '30s'");
+  await admin.query("SELECT pg_advisory_lock($1)", [VERROU_MIGRATION_BASE.toString()]);
+  let mod: ConnexionModule | undefined;
   try {
-    // 1. Le rôle de migration du module : sans connexion, sans héritage, sans aucun droit propre. Le rôle de session le prend (SET) le temps des migrations seulement.
-    if (!(await client.query("SELECT 1 FROM pg_roles WHERE rolname = $1", [m])).rowCount) await client.query(`CREATE ROLE ${citer(m)} NOLOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE`);
-    await client.query(`GRANT ${citer(m)} TO CURRENT_USER WITH SET TRUE`);
-    // 2. Le propriétaire de la base crée le schéma et n'y donne que USAGE et CREATE au rôle du module (et USAGE à l'application et à la lecture).
-    await client.query(`SET ROLE ${citer(`${nomBase}_proprietaire`)}`);
-    await client.query(`CREATE SCHEMA IF NOT EXISTS ${citer(schema)}`);
-    await client.query(`GRANT USAGE, CREATE ON SCHEMA ${citer(schema)} TO ${citer(m)}`);
-    const presents = (await client.query<{ rolname: string }>("SELECT rolname FROM pg_roles WHERE rolname = ANY($1)", [[`${nomBase}_app`, `${nomBase}_lecture`]])).rows.map((r) => r.rolname);
-    for (const r of presents) await client.query(`GRANT USAGE ON SCHEMA ${citer(schema)} TO ${citer(r)}`);
-    await client.query("RESET ROLE");
-    // Droits relus : le rôle du module n'a rien dans commun, trace ni public ; sinon refus avant toute migration.
-    const hors = (await client.query<{ ko: boolean }>(
-      "SELECT (has_schema_privilege($1, 'commun', 'USAGE') OR has_schema_privilege($1, 'commun', 'CREATE') OR has_schema_privilege($1, 'trace', 'USAGE') OR has_schema_privilege($1, 'trace', 'CREATE') OR has_schema_privilege($1, 'public', 'CREATE')) AS ko",
-      [m],
-    )).rows[0]?.ko;
-    if (hors !== false) throw new Error(`migrerBase : le rôle de migration du module a un droit hors de ${schema}, refus`);
-    // 3. Migrations sous le rôle du module.
-    await client.query(`SET ROLE ${citer(m)}`);
+    mod = await ouvrirConnexionModule(admin, urlAdmin, nomBase, code);
+    const client = mod.client;
+    const presents = (await admin.query<{ rolname: string }>("SELECT rolname FROM pg_roles WHERE rolname = ANY($1)", [[`${nomBase}_app`, `${nomBase}_lecture`]])).rows.map((r) => r.rolname);
+    // Migrations sous le rôle du module, sur sa propre connexion.
     await client.query(`CREATE TABLE IF NOT EXISTS ${citer(schema)}.version_structure (version integer PRIMARY KEY CHECK (version >= 1), appliquee_le timestamptz NOT NULL DEFAULT now(), empreinte text NOT NULL)`);
     const deja = (await client.query<Appliquee>(`SELECT version, empreinte FROM ${citer(schema)}.version_structure`)).rows;
     for (const mig of migrationsAAppliquer(entrees, deja, versionCible)) {
@@ -298,11 +344,11 @@ async function appliquerModule(client: pg.Client, nomBase: string, dossier: stri
         await client.query(`INSERT INTO ${citer(schema)}.version_structure (version, empreinte) VALUES ($1, $2)`, [mig.version, mig.empreinte]);
         await client.query("COMMIT");
       } catch (e) {
-        await client.query("ROLLBACK").catch(() => undefined);
+        await client.query("ROLLBACK").catch(noop);
         throw e;
       }
     }
-    // 4. Droits posés par le rôle du module (propriétaire de ses tables) : l'application lit et écrit sans DELETE, la lecture lit ; le journal de versions n'est pas à l'application.
+    // Droits posés par le rôle du module (propriétaire de ses tables) : l'application lit et écrit sans DELETE, la lecture lit ; le journal de versions n'est pas à l'application.
     for (const r of presents) {
       const ecrit = r.endsWith("_app");
       await client.query(`GRANT ${ecrit ? "SELECT, INSERT, UPDATE" : "SELECT"} ON ALL TABLES IN SCHEMA ${citer(schema)} TO ${citer(r)}`);
@@ -312,10 +358,12 @@ async function appliquerModule(client: pg.Client, nomBase: string, dossier: stri
       }
     }
   } finally {
-    // Le rôle de session reprend sa propre identité et rend le droit de prendre celle du module.
-    await client.query("RESET ROLE").catch(() => undefined);
-    await client.query(`REVOKE ${citer(m)} FROM CURRENT_USER`).catch(() => undefined);
-    await client.query("SELECT pg_advisory_unlock($1)", [VERROU_MIGRATION_BASE.toString()]).catch(() => undefined);
+    // Connexion du module fermée, rôle remis NOLOGIN sans mot de passe, puis verrou rendu (même si la remise en état échoue, le verrou est rendu).
+    try {
+      await mod?.fermer();
+    } finally {
+      await admin.query("SELECT pg_advisory_unlock($1)", [VERROU_MIGRATION_BASE.toString()]).catch(noop);
+    }
   }
 }
 
@@ -330,7 +378,7 @@ export async function migrerBase(nomBase: string, versionCible: number, options:
   const client = new pg.Client({ connectionString: options.url });
   await client.connect();
   try {
-    if (options.module !== undefined) return await appliquerModule(client, nomBase, options.dossier!, versionCible, options.module);
+    if (options.module !== undefined) return await appliquerModule(client, options.url, nomBase, options.dossier!, versionCible, options.module);
     await appliquer(client, `${nomBase}_proprietaire`, options.dossier ?? DOSSIER_CLI, versionCible);
     await poserDroits(client, nomBase);
   } finally {

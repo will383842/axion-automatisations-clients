@@ -36,7 +36,7 @@ test("[C-455] @anti-doublon une même demande envoyée deux fois au Hub ne crée
   const tenant = randomUUID();
   const b = banc(tenant);
   const avant = hub.etat().effets.length;
-  const plan = { axiCli: "AXI-CLI-000050", consoleClientId: tenant, codeAutomatisation: "relance-devis", referenceAbonnementConsole: "abo-1", referenceContratConsole: "ctr-1", debutPeriode: "2026-11-01", montantHtCentimesParPeriode: 9_000, periodeMois: 1 as const, premiereEcheance: "2026-11-01", engagementMois: 6 };
+  const plan = { axiCli: "AXI-CLI-000050", consoleClientId: tenant, codeAutomatisation: "relance-devis", referenceAbonnementConsole: "abo-1", referenceContratConsole: "ctr-1", phaseId: "33333333-3333-4333-8333-333333333333", montantHtCentimesParPeriode: 9_000, periodeMois: 1 as const, premiereEcheance: "2026-11-01", engagementMois: 6 };
   const devis = { axiCli: "AXI-CLI-000050", consoleClientId: tenant, referencePropositionConsole: "prop-e2e", lignes: [{ libelle: "Mise en place", quantite: 1, prixUnitaireHtCentimes: 50_000 }] };
   for (let i = 0; i < 2; i++) { await b.c.retrouverOuCreer(org(tenant, { siren: "123456782" })); await b.c.devis(devis); await b.c.plan(plan); }
   await b.partir();

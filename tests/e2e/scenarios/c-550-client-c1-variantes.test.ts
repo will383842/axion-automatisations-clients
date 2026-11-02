@@ -3,6 +3,7 @@ import { afterAll, beforeAll, expect, test } from "vitest";
 import { cleDIntention } from "../../../packages/contrats/src/commun/idempotence.ts";
 import { creerExpediteur, magasinEnMemoire } from "../../../apps/api/src/canaux/expediteur.ts";
 import { creerSigneur } from "../../../apps/api/src/canaux/signer.ts";
+import { traiterReponse } from "../../../apps/api/src/hub/reponses.ts";
 import { clientC1 } from "../../../apps/api/src/hub/client-c1.ts";
 import { demarrerBouchonHub, type BouchonHub } from "../../bouchons/hub/serveur.ts";
 
@@ -32,15 +33,33 @@ function banc(tenant: string, gardes = true) {
 }
 const org = (tenant: string, o: object = {}) => ({ consoleClientId: tenant, raisonSociale: "Atelier Bertin", adresse: ADRESSE, contactFacturation: { nom: "Camille Test", email: "contact@exemple.fr" }, ...o });
 
-for (const [cas, nom] of [["fiche Hub sans SIREN", "Boulangerie Rivoire"], ["client du CRM ressaisi à la main", "Garage Fontaine SARL"], ["particulier dont l'e-mail a changé", "Atelier Bertin Garage Fontaine"]] as const) {
-  test(`[C-550] ${cas} : rattachement proposé, rien créé`, async () => {
+// Chaque variante porte SA donnée distinctive (fiche sans SIREN, client du CRM ressaisi à la main, particulier à l'e-mail changé).
+const VARIANTES = [
+  { cas: "fiche Hub sans SIREN", extra: { raisonSociale: "Boulangerie Rivoire" } },
+  { cas: "client du CRM ressaisi à la main", extra: { raisonSociale: "Garage Fontaine SARL", adresse: { ...ADRESSE, ligne1: "3 rue de la Ressaisie" } } },
+  { cas: "particulier dont l'e-mail a changé", extra: { raisonSociale: "Atelier Bertin Garage Fontaine", contactFacturation: { nom: "Camille Test", email: "nouveau@exemple.fr" } } },
+] as const;
+for (const { cas, extra } of VARIANTES) {
+  test(`[C-550] ${cas} : rattachement proposé, rien créé, motif rangé dans à trancher`, async () => {
     const tenant = randomUUID();
     const b = banc(tenant);
-    await b.c.retrouverOuCreer(org(tenant, { raisonSociale: nom }));
+    await b.c.retrouverOuCreer(org(tenant, extra));
     await b.partir();
-    const lue = b.magasin.lignes()[0]!.reponse as { resultat: string };
+    const ligne = b.magasin.lignes()[0]!;
+    const corps = ligne.corps as { raisonSociale: string; adresse: { ligne1: string }; contactFacturation: { email: string } };
+    expect(corps.raisonSociale).toBe(extra.raisonSociale);
+    if ("adresse" in extra) expect(corps.adresse.ligne1).toBe(extra.adresse.ligne1);
+    if ("contactFacturation" in extra) expect(corps.contactFacturation.email).toBe(extra.contactFacturation.email);
+    const lue = ligne.reponse as { resultat: string; idDemande: string };
     expect(lue.resultat).toBe("a_trancher");
     // Aucun axiCli rendu : rien n'a été créé ; le statut reste refusé tant que la décision est ouverte (client-c1.test.ts).
     expect(lue).not.toHaveProperty("axiCli");
+    // Le motif est rangé dans à trancher avec l'identifiant de la demande, jamais un texte du Hub.
+    const requetes: { texte: string; valeurs: unknown[] }[] = [];
+    const r = await traiterReponse({ query: async (texte, valeurs = []) => (requetes.push({ texte, valeurs }), { rows: [] }) }, tenant, { route: "clients-retrouver-ou-creer", statut: 202, corps: lue });
+    expect(r).toEqual({ rangee: "a_trancher" });
+    expect(requetes).toHaveLength(1);
+    expect(requetes[0]!.valeurs).toContain("siren_absent_ressemblance");
+    expect(String(requetes[0]!.valeurs[2])).toContain(lue.idDemande);
   });
 }

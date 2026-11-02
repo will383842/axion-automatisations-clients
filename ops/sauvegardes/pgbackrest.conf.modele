@@ -30,3 +30,8 @@ archive-push-queue-max=4GiB
 [commun]
 pg1-path=/var/lib/postgresql/data
 pg1-socket-path=/var/run/postgresql
+
+# Expiration automatique de « backup » COUPÉE (T1B-05, C-049) : sans cette ligne, chaque sauvegarde lance son propre expire (journaux archivés compris),
+# qui échoue sur une cible en ajout seul. L'unique tâche d'effacement est expirer.sh (compte distinct, retention.ts) ; la sauvegarde de nuit ajoute aussi --no-expire-auto.
+[global:backup]
+expire-auto=n

@@ -1,0 +1,74 @@
+# Planification des sauvegardes (T1B-05, C-045, C-602) : modèle d'unités systemd, un bloc par fichier (« # --- fichier : nom --- »).
+# Elle ne se lance JAMAIS depuis un workflow GitHub : c'est le serveur lui-même qui lance ses sauvegardes. Son installation sur le serveur se fait en T1B-09.
+# Variables à remplacer à l'installation (aucune valeur de production dans ce dépôt) :
+#   @HEURE_SAUVEGARDE@, @HEURE_EFFACEMENT@ [À DÉFINIR] heures creuses, fixées en T8A-10, forme « 03:15:00 » (UTC) ; l'effacement passe APRÈS la sauvegarde
+#   @MINUTE_CONTROLE@ [À DÉFINIR] minute de chaque heure où le contrôle de fraîcheur tourne (T8A-10)
+#   @CONTENEUR_POSTGRES@ nom du conteneur PostgreSQL · @JOURNAL_DANS_LE_CONTENEUR@ dossier d'écriture du journal dans ce conteneur
+#   @DOSSIER_SCRIPTS@ dossier ops/sauvegardes déployé sur l'hôte · @DOSSIER_JOURNAL@ dossier du journal sur l'hôte
+#   @COMPTE_EFFACEMENT@ compte système DISTINCT, avec SA configuration pgBackRest et SA clé SFTP (le compte de la sauvegarde est en ajout seul : il ne peut pas effacer)
+#   @FICHIER_ENVIRONNEMENT_CONTROLE@, @FICHIER_ENVIRONNEMENT_EFFACEMENT@ fichiers d'environnement (ALERTE_COMMANDE, STOCKAGE_*, BAO_ADDR…) : jamais dans ce dépôt
+
+# --- fichier : axion-sauvegarde-nuit.service ---
+[Unit]
+Description=Sauvegarde de nuit de la grappe commune (complète le jour désigné, différence les autres nuits)
+
+[Service]
+Type=oneshot
+TimeoutStartSec=4h
+ExecStart=/usr/bin/docker exec -e SAUVEGARDE_JOURNAL=@JOURNAL_DANS_LE_CONTENEUR@ @CONTENEUR_POSTGRES@ /opt/sauvegardes/sauvegarder-nuit.sh
+
+# --- fichier : axion-sauvegarde-nuit.timer ---
+[Unit]
+Description=Lance la sauvegarde de nuit
+
+[Timer]
+OnCalendar=*-*-* @HEURE_SAUVEGARDE@
+# Une nuit où le serveur était éteint est rattrapée au démarrage.
+Persistent=true
+RandomizedDelaySec=0
+
+[Install]
+WantedBy=timers.target
+
+# --- fichier : axion-sauvegarde-effacement.service ---
+[Unit]
+Description=Effacement des vieilles copies (30 quotidiennes, 12 mensuelles), seule tâche d'effacement
+
+[Service]
+Type=oneshot
+User=@COMPTE_EFFACEMENT@
+EnvironmentFile=@FICHIER_ENVIRONNEMENT_EFFACEMENT@
+Environment=SAUVEGARDE_JOURNAL=@DOSSIER_JOURNAL@
+ExecStart=@DOSSIER_SCRIPTS@/expirer.sh
+
+# --- fichier : axion-sauvegarde-effacement.timer ---
+[Unit]
+Description=Lance l'effacement des vieilles copies
+
+[Timer]
+OnCalendar=*-*-* @HEURE_EFFACEMENT@
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+
+# --- fichier : axion-sauvegarde-controle.service ---
+[Unit]
+Description=Contrôle de fraîcheur des sauvegardes (alerte si la dernière a plus de 26 heures, si le stockage est plein, si l'effacement est en retard)
+
+[Service]
+Type=oneshot
+EnvironmentFile=@FICHIER_ENVIRONNEMENT_CONTROLE@
+Environment=SAUVEGARDE_JOURNAL=@DOSSIER_JOURNAL@
+ExecStart=@DOSSIER_SCRIPTS@/controle-fraicheur.sh
+
+# --- fichier : axion-sauvegarde-controle.timer ---
+[Unit]
+Description=Lance le contrôle de fraîcheur chaque heure, indépendamment de la sauvegarde
+
+[Timer]
+OnCalendar=*-*-* *:@MINUTE_CONTROLE@
+Persistent=true
+
+[Install]
+WantedBy=timers.target

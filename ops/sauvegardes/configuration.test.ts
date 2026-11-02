@@ -219,6 +219,8 @@ describe("configuration des sauvegardes (lecture statique)", () => {
         expect(conf).toMatch(/^repo1-sftp-host-key-check-type=strict$/m);
         expect(conf).toMatch(/^repo1-sftp-known-host=.*known_hosts$/m);
         expect(conf).not.toMatch(/check-type=(none|accept-new)/);
+        // pgBackRest exige le type de hachage dès que la clé de l'hôte est vérifiée (« restore command requires option: repo1-sftp-host-key-hash-type »).
+        expect(conf).toMatch(/^repo1-sftp-host-key-hash-type=sha256$/m);
       } finally {
         rmSync(cible, { force: true });
       }
@@ -263,14 +265,15 @@ describe("configuration des sauvegardes (lecture statique)", () => {
     expect(actives).toContain("repo1-retention-full=9999");
     expect(actives).toContain("repo1-retention-archive-type=full");
     expect(actives).toContain("repo1-retention-archive=30");
-    expect(lignesActives(nuit).some((l) => /\bexpire\b/.test(l))).toBe(false);
+    // Le mot « expire » seul (la commande) n'apparaît pas ; l'option --no-expire-auto, qui la coupe, est permise (T1B-05).
+    expect(lignesActives(nuit).some((l) => /(^|\s)expire(\s|$)/.test(l))).toBe(false);
   });
 
   it("[C-045] restaurer.sh : mode essai explicite (défaut 0), accès au coffre transmis au conteneur, nettoyage en cas d'échec", () => {
     expect(restaurer).toMatch(/SAUVEGARDE_ESSAI:-0/);
     expect(restaurer).toMatch(/-e BAO_ADDR -e BAO_JETON_FICHIER/);
     expect(restaurer).toMatch(/:ro"\)/);
-    expect(restaurer).toMatch(/trap nettoyer EXIT/);
+    expect(restaurer).toMatch(/trap terminer EXIT/);
     expect(restaurer).toMatch(/docker rm -f -v "\$nom"/);
   });
 

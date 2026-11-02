@@ -220,35 +220,43 @@ const copieDesScripts = (modele?: string) => {
 };
 
 describe("scripts de sauvegarde (réserves 2, 3, 5 et 6 de la PR #59)", () => {
-  it("[C-056] restaurer.sh refuse host-key-check-type=none hors mode essai", () => {
+  it("[C-056] restaurer.sh ne refuse plus toute restauration hors essai : sa configuration vient de preparer-configuration.sh (strict + known_hosts), jamais « none »", () => {
+    // T1B-05 : le modèle garde « none » pour la cible d'essai ; hors essai, preparer-configuration.sh (dans le conteneur) le remplace par « strict » et known_hosts.
+    const sh = readFileSync(join(SCRIPTS, "restaurer.sh"), "utf8");
+    expect(sh).not.toMatch(/host-key-check-type=none n'est admis/);
+    expect(sh).toMatch(/\/opt\/sauvegardes\/preparer-configuration\.sh/);
+    // Le refus de « none » hors essai reste porté par preparer-configuration.sh : sans known_hosts, rien ne démarre.
     const d = copieDesScripts("[global]\nrepo1-sftp-host-key-check-type=none\n");
     const jeton = join(d, "jeton");
     writeFileSync(jeton, "TEST-NE-PAS-UTILISER-jeton");
-    const hors = { ...process.env, BAO_ADDR: "http://openbao.test:8200", BAO_JETON_FICHIER: jeton };
+    const hors = { ...process.env, BAO_ADDR: "https://openbao.test:8200", BAO_JETON_FICHIER: jeton, PATH: "/usr/bin:/bin" };
     delete hors.SAUVEGARDE_ESSAI;
+    // Sans docker (PATH réduit), l'échec vient du socle absent, pas d'un refus du modèle.
     const r = spawnSync(join(d, "restaurer.sh"), [], { encoding: "utf8", env: hors });
-    expect(r.status).not.toBe(0);
-    expect(r.stderr).toMatch(/host-key-check-type=none n'est admis qu'en essai/);
-    // Un modèle épinglé n'est pas refusé pour cette raison (l'échec vient alors de l'absence de docker/socle).
-    const epingle = copieDesScripts("[global]\nrepo1-sftp-host-key-check-type=fingerprint\n");
-    const r2 = spawnSync(join(epingle, "restaurer.sh"), [], { encoding: "utf8", env: { ...hors, PATH: "/usr/bin:/bin" } });
-    expect(r2.stderr).not.toMatch(/host-key-check-type=none/);
+    expect(r.stderr).not.toMatch(/host-key-check-type=none/);
+    // Un known_hosts ou une autorité illisibles sont refusés avant de lancer quoi que ce soit.
+    const sans = spawnSync(join(d, "restaurer.sh"), [], { encoding: "utf8", env: { ...hors, SFTP_KNOWN_HOSTS: join(d, "absent") } });
+    expect(sans.status).not.toBe(0);
+    expect(sans.stderr).toMatch(/known_hosts illisible/);
+    const sansCa = spawnSync(join(d, "restaurer.sh"), [], { encoding: "utf8", env: { ...hors, BAO_CA_FICHIER: join(d, "absente") } });
+    expect(sansCa.status).not.toBe(0);
+    expect(sansCa.stderr).toMatch(/autorité de certification illisible/);
   });
 
   it("[C-593] après le lancement de la restauration, la phrase n'est plus dans l'environnement du processus postgres", () => {
     const sh = readFileSync(join(SCRIPTS, "restaurer.sh"), "utf8");
     const interne = sh.slice(sh.indexOf("--entrypoint bash"));
-    // Configuration sur un tmpfs, en 0400 ; la phrase est retirée de l'environnement AVANT l'exec de postgres.
+    // Configuration sur un tmpfs, préparée par le script du serveur (umask 277, 0400) ; le script de restauration ne lit jamais la phrase lui-même.
     expect(interne).toMatch(/PGBACKREST_CONFIG=\/dev\/shm\//);
-    expect(interne).toMatch(/umask 277/);
     expect(interne).not.toMatch(/PGBACKREST_CONFIG=\/tmp/);
-    const unset = interne.indexOf("unset ");
+    expect(interne).not.toMatch(/phrase=|PGBACKREST_REPO1_CIPHER_PASS|lire-phrase-chiffrement/);
+    const preparer = interne.indexOf("/opt/sauvegardes/preparer-configuration.sh");
     const exec = interne.indexOf("exec postgres");
-    expect(unset).toBeGreaterThan(-1);
-    expect(exec).toBeGreaterThan(unset);
-    expect(interne.slice(unset, exec)).toMatch(/PGBACKREST_REPO1_CIPHER_PASS/);
-    // La phrase est dans le fichier en mémoire (le serveur restauré relit ses journaux avec), plus dans l'environnement.
-    expect(interne.slice(0, unset)).toMatch(/repo1-cipher-pass=%s/);
+    expect(preparer).toBeGreaterThan(-1);
+    expect(exec).toBeGreaterThan(preparer);
+    const script = readFileSync(join(SCRIPTS, "preparer-configuration.sh"), "utf8");
+    expect(script).toMatch(/umask 277/);
+    expect(script).toMatch(/repo1-cipher-pass=%s/);
     // Le comportement réel (/proc/1/environ du conteneur restauré) est prouvé dans tests/socle/sauvegardes.int.test.ts.
   });
 

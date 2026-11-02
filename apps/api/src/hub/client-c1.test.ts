@@ -145,7 +145,7 @@ describe("client C1 vers le Hub", () => {
     await b.c.retrouverOuCreer({ ...ORG, decisionId: "decision-1" } as never);
     await b.c.retrouverOuCreer({ ...ORG, decisionId: "decision-1" } as never);
     expect(b.lignes.size).toBe(2);
-    await b.c.retrouverOuCreer({ ...ORG, siren: "987654321" });
+    await b.c.retrouverOuCreer({ ...ORG, siren: "987654324" });
     await b.c.retrouverOuCreer({ ...ORG, raisonSociale: "Atelier Bertin et Fils" });
     expect(b.lignes.size).toBe(4);
     expect(JSON.stringify(b.depots().map((d) => d.corps))).not.toMatch(/decisionId/);

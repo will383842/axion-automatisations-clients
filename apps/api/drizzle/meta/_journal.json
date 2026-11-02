@@ -59,6 +59,20 @@
       "breakpoints": true
     },
     {
+      "idx": 8,
+      "version": "7",
+      "when": 1793570000000,
+      "tag": "0008_commercial",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1793575000000,
+      "tag": "0009_contrats",
+      "breakpoints": true
+    },
+    {
       "idx": 10,
       "version": "7",
       "when": 1793580000000,

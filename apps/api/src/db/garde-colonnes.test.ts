@@ -1,5 +1,5 @@
-import { is } from "drizzle-orm";
-import { getTableConfig, integer, PgTable, pgTable, text, uuid } from "drizzle-orm/pg-core";
+import { is, sql } from "drizzle-orm";
+import { check, getTableConfig, integer, PgDialect, PgTable, pgTable, text, uuid } from "drizzle-orm/pg-core";
 import { describe, expect, it } from "vitest";
 import * as schema from "./schema.ts";
 
@@ -32,5 +32,81 @@ describe("garde des colonnes : aucun secret en base", () => {
 
   it("[LOT2-garde] la liste des colonnes permises est fermée : une seule référence au coffre", () => {
     expect(PERMISES).toEqual(["reference_coffre"]);
+  });
+});
+
+// Garde « aucun texte libre » (C-034) : dans demandes, executions et alertes, toute colonne `text` figure dans une liste fermée avec sa longueur maximale,
+// et le schéma porte un CHECK qui la borne (char_length(col) <= N, ou une expression régulière à quantificateur borné {m,n}). Un motif borné compte pour n + 1 caractères au plus (un caractère d'attaque possible avant la classe répétée). Chaque ajout se relit en 2 tours.
+export const TEXTE_PERMIS: Readonly<Record<string, number>> = Object.freeze({
+  "demandes.categorie": 64,
+  "demandes.reference_texte": 64,
+  "demandes.responsable": 200,
+  "executions.code_erreur": 65,
+  "alertes.type": 64,
+  "alertes.regle": 64,
+});
+// Dettes écrites (ADR 0055) : trois colonnes de T2-06 sans longueur maximale, hors des fichiers autorisés de T2-07. Liste fermée : elle ne grandit pas, et elle doit
+// être vidée (colonne bornée, puis retrait ici) dès que le schéma d'exploitation est repris.
+export const TEXTE_SANS_LIMITE_DETTE: readonly string[] = Object.freeze(["alertes.assignee_a", "executions.auteur", "executions.termine_par"]);
+const sqlDe = (c: { value: Parameters<PgDialect["sqlToQuery"]>[0] }) => new PgDialect().sqlToQuery(c.value).sql;
+const borne = (verifs: string[], colonne: string): number | null => {
+  let max: number | null = null;
+  for (const v of verifs) {
+    if (!v.includes(`"${colonne}"`)) continue;
+    const l = /char_length\((?:"[a-z_]+"\.)?"[a-z_]+"\)(?: <=|\s+BETWEEN \d+ AND) (\d+)/.exec(v);
+    if (l) max = Math.max(max ?? 0, Number(l[1]));
+    else if (/\{\d+,(\d+)\}\$/.test(v)) max = Math.max(max ?? 0, Number(/\{\d+,(\d+)\}\$/.exec(v)?.[1]) + 1);
+  }
+  return max;
+};
+export function textesSansLimite(tables: PgTable[], permis: Readonly<Record<string, number>> = TEXTE_PERMIS, dette: readonly string[] = TEXTE_SANS_LIMITE_DETTE): string[] {
+  return tables.flatMap((t) => {
+    const { name, columns, checks } = getTableConfig(t);
+    const verifs = checks.map(sqlDe);
+    return columns
+      .filter((c) => c.getSQLType() === "text")
+      .flatMap((c) => {
+        const cle = `${name}.${c.name}`;
+        const max = borne(verifs, c.name);
+        if (dette.includes(cle)) return max === null ? [] : [`${cle} : désormais bornée, la retirer de la dette`];
+        if (!(cle in permis)) return [`${cle} : hors de la liste fermée`];
+        if (max === null) return [`${cle} : aucune longueur maximale dans le schéma`];
+        if (max > (permis[cle] ?? 0)) return [`${cle} : ${max} > ${permis[cle]}`];
+        return [];
+      });
+  });
+}
+const tableNommee = (nom: string) => tablesDuSchema().find((t) => getTableConfig(t).name === nom) as PgTable;
+
+describe("garde des colonnes : aucun texte libre (C-034)", () => {
+  it("[C-034] demandes, executions et alertes : chaque colonne de texte est dans la liste fermée et bornée", () => {
+    expect(textesSansLimite(["demandes", "executions", "alertes"].map(tableNommee))).toEqual([]);
+  });
+
+  it("[C-034] une colonne text sans limite de longueur est refusée ; une colonne bornée par char_length ou par un motif borné est acceptée", () => {
+    const sans = pgTable("demandes", { id: uuid("id"), categorie: text("categorie") });
+    expect(textesSansLimite([sans])).toEqual(["demandes.categorie : aucune longueur maximale dans le schéma"]);
+    const libre = pgTable("alertes", { id: uuid("id"), message: text("message") });
+    expect(textesSansLimite([libre])).toEqual(["alertes.message : hors de la liste fermée"]);
+    const borne200 = pgTable("demandes", { responsable: text("responsable") }, (t) => [check("r_longueur", sql`char_length(${t.responsable}) <= 200`)]);
+    expect(textesSansLimite([borne200])).toEqual([]);
+    const motif = pgTable("alertes", { type: text("type") }, (t) => [check("t_code", sql`${t.type} ~ '^[a-z][a-z0-9_.-]{0,63}$'`)]);
+    expect(textesSansLimite([motif])).toEqual([]);
+    const trop = pgTable("demandes", { responsable: text("responsable") }, (t) => [check("r_longueur", sql`char_length(${t.responsable}) <= 5000`)]);
+    expect(textesSansLimite([trop])).toEqual(["demandes.responsable : 5000 > 200"]);
+  });
+
+  it("[C-034] une colonne de la dette qui devient bornée doit en sortir ; une colonne neuve hors liste n'entre jamais dans la dette", () => {
+    const bornee = pgTable("executions", { auteur: text("auteur") }, (t) => [check("a_longueur", sql`char_length(${t.auteur}) <= 200`)]);
+    expect(textesSansLimite([bornee])).toEqual(["executions.auteur : désormais bornée, la retirer de la dette"]);
+    const neuve = pgTable("demandes", { note: text("note") });
+    expect(textesSansLimite([neuve])).toEqual(["demandes.note : hors de la liste fermée"]);
+  });
+
+  it("[C-034] la liste des textes permis est fermée : six colonnes bornées et trois dettes écrites, toutes sur demandes, executions, alertes", () => {
+    expect(Object.keys(TEXTE_PERMIS)).toHaveLength(6);
+    expect(TEXTE_SANS_LIMITE_DETTE).toHaveLength(3);
+    expect(Object.keys(TEXTE_PERMIS).every((k) => ["demandes", "executions", "alertes"].includes(k.split(".")[0] ?? ""))).toBe(true);
+    expect(Object.values(TEXTE_PERMIS).every((n) => n > 0 && n <= 255)).toBe(true);
   });
 });

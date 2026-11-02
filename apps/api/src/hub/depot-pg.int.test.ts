@@ -58,7 +58,7 @@ const enveloppe = (client: string, f: FaitRange) => ({
 // BILAN affiché dans le journal de la CI : le rapport JSON de l'intégration n'est pas publié, un échec n'y serait pas lisible.
 const essai = (nom: string, fn: () => Promise<void>) =>
   it(nom, async ({ onTestFailed }) => {
-    onTestFailed((resultat) => writeSync(2, `BILAN depot-pg : ROUGE ${nom.slice(0, 60)} : ${String((resultat as unknown as { errors?: { message?: string }[] }).errors?.[0]?.message).slice(0, 400)}\n`));
+    onTestFailed((resultat) => void writeSync(2, `BILAN depot-pg : ROUGE ${nom.slice(0, 60)} : ${String((resultat as unknown as { errors?: { message?: string }[] }).errors?.[0]?.message).slice(0, 400)}\n`));
     await fn();
     writeSync(2, `BILAN depot-pg : vert ${nom.slice(0, 60)}\n`);
   });

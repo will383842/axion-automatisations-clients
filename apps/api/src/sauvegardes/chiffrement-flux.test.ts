@@ -14,7 +14,7 @@ async function tout(source: AsyncIterable<Buffer>): Promise<Buffer> {
   return Buffer.concat(parts);
 }
 const chiffrer = (clair: Buffer, cle: Buffer, tenant = A, bloc = 64) => tout(chiffrerFlux(depuis(clair), cle, ENTETE, tenant, bloc));
-const lireCle = (cle: Buffer) => async (_e: Entete) => Buffer.from(cle);
+const lireCle = (cle: Buffer) => async () => Buffer.from(cle);
 
 describe("chiffrement par blocs", () => {
   it("[A-239] le flux chiffré se relit à l'identique, y compris vide et à cheval sur plusieurs blocs", async () => {
@@ -45,7 +45,7 @@ describe("chiffrement par blocs", () => {
       let p = lg;
       while (p < brut.length) { const n = brut.readUInt32BE(p); nonces.add(brut.subarray(p + 4, p + 4 + n).toString("hex")); p += 4 + n; }
     }
-    expect(nonces.size).toBe(18);
+    expect(nonces.size).toBe(15); // 3 dumps de 5 blocs (4 pleins et le dernier)
   });
 
   it("[A-239] un bloc modifié, retiré, dupliqué ou une fin coupée est refusé", async () => {

@@ -16,14 +16,16 @@ export interface AbonnementResume { codeAutomatisation: string; palier: string; 
 
 export function emetteurC3(d: DepotsC3) {
   async function fait(type: string, i: IntentionC3, tenant: string, payload: unknown): Promise<ResultatFait> {
+    // Isolation : le fait ne peut concerner que le client de la transaction (celui de l'émetteur), jamais un autre.
+    if (tenant !== d.tenantId) throw new Error("fait C3 refusé : le client du fait n'est pas celui de l'émetteur");
     const eventId = identifiantEvenementC3(type, `${tenant}:${i.id}`);
     const corps = EvenementConsole.parse({
       event_id: eventId, schema_version: 1, occurred_at: i.occurredAt, emitted_at: i.occurredAt, sequence: i.sequence ?? 0,
       producer: "axion-console", subject_ref: { consoleClientId: tenant }, event_type: type, payload,
     });
     const { nouveau } = await d.deposer({ destination: "crm", route: ROUTES_C3.consoleVersCrm.chemin, methode: "POST", corps, intention: `c3:${type}:${i.id}` });
-    // Une ligne par fait, sans corps (C-344).
-    journaliser(d.journal, { canal: "c3", sens: "sortant", route: ROUTES_C3.consoleVersCrm.chemin, cle: eventId, horodatage: undefined, resultat: nouveau ? "depose" : "deja_depose", id_trace: d.idTrace });
+    // Une ligne par fait, sans corps (C-344). Écrite avant la validation de la transaction : elle annonce un dépôt en attente, pas un envoi.
+    journaliser(d.journal, { canal: "c3", sens: "sortant", route: ROUTES_C3.consoleVersCrm.chemin, cle: eventId, horodatage: undefined, resultat: nouveau ? "en_attente_de_validation" : "deja_depose", id_trace: d.idTrace });
     return { eventId, nouveau };
   }
   const c = (tenant: string) => ({ consoleClientId: tenant });

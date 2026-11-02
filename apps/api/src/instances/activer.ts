@@ -28,13 +28,21 @@ export async function activerInstance(client: Requeteur, tenantId: string, insta
   );
   if (contrat.rows.length === 0) throw new ErreurRegleMetier(MOTIF_SOUS_TRAITANCE_ABSENTE);
   try {
-    const maj = await client.query("UPDATE instances SET etat = 'active' WHERE tenant_id = $1 AND id = $2", [tenantId, instanceId]);
-    // Aucune ligne modifiée : l'instance a disparu (ou n'est plus visible) entre la lecture et l'écriture ; jamais un succès silencieux.
-    if (maj.rowCount === 0) throw new ErreurRegleMetier("instance_introuvable");
-    // Fait C3 déposé dans la même transaction : une activation annulée n'envoie rien (T2-18).
+    // Seul un vrai changement d'état écrit et émet : une instance déjà active ne change rien. Le jour vient de la base (Europe/Paris), pas de l'horloge de l'application (UTC).
+    const maj = await client.query(
+      "UPDATE instances SET etat = 'active' WHERE tenant_id = $1 AND id = $2 AND etat <> 'active' RETURNING to_char((now() AT TIME ZONE 'Europe/Paris')::date, 'YYYY-MM-DD') AS jour",
+      [tenantId, instanceId],
+    );
+    if (maj.rowCount === 0) {
+      // Aucune ligne modifiée : soit déjà active (rien à faire, aucun fait), soit disparue entre la lecture et l'écriture (jamais un succès silencieux).
+      const encore = await client.query("SELECT organisation_id, code_automatisation FROM instances WHERE tenant_id = $1 AND id = $2", [tenantId, instanceId]);
+      if (!encore.rows[0]?.["organisation_id"]) throw new ErreurRegleMetier("instance_introuvable");
+      return;
+    }
+    // Fait C3 déposé dans la même transaction : une activation annulée n'envoie rien (T2-18). Le jour est dans la clé : un autre jour, un autre fait.
     if (emetteur) {
-      const jour = `${new Date().toISOString().slice(0, 10)}T00:00:00Z`; // au jour près : un rejeu le même jour redonne le même corps
-      await emetteur.automatisationActivee({ id: `activation:${instanceId}`, occurredAt: jour }, tenantId, instance.rows[0]?.["code_automatisation"] as string, jour.slice(0, 10));
+      const jour = maj.rows[0]?.["jour"] as string;
+      await emetteur.automatisationActivee({ id: `activation:${instanceId}:${jour}`, occurredAt: `${jour}T00:00:00Z` }, tenantId, instance.rows[0]?.["code_automatisation"] as string, jour);
     }
   } catch (e) {
     if ((e as { code?: string }).code === "P0001" && (e as { detail?: string }).detail === MOTIF_SOUS_TRAITANCE_ABSENTE) throw new ErreurRegleMetier(MOTIF_SOUS_TRAITANCE_ABSENTE);

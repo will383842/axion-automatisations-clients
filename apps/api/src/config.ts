@@ -18,6 +18,9 @@ export interface Config {
   crmActif?: boolean;
   // Adresses de l'équipe pour les e-mails de service (A-116) : le seul endroit où une adresse de destinataire est lue.
   adressesEquipe?: { will?: string };
+  // Rétention (A-180, C-041) : le retrait des exécutions anciennes et des notes reste fermé tant que l'interrupteur n'est pas ouvert.
+  retentionPurgeActive?: boolean;
+  retentionOuvertePar?: string;
 }
 
 // Les clés des fournisseurs d'IA et de la passerelle vivent dans OpenBao seulement (C-391, C-598 d).
@@ -62,6 +65,8 @@ const Schema = z.object({
   CRM_URL: urlHttp,
   CONSOLE_HUB_ACTIF: interrupteur,
   CONSOLE_CRM_ACTIF: interrupteur,
+  RETENTION_PURGE_ACTIVE: interrupteur,
+  RETENTION_OUVERTE_PAR: z.preprocess((v) => (v === "" ? undefined : v), z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((d) => !Number.isNaN(Date.parse(d))).optional()),
   EQUIPE_ADRESSE_WILL: z.preprocess((v) => (v === "" ? undefined : v), adresseUnique),
 });
 
@@ -76,9 +81,11 @@ export function chargerConfig(env: NodeJS.ProcessEnv, dossierApi = fileURLToPath
     if (readdirSync(dossierApi).some((n) => n.toLowerCase() === ".env" || n.toLowerCase().startsWith(".env."))) {
       throw new ConfigInvalide("fichier .env interdit en production : les secrets viennent d'OpenBao");
     }
+    // Le retrait définitif ne s'ouvre en production que si une date d'ouverture, posée par Will, est présente.
+    if (v.RETENTION_PURGE_ACTIVE && !v.RETENTION_OUVERTE_PAR) throw new ConfigInvalide("configuration invalide : RETENTION_OUVERTE_PAR");
     if (!v.APP_DATABASE_URL) throw new ConfigInvalide("configuration invalide : APP_DATABASE_URL");
   }
   const { APP_DATABASE_URL: base, HUB_URL: hub, CRM_URL: crm, EQUIPE_ADRESSE_WILL: will } = v;
-  const actifs = { hubActif: v.CONSOLE_HUB_ACTIF, crmActif: v.CONSOLE_CRM_ACTIF };
+  const actifs = { hubActif: v.CONSOLE_HUB_ACTIF, crmActif: v.CONSOLE_CRM_ACTIF, retentionPurgeActive: v.RETENTION_PURGE_ACTIVE, ...(v.RETENTION_OUVERTE_PAR ? { retentionOuvertePar: v.RETENTION_OUVERTE_PAR } : {}) };
   return { env: v.NODE_ENV, port: v.PORT, ...actifs, ...(base ? { appDatabaseUrl: base } : {}), ...(hub ? { hubUrl: hub } : {}), ...(crm ? { crmUrl: crm } : {}), ...(will ? { adressesEquipe: { will } } : {}) };
 }

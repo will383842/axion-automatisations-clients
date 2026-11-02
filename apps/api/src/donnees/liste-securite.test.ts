@@ -93,6 +93,27 @@ describe("liste blanche : filtre d'établissement", () => {
     expect(refuse(`SELECT id FROM commun.personnes WHERE ${f} AND (nom = 'a' OR nom = 'b')`)).toThrow();
   });
 
+  it("[B-173] @isolation colonne qualifiée : aucune sous-requête quand le SELECT de premier niveau a un FROM (corrélation sur etablissement_id)", () => {
+    const f = "{{filtre}}";
+    for (const sql of [
+      `SELECT (SELECT count(*)::int FROM commun.entreprises WHERE ${f}) AS total FROM commun.personnes WHERE ${f} LIMIT 1`,
+      `SELECT p.id FROM commun.personnes p WHERE ${f} AND p.id = (SELECT max(e.id) FROM commun.entreprises e WHERE ${f})`,
+      `SELECT (SELECT count(*)::int FROM commun.personnes WHERE ${f}) AS total FROM commun.personnes WHERE ${f}`,
+    ]) expect(refuse(sql, { colonnes: ["id", "total"] }), sql).toThrow();
+  });
+
+  it("[B-173] @isolation fonctions hors liste fermée et ligne entière refusées (table_to_xml, query_to_xml, row_to_json, alias seul)", () => {
+    const f = "{{filtre}}";
+    for (const sql of [
+      `SELECT table_to_xml('commun.personnes', true, false, '') AS id FROM commun.personnes WHERE ${f}`,
+      `SELECT query_to_xml('select 1', true, false, '') AS id FROM commun.personnes WHERE ${f}`,
+      `SELECT row_to_json(p) AS id FROM commun.personnes p WHERE ${f}`,
+      `SELECT p AS id FROM commun.personnes p WHERE ${f}`,
+      `SELECT to_jsonb(p) AS id FROM commun.personnes p WHERE ${f}`,
+    ]) expect(refuse(sql), sql).toThrow();
+    expect(refuse(`SELECT lower(nom) AS id, count(*)::int AS total FROM commun.personnes p WHERE ${f}`, { colonnes: ["id", "total"] })).not.toThrow();
+  });
+
   it("[B-173] formes valides conservées : un FROM, une sous-requête de projection filtrée, tables qualifiées", () => {
     const f = "{{filtre}}";
     expect(refuse(`SELECT p.id FROM commun.personnes p WHERE ${f} ORDER BY p.id LIMIT $1`)).not.toThrow();

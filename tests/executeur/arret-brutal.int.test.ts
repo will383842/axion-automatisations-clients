@@ -114,7 +114,7 @@ afterAll(async () => {
 });
 
 function lancerTravailleur(travail: object): { enfant: ChildProcess; fini: Promise<number | null> } {
-  const enfant = spawn(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", TRAVAILLEUR], {
+  const enfant = spawn(process.execPath, ["--experimental-transform-types", "--input-type=module", "-e", TRAVAILLEUR], {
     cwd: racine,
     env: { ...process.env, TRAVAIL: JSON.stringify(travail) },
     stdio: ["ignore", "ignore", "inherit"],

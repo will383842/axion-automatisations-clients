@@ -2,7 +2,8 @@
 # Imprime la phrase de chiffrement du dépôt pgBackRest, lue au moment de l'usage (C-593). Jamais écrite dans un fichier versionné.
 #   Essai (SAUVEGARDE_ESSAI=1) : lue dans le fichier généré au lancement par le service cle-essai.
 #   Sinon : lue dans OpenBao, chemin technique/sauvegardes, champ « phrase ».
-#     BAO_ADDR            adresse sous la même forme que ops/socle/litellm/demarrer.sh : http://hote:port (le HTTPS n'est pas pris en charge ici)
+#     BAO_ADDR            https://hote:port (T1B-04) : le certificat est vérifié (chaîne et nom) contre l'autorité du réseau interne,
+#                         BAO_CA_FICHIER (obligatoire, lisible). http://hote:port est REFUSÉ, sauf BAO_ESSAI_SANS_TLS=1 (OpenBao d'essai jetable).
 #     BAO_JETON_FICHIER   fichier qui contient le jeton (jamais le jeton lui-même dans l'environnement)
 #     BAO_DELAI           délai maximal, en secondes, de la connexion et de la lecture (défaut 10) : un OpenBao muet fait échouer le script
 #                         (code 1, message net) au lieu de bloquer le démarrage.
@@ -14,16 +15,22 @@ if [ "${SAUVEGARDE_ESSAI:-}" = "1" ]; then
 else
   [ -n "${BAO_ADDR:-}" ] || { echo "adresse d'OpenBao absente (BAO_ADDR)" >&2; exit 1; }
   [ -n "${BAO_JETON_FICHIER:-}" ] || { echo "fichier du jeton absent (BAO_JETON_FICHIER)" >&2; exit 1; }
+  schema=""
   case "$BAO_ADDR" in
-    https://*) echo "OpenBao en HTTPS : non pris en charge par ce script (TLS ou réseau dédié, lot 1-B)" >&2; exit 1 ;;
-    http://*) ;;
-    *) echo "BAO_ADDR doit être de la forme http://hote:port" >&2; exit 1 ;;
+    https://*) schema=https; hote_port="${BAO_ADDR#https://}" ;;
+    http://*)
+      [ "${BAO_ESSAI_SANS_TLS:-}" = "1" ] || { echo "OpenBao en http:// refusé hors essai : utiliser https:// avec BAO_CA_FICHIER" >&2; exit 1; }
+      schema=http; hote_port="${BAO_ADDR#http://}" ;;
+    *) echo "BAO_ADDR doit être de la forme https://hote:port" >&2; exit 1 ;;
   esac
-  hote_port="${BAO_ADDR#http://}"
   hote_port="${hote_port%/}"
   hote="${hote_port%%:*}"
   port="${hote_port##*:}"
-  [ -n "$hote" ] && [ "$port" != "$hote_port" ] && [ -n "$port" ] || { echo "BAO_ADDR doit contenir un port : http://hote:port" >&2; exit 1; }
+  [ -n "$hote" ] && [ "$port" != "$hote_port" ] && [ -n "$port" ] || { echo "BAO_ADDR doit contenir un port : https://hote:port" >&2; exit 1; }
+  if [ "$schema" = "https" ]; then
+    [ -n "${BAO_CA_FICHIER:-}" ] && [ -r "$BAO_CA_FICHIER" ] || { echo "autorité de certification d'OpenBao absente ou illisible (BAO_CA_FICHIER)" >&2; exit 1; }
+    command -v openssl >/dev/null 2>&1 || { echo "openssl est absent : impossible de vérifier le certificat d'OpenBao" >&2; exit 1; }
+  fi
   # Tout le dialogue avec OpenBao tourne sous « timeout » : le script se relance lui-même une fois, sous délai.
   delai="${BAO_DELAI:-10}"
   case "$delai" in "" | *[!0-9]* | 0) delai=10 ;; esac
@@ -37,11 +44,18 @@ else
     exit "$code"
   fi
   jeton="$(cat "$BAO_JETON_FICHIER")"
-  # HTTP minimal par /dev/tcp : l'image ne contient ni curl ni wget.
-  exec 3<>"/dev/tcp/${hote}/${port}"
-  printf 'GET /v1/technique/data/sauvegardes HTTP/1.0\r\nHost: %s\r\nX-Vault-Token: %s\r\n\r\n' "$hote" "$jeton" >&3
-  reponse="$(cat <&3)"
-  exec 3<&-
+  # Fonction (pas de substitution de commande : elle retirerait le saut de ligne final et la requête resterait incomplète).
+  requete() { printf 'GET /v1/technique/data/sauvegardes HTTP/1.0\r\nHost: %s\r\nX-Vault-Token: %s\r\n\r\n' "$hote" "$jeton"; }
+  if [ "$schema" = "https" ]; then
+    # TLS vérifié : une chaîne ou un nom qui ne passent pas coupent la connexion, la réponse reste vide et la lecture est refusée.
+    reponse="$(requete | openssl s_client -quiet -connect "${hote}:${port}" -servername "$hote" -CAfile "$BAO_CA_FICHIER" -verify_return_error -verify_hostname "$hote" 2>/dev/null)" || reponse=""
+  else
+    # HTTP minimal par /dev/tcp (essai seulement) : l'image ne contient ni curl ni wget.
+    exec 3<>"/dev/tcp/${hote}/${port}"
+    requete >&3
+    reponse="$(cat <&3)"
+    exec 3<&-
+  fi
   saut=$'\n'
   retour=$'\r'
   statut="${reponse%%"$saut"*}"

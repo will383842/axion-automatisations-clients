@@ -85,6 +85,20 @@
       "when": 1793587472905,
       "tag": "0011_suivi",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1793624334604,
+      "tag": "0012_faits_recus_contenu",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1793624568975,
+      "tag": "0013_recepteur_c3",
+      "breakpoints": true
     }
   ]
 }

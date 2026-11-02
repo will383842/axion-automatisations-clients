@@ -40,7 +40,7 @@ describe("réception des faits du CRM : liaison", () => {
   it("[C-331] un client arrive du CRM et n'est jamais créé à la main ; la route de création manuelle n'existe pas", async () => {
     const serveur = Fastify();
     brancherErreurs(serveur);
-    routeCrm(serveur, { entrant: { cles: { clesAcceptees: async () => [] }, memoire: { set: async () => "OK" }, actif: () => true }, file: { add: async () => undefined } });
+    routeCrm(serveur, { entrant: { cles: { clesAcceptees: async () => [] }, memoire: { set: async () => "OK" }, actif: () => true }, recepteur: { recevoir: async (b) => ({ eventId: (b as { event_id: string }).event_id }) }, file: { add: async () => undefined } });
     for (const url of ["/api/console/v1/clients", "/api/crm/v1/clients", "/api/crm/v1/organisations"]) {
       expect((await serveur.inject({ method: "POST", url, payload: "{}" })).statusCode).toBe(404);
     }
@@ -238,7 +238,8 @@ describe("réception des faits du CRM : consentement et effacement", () => {
     let panne = true;
     const r = creerRecepteurC3({ depot, alertes: { signaler: async (a) => { if (panne) throw new Error("panne"); recues.push(a.type); } } });
     const f = retrait("effacement.demande");
-    await expect(r.traiter(f)).rejects.toThrow("panne");
+    // T2-17b : la panne d'envoi ne fait plus échouer la tâche (pas d'essai BullMQ de plus) ; l'alerte reste non confirmée.
+    await expect(r.traiter(f)).resolves.toMatchObject({ doublon: false });
     expect(depot.exclusions(ORG)).toEqual([empreinte]);
     panne = false;
     expect(await r.traiter(f)).toEqual({ doublon: true });
@@ -275,7 +276,7 @@ describe("route C3 du CRM", () => {
     const ajouts: { donnees: unknown; opts: { jobId?: string; removeOnComplete?: { age: number }; removeOnFail?: { age: number } } | undefined }[] = [];
     const serveur = Fastify();
     brancherErreurs(serveur);
-    routeCrm(serveur, { entrant: { cles: { clesAcceptees: async () => [CLE] }, memoire: { set: async () => "OK" }, actif: () => actif, maintenant: () => MAINTENANT }, file: { add: async (_n, donnees, opts) => void ajouts.push({ donnees, opts }) } });
+    routeCrm(serveur, { entrant: { cles: { clesAcceptees: async () => [CLE] }, memoire: { set: async () => "OK" }, actif: () => actif, maintenant: () => MAINTENANT }, recepteur: { recevoir: async (b) => ({ eventId: (b as { event_id: string }).event_id }) }, file: { add: async (_n, donnees, opts) => void ajouts.push({ donnees, opts }) } });
     const base = { "content-type": "application/json", "idempotency-key": randomUUID(), [EN_TETES.cle]: CLE.kid, [EN_TETES.horodatage]: String(MAINTENANT) };
     const envoyer = (corps: string) => serveur.inject({ method: "POST", url: ROUTES_C3.crmVersConsole.chemin, payload: corps, headers: { ...base, [EN_TETES.signature]: signer(CLE.secret.toString("base64"), String(MAINTENANT), "POST", ROUTES_C3.crmVersConsole.chemin, corps) } });
     const envoyerFausse = (corps: string) => serveur.inject({ method: "POST", url: ROUTES_C3.crmVersConsole.chemin, payload: corps, headers: { ...base, [EN_TETES.signature]: `v1=${"0".repeat(64)}` } });

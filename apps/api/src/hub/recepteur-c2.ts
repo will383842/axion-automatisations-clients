@@ -7,16 +7,8 @@ import { idTache, type FileMinimale } from "../files/files.js";
 // Récepteur C2 (T2-16a) : réception, dédoublonnage par event_id, ordre par sujet, détection d'un trou.
 // Les traitements par type de fait (devis, factures, paiements, fusions) viennent avec T2-16b : ici, un fait est rangé puis mis en file.
 
-// DETTES (propriétaire = fiche OUVERTE T2-16b, listée dans spec/preuves.md ; critère = test à écrire).
-// CONDITION : tant que D1 n'est pas livrée, ce récepteur NE DOIT PAS être branché dans serveur.ts (garde : test « [T2-16b] … » de recepteur-c2.test.ts).
-// - D1 balayage des lignes rangées non traitées : (a) remise en file depuis la base, avec un jobId PAR TENTATIVE (ou nettoyage de la tâche en échec : BullMQ ignore un jobId déjà présent) ;
-//   (b) `verifierTrous` n'est appelé qu'à la réception d'un fait : un sujet muet avec un trou n'alerte jamais.
-//   Critères : « une ligne rangée non traitée est remise en file par le balayage avec un jobId nouveau » ;
-//   « un sujet sans nouveau fait, trou de plus de 10 min, déclenche rattrapage et alerte au passage du balayage ».
-// - D2 corps limité à 128 Ko sur la portée du canal et limite de débit « c2 » (canaux/verifier-entrant.ts, serveur.ts).
-//   Critère : « un corps de plus de 128 Ko répond 413 sans rangement » et « au-delà du débit, 429 ».
-// - D3 refus d'entrée neutres : horodatage périmé, signature fausse et clé inconnue donnent le même 401 au même corps ; un rejeu donne 200 « duplicate ».
-//   Critère : test qui compare les trois corps 401 et vérifie le 200 du rejeu.
+// D1, D2 et D3 sont soldées par T2-16b : adaptateur Postgres (depot-pg.ts), balayage (balayage-c2.ts), limites et refus neutres (canaux/verifier-entrant.ts).
+// RESTE (propriétaire T2-17b, ligne LOT2-dette-T2-16b-reste de spec/preuves.md) : le branchement dans serveur.ts. Garde : test « [T2-16b] serveur.ts ne branche le récepteur C2 que s'il lance aussi le balayage ».
 // - D4 si le traitement d'audit.cloture a besoin du contact ou du compte rendu, les demander au Hub à ce moment-là (rien n'est rangé ici).
 
 export const DELAI_TROU_MS = 10 * 60 * 1000;

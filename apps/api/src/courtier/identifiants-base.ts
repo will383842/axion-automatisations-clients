@@ -20,12 +20,14 @@ export interface PortsIdentifiants {
   hote(grappe: string): string;
   limites(role: string): Promise<Limites | undefined>;
   versionRole(role: string): Promise<number | undefined>;
+  // Fin de validité réelle du mot de passe (VALID UNTIL) : null = sans limite posée, undefined = rôle absent.
+  validiteRole(role: string): Promise<Date | null | undefined>;
   secret(nomBase: string): Promise<{ motDePasse: string; version: number }>;
   journal: Journal;
   maintenant(): Date;
 }
-// expire (15 minutes) est indicatif : l'exécuteur redemande ses identifiants à cette date, mais le mot de passe servi reste valide jusqu'au VALID UNTIL posé par la rotation.
-export interface Identifiants { hote: string; base: string; role: string; motDePasse: string; expire: Date }
+// expire : date où l'exécuteur DOIT redemander ses identifiants (15 minutes au plus, jamais après la fin réelle). valideJusqua : fin réelle du mot de passe (VALID UNTIL posé par la rotation), null si aucune.
+export interface Identifiants { hote: string; base: string; role: string; motDePasse: string; expire: Date; valideJusqua: Date | null }
 export const DUREE_SERVICE_MS = 15 * 60_000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -49,6 +51,11 @@ export async function identifiantsPourTache(p: PortsIdentifiants, tenantBrut: st
   // A-417 : un rôle sans ses limites n'est pas servi.
   const limites = await p.limites(role);
   if (!limites || !limites.statementTimeout || limites.connectionLimit < 1) return refuser("limites_absentes");
+  // Un mot de passe échu (ou dont la validité est illisible) n'est pas servi : sa fin réelle borne l'échéance annoncée.
+  const valide = await p.validiteRole(role);
+  const maintenant = p.maintenant();
+  if (valide === undefined || (valide !== null && valide.getTime() <= maintenant.getTime())) return refuser("role_expire");
+  const expire = new Date(Math.min(maintenant.getTime() + DUREE_SERVICE_MS, valide?.getTime() ?? Infinity));
   let secret: { motDePasse: string; version: number };
   try {
     secret = await p.secret(nomBase);
@@ -58,7 +65,7 @@ export async function identifiantsPourTache(p: PortsIdentifiants, tenantBrut: st
   // Un secret rangé mais pas encore posé sur le rôle (rotation interrompue) n'est pas servi.
   if ((await p.versionRole(role)) !== secret.version) return refuser("secret_incoherent");
   p.journal.tracer({ evenement: "identifiants_servis", tenantId, idTache, base: nomBase, role, version: secret.version });
-  return { hote: p.hote(base.grappe), base: nomBase, role, motDePasse: secret.motDePasse, expire: new Date(p.maintenant().getTime() + DUREE_SERVICE_MS) };
+  return { hote: p.hote(base.grappe), base: nomBase, role, motDePasse: secret.motDePasse, expire, valideJusqua: valide };
 }
 
 // A-417 : statement_timeout=0 (ou négatif) veut dire « sans limite » : seule une valeur strictement positive compte.
@@ -73,6 +80,15 @@ export function limitesPg(sql: Pick<Sql, "requete">): (role: string) => Promise<
     if (!/^cli_[0-9a-f]{12}_app$/.test(role)) throw new Error("nom refusé");
     const ligne = (await sql.requete<{ rolconnlimit: number; rolconfig: string[] | null }>("SELECT rolconnlimit, rolconfig FROM pg_roles WHERE rolname = $1", [role]))[0];
     return ligne ? { statementTimeout: (ligne.rolconfig ?? []).some((c) => limitePositive(c)), connectionLimit: ligne.rolconnlimit } : undefined;
+  };
+}
+
+// Fin de validité du mot de passe du rôle _app (rolvaliduntil) ; seul un rôle _app est interrogé.
+export function validiteRolePg(sql: Pick<Sql, "requete">): (role: string) => Promise<Date | null | undefined> {
+  return async (role) => {
+    if (!/^cli_[0-9a-f]{12}_app$/.test(role)) throw new Error("nom refusé");
+    const ligne = (await sql.requete<{ rolvaliduntil: Date | null }>("SELECT rolvaliduntil FROM pg_roles WHERE rolname = $1", [role]))[0];
+    return ligne ? ligne.rolvaliduntil : undefined;
   };
 }
 

@@ -33,6 +33,13 @@ export interface TxC3 {
   confirmerAlerte(id: string): Promise<void>;
   // Lien CRM absorbé : renvoie l'identifiant de la fiche gardée, sinon null.
   gardeeDe(crmCompanyId: string): Promise<string | null>;
+  // Contacts du fait « devenue cliente » : rangés dans la fiche liée, hors de la file. Idempotent (même e-mail, une seule ligne).
+  importerContacts(orgId: string, contacts: { nom: string; email: string }[]): Promise<void>;
+  // Réception : le fait complet est rangé AVANT la mise en file (le job ne porte que l'identifiant). Idempotent ; rend true si nouveau.
+  recevoir(f: FaitCrm): Promise<boolean>;
+  contenu(eventId: string): Promise<unknown | null>;
+  // Balayage : alertes rangées non confirmées, toutes origines.
+  alertesEnAttente(limite: number): Promise<{ id: string; alerte: AlerteC3 }[]>;
 }
 export type GenreExclusion = "desabonnement" | "opposition";
 export interface Exclusion {
@@ -57,7 +64,7 @@ export interface AlertesC3 {
 interface Base { event_id: string; sequence: number; subject_ref: { crmCompanyId: string } }
 export type FaitCrm = Base &
   (
-    | { event_type: "entreprise.devenue_cliente"; payload: { crmCompanyId: string; siren: string } }
+    | { event_type: "entreprise.devenue_cliente"; payload: { crmCompanyId: string; siren: string; contacts?: { nom: string; email: string }[] } }
     | { event_type: "entreprise.mise_a_jour"; payload: { crmCompanyId: string; raisonSociale?: string; adresse?: object } }
     | { event_type: "apporteur.rattache"; payload: { crmCompanyId: string; apporteurId: string } }
     | { event_type: "fiche.fusionnee"; payload: { crmCompanyIdAbsorbee: string; crmCompanyIdGardee: string } }

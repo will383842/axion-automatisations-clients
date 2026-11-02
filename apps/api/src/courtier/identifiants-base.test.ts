@@ -1,13 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { coffreCourtier, identifiantsPourTache, limitesPg, type PortsIdentifiants } from "./identifiants-base.js";
+import { coffreCourtier, identifiantsPourTache, limitesPg, validiteRolePg, type PortsIdentifiants } from "./identifiants-base.js";
 
 const A = randomUUID();
 const B = randomUUID();
 const idA = A.replaceAll("-", "").slice(0, 12);
 const MDP = "mot-de-passe-d-essai-un";
 
-function monter(o: { etat?: string; gel?: boolean; proprietaire?: string | undefined; limites?: { statementTimeout: boolean; connectionLimit: number } | undefined; versionRole?: number; echecCoffre?: boolean } = {}) {
+function monter(o: { etat?: string; gel?: boolean; proprietaire?: string | undefined; limites?: { statementTimeout: boolean; connectionLimit: number } | undefined; versionRole?: number; echecCoffre?: boolean; validite?: Date | null | undefined } = {}) {
   const journal: Record<string, unknown>[] = [];
   const lus: string[] = [];
   const p: PortsIdentifiants = {
@@ -17,6 +17,7 @@ function monter(o: { etat?: string; gel?: boolean; proprietaire?: string | undef
     hote: () => "pgbouncer-donnees.test",
     limites: async () => ("limites" in o ? o.limites : { statementTimeout: true, connectionLimit: 8 }),
     versionRole: async () => o.versionRole ?? 3,
+    validiteRole: async () => ("validite" in o ? o.validite : new Date("2027-02-01T00:00:00Z")),
     secret: async (nomBase) => {
       lus.push(nomBase);
       if (o.echecCoffre) throw new Error(`coffre en panne, mot de passe ${MDP}`);
@@ -115,5 +116,32 @@ describe("identifiants servis par le courtier", () => {
     const e = await identifiantsPourTache(panne.p, A, "tache-1").catch((x: unknown) => x as Error);
     expect(e).toMatchObject({ code: "coffre_indisponible" });
     expect(String((e as Error).message) + JSON.stringify(panne.journal)).not.toContain(MDP);
+  });
+
+  it("[A-209] expire ne dépasse jamais la fin de validité réelle du mot de passe ; un rôle échu ou sans validité lisible n'est pas servi", async () => {
+    // Fin de validité lointaine : l'exécuteur redemande à 15 minutes, la fin réelle est annoncée.
+    const loin = await identifiantsPourTache(monter().p, A, "tache-1");
+    expect(loin.expire.toISOString()).toBe("2027-01-10T10:15:00.000Z");
+    expect(loin.valideJusqua?.toISOString()).toBe("2027-02-01T00:00:00.000Z");
+    // Fin réelle dans 5 minutes : expire s'aligne dessus, l'exécuteur redemande avant la coupure.
+    const proche = await identifiantsPourTache(monter({ validite: new Date("2027-01-10T10:05:00Z") }).p, A, "tache-1");
+    expect(proche.expire.toISOString()).toBe("2027-01-10T10:05:00.000Z");
+    // Sans limite posée : 15 minutes, et la fin réelle est inconnue (null).
+    const sans = await identifiantsPourTache(monter({ validite: null }).p, A, "tache-1");
+    expect(sans.valideJusqua).toBeNull();
+    expect(sans.expire.toISOString()).toBe("2027-01-10T10:15:00.000Z");
+    for (const validite of [undefined, new Date("2027-01-10T10:00:00Z"), new Date("2027-01-09T00:00:00Z")]) {
+      const m = monter({ validite });
+      await expect(identifiantsPourTache(m.p, A, "tache-1")).rejects.toMatchObject({ code: "role_expire" });
+      expect(m.lus).toEqual([]);
+    }
+  });
+
+  it("[A-209] la lecture de la validité regarde rolvaliduntil du seul rôle app", async () => {
+    const lignes = (v: unknown) => ({ requete: async () => [{ rolvaliduntil: v }] as never });
+    await expect(validiteRolePg(lignes(new Date("2027-02-01T00:00:00Z")))(`cli_${idA}_app`)).resolves.toEqual(new Date("2027-02-01T00:00:00Z"));
+    await expect(validiteRolePg(lignes(null))(`cli_${idA}_app`)).resolves.toBeNull();
+    await expect(validiteRolePg({ requete: async () => [] as never })(`cli_${idA}_app`)).resolves.toBeUndefined();
+    await expect(validiteRolePg(lignes(null))("provisionneur")).rejects.toThrow();
   });
 });

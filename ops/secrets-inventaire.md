@@ -67,7 +67,8 @@ Les secrets de l'équipe vivent dans Bitwarden ou sous `technique/` d'OpenBao, J
 | `technique/donnees/cli_<id>/<rôle>` | equipe | OpenBao `technique/` (mots de passe de la base d'un client, générés par le provisionnement, écrits sans relecture par le rôle OpenBao provisionneur) | à la demande, par le courtier (T2-36) |
 | `technique/donnees/cli_<id>/app` | equipe | OpenBao `technique/` (mot de passe de l'exécuteur, renouvelé par la rotation du courtier, lu par le courtier seul) | 30 jours (période configurable), aussitôt en cas d'incident |
 | `DONNEES_GESTION_MOT_DE_PASSE` | equipe | compte de gestion du moteur database d'OpenBao sur la grappe données (secret `technique/`, lu à l'initialisation seulement) | à chaque départ d'un détenteur |
-| `DONNEES` | equipe | jeton OpenBao du courtier des bases (politique `donnees` : secret app d'un client et accès humain tracé) | période de 768 h, à recréer avant l'échéance |
+| `DONNEES` | equipe | jeton OpenBao du courtier des bases (politique `donnees` : secret app d'un client, pour l'exécuteur seulement) | période de 768 h, à recréer avant l'échéance |
+| `HUMAINS` | equipe | jeton OpenBao de l'accès humain tracé (politique `humains` : identifiants dynamiques de lecture et révocation des baux, jamais le secret de l'exécuteur) | période de 768 h, à recréer avant l'échéance |
 | `technique/echanges/<canal>/<kid>` | equipe | OpenBao `technique/` | deux clés actives, chevauchement de 24 h |
 | `modules-signature` | equipe | OpenBao transit (clé non exportable) | sur décision de l'architecte |
 | `PART` | equipe | collection « parts » du gestionnaire de mots de passe (2 parts), responsable du produit, personne de confiance, copie hors ligne : un lieu par part (voir la procédure) | au changement d'un détenteur |

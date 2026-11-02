@@ -1,15 +1,19 @@
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { writeSync } from "node:fs";
+import { createRequire } from "node:module";
+import { createServer, type Server } from "node:net";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { deriverCleIntention } from "@axion-auto/contrats/src/c4/intention.ts";
-import pg from "pg";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
+import { deriverCleIntention } from "../../packages/contrats/src/c4/intention.ts";
 import { avecClient } from "../../apps/executeur/src/db/connexion.ts";
-import { creerClientMailpit } from "../../packages/harnais/src/mailpit.ts";
+import type { ClientMailpit } from "../../packages/harnais/src/mailpit.ts";
 import { demarrerFauxGraph } from "../../packages/harnais/src/faux-graph/serveur.ts";
 
-// Arrêt brutal (C-470) : 50 exécutions du module d'exemple contre le faux Graph, le travailleur tué par SIGKILL à des instants tirés au sort, relancé, puis Mailpit compté.
+// « pg » n'est pas une dépendance de la racine : on le prend chez l'exécuteur.
+const pg = createRequire(new URL("../../apps/executeur/package.json", import.meta.url))("pg") as { Pool: new (o: object) => { on(e: string, f: () => void): void; end(): Promise<void> } };
+
+// Arrêt brutal (C-470) : 50 exécutions du module d'exemple contre le faux Graph, le travailleur tué par SIGKILL à des instants tirés au sort, relancé, puis les messages reçus comptés dans un piège SMTP local (le socle n'a pas de Mailpit).
 // Le travailleur est un processus enfant (jamais le processus du test) lancé avec le même Node : son code est écrit ici, le seul fichier de cette fiche à cet endroit.
 const docker = (...args: string[]) => execFileSync("docker", args, { encoding: "utf8" }).trim();
 const conteneur = (service: string) => docker("ps", "-q", "--filter", "label=com.docker.compose.project=socle", "--filter", `label=com.docker.compose.service=${service}`);
@@ -63,6 +67,41 @@ for (const exec of e.executions) await new Machine({ module, ports }).lancer(e.i
 await pool.end();
 `;
 
+// Piège à e-mails local (le socle n'a pas de Mailpit) : un serveur SMTP minimal sur 127.0.0.1 qui garde le sujet de chaque message reçu en entier.
+function demarrerPiege(): Promise<{ sujets: string[]; port: number; serveur: Server }> {
+  const sujets: string[] = [];
+  const serveur = createServer((s) => {
+    let donnees = false;
+    let tampon = "";
+    s.write("220 piege.test ESMTP\r\n");
+    s.on("error", () => undefined);
+    s.on("data", (b) => {
+      tampon += b.toString("latin1");
+      if (donnees) {
+        if (!tampon.includes("\r\n.\r\n")) return;
+        const sujet = /^Subject: (.*)$/im.exec(tampon)?.[1]?.trim();
+        if (sujet) sujets.push(sujet);
+        donnees = false;
+        tampon = "";
+        s.write("250 ok\r\n");
+        return;
+      }
+      for (const ligne of tampon.split("\r\n").filter(Boolean)) {
+        const cmd = ligne.slice(0, 4).toUpperCase();
+        if (cmd === "EHLO" || cmd === "HELO") s.write("250 piege.test\r\n");
+        else if (cmd === "DATA") {
+          donnees = true;
+          s.write("354 go\r\n");
+        } else if (cmd === "QUIT") s.end("221 bye\r\n");
+        else s.write("250 ok\r\n");
+      }
+      if (!donnees) tampon = "";
+      else tampon = tampon.slice(tampon.toUpperCase().lastIndexOf("DATA") + 4).replace(/^\r\n/, "");
+    });
+  });
+  return new Promise((ok) => serveur.listen(0, "127.0.0.1", () => ok({ sujets, port: (serveur.address() as { port: number }).port, serveur })));
+}
+
 const vivants = new Set<ChildProcess>();
 afterEach((contexte) => {
   if (contexte.task.result?.state === "fail") writeSync(2, `ECHEC ${contexte.task.name} : ${String(contexte.task.result.errors?.[0]?.message ?? "").slice(0, 400)}\n`);
@@ -83,18 +122,16 @@ function lancerTravailleur(travail: object): { enfant: ChildProcess; fini: Promi
 }
 
 describe("arrêt brutal du travailleur, avec le socle", { timeout: 300_000 }, () => {
-  it("[C-470] @anti-doublon arrêt brutal (SIGKILL) tiré au sort, 50 exécutions : chaque message exactement une fois dans Mailpit, ou son intention en a_trancher", async () => {
-    const mailpit = creerClientMailpit();
-    await mailpit.attendrePret();
-    await mailpit.vider();
+  it("[C-470] @anti-doublon arrêt brutal (SIGKILL) tiré au sort, 50 exécutions : chaque message exactement une fois dans le piège à e-mails, ou son intention en a_trancher", async () => {
+    const piege = await demarrerPiege();
     process.env["NODE_ENV"] = "test";
-    const graph = await demarrerFauxGraph({ mailpit });
+    const graph = await demarrerFauxGraph({ mailpit: { smtp: { host: "127.0.0.1", port: piege.port } } as ClientMailpit });
     try {
       const tenant = randomUUID();
       const instance = randomUUID();
       const executions = Array.from({ length: 50 }, () => randomUUID());
       for (const id of executions) {
-        await avecClient(app, tenant, (c) => c.query("INSERT INTO executions (tenant_id, id, instance_id, automatisation, debut) VALUES ($1, $2, $3, 'accuse-reception', now())", [tenant, id, instance]));
+        await avecClient(app as never, tenant, (c) => c.query("INSERT INTO executions (tenant_id, id, instance_id, automatisation, debut) VALUES ($1, $2, $3, 'accuse-reception', now())", [tenant, id, instance]));
       }
       const travail = { tenant, instance, executions, graph: graph.url, pg: { host: PGBOUNCER.host, port: PGBOUNCER.port, mdp: MOT_DE_PASSE } };
       // Six morts à des instants tirés au sort (de 0,3 s à 2,5 s après le départ), puis un travailleur qui finit le travail.
@@ -114,10 +151,9 @@ describe("arrêt brutal du travailleur, avec le socle", { timeout: 300_000 }, ()
       const dernier = lancerTravailleur(travail);
       expect(await dernier.fini).toBe(0);
 
-      const envoyes = await mailpit.lister();
       const parCle = new Map<string, number>();
-      for (const m of envoyes) parCle.set(m.Subject, (parCle.get(m.Subject) ?? 0) + 1);
-      const intentions = await avecClient(app, tenant, (c) => c.query<{ cle_intention: string; etat: string }>("SELECT cle_intention, etat FROM intentions"));
+      for (const sujet of piege.sujets) parCle.set(sujet, (parCle.get(sujet) ?? 0) + 1);
+      const intentions = await avecClient(app as never, tenant, (c) => c.query<{ cle_intention: string; etat: string }>("SELECT cle_intention, etat FROM intentions"));
       const etat = new Map(intentions.rows.map((r) => [r.cle_intention, r.etat]));
       const manques: string[] = [];
       for (const exec of executions) {
@@ -129,6 +165,7 @@ describe("arrêt brutal du travailleur, avec le socle", { timeout: 300_000 }, ()
       expect(manques).toEqual([]);
     } finally {
       await graph.arreter();
+      piege.serveur.close();
     }
   });
 });

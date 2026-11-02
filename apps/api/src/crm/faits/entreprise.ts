@@ -15,8 +15,12 @@ export async function devenueCliente(tx: TxC3, e: Pour<"entreprise.devenue_clien
     await tx.signalerATrancher(null, "identifiant_crm_incoherent");
     return { resultat: "a_trancher", alertes: [{ type: "ecart_propose", reference: e.subject_ref.crmCompanyId }] };
   }
+  const contacts = p.contacts ?? [];
   const parCrm = await tx.organisationParCrm(p.crmCompanyId);
-  if (parCrm) return { resultat: "traite", alertes: [] };
+  if (parCrm) {
+    await tx.importerContacts(parCrm.id, contacts);
+    return { resultat: "traite", alertes: [] };
+  }
   const parSiren = await tx.organisationsParSiren(p.siren);
   if (parSiren.length === 0) return { resultat: "ignore", alertes: [{ type: "fait_hors_perimetre", reference: p.crmCompanyId }] };
   if (parSiren.length > 1) {
@@ -31,6 +35,7 @@ export async function devenueCliente(tx: TxC3, e: Pour<"entreprise.devenue_clien
     return { resultat: "a_trancher", alertes: [{ type: "ecart_propose", reference: p.crmCompanyId }] };
   }
   await tx.lierCrm(org.id, p.crmCompanyId);
+  await tx.importerContacts(org.id, contacts);
   return { resultat: "traite", alertes: [] };
 }
 

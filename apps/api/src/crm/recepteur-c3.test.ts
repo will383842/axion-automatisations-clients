@@ -238,7 +238,8 @@ describe("réception des faits du CRM : consentement et effacement", () => {
     let panne = true;
     const r = creerRecepteurC3({ depot, alertes: { signaler: async (a) => { if (panne) throw new Error("panne"); recues.push(a.type); } } });
     const f = retrait("effacement.demande");
-    await expect(r.traiter(f)).rejects.toThrow("panne");
+    // T2-17b : la panne d'envoi ne fait plus échouer la tâche (pas d'essai BullMQ de plus) ; l'alerte reste non confirmée.
+    await expect(r.traiter(f)).resolves.toMatchObject({ doublon: false });
     expect(depot.exclusions(ORG)).toEqual([empreinte]);
     panne = false;
     expect(await r.traiter(f)).toEqual({ doublon: true });

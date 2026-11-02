@@ -142,8 +142,10 @@ describe("alertes : confirmées une à une, balayage sans nouvel essai BullMQ", 
     });
     await r.traiter(evt("effacement.demande", { personKey: "p-2", emailEmpreinte: empreinteEmail("autre.test@exemple.fr") }));
     echouer = false;
+    expect(depot.alertesRangees().filter((a) => !a.confirmee)).toHaveLength(1);
+    expect(depot.alertesRangees().filter((a) => a.confirmee)).toHaveLength(1);
     expect((await r.balayerAlertes(1)).renvoyees).toBe(1);
-    expect((await r.balayerAlertes(10)).renvoyees).toBeGreaterThanOrEqual(1);
+    expect((await r.balayerAlertes(10)).renvoyees).toBe(0);
     expect(depot.alertesRangees().every((a) => a.confirmee)).toBe(true);
   });
 });

@@ -192,8 +192,9 @@ describe("suivi : instantané et journal Drizzle de la migration 0011", () => {
 
   it("[A-119] le journal Drizzle est complet : douze entrées de 0000 à 0011, la dernière est 0011_suivi", () => {
     const journal = JSON.parse(lire("../../../drizzle/meta/_journal.json")) as { entries: { idx: number; tag: string; when: number }[] };
-    expect(journal.entries.map((e) => e.idx)).toEqual(Array.from({ length: 12 }, (_, i) => i));
-    expect(journal.entries.at(-1)?.tag).toBe("0011_suivi");
+    // Les maillons suivants s'ajoutent après 0011 (0015 : récepteur C3) : les douze premiers ne changent jamais.
+    expect(journal.entries.slice(0, 12).map((e) => e.idx)).toEqual(Array.from({ length: 12 }, (_, i) => i));
+    expect(journal.entries[11]?.tag).toBe("0011_suivi");
     const quand = journal.entries.map((e) => e.when);
     expect(quand).toEqual([...quand].sort((a, b) => a - b));
   });

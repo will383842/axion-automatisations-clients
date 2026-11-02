@@ -32,7 +32,7 @@ describe("garde du gel pour litige", () => {
   });
 
   it("[C-609] tout fichier de fin-de-contrat qui exporte une fonction, ou parle de REVOKE, a_l_ecart ou desactive, vérifie le gel", () => {
-    for (const c of ["export async function finir() {}", "export const finir = async () => {}", "await sql`REVOKE ALL ON x`", "mettreALEcart(); // a_l_ecart", "desactive(c)"]) {
+    for (const c of ["export async function finir() {}", "export const finir = async () => {}", "await sql`REVOKE ALL ON x`", "mettre('a_l_ecart')", "desactive(c)"]) {
       expect(verifierGel([f("apps/api/src/fin-de-contrat/k.ts", c)]), c).toHaveLength(1);
     }
     expect(verifierGel([f("apps/api/src/fin-de-contrat/k.ts", "export async function finir() { await retirerSousGel(tx, lire, t, 'effacement', r) }")])).toEqual([]);

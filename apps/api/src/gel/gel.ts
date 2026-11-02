@@ -14,6 +14,10 @@ export interface Gel {
   levePar: string | null;
 }
 export interface DepotGels {
+  // Vrai seulement pour l'adaptateur SQL (table gels_litige) ; faux pour la mémoire. Sert d'estReel à la rétention (T2-11).
+  readonly persistant: boolean;
+  // Adaptateur SQL : la pose et le retrait (dernière transaction d'une mise à l'écart ou d'un effacement) prennent le MÊME verrou par client
+  // avant de relire gelActif (dette LOT2-dette-T2-43-adaptateur) ; l'avis est déposé dans la même transaction que le gel.
   ajouter(gel: Gel): Promise<void>;
   // Met la date et l'auteur de levée d'un gel de CE client ; null si le gel n'existe pas chez ce client. Ne supprime rien.
   lever(tenantId: string, idGel: string, quand: Date, par: string): Promise<Gel | null>;
@@ -23,7 +27,8 @@ export interface DepotGels {
 export interface SessionEquipe {
   acteur: string;
   role: string;
-  organisationId: string;
+  // Le client (tenant) que l'équipe a ouvert ; comparé au client de l'URL. Rien à voir avec l'organisation d'AXION IA.
+  clientActifId: string;
   reauthentifie: boolean;
 }
 export interface DepsGel {
@@ -36,6 +41,7 @@ export interface DepsGel {
 export function depotGelsEnMemoire(): DepotGels {
   const lignes: Gel[] = [];
   return {
+    persistant: false,
     async ajouter(g) { lignes.push({ ...g }); },
     async lever(tenantId, idGel, quand, par) {
       const g = lignes.find((x) => x.tenantId === tenantId && x.id === idGel);
@@ -51,16 +57,16 @@ export function depotGelsEnMemoire(): DepotGels {
 export async function gelActif(depot: DepotGels, tenantId: string): Promise<boolean> {
   return (await depot.lister(tenantId)).some((g) => g.leveeLe === null);
 }
-// Implémentation réelle pour la rétention (T2-11) : `estReel` vrai, l'interrupteur de purge peut s'ouvrir.
+// Pour la rétention (T2-11) : `estReel` suit le dépôt, faux en mémoire, donc l'interrupteur de purge ne s'ouvre pas sans adaptateur SQL.
 export function gelReel(depot: DepotGels): GelLitige {
-  return { estReel: true, gelActif: (tenantId) => gelActif(depot, tenantId) };
+  return { estReel: depot.persistant, gelActif: (tenantId) => gelActif(depot, tenantId) };
 }
 
 function exigerDroit(s: SessionEquipe, tenantId: string): string {
   if (s.role !== "administrateur") throw new ErreurApi("action_interdite", "Action réservée à l'administrateur.");
   if (!s.reauthentifie) throw new ErreurApi("reauthentification_requise", "Reconnectez-vous pour continuer.");
-  // Le client de l'URL doit être celui de la session de l'équipe.
-  if (s.organisationId !== tenantId) throw new ErreurApi("action_interdite", "Client différent de la session.");
+  // Le client de l'URL doit être le client actif de la session de l'équipe.
+  if (s.clientActifId !== tenantId) throw new ErreurApi("action_interdite", "Client différent de la session.");
   // Jamais de repli sur un acteur « systeme » : un gel a toujours une personne derrière.
   const acteur = s.acteur.trim();
   if (acteur === "" || acteur.toLowerCase() === "systeme") throw new ErreurApi("action_interdite", "Acteur identifié requis.");
@@ -73,13 +79,24 @@ function motifNonVide(motif: string): string {
 }
 const avertir = (d: DepsGel, type: TypeService, g: Gel) => d.envois.deposerService({ type, clientId: g.tenantId, cle: `${type}:${g.tenantId}:${g.id}`, categorie: "service" });
 
+// Une pose ne peut pas remonter au-delà de cette limite ; le début du contrat est une dette (LOT2-dette-T2-43-adaptateur).
+const JOURS_MAX_ANTERIEUR = 366;
+const JOUR_MS = 86_400_000;
+
+// Reprise sûre : si le gel existe déjà avec le même motif, posé par la même personne, l'avis est redéposé (sans effet en double grâce à la clé)
+// et le gel existant est renvoyé. Une autre personne est refusée.
 export async function poserGel(d: DepsGel, s: SessionEquipe, tenantId: string, motif: string, poseeLe?: Date): Promise<Gel> {
   const par = exigerDroit(s, tenantId);
   const m = motifNonVide(motif);
   const maintenant = d.maintenant();
   const quand = poseeLe ?? maintenant;
-  if (!Number.isFinite(quand.getTime()) || quand.getTime() > maintenant.getTime()) throw new ErreurApi("schema_invalide", "Requête invalide.");
-  if ((await d.depot.lister(tenantId)).some((g) => g.leveeLe === null && g.motif === m)) throw new ErreurApi("regle_metier", "Ce gel est déjà posé.");
+  if (!Number.isFinite(quand.getTime()) || quand.getTime() > maintenant.getTime() || quand.getTime() < maintenant.getTime() - JOURS_MAX_ANTERIEUR * JOUR_MS) throw new ErreurApi("schema_invalide", "Requête invalide.");
+  const actif = (await d.depot.lister(tenantId)).find((g) => g.leveeLe === null && g.motif === m);
+  if (actif) {
+    if (actif.poseePar !== par) throw new ErreurApi("regle_metier", "Ce gel est déjà posé.");
+    await avertir(d, "avis_gel_pose", actif);
+    return actif;
+  }
   const gel: Gel = { id: d.nouvelId(), tenantId, motif: m, poseeLe: quand, poseePar: par, leveeLe: null, levePar: null };
   await d.depot.ajouter(gel);
   await avertir(d, "avis_gel_pose", gel);
@@ -87,12 +104,17 @@ export async function poserGel(d: DepsGel, s: SessionEquipe, tenantId: string, m
 }
 
 // Le motif de levée est exigé mais la table n'a pas de colonne pour lui (dette LOT2-dette-T2-43-motif-levee).
+// Reprise sûre : un gel déjà levé par la même personne voit son avis redéposé et est renvoyé ; une autre personne est refusée.
 export async function leverGel(d: DepsGel, s: SessionEquipe, tenantId: string, idGel: string, motif: string): Promise<Gel> {
   const par = exigerDroit(s, tenantId);
   motifNonVide(motif);
   const existant = (await d.depot.lister(tenantId)).find((g) => g.id === idGel);
   if (!existant) throw new ErreurApi("introuvable", "Ressource introuvable.");
-  if (existant.leveeLe !== null) throw new ErreurApi("regle_metier", "Ce gel est déjà levé.");
+  if (existant.leveeLe !== null) {
+    if (existant.levePar !== par) throw new ErreurApi("regle_metier", "Ce gel est déjà levé.");
+    await avertir(d, "avis_gel_leve", existant);
+    return existant;
+  }
   const gel = await d.depot.lever(tenantId, idGel, d.maintenant(), par);
   if (!gel) throw new ErreurApi("introuvable", "Ressource introuvable.");
   await avertir(d, "avis_gel_leve", gel);

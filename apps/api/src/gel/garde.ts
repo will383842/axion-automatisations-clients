@@ -12,9 +12,15 @@ export class GelPourLitige extends ErreurApi {
 export async function exigerAucunGel(gel: Pick<GelLitige, "gelActif">, tenantId: string, action: ActionSousGel): Promise<void> {
   if (await gel.gelActif(tenantId)) throw new GelPourLitige(action);
 }
-// À appeler dans la transaction finale d'une mise à l'écart ou d'un effacement : le gel est relu juste avant le retrait, un gel posé entre-temps l'emporte.
-// L'adaptateur SQL fournit un gelActif lu dans cette même transaction (dette LOT2-dette-T2-43-adaptateur).
-export async function retirerSousGel<T>(gel: Pick<GelLitige, "gelActif">, tenantId: string, action: ActionSousGel, retrait: () => Promise<T>): Promise<T> {
-  await exigerAucunGel(gel, tenantId, action);
-  return retrait();
+// À appeler dans la transaction finale d'une mise à l'écart ou d'un effacement : le gel est relu avec le MÊME client de transaction `tx` que le retrait,
+// donc sous le même verrou par client que la pose (dette LOT2-dette-T2-43-adaptateur) ; un gel posé entre-temps l'emporte.
+export async function retirerSousGel<Tx, T>(
+  tx: Tx,
+  gelActifDans: (tx: Tx, tenantId: string) => Promise<boolean>,
+  tenantId: string,
+  action: ActionSousGel,
+  retrait: (tx: Tx) => Promise<T>,
+): Promise<T> {
+  await exigerAucunGel({ gelActif: (t) => gelActifDans(tx, t) }, tenantId, action);
+  return retrait(tx);
 }

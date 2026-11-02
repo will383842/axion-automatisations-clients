@@ -3,7 +3,7 @@ import { z } from "zod";
 import { leverGel, poserGel, type DepsGel, type Gel, type SessionEquipe } from "../gel/gel.js";
 import { ErreurApi } from "../plugins/erreurs.js";
 
-// Gel pour litige (C-609) : routes de l'équipe. Le client actif vient de la session, comparé au client de l'URL ; l'auteur aussi.
+// Gel pour litige (C-609) : routes de l'équipe. Le client actif (clientActifId) vient de la session, comparé au client de l'URL ; l'auteur aussi.
 // Non branchées dans serveur.ts tant qu'une tâche ne câble pas les routes de l'équipe (même état que routes/reglages.ts).
 export interface DepsRoutesGel {
   exigerEquipe: preHandlerAsyncHookHandler;
@@ -12,7 +12,7 @@ export interface DepsRoutesGel {
   gel: DepsGel;
 }
 const Params = z.strictObject({ id: z.uuid() });
-const ParamsLever = z.strictObject({ id: z.uuid(), idGel: z.string().min(1).max(64) });
+const ParamsLever = z.strictObject({ id: z.uuid(), idGel: z.uuid() });
 const Pose = z.strictObject({ motif: z.string().trim().min(1).max(500), posee_le: z.iso.datetime().optional() });
 const Levee = z.strictObject({ motif: z.string().trim().min(1).max(500) });
 const lire = <T>(s: z.ZodType<T>, v: unknown): T => {
@@ -27,7 +27,7 @@ export function routeGel(serveur: FastifyInstance, d: DepsRoutesGel): void {
   const ecriture = { preHandler: [d.exigerEquipe, d.exigerReauthentification] };
   serveur.get(base, { preHandler: d.exigerEquipe }, async (req) => {
     const { id } = lire(Params, req.params);
-    if ((await d.session(req)).organisationId !== id) throw new ErreurApi("action_interdite", "Client différent de la session.");
+    if ((await d.session(req)).clientActifId !== id) throw new ErreurApi("action_interdite", "Client différent de la session.");
     return { gels: (await d.gel.depot.lister(id)).map(dto) };
   });
   serveur.post(base, ecriture, async (req, rep) => {

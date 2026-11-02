@@ -43,7 +43,9 @@ import { manifesteExemple } from ${JSON.stringify(url("packages/sdk-module/exemp
 import { Machine, ConsoleFactice, HorlogeSysteme } from ${JSON.stringify(url("apps/executeur/src/noyau/index.ts"))};
 import { BoitePostgres } from ${JSON.stringify(url("apps/executeur/src/noyau/postgres/boite-envoi.ts"))};
 import { JournalPostgres } from ${JSON.stringify(url("apps/executeur/src/noyau/postgres/journal-etapes.ts"))};
-import pg from "pg";
+import { createRequire } from "node:module";
+// « pg » vient de l'exécuteur : un code lancé par -e ne le trouve pas depuis la racine.
+const pg = createRequire(${JSON.stringify(url("apps/executeur/package.json"))})("pg");
 const e = JSON.parse(process.env.TRAVAIL);
 const pool = new pg.Pool({ host: e.pg.host, port: e.pg.port, user: "moteur_app", database: "moteur", password: e.pg.mdp, max: 2 });
 const graph = (chemin, init) => fetch(e.graph + "/v1.0/me" + chemin, { ...init, headers: { authorization: "Bearer faux.compte@exemple.fr", "content-type": "application/json" } });
@@ -148,6 +150,7 @@ describe("arrêt brutal du travailleur, avec le socle", { timeout: 300_000 }, ()
         await fini;
       }
       writeSync(2, `C-470 : ${morts} morts brutales avant la fin\n`);
+      expect(morts, "au moins une mort brutale doit avoir eu lieu").toBeGreaterThan(0);
       const dernier = lancerTravailleur(travail);
       expect(await dernier.fini).toBe(0);
 

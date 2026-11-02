@@ -1,5 +1,5 @@
 /** @jsxRuntime automatic @jsxImportSource react */
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Bouton } from "./base.tsx";
 
 const v = (nom: string) => `var(--${nom})`;
@@ -20,6 +20,7 @@ export function Formulaire({
   onEnvoyer: () => void;
   libelleEnvoi: string;
 }) {
+  const prefixe = useId();
   const [ouvertes, setOuvertes] = useState<Record<string, boolean>>({});
   return (
     <form
@@ -31,14 +32,15 @@ export function Formulaire({
       style={{ display: "grid", gap: v("espacement-16") }}
     >
       {champs.map((c) => {
-        const liens = [c.aide && ouvertes[c.id] ? `${c.id}-aide` : "", c.erreur ? `${c.id}-erreur` : ""].filter(Boolean).join(" ");
+        const idChamp = `${prefixe}-${c.id}`;
+        const liens = [c.aide && ouvertes[c.id] ? `${idChamp}-aide` : "", c.erreur ? `${idChamp}-erreur` : ""].filter(Boolean).join(" ");
         return (
           <div key={c.id} style={{ display: "grid", gap: v("espacement-4"), minWidth: 0 }}>
-            <label htmlFor={c.id} style={{ fontWeight: 700, color: v("couleur-texte-principal") }}>
+            <label htmlFor={idChamp} style={{ fontWeight: 700, color: v("couleur-texte-principal") }}>
               {c.libelle}
             </label>
             <input
-              id={c.id}
+              id={idChamp}
               type={c.type ?? "text"}
               value={valeurs[c.id] ?? ""}
               onChange={(e) => onChange(c.id, e.target.value)}
@@ -55,7 +57,7 @@ export function Formulaire({
               }}
             />
             {c.erreur ? (
-              <p id={`${c.id}-erreur`} style={{ margin: 0, color: v("couleur-etat-urgent-texte"), fontWeight: 700 }}>
+              <p id={`${idChamp}-erreur`} style={{ margin: 0, color: v("couleur-etat-urgent-texte"), fontWeight: 700 }}>
                 {c.erreur}
               </p>
             ) : null}
@@ -70,7 +72,7 @@ export function Formulaire({
                   Besoin d'aide ?
                 </button>
                 {ouvertes[c.id] ? (
-                  <p id={`${c.id}-aide`} style={{ margin: 0, fontSize: v("taille-precision") }}>
+                  <p id={`${idChamp}-aide`} style={{ margin: 0, fontSize: v("taille-precision") }}>
                     {c.aide}
                   </p>
                 ) : null}

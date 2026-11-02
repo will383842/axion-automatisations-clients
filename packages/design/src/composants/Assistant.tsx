@@ -1,5 +1,5 @@
 /** @jsxRuntime automatic @jsxImportSource react */
-import { useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Bouton } from "./base.tsx";
 
 const v = (nom: string) => `var(--${nom})`;
@@ -28,6 +28,16 @@ export function Assistant({
 }) {
   const [index, setIndex] = useState(0);
   const [brouillon, setBrouillon] = useState<Record<string, string>>(brouillonInitial ?? {});
+  const idTitre = useId();
+  const intitule = useRef<HTMLParagraphElement>(null);
+  const premierRendu = useRef(true);
+  useEffect(() => {
+    if (premierRendu.current) {
+      premierRendu.current = false;
+      return;
+    }
+    intitule.current?.focus();
+  }, [index]);
   const etape = etapes[index];
   if (!etape) return null;
   const derniere = index === etapes.length - 1;
@@ -37,11 +47,11 @@ export function Assistant({
     onBrouillon(suite, etape.id);
   };
   return (
-    <section aria-labelledby="assistant-titre" style={{ display: "grid", gap: v("espacement-16") }}>
-      <h2 id="assistant-titre" style={{ margin: 0 }}>
+    <section aria-labelledby={idTitre} style={{ display: "grid", gap: v("espacement-16") }}>
+      <h2 id={idTitre} style={{ margin: 0 }}>
         {titre}
       </h2>
-      <p style={{ margin: 0, fontWeight: 700 }}>
+      <p ref={intitule} tabIndex={-1} aria-live="polite" style={{ margin: 0, fontWeight: 700 }}>
         Étape {index + 1} sur {etapes.length} : {etape.titre}
       </p>
       <div

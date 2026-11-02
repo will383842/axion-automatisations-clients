@@ -3,11 +3,16 @@ import { useId, useState } from "react";
 
 const v = (nom: string) => `var(--${nom})`;
 
-/** Contrôle avant envoi : retourne le message à afficher, ou null si le fichier est accepté (B-260). */
+const ecrireTaille = (octets: number) => (octets > 1_000_000 ? `${Math.round(octets / 100_000) / 10} Mo`.replace(".", ",") : `${Math.round(octets / 1000)} ko`);
+
+/**
+ * Contrôle avant envoi : retourne le message à afficher, ou null si le fichier est accepté (B-260).
+ * `types` ne contient que des extensions avec le point (".csv"), jamais des types MIME.
+ */
 export function controlerFichier(f: { name: string; size: number }, types: string[], tailleMax: number): string | null {
   const nom = f.name.toLowerCase();
   if (!types.some((t) => nom.endsWith(t.toLowerCase()))) return `Ce type de fichier n'est pas accepté. Types acceptés : ${types.join(", ")}.`;
-  if (f.size > tailleMax) return `Ce fichier est trop lourd. Taille maximale : ${Math.round(tailleMax / 1000)} ko.`;
+  if (f.size > tailleMax) return `Ce fichier est trop lourd. Taille maximale : ${ecrireTaille(tailleMax)}.`;
   return null;
 }
 
@@ -24,6 +29,7 @@ export function ImportFichier({
   onFichier: (fichier: File) => void;
 }) {
   const id = useId();
+  const idErreur = `${id}-erreur`;
   const [erreur, setErreur] = useState<string | null>(null);
   const traiter = (liste: ArrayLike<File> | null | undefined) => {
     const f = liste?.[0];
@@ -54,10 +60,14 @@ export function ImportFichier({
           {libelle}
         </label>
         <span style={{ fontSize: v("taille-precision") }}>Glissez le fichier ici ou choisissez-le.</span>
-        <input id={id} type="file" accept={types.join(",")} onChange={(e) => traiter(e.target.files)} style={{ minHeight: "48px", fontSize: "16px" }} />
+        <input id={id} type="file" accept={types.join(",")} onChange={(e) => {
+            traiter(e.currentTarget.files);
+            e.currentTarget.value = "";
+          }}
+          aria-describedby={erreur ? idErreur : undefined} style={{ minHeight: "48px", fontSize: "16px" }} />
       </div>
       {erreur ? (
-        <p role="alert" style={{ margin: 0, color: v("couleur-etat-urgent-texte"), fontWeight: 700 }}>
+        <p id={idErreur} role="alert" style={{ margin: 0, color: v("couleur-etat-urgent-texte"), fontWeight: 700 }}>
           {erreur}
         </p>
       ) : null}

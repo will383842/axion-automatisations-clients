@@ -23,6 +23,7 @@ export function FileValidation({
           key={e.id}
           tabIndex={0}
           onKeyDown={(ev) => {
+            if (ev.ctrlKey || ev.metaKey || ev.altKey || ev.repeat) return;
             if (ev.target !== ev.currentTarget) return;
             const touche = ev.key.toLowerCase();
             if (touche === "a") onAccepter(e.id);

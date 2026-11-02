@@ -36,10 +36,10 @@ describe("Assistant", () => {
   });
 
   it("[B-212] au changement d'étape, le focus passe sur l'intitulé de l'étape, annoncé aux lecteurs d'écran", () => {
-    const { getByText, container } = render(
+    const { getByText } = render(
       <Assistant titre="Ajouter" etapes={etapes} onBrouillon={() => {}} onTerminer={() => {}} libelleFin="Terminer" />,
     );
-    expect(document.activeElement?.textContent ?? "").not.toContain("Étape");
+    expect(document.activeElement).toBe(document.body);
     fireEvent.click(getByText("Continuer"));
     const intitule = document.activeElement as HTMLElement;
     expect(intitule.textContent).toContain("Étape 2 sur 2");
@@ -47,7 +47,6 @@ describe("Assistant", () => {
     expect(intitule.getAttribute("aria-live")).toBe("polite");
     fireEvent.click(getByText("Retour"));
     expect((document.activeElement as HTMLElement).textContent).toContain("Étape 1 sur 2");
-    expect(container.querySelectorAll("[id]").length).toBeGreaterThan(0);
   });
 
   it("[B-212] deux assistants sur la même page n'ont pas d'identifiant en double", () => {

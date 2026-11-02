@@ -18,9 +18,9 @@ describe("Formulaire", () => {
       <Formulaire champs={champs} valeurs={{ nom: "", ville: "" }} onChange={() => {}} onEnvoyer={() => {}} libelleEnvoi="Enregistrer" />,
     );
     const champ = getByLabelText("Nom de l'entreprise");
-    const message = container.querySelector("#nom-erreur");
+    const message = container.querySelector("[id$=\"-erreur\"]");
     expect(message?.textContent).toBe("Écrivez le nom de l'entreprise");
-    expect(champ.getAttribute("aria-describedby")).toContain("nom-erreur");
+    expect(champ.getAttribute("aria-describedby")).toContain(message!.id);
     expect(champ.getAttribute("aria-invalid")).toBe("true");
     expect(champ.nextElementSibling === message).toBe(true);
     expect(getByLabelText("Ville").getAttribute("aria-invalid")).toBeNull();

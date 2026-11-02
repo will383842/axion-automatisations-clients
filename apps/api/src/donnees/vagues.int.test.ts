@@ -30,9 +30,15 @@ const adresseAdmin = () => {
 };
 const ADMIN = process.env["T232_PG_ADMIN_URL"] ?? adresseAdmin();
 const vers = (base: string) => { const u = new URL(ADMIN); u.pathname = `/${base}`; return u.toString(); };
-const pools: pg.Pool[] = [];
-const pool = (base: string) => { const p = new pg.Pool({ connectionString: vers(base), max: 1 }); p.on("error", () => undefined); pools.push(p); return p; };
-afterAll(async () => { await Promise.all(pools.map((p) => p.end().catch(() => undefined))); });
+// Une seule connexion par base à la fois : 100 bases créées en série ne doivent pas laisser 100+ pools ouverts (53300 « remaining connection slots » sur migrer-module.int.test.ts, joué ensuite).
+const pools = new Map<string, pg.Pool>();
+const pool = (base: string) => {
+  let p = pools.get(base);
+  if (!p) { p = new pg.Pool({ connectionString: vers(base), max: 1 }); p.on("error", () => undefined); pools.set(base, p); }
+  return p;
+};
+const fermerPool = async (base: string) => { const p = pools.get(base); pools.delete(base); await p?.end().catch(() => undefined); };
+afterAll(async () => { await Promise.all([...pools.keys()].map(fermerPool)); });
 const empreinteVide = () => `SCRAM-SHA-256$4096:${randomBytes(16).toString("base64")}$${randomBytes(32).toString("base64")}:${randomBytes(32).toString("base64")}`;
 
 // Une base fictive comme la recette la crée (étapes 2, 3, 6), pas encore fermée : le provisionneur y reste membre du propriétaire.
@@ -43,7 +49,11 @@ async function creerBaseFictive(i: number): Promise<BaseRegistre> {
   await admin.creerBase(base, "modele_v1");
   let v = 0;
   for (const r of Object.values(nomsRoles(id))) await admin.poserRole(r, empreinteVide(), ++v);
-  await pool(base).query(`GRANT ${nomsRoles(id).proprietaire} TO CURRENT_USER WITH SET TRUE`);
+  const p = nomsRoles(id).proprietaire;
+  await pool(base).query(`GRANT ${p} TO CURRENT_USER WITH SET TRUE`);
+  // Comme migrer-module.int.test.ts : le propriétaire possède la base (il y crée donc les schémas commun et trace), PUBLIC n'a pas CONNECT, le provisionneur le garde.
+  await pool("postgres").query(`ALTER DATABASE ${base} OWNER TO ${p}; SET ROLE ${p}; REVOKE ALL ON DATABASE ${base} FROM PUBLIC; GRANT CONNECT ON DATABASE ${base} TO provisionneur; RESET ROLE`);
+  await fermerPool(base);
   await migrerBase(base, lireEntrees(DOSSIER_CLI).length, { url: vers(base) });
   return { id: `id${i}`, tenantId: id, nomBase: base, versionStructure: lireEntrees(DOSSIER_CLI).length, etat: "active" };
 }
@@ -70,7 +80,13 @@ describe("vagues sur des bases fictives (grappe jetable)", () => { // fiche: T2-
     journal.entries.push({ idx: journal.entries.length, version: "7", when: journal.entries.at(-1).when + 1000, tag: "9999_essai_vagues", breakpoints: true });
     writeFileSync(join(dossierV2, "meta/_journal.json"), JSON.stringify(journal));
     writeFileSync(join(dossierV2, "9999_essai_vagues.sql"), 'ALTER TABLE "commun"."etablissements" ADD COLUMN "note_vagues" text;');
-    for (let i = 0; i < 100; i++) registre.push(await creerBaseFictive(i));
+    try {
+      for (let i = 0; i < 100; i++) registre.push(await creerBaseFictive(i));
+    } catch (e) {
+      // Sans cette ligne, un beforeAll en erreur donnait « 0 verts, 0 rouges » sans cause dans le journal.
+      ecrireEchec("vagues.int.test.ts", `beforeAll base ${registre.length}`, (e as Error).message);
+      throw e;
+    }
   }, 900_000);
 
   it("la grappe jetable répond (échec, pas saut)", async () => {

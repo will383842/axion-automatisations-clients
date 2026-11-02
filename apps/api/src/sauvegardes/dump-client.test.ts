@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import { describe, expect, it } from "vitest";
-import { dechiffrerFlux } from "./chiffrement-flux.js";
+import { nomBaseDe } from "../provisionnement/etapes-base.js";
+import { chiffrerFlux, dechiffrerFlux } from "./chiffrement-flux.js";
 import { cheminDump, dumperClient, planifierNuit, retirerAnciensDumps, type BaseADumper, type Cible, type DepsDump } from "./dump-client.js";
 
 // Faux OpenBao : une clé transit par client, jamais partagée. « chiffrer » une clé de données = la mettre dans un registre (vault:v1:<id>).
@@ -40,7 +41,7 @@ function fausseCible() {
   return { cible, fichiers, retraits };
 }
 
-const base = (etat = "active"): BaseADumper => { const tenantId = randomUUID(); return { tenantId, nomBase: `cli_${tenantId.replaceAll("-", "")}`, etat }; };
+const base = (etat = "active"): BaseADumper => { const tenantId = randomUUID(); return { tenantId, nomBase: nomBaseDe(tenantId), etat }; };
 const MARQUEUR = `MARQUEUR-${randomBytes(8).toString("hex")}`;
 const lancerDump = (nomBase: string) => Readable.from([Buffer.from(`PGDMP ${nomBase} `), Buffer.from(MARQUEUR), Buffer.alloc(200_000, 1)]);
 
@@ -157,5 +158,39 @@ describe("dump de nuit par base client", () => {
     expect(ok.retires.length).toBeGreaterThan(0);
     expect(m.c.retraits.every((c) => c.startsWith(`clients/${b.tenantId.replaceAll("-", "").slice(0, 12)}/`))).toBe(true);
     expect([...m.c.fichiers.keys()].filter((c) => c.startsWith(`clients/${autre.tenantId.replaceAll("-", "").slice(0, 12)}/`)).length).toBe(9);
+  });
+});
+
+describe("nom de base liée au client", () => {
+  const autres = (a: BaseADumper, b: BaseADumper): string[] => [b.nomBase, "host=x dbname=y", `${a.nomBase} host=x`, "postgresql://u@h/d", "", `${a.nomBase}_proprietaire`, a.nomBase.toUpperCase()];
+  it("[A-244] @isolation dumperClient refuse un nom de base qui n'est pas celui du client, sans lancer pg_dump ni toucher à la clé", async () => {
+    const a = base(), b = base();
+    for (const nomBase of autres(a, b)) {
+      let lances = 0; const coffre = fauxCoffre(); const c = fausseCible(); const marques: string[] = [];
+      const deps: DepsDump = { bao: coffre.bao, lancerDump: (n) => { lances++; return lancerDump(n); }, cible: c.cible, marquerSauvegarde: async (t) => { marques.push(t); } };
+      await expect(dumperClient(deps, { ...a, nomBase }, "2026-11-02")).rejects.toThrow("nom_base_invalide");
+      expect(lances).toBe(0); expect(c.fichiers.size).toBe(0); expect(marques).toEqual([]);
+    }
+  });
+  it("[A-244] @isolation planifierNuit ne met en file aucune tâche dont le nom de base n'est pas celui du client, et le journal ne cite aucune valeur", async () => {
+    const a = base(), b = base(), ok = base();
+    const ajouts: string[] = []; const journal: string[] = [];
+    const file = { add: async (_n: string, _d: unknown, o: { jobId: string }) => { ajouts.push(o.jobId); } };
+    await planifierNuit(file, [{ ...a, nomBase: b.nomBase }, ok, { ...a, nomBase: "host=x dbname=y" }], "2026-11-02", (m) => journal.push(m));
+    expect(ajouts).toEqual([`dump-${ok.nomBase}-2026-11-02`]);
+    expect(journal).toEqual(["nom_base_refusee", "nom_base_refusee"]);
+  });
+});
+
+describe("clé de données", () => {
+  it("[A-239] la clé remise à zéro par l'appelant ne change pas le dump en cours, et une clé nulle ou trop courte est refusée", async () => {
+    const cle = randomBytes(32); const copie = Buffer.from(cle);
+    const e = { versionCle: 1, cleChiffree: "vault:v1:QUJDRA==" };
+    const flux = chiffrerFlux(Readable.from([Buffer.from("clair")]), cle, e, base().tenantId);
+    cle.fill(0);
+    const parts: Buffer[] = []; for await (const p of flux) parts.push(p);
+    expect(parts.length).toBeGreaterThan(1);
+    expect(() => chiffrerFlux(Readable.from([]), Buffer.alloc(32), e, base().tenantId)).toThrow("cle_invalide");
+    expect(() => chiffrerFlux(Readable.from([]), copie.subarray(0, 16), e, base().tenantId)).toThrow("cle_invalide");
   });
 });

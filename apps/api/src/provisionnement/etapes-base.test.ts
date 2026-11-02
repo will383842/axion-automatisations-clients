@@ -39,7 +39,7 @@ function monter(options: { grappes?: { nom: string; basesActives: number; octets
   };
   const ligne = (grappe = "a_choisir"): LigneBase => ({ etat: "en_creation", etape: 0, grappe, nomBase: `cli_${T.replaceAll("-", "")}` });
   const etapes = etapesBase(ports);
-  const ctx = (g?: string): ContexteBase => contexteBase(T, ligne(g), ports);
+  const ctx = (g?: string): ContexteBase => contexteBase(T, ligne(g));
   return { ports, etapes, ctx, bases, roles, coffre, ordre, declarations, nombrePannes: (k: number) => (panneCoffre = k), ligne };
 }
 const etape = (m: ReturnType<typeof monter>, numero: number) => m.etapes.find((e) => e.numero === numero)!;
@@ -117,7 +117,7 @@ describe("étapes de la base du client", () => {
       expect(() => nomsRoles(piege)).toThrow();
     }
     const requetes: string[] = [];
-    const sql: Sql = { requete: async (texte, valeurs) => { requetes.push(texte); return texte.startsWith("SELECT quote_ident") ? [{ q: `"${String(valeurs?.[0])}"` }] : []; } };
+    const sql: Sql = { requete: async (texte, valeurs) => { requetes.push(texte); return (texte.startsWith("SELECT quote_ident") ? [{ q: `"${String(valeurs?.[0])}"` }] : []) as never; } };
     await expect(adminPg(sql).creerBase('cli_1"; DROP DATABASE postgres;--', "modele_v1")).rejects.toThrow();
     await expect(adminPg(sql).creerBase("cli_0123456789ab", "modele_v1; DROP")).rejects.toThrow();
     expect(requetes).toEqual([]);

@@ -1,16 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { cleEvenementContratSigne, declencherProvisionnement, surContratSigne, type EvenementContratSigne } from "./declencher.js";
+import { cleEvenementContratSigne, declencherProvisionnement, surContratSigne, type EvenementContratSigne, type Transaction } from "./declencher.js";
 
 const ORG = randomUUID();
 const evenement = (organisation = ORG): EvenementContratSigne => ({ type: "contrat_signe", organisation, devis: "devis-001", emisLe: "2026-11-02T10:00:00.000Z" });
 function monter(dejaActive = false) {
   const journal: string[] = [];
-  const tx = { query: async (texte: string, valeurs: unknown[]) => { journal.push(`sql:${texte.split(" ").slice(0, 3).join(" ")}`); return { rows: dejaActive ? [] : [{ nom_base: valeurs[2] }] }; } };
+  const tx: Transaction = { query: async (texte: string, valeurs: unknown[]) => { journal.push(`sql:${texte.split(" ").slice(0, 3).join(" ")}`); return { rows: dejaActive ? [] : [{ nom_base: valeurs[2] }] }; } };
   return {
     journal,
     deps: {
-      enTransaction: async <T,>(_t: string, fn: (tx: typeof tx) => Promise<T>) => { journal.push("debut"); const r = await fn(tx); journal.push("validation"); return r; },
+      enTransaction: async <T,>(_t: string, fn: (tx: Transaction) => Promise<T>) => { journal.push("debut"); const r = await fn(tx); journal.push("validation"); return r; },
       passerAuStatutClient: async () => { journal.push("statut"); },
       deposer: async (t: string) => { journal.push(`depot:${t}`); },
     },

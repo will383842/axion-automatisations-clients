@@ -1,0 +1,5 @@
+{
+  "grappes": [
+    { "nom": "donnees-1", "service": "donnees" }
+  ]
+}

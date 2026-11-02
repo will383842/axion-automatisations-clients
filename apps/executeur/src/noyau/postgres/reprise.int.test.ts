@@ -76,7 +76,8 @@ function banc(garantie: Garantie, corps: Record<string, (ctx: ContexteEtape) => 
   const tenant = randomUUID();
   const module = defineAutomation({
     ...manifesteExemple,
-    etapes: Object.entries(corps).map(([nom, executer]) => ({ nom, executer })),
+    // Délai d'étape de 1 s : la fenêtre d'occupation d'une intention (délai + marge) reste courte pour les essais.
+    etapes: Object.entries(corps).map(([nom, executer]) => ({ nom, executer, delaiMaxSecondes: 1 })),
     connecteurs: [{ famille: "messagerie", actions: ["envoyer", "classer"], portees: ["envoi"], garantie }],
   });
   // Horloge réelle : avec la base, un temps factice avancerait pendant l'attente des requêtes et couperait l'étape (délai de 120 s) à tort.
@@ -84,8 +85,8 @@ function banc(garantie: Garantie, corps: Record<string, (ctx: ContexteEtape) => 
   const connecteur = new ConnecteurFactice();
   connecteur.dedupliquer = garantie === "idempotent_par_cle";
   const console = new ConsoleFactice({ reglages: { actionsAutomatiquesAutorisees: ["envoyer", "classer"], objetAccuse: "Accusé" } });
-  const processus = () => {
-    const boite = new BoitePostgres(app, tenant);
+  const processus = (graceMs = 0) => {
+    const boite = new BoitePostgres(app, tenant, { graceMs });
     // g : la cause d'une erreur de la base est écrite sur la sortie d'erreur (le noyau ne garde que « erreur_inconnue »).
     const ecrire = boite.ecrire.bind(boite);
     boite.ecrire = (...a: Parameters<typeof ecrire>) => ecrire(...a).catch((e: unknown) => (writeSync(2, `BOITE ${String((e as Error).message)}\n`), Promise.reject(e)));
@@ -95,6 +96,7 @@ function banc(garantie: Garantie, corps: Record<string, (ctx: ContexteEtape) => 
   return { tenant, connecteur, processus };
 }
 const cleDe = (executionId: string) => deriverCleIntention({ instanceId: INSTANCE, executionId, etape: "e1", action: "envoyer", element: "msg-1" });
+const attendre = (ms: number) => new Promise((ok) => setTimeout(ok, ms));
 const etatEnBase = async (tenant: string, cle: string) => (await avecClient(app, tenant, (c) => c.query<{ etat: string }>("SELECT etat FROM intentions WHERE cle_intention = $1", [cle]))).rows[0]?.etat;
 
 describe("reprise et anti-doublon sur la base moteur, avec le socle", { timeout: 60_000 }, () => {
@@ -134,6 +136,7 @@ describe("reprise et anti-doublon sur la base moteur, avec le socle", { timeout:
     const exec = await execution(b.tenant);
     b.connecteur.verification = "trouvee";
     await b.processus().ports.boite.ecrire({ cle: cleDe(exec), instanceId: INSTANCE, executionId: exec, etape: "e1", element: "msg-1", action: "envoyer", garantie: "verifiable_apres_coup" }, { proprietaire: "mort", jusqua: 0 }, 1);
+    await attendre(1_200); // l'intention du processus mort a dépassé le délai de l'étape (1 s) + la marge (0)
     expect((await b.processus().lancer(exec)).statut).toBe("terminee");
     expect(b.connecteur.appels).toEqual([]);
     expect(await etatEnBase(b.tenant, cleDe(exec))).toBe("faite");
@@ -143,10 +146,30 @@ describe("reprise et anti-doublon sur la base moteur, avec le socle", { timeout:
     const b = banc("au_plus_une_fois");
     const exec = await execution(b.tenant);
     await b.processus().ports.boite.ecrire({ cle: cleDe(exec), instanceId: INSTANCE, executionId: exec, etape: "e1", element: "msg-1", action: "envoyer", garantie: "au_plus_une_fois" }, { proprietaire: "mort", jusqua: 0 }, 1);
+    await attendre(1_200);
     expect((await b.processus().lancer(exec)).statut).toBe("a_trancher");
     expect((await b.processus().lancer(exec)).statut).toBe("a_trancher");
     expect(b.connecteur.appels).toEqual([]);
     expect(await etatEnBase(b.tenant, cleDe(exec))).toBe("a_trancher");
+  });
+
+  it("[A-318] @anti-doublon deux travailleurs : le 2e reprend pendant que le 1er envoie encore → travail reporté, un seul envoi, ni vérification ni second appel", async () => {
+    const b = banc("verifiable_apres_coup");
+    b.connecteur.dedupliquer = false;
+    const exec = await execution(b.tenant);
+    const verifs: string[] = [];
+    const verifier = b.connecteur.verifier.bind(b.connecteur);
+    b.connecteur.verifier = async (a, k) => (verifs.push(k), verifier(a, k));
+    let second: string | undefined;
+    b.connecteur.surAppel = async () => {
+      b.connecteur.surAppel = undefined;
+      second = (await b.processus(60_000).lancer(exec)).statut; // un autre processus : boîte neuve, même base
+    };
+    expect((await b.processus(60_000).lancer(exec)).statut).toBe("terminee");
+    expect(second).toBe("en_cours");
+    expect(verifs).toEqual([]);
+    expect(b.connecteur.appels).toHaveLength(1);
+    expect(await etatEnBase(b.tenant, cleDe(exec))).toBe("faite");
   });
 
   it("[A-312] @isolation un client ne lit ni le journal, ni les intentions, ni les curseurs d'un autre ; la même clé existe chez les deux", async () => {

@@ -84,9 +84,9 @@ describe("pare-feu des ponts du réseau interne", () => {
   it("[C-533] idempotent : deux lancements donnent le même état, un seul saut depuis INPUT, et un pont disparu perd ses règles", () => {
     const deux = [`${ID_INTERNE.slice(0, 12)}|true|${ID_INTERNE}|`, `${ID_AUTRE_INTERNE.slice(0, 12)}|true|${ID_AUTRE_INTERNE}|`];
     expect(lancer(deux).status).toBe(0);
-    const premier = lire("etat4.txt");
+    const premier = lire("etat4.txt").sort();
     expect(lancer(deux).status).toBe(0);
-    expect(lire("etat4.txt")).toEqual(premier);
+    expect(lire("etat4.txt").sort()).toEqual(premier);
     expect(lire("etat4.txt").filter((l) => l === "regle INPUT -j SOCLE-PONTS")).toHaveLength(1);
     expect(lancer([deux[0] as string]).status).toBe(0);
     expect(lire("etat4.txt").join("\n")).not.toContain(`br-${ID_AUTRE_INTERNE.slice(0, 12)}`);

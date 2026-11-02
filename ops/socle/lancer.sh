@@ -56,4 +56,6 @@ SOCLE_KEYCLOAK_BD_MOT_DE_PASSE="$(printf %s/keycloak_app "$SOCLE_PG_MOT_DE_PASSE
 if [ -n "${GITHUB_ACTIONS:-}" ]; then echo "::add-mask::$SOCLE_KEYCLOAK_BD_MOT_DE_PASSE"; fi
 export SOCLE_KEYCLOAK_BD_MOT_DE_PASSE
 
-exec docker compose -p socle "${fichiers[@]}" up -d --wait
+docker compose -p socle "${fichiers[@]}" up -d --wait
+# Pare-feu de l'hôte pour les ponts des réseaux internes (C-533) : « internal: true » ne protège pas l'hôte.
+exec "$dossier/pare-feu-ponts.sh"

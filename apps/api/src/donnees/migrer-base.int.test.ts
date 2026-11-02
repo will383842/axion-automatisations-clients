@@ -4,8 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { construireModele, migrerBase } from "./migrer-base.ts";
+// Journal des échecs (CI) : le rapport JSON n'est pas publié ; la cause de chaque test rouge s'imprime ici, adresses de connexion masquées.
+afterEach((ctx) => { const e = ctx.task.result?.errors?.[0]; if (e) console.log("ECHEC", ctx.task.name, "::", String(e.message ?? "").split("\n")[0]!.replace(/:\/\/[^@\s]*@/g, "://***@").slice(0, 400)); });
 
 // T2-32 : modèle modele_vN et outil de migration, contre une grappe PostgreSQL où un rôle administrateur peut créer des bases et des rôles
 // (variable T232_PG_ADMIN_URL, adresse d'une grappe jetable ; sans elle, ces essais ne tournent pas). Aucun secret dans le dépôt.

@@ -2,12 +2,14 @@ import { execFileSync } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
 import { readFileSync, writeSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { lireYaml } from "../../../../scripts/garde-compose.js";
 import { appeler, ErreurCoffre, type OptionsBao } from "../coffre/coffre.js";
 import { creerEnveloppe } from "../coffre/enveloppe.js";
 import { creerFichiersClient, type PortFichiers } from "../stockage/fichiers-client.js";
 import { creerColonnesChiffrees } from "./colonnes-chiffrees.js";
+// Journal des échecs (CI) : le rapport JSON n'est pas publié ; la cause de chaque test rouge s'imprime ici, adresses de connexion masquées.
+afterEach((ctx) => { const e = ctx.task.result?.errors?.[0]; if (e) console.log("ECHEC", ctx.task.name, "::", String(e.message ?? "").split("\n")[0]!.replace(/:\/\/[^@\s]*@/g, "://***@").slice(0, 400)); });
 
 // Contre un VRAI OpenBao lancé par le test (même image que le socle), avec la politique api du dépôt. Jetons et clés générés au lancement.
 const racineDepot = (chemin: string) => fileURLToPath(new URL(`../../../../${chemin}`, import.meta.url));

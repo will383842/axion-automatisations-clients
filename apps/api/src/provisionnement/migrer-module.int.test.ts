@@ -5,14 +5,21 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
-import { afterAll, describe, expect, it } from "vitest";
-import { migrerBase, roleMigrationModule } from "../donnees/migrer-base.js";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
+import { DOSSIER_CLI, lireEntrees, migrerBase, roleMigrationModule } from "../donnees/migrer-base.js";
 import { sqlPg } from "./adaptateur-sql.js";
 import { adminPg, nomBaseDe, nomsRoles } from "./etapes-base.js";
+// Journal des échecs (CI) : le rapport JSON n'est pas publié ; la cause de chaque test rouge s'imprime ici, adresses de connexion masquées.
+afterEach((ctx) => { const e = ctx.task.result?.errors?.[0]; if (e) console.log("ECHEC", ctx.task.name, "::", String(e.message ?? "").split("\n")[0]!.replace(/:\/\/[^@\s]*@/g, "://***@").slice(0, 400)); });
 
 // Étape 6 sur une grappe jetable (T235_PG_ADMIN_URL : adresse DIRECTE du rôle provisionneur, init.sql joué ; sans elle, calculée sur le socle : socket Unix de l'hôte posée par compose.zz-essai-donnees.yml). La base est créée par la vraie recette (adminPg) mais
 // n'est PAS fermée : la fermeture retire au provisionneur le droit de prendre le rôle propriétaire (dette : T2-38 fixe qui lance les migrations après la fermeture).
-const docker = (...a: string[]) => execFileSync("docker", a, { encoding: "utf8" }).trim();
+const docker = (...a: string[]) => {
+  try { return execFileSync("docker", a, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim(); } catch (e) {
+    console.log("ECHEC docker", a[0], "::", String((e as { stderr?: string }).stderr ?? (e as Error).message).split("\n")[0]!.slice(0, 300));
+    throw e;
+  }
+};
 const conteneurDonnees = () => {
   const id = docker("ps", "-q", "--filter", "label=com.docker.compose.project=socle", "--filter", "label=com.docker.compose.service=donnees");
   if (!id) throw new Error("conteneur donnees introuvable : le socle doit tourner (ops/socle/lancer.sh, fragment d'essai)");
@@ -42,6 +49,8 @@ async function clientNonFerme() {
   // Comme après la fermeture : le propriétaire possède la base (il y crée donc le schéma du module).
   const p = nomsRoles(id).proprietaire;
   await pool("postgres").query(`ALTER DATABASE ${base} OWNER TO ${p}; SET ROLE ${p}; GRANT CONNECT ON DATABASE ${base} TO provisionneur; RESET ROLE`);
+  // modele_v1 (init.sql) est vide : les schémas commun et trace viennent des migrations du modèle, jouées par le propriétaire comme le fait la recette (étape 6).
+  await migrerBase(base, lireEntrees(DOSSIER_CLI).length, { url: vers(base) });
   await dans.query(`SET ROLE ${p}`);
   return { id, base, dans, roles: nomsRoles(id) };
 }

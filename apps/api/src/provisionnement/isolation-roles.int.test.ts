@@ -1,16 +1,23 @@
 import { execFileSync } from "node:child_process";
 import { createHash, createHmac, pbkdf2Sync, randomBytes, randomUUID } from "node:crypto";
 import pg from "pg";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { sqlPg } from "./adaptateur-sql.js";
 import { adminPg, nomBaseDe, nomsRoles, type Admin } from "./etapes-base.js";
+// Journal des échecs (CI) : le rapport JSON n'est pas publié ; la cause de chaque test rouge s'imprime ici, adresses de connexion masquées.
+afterEach((ctx) => { const e = ctx.task.result?.errors?.[0]; if (e) console.log("ECHEC", ctx.task.name, "::", String(e.message ?? "").split("\n")[0]!.replace(/:\/\/[^@\s]*@/g, "://***@").slice(0, 400)); });
 
 // Dettes de T2-34 n° 9 et n° 8 (propriétaire T2-35) : essais sur une grappe jetable où init.sql a été joué.
 // T235_PG_ADMIN_URL = adresse DIRECTE du rôle provisionneur vers la base d'administration ; T235_PGBOUNCER_URL = adresse de PgBouncer (même grappe) ; sans elles, calculées sur le socle.
 // Un .int.test.ts ne tourne que sous SOCLE_INTEGRATION=1 : une grappe introuvable FAIT ÉCHOUER l'essai, jamais un saut silencieux.
 // Aucun secret dans le dépôt : mots de passe tirés au hasard à chaque essai.
 // Adresses : les variables restent prioritaires ; sinon calculées sur la grappe jetable du socle (socket Unix de l'hôte posée par compose.zz-essai-donnees.yml, IP de PgBouncer). Échec, jamais saut.
-const docker = (...a: string[]) => execFileSync("docker", a, { encoding: "utf8" }).trim();
+const docker = (...a: string[]) => {
+  try { return execFileSync("docker", a, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim(); } catch (e) {
+    console.log("ECHEC docker", a[0], "::", String((e as { stderr?: string }).stderr ?? (e as Error).message).split("\n")[0]!.slice(0, 300));
+    throw e;
+  }
+};
 const conteneur = (service: string) => {
   const id = docker("ps", "-q", "--filter", "label=com.docker.compose.project=socle", "--filter", `label=com.docker.compose.service=${service}`);
   if (!id) throw new Error(`conteneur ${service} introuvable : le socle doit tourner (ops/socle/lancer.sh, fragment d'essai)`);
@@ -20,7 +27,7 @@ const adresseAdmin = () => {
   const mdp = docker("exec", conteneur("donnees"), "sh", "-c", 'printf %s/provisionneur "$SOCLE_PG_MOT_DE_PASSE" | sha256sum | cut -c1-64');
   return `postgresql://provisionneur:${mdp}@localhost/postgres?host=%2Ftmp%2Fsocle-donnees-socket`;
 };
-const adresseBouncer = () => `postgresql://x@${docker("inspect", "-f", '{{(index .NetworkSettings.Networks "socle_interne").IPAddress}}', conteneur("pgbouncer-donnees"))}:6432/postgres`;
+const adresseBouncer = () => `postgresql://x:x@${docker("inspect", "-f", '{{(index .NetworkSettings.Networks "socle_interne").IPAddress}}', conteneur("pgbouncer-donnees"))}:6432/postgres`;
 const ADMIN = process.env["T235_PG_ADMIN_URL"] ?? adresseAdmin();
 const BOUNCER = process.env["T235_PGBOUNCER_URL"] ?? adresseBouncer();
 const empreinte = (mdp: string) => {

@@ -27,17 +27,17 @@ describe("portées d'une instance (C-017)", () => {
   });
 
   it("[C-017] @isolation le tenant_id vient de la base : SELECT tenant_id, cellule_code … WHERE id = $1 LIMIT 2, en lecture seule, avec le seul identifiant", async () => {
-    const { pool, appels } = fauxPool(() => ({ rows: [{ tenant_id: TENANT, cellule_code: "cellule-un" }] }));
-    await expect(resoudreInstance(pool, INSTANCE)).resolves.toEqual({ tenantId: TENANT, celluleCode: "cellule-un" });
+    const { pool, appels } = fauxPool(() => ({ rows: [{ tenant_id: TENANT, cellule_code: "cellule-un", etat: "active", arret_envois: false, version_etat_voulu: 4 }] }));
+    await expect(resoudreInstance(pool, INSTANCE)).resolves.toEqual({ tenantId: TENANT, celluleCode: "cellule-un", etat: "active", arretEnvois: false, version: 4 });
     expect(appels[0]?.sql).toBe("BEGIN READ ONLY");
     const [lecture] = metier(appels);
-    expect(lecture?.sql).toMatch(/SELECT tenant_id, cellule_code FROM instances WHERE id = \$1 LIMIT 2/);
+    expect(lecture?.sql).toMatch(/SELECT tenant_id, cellule_code, etat, arret_envois, version_etat_voulu FROM instances WHERE id = \$1 LIMIT 2/);
     expect(lecture?.valeurs).toEqual([INSTANCE]);
   });
 
   it("[C-017] une instance sans cellule rend celluleCode null", async () => {
-    const { pool } = fauxPool(() => ({ rows: [{ tenant_id: TENANT, cellule_code: null }] }));
-    await expect(resoudreInstance(pool, INSTANCE)).resolves.toEqual({ tenantId: TENANT, celluleCode: null });
+    const { pool } = fauxPool(() => ({ rows: [{ tenant_id: TENANT, cellule_code: null, etat: "pause", arret_envois: true, version_etat_voulu: 0 }] }));
+    await expect(resoudreInstance(pool, INSTANCE)).resolves.toEqual({ tenantId: TENANT, celluleCode: null, etat: "pause", arretEnvois: true, version: 0 });
   });
 
   it("[C-017] @isolation zéro ligne ou plus d'une ligne (id non unique seul) : introuvable", async () => {

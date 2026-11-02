@@ -9,7 +9,13 @@ const dossier = new URL("../../../drizzle/", import.meta.url);
 const migration = readFileSync(new URL("0004_tables_clients.sql", dossier), "utf8");
 
 // clients.ts importe suivi.ts (clé étrangère instances → cellules, T4-21) : les tables de suivi sont chargées aussi, leur migration est 0011.
+// Les tables de suivi sont NOMMÉES (leur migration 0011 a son propre essai) : toute autre table de tableClient() doit être couverte par 0004.
+// Une table de suivi ajoutée sans être nommée ici fait échouer l'essai ci-dessous, au lieu d'être écartée sans bruit.
+const SUIVI = ["audits_client", "besoins", "demandes", "notes", "outils_client", "propositions", "propositions_automatisations", "themes_client"];
 const PROPRES = ["contacts", "instances", "organisations"];
+// Table créée par l'essai tableClient() ci-dessus, dans le même processus : nommée aussi, pour la même raison.
+const ESSAI = ["essai_partitionnee"];
+const propres = () => TABLES_CLIENT.filter((t) => !SUIVI.includes(t.nom) && !ESSAI.includes(t.nom));
 
 describe("tableClient()", () => {
   const cles = (t: Parameters<typeof getTableConfig>[0]) => {
@@ -37,8 +43,9 @@ describe("tableClient()", () => {
 
 describe("migration des tables de client", () => {
   it("[A-119] @isolation chaque table de tableClient() a ENABLE et FORCE ROW LEVEL SECURITY, ses deux politiques et le déclencheur d'audit prévu", () => {
-    expect(TABLES_CLIENT.map((t) => t.nom).filter((n) => PROPRES.includes(n)).sort()).toEqual(["contacts", "instances", "organisations"]);
-    for (const { nom, audit } of TABLES_CLIENT.filter((t) => PROPRES.includes(t.nom))) {
+    expect(propres().map((t) => t.nom).sort()).toEqual(PROPRES);
+    expect(TABLES_CLIENT.filter((t) => SUIVI.includes(t.nom)).map((t) => t.nom).sort()).toEqual(SUIVI);
+    for (const { nom, audit } of propres()) {
       expect(migration, nom).toContain(`ALTER TABLE "public"."${nom}" ENABLE ROW LEVEL SECURITY`);
       expect(migration, nom).toContain(`ALTER TABLE "public"."${nom}" FORCE ROW LEVEL SECURITY`);
       expect(migration, nom).toMatch(new RegExp(`CREATE POLICY isolation_client ON "public"\\."${nom}" FOR ALL TO console_app USING \\(tenant_id = NULLIF\\(current_setting\\('app.tenant_id', true\\), ''\\)::uuid\\) WITH CHECK`));

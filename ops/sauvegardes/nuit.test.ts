@@ -243,6 +243,16 @@ describe("sauvegarde de nuit : expiration automatique coupée, rythme, journal (
     expect(existsSync(b.journal) ? readdirSync(b.journal, { recursive: true }) : []).toEqual([]);
   });
 
+  it("[C-049] deux passages dans la même seconde écrivent chacun leur ligne, sans écraser ni échouer", () => {
+    const b = banc();
+    const appel = `source "${join(b.scripts, "journaliser.sh")}"; journal_ecrire restauration ponctuelle restauration 1 - echec 1 a && journal_ecrire restauration ponctuelle restauration 1 - ok 1 b`;
+    const r = spawnSync("bash", ["-c", appel], { encoding: "utf8", env: b.env });
+    expect(r.status, r.stderr).toBe(0);
+    const fichiers = fichiersJournal(b, "restauration");
+    expect(fichiers).toHaveLength(2);
+    expect(fichiers.map((f) => readFileSync(f, "utf8").split("\t")[4]).sort()).toEqual(["echec", "ok"]);
+  });
+
   it("[C-049] tout script du dossier qui range un fichier passe par journaliser.sh (un seul endroit par système et par usage)", () => {
     for (const f of ["sauvegarder-nuit.sh", "expirer.sh", "restaurer.sh"]) {
       expect(lignesActives(lire(f)).join("\n"), f).toMatch(/source "\$dossier\/journaliser\.sh"/);

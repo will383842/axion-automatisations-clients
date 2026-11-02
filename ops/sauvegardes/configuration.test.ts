@@ -219,6 +219,8 @@ describe("configuration des sauvegardes (lecture statique)", () => {
         expect(conf).toMatch(/^repo1-sftp-host-key-check-type=strict$/m);
         expect(conf).toMatch(/^repo1-sftp-known-host=.*known_hosts$/m);
         expect(conf).not.toMatch(/check-type=(none|accept-new)/);
+        // pgBackRest exige le type de hachage dès que la clé de l'hôte est vérifiée (« restore command requires option: repo1-sftp-host-key-hash-type »).
+        expect(conf).toMatch(/^repo1-sftp-host-key-hash-type=sha256$/m);
       } finally {
         rmSync(cible, { force: true });
       }

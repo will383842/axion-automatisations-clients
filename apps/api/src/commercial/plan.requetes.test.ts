@@ -36,6 +36,12 @@ describe("requêtes du plan commercial", () => {
     }
   });
 
+  it("[C-676] une version de départ fournie sans métier est refusée (metier_obligatoire), sans aucune lecture du préréglage", async () => {
+    const { client, appels } = fauxClient();
+    await expect(preparerPlan(client, "t", "i", { versionMetier: 2, date: "2026-07-01" })).rejects.toMatchObject({ motif: "metier_obligatoire" });
+    expect(appels.some((a) => a.texte.includes("FROM prereglages_metier"))).toBe(false);
+  });
+
   it("[C-676] le préréglage du métier est la version de départ demandée, jamais la dernière publiée ; sans version, refus", async () => {
     const sans = fauxClient();
     await expect(preparerPlan(sans.client, "t", "i", { metierId: "m-1", date: "2026-07-01" })).rejects.toMatchObject({ motif: "version_metier_obligatoire" });

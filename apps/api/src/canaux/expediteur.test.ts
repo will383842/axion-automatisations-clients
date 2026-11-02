@@ -151,4 +151,31 @@ describe("expéditeur", () => {
     ouvert = true;
     expect(await expediteur.executer({ ...ref })).toBe("envoye");
   });
+
+  it("[C-535] [C-403] deux essais dans la même seconde portent deux horodatages différents (pas de rejeu 401)", async () => {
+    const { poser, expediteur, entetes } = monter();
+    const ref = poser(`h${randomUUID().slice(0, 6)}`);
+    hub.tuerApresReception();
+    expect(await expediteur.executer(ref)).toBe("reessai");
+    expect(await expediteur.executer(ref)).toBe("envoye");
+    expect(entetes).toHaveLength(2);
+    expect(entetes[1]![EN_TETES.horodatage]).not.toBe(entetes[0]![EN_TETES.horodatage]);
+    expect(Number(entetes[1]![EN_TETES.horodatage])).toBeGreaterThan(Number(entetes[0]![EN_TETES.horodatage]));
+  });
+
+  it("[C-403] la réponse du Hub est bornée avant d'être rangée dans la base", async () => {
+    const magasin = magasinEnMemoire();
+    const expediteur = creerExpediteur({
+      magasin,
+      signeur: { signerRequete: async () => ({}) },
+      urls: { hub: "http://hub.test", crm: "http://crm.test" },
+      alerter: async () => undefined,
+      fetch: async () => new Response(JSON.stringify({ grand: "x".repeat(1_000_000) }), { status: 200, headers: { "content-type": "application/json" } }),
+    });
+    const ref = magasin.deposer({ tenantId: TENANT, destination: "hub", route: RETROUVER, methode: "POST", corps: corps("borne"), cle: cleDIntention("hub", "i-borne") });
+    expect(await expediteur.executer(ref)).toBe("envoye");
+    const ligne = magasin.lignes().find((l) => l.id === ref.id)!;
+    expect(ligne.etat).toBe("envoye");
+    expect(JSON.stringify(ligne.reponse).length).toBeLessThan(70_000);
+  });
 });

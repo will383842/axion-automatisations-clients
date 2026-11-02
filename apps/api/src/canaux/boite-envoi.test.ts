@@ -8,12 +8,13 @@ import { RACINE_C1, deposer, transactionOuverte, type TransactionOuverte } from 
 
 // Fausse transaction : enregistre les requêtes, répond « client fixé » comme avecClient (app.tenant_id), ou rien (hors transaction).
 const TENANT = randomUUID();
-function fausseTx(tenant: string | null = TENANT) {
+function fausseTx(tenant: string | null = TENANT, connus = true) {
   const requetes: { sql: string; params: unknown[] }[] = [];
   const client = {
     async query(sql: string, params: unknown[] = []) {
       requetes.push({ sql, params });
       if (/current_setting/.test(sql)) return { rows: [{ tenant }] };
+      if (/FROM (phases_plan|organisations)/.test(sql)) return { rows: connus ? [{ ok: 1 }] : [] };
       if (/INSERT INTO boite_envoi/.test(sql)) return { rows: [{ id: params[1] }] };
       return { rows: [] };
     },
@@ -65,5 +66,30 @@ describe("dépôt dans la boîte d'envoi", () => {
     const files = { hub: fileEnMemoire(async () => undefined), crm: fileEnMemoire(async () => undefined) };
     await creerRelais({ magasin, files, ouverte: () => true }).balayer();
     expect(files.hub.jobs().sort()).toEqual([a.cle, b.cle].sort());
+  });
+
+  it("[C-402] la méthode du dépôt est celle du contrat (POST) : une autre est refusée", async () => {
+    const { tx, requetes } = fausseTx();
+    for (const methode of ["PUT", "PATCH", "DELETE"] as const) await expect(deposer(tx, depot({ methode }))).rejects.toThrow(/méthode/);
+    expect(requetes.some((r) => /INSERT/.test(r.sql))).toBe(false);
+  });
+
+  it("[C-402] un paramètre de chemin n'accepte que lettres, chiffres, tiret et souligné", async () => {
+    const { tx } = fausseTx();
+    const statut = { statut: "client_actif", consoleClientId: "console-cli-0001" };
+    for (const mauvais of ["a.b", "a%2Fb", "a%2e%2e", "a:b", "a b", "a;b", "..", "a?x=1"]) {
+      await expect(deposer(tx, depot({ route: `/api/console/v1/clients/${mauvais}/statut`, corps: statut, intention: `s:${mauvais}` })), mauvais).rejects.toThrow(/route/);
+    }
+    await expect(deposer(tx, depot({ route: "/api/console/v1/clients/AXI-CLI_01/statut", corps: statut, intention: "s:ok" }))).resolves.toMatchObject({ nouveau: true });
+  });
+
+  it("[C-402] le client du statut et le plan à clore doivent être ceux de la transaction", async () => {
+    const { tx, requetes } = fausseTx(TENANT, false);
+    const statut = { statut: "client_actif", consoleClientId: "console-cli-0001" };
+    await expect(deposer(tx, depot({ route: "/api/console/v1/clients/AXI-CLI-01/statut", corps: statut, intention: "s:autre" }))).rejects.toThrow(/client/);
+    await expect(deposer(tx, depot({ route: "/api/console/v1/plans-recurrents/plan-1/clore", corps: { dateFin: "2026-12-31", motif: "autre" }, intention: "c:autre" }))).rejects.toThrow(/plan/);
+    expect(requetes.some((r) => /INSERT/.test(r.sql))).toBe(false);
+    const connu = fausseTx(TENANT, true);
+    await expect(deposer(connu.tx, depot({ route: "/api/console/v1/plans-recurrents/plan-1/clore", corps: { dateFin: "2026-12-31", motif: "autre" }, intention: "c:ok" }))).resolves.toMatchObject({ nouveau: true });
   });
 });

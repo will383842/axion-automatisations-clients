@@ -110,10 +110,10 @@ describe("audit 1-A · workflows et journaux de la CI", () => {
     expect(ecarts).toEqual([]);
   });
 
-  // Défaut constaté (T1A-19) : controle-journaux.yml ne scanne que les exécutions de « CI » et « nuit ». Les journaux des autres workflows
+  // Défaut constaté (T1A-19, corrigé par T1B-12 point 6 : changement du workflow par le chef d'orchestre) : controle-journaux.yml ne scannait que les exécutions de « CI » et « nuit ». Les journaux des autres workflows
   // déclenchés par une PR (Socle intégration, Harnais, Sécurité, etc.) ne passent jamais au scanner des données réelles (C-531).
   // Correction attendue : ajouter ces noms à on.workflow_run.workflows de controle-journaux.yml (ou le déclencher sans filtre de nom).
-  it.fails("[C-531] @lot-1b le contrôle des journaux couvre chaque workflow qui s'exécute sur une PR ou sur main", () => {
+  it("[C-531] @lot-1b le contrôle des journaux couvre chaque workflow qui s'exécute sur une PR ou sur main", () => {
     const controle = workflows.find((w) => w.fichier === "controle-journaux.yml");
     const couverts = ((((controle?.doc["on"] ?? {}) as Obj)["workflow_run"] ?? {}) as Obj)["workflows"] as string[];
     const aCouvrir = workflows.filter((w) => w.fichier !== "controle-journaux.yml" && declencheurs(w.doc).some((e) => e === "pull_request" || e === "push")).map((w) => String(w.doc["name"])).sort();

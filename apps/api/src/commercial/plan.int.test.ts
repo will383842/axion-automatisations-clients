@@ -166,6 +166,25 @@ describe("plan commercial calculé, contre PostgreSQL", () => {
     expect(client.fraisMiseEnPlaceHtCentimes).toBe(100);
   });
 
+  it("[C-138] @argent les conditions par défaut de la plateforme, lues par console_app, l'emportent sur la grille ; celles du client l'emportent sur elles", async () => {
+    const cat = await catalogue(["abonnement"]);
+    const a = await clientCatalogue(cat.automatisation, "abonnement");
+    const preparer = (date: string) => avecClient(app, a.A, (c) => preparerPlan(c, a.A, a.instance, { metierId: cat.metier, versionMetier: 1, date }), APPELANT);
+    // Grille seule, le jour où la fenêtre du défaut est ouverte.
+    expect((await preparer("2031-01-01")).sources.fraisMiseEnPlace).toBe("grille");
+    // Le défaut de la plateforme l'emporte sur la grille.
+    const defaut = await preparer("2031-01-01");
+    expect(defaut.sources.fraisMiseEnPlace).toBe("defaut");
+    expect(defaut.fraisMiseEnPlaceHtCentimes).toBe(777);
+    // valide_au est EXCLUE : le lendemain, la grille reprend.
+    expect((await preparer("2031-01-02")).sources.fraisMiseEnPlace).toBe("grille");
+    // La condition du client l'emporte sur le défaut.
+    await a.condition("frais", { frais_mise_en_place_centimes: 100 });
+    const client = await preparer("2031-01-01");
+    expect(client.sources.fraisMiseEnPlace).toBe("client");
+    expect(client.fraisMiseEnPlaceHtCentimes).toBe(100);
+  });
+
   it("[C-138] @argent une formule absente des formules actives de la grille est refusée", async () => {
     const cat = await catalogue(["abonnement"]);
     const a = await clientCatalogue(cat.automatisation, "achat");

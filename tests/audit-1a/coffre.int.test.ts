@@ -175,7 +175,7 @@ describe("audit 1-A · coffre OpenBao", () => {
       { quoi: "sauvegarder la clé transit de A", methode: "GET", chemin: `transit/backup/cli-${A}`, permis: [] },
       { quoi: "lire la clé transit de A", methode: "GET", chemin: `transit/keys/cli-${A}`, permis: [] },
       { quoi: "déchiffrer la clé de données de A", methode: "POST", chemin: `transit/decrypt/cli-${A}`, corps: { ciphertext: envA.cleChiffree }, permis: ["api"] },
-      { quoi: "rechiffrer la clé de données de A", methode: "POST", chemin: `transit/rewrap/cli-${A}`, corps: { ciphertext: envA.cleChiffree }, permis: [] },
+      { quoi: "rechiffrer la clé de données de A", methode: "POST", chemin: `transit/rewrap/cli-${A}`, corps: { ciphertext: envA.cleChiffree }, permis: ["api"] },
       { quoi: "chiffrer avec la clé de A", methode: "POST", chemin: `transit/encrypt/cli-${A}`, corps: { plaintext: Buffer.from("x").toString("base64") }, permis: [] },
       { quoi: "exporter la clé de signature", methode: "GET", chemin: "transit/export/signing-key/modules-signature", permis: [] },
       { quoi: "signer un module", methode: "POST", chemin: "transit/sign/modules-signature", corps: { input: Buffer.from("x").toString("base64") }, permis: ["signature"] },
@@ -198,6 +198,16 @@ describe("audit 1-A · coffre OpenBao", () => {
     }
     expect(ecarts).toEqual([]);
     expect(fuites).toEqual([]);
+    // rewrap : seul api l'obtient ; equipe, courtier et signature restent à 403 (déjà jugé ligne à ligne ci-dessus),
+    // et la réponse du rewrap ne porte jamais de clair.
+    for (const role of ["equipe", "courtier", "signature"] as const) {
+      const refus = await http(jetons.get(role) ?? "", "POST", `transit/rewrap/cli-${A}`, { ciphertext: envA.cleChiffree });
+      expect(refus.statut, `${role} ne rechiffre pas`).toBe(403);
+    }
+    const rewrap = await http(jetons.get("api") ?? "", "POST", `transit/rewrap/cli-${A}`, { ciphertext: envA.cleChiffree });
+    expect(rewrap.statut).toBe(200);
+    expect(rewrap.texte, "rewrap sans clair").not.toContain("plaintext");
+    for (const v of valeurs()) expect(v && rewrap.texte.includes(v), "valeur dans la réponse du rewrap").toBeFalsy();
   }, 120_000);
 
   it("[A-005] @isolation le jeton equipe ne lit aucune valeur : le code de l'API le refuse et l'état ne porte jamais la valeur", async () => {

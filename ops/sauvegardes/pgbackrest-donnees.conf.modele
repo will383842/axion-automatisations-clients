@@ -1,0 +1,29 @@
+# Modèle de configuration pgBackRest de la grappe « données » (T2-39, A-237, ADR 0009). Dépôt DISTINCT de celui de la grappe commune :
+# autre cible, autre stanza, autre phrase de chiffrement. Aucun secret ici : la phrase est ajoutée à une copie en mémoire (tmpfs, droits 0400) au démarrage.
+# Les valeurs repo1-sftp-* sont celles de la cible d'essai ; au branchement, elles désignent un sous-compte dédié de la Storage Box (dépôt propre).
+[global]
+repo1-type=sftp
+repo1-path=/depot
+repo1-sftp-host=sftp-essai-donnees
+repo1-sftp-host-user=sauv
+repo1-sftp-private-key-file=/cles/id
+# ESSAI SEULEMENT : au branchement, « fingerprint » avec l'empreinte d'hôte épinglée (voir le README).
+repo1-sftp-host-key-check-type=none
+repo1-sftp-host-key-hash-type=sha256
+repo1-cipher-type=aes-256-cbc
+# Rétention COURTE : 7 jours (réglable : variable PGBACKREST_REPO1_RETENTION_FULL). La conservation longue est portée par les dumps de chaque client (T2-39).
+repo1-retention-full-type=time
+repo1-retention-full=7
+repo1-retention-archive-type=full
+repo1-retention-archive=1
+start-fast=y
+archive-async=y
+archive-push-queue-max=4GiB
+
+[donnees]
+pg1-path=/var/lib/postgresql/data
+pg1-socket-path=/var/run/postgresql
+
+# Comme la grappe commune : pas d'expiration automatique à chaque sauvegarde (cible en ajout seul) ; l'expiration est une tâche à part, sous un compte distinct.
+[global:backup]
+expire-auto=n

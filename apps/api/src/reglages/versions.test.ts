@@ -3,7 +3,7 @@ import type { Pool } from "pg";
 import { ErreurApi } from "../plugins/erreurs.js";
 import { historique, modifier, revenir, serviceAnnulationReglages } from "./versions.js";
 
-// Versions des réglages (A-175, A-176) : base simulée en mémoire ; la concurrence réelle est vérifiée par versions.int.test.ts.
+// Versions des réglages (A-175, A-176) : base simulée en mémoire ; la concurrence réelle n'est pas vérifiée ici : essai d'intégration à écrire (dette LOT2-dette-T2-09-concurrence, spec/preuves.md).
 const TENANT = "11111111-1111-4111-8111-111111111111";
 const INSTANCE = "22222222-2222-4222-8222-222222222222";
 const SCHEMA = { type: "object", properties: { relance_jours: { type: "integer", minimum: 1 }, ton: { type: "string" } }, required: ["relance_jours"], additionalProperties: false };
@@ -24,7 +24,7 @@ function base() {
       if (/INSERT INTO configurations/.test(sql)) { lignes.push({ id: String(p[0]), numero: Number(p[2]), donnees: JSON.parse(String(p[3])) as Record<string, unknown>, auteur: String(p[5]), motif_changement: String(p[6]), active: false, active_par: null }); return { rows: [] }; }
       if (/UPDATE configurations SET active = true/.test(sql)) { const l = lignes.find((x) => x.id === p[0])!; l.active = true; l.active_par = String(p[1]); return { rows: [] }; }
       if (/FROM configurations WHERE instance_id = \$1 AND numero = \$2/.test(sql)) return { rows: lignes.filter((l) => l.numero === p[1]) };
-      if (/numero FROM configurations WHERE instance_id = \$1 AND active/.test(sql)) return { rows: lignes.filter((l) => l.active) };
+      if (/FROM configurations WHERE instance_id = \$1 AND active/.test(sql)) return { rows: lignes.filter((l) => l.active) };
       if (/FROM configurations/.test(sql)) return { rows: [...lignes].sort((a, b) => b.numero - a.numero) };
       return { rows: [] };
     },
@@ -100,5 +100,48 @@ describe("versions des réglages", () => {
     await serviceAnnulationReglages.annuler(client, { id: "7", tenant_id: TENANT, entite: "configurations", entite_id: "x", action: "insertion", ancienne: null, nouvelle }, "agent-essai");
     expect(b.lignes.map((l) => l.numero)).toEqual([1, 2, 3]);
     expect(b.lignes[2]).toMatchObject({ donnees: { relance_jours: 1 }, active: true, motif_changement: "annulation de la version 2" });
+  });
+
+  it("[A-176] [C-443] l'annulation verrouille l'instance (FOR UPDATE) avant de lire la version active", async () => {
+    const b = base();
+    await ecrire(b, 1); await ecrire(b, 2);
+    b.requetes.length = 0;
+    const client = await (b.pool as unknown as { connect(): Promise<never> }).connect();
+    await serviceAnnulationReglages.annuler(client, { id: "7", tenant_id: TENANT, entite: "configurations", entite_id: "x", action: "insertion", ancienne: null, nouvelle: JSON.stringify({ instance_id: INSTANCE, numero: 2 }) }, "agent-essai");
+    const verrou = b.requetes.findIndex((s) => /FOR UPDATE/.test(s));
+    const lectureActive = b.requetes.findIndex((s) => /^SELECT .*FROM configurations WHERE instance_id = \$1 AND active/.test(s));
+    expect(verrou).toBeGreaterThan(-1);
+    expect(lectureActive).toBeGreaterThan(verrou);
+  });
+
+  it("[C-443] annuler deux fois la même ligne ne crée qu'une version : la seconde répond regle_metier", async () => {
+    const b = base();
+    await ecrire(b, 1); await ecrire(b, 2);
+    const client = await (b.pool as unknown as { connect(): Promise<never> }).connect();
+    const ligne = { id: "7", tenant_id: TENANT, entite: "configurations", entite_id: "x", action: "insertion", ancienne: null, nouvelle: JSON.stringify({ instance_id: INSTANCE, numero: 2 }) };
+    await serviceAnnulationReglages.annuler(client, ligne, "agent-essai");
+    await expect(serviceAnnulationReglages.annuler(client, ligne, "agent-essai")).rejects.toMatchObject({ code: "regle_metier" });
+    expect(b.lignes.map((l) => l.numero)).toEqual([1, 2, 3]);
+  });
+
+  it("[A-176] revenir deux fois à la même version ne crée qu'une version (idempotent)", async () => {
+    const b = base();
+    await ecrire(b, 1); await ecrire(b, 2);
+    const premier = await revenir(b.pool, TENANT, INSTANCE, 1, "agent-essai");
+    expect(premier.numero).toBe(3);
+    const second = await revenir(b.pool, TENANT, INSTANCE, 1, "agent-essai");
+    expect(second).toMatchObject({ numero: 3, active: true, donnees: { relance_jours: 1 } });
+    expect(b.lignes.map((l) => l.numero)).toEqual([1, 2, 3]);
+    expect(b.lignes.filter((l) => l.active).map((l) => l.numero)).toEqual([3]);
+  });
+
+  it("[A-176] revenir verrouille l'instance avant de lire la version visée", async () => {
+    const b = base();
+    await ecrire(b, 1); await ecrire(b, 2);
+    b.requetes.length = 0;
+    await revenir(b.pool, TENANT, INSTANCE, 1, "agent-essai");
+    const verrou = b.requetes.findIndex((s) => /FOR UPDATE/.test(s));
+    expect(verrou).toBeGreaterThan(-1);
+    expect(b.requetes.findIndex((s) => /FROM configurations WHERE instance_id = \$1 AND numero = \$2/.test(s))).toBeGreaterThan(verrou);
   });
 });

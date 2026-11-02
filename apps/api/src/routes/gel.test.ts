@@ -7,7 +7,7 @@ import { routeGel } from "./gel.js";
 
 const CLIENT = "11111111-1111-4111-8111-111111111111";
 const AUTRE = "33333333-3333-4333-8333-333333333333";
-function serveur(session: SessionEquipe = { acteur: "will383842", role: "administrateur", organisationId: CLIENT, reauthentifie: true }) {
+function serveur(session: SessionEquipe = { acteur: "will383842", role: "administrateur", clientActifId: CLIENT, reauthentifie: true }) {
   const app = Fastify();
   brancherErreurs(app);
   const depot = depotGelsEnMemoire();
@@ -38,11 +38,16 @@ describe("routes du gel pour litige", () => {
     expect(autre.statusCode).toBe(403);
     const lecture = await serveur().app.inject({ method: "GET", url: base(AUTRE) });
     expect(lecture.statusCode).toBe(403);
-    const role = serveur({ acteur: "a", role: "support", organisationId: CLIENT, reauthentifie: true });
+    const role = serveur({ acteur: "a", role: "support", clientActifId: CLIENT, reauthentifie: true });
     expect((await role.app.inject({ method: "POST", url: base(), payload: { motif: "m" } })).statusCode).toBe(403);
-    const reauth = serveur({ acteur: "a", role: "administrateur", organisationId: CLIENT, reauthentifie: false });
+    const reauth = serveur({ acteur: "a", role: "administrateur", clientActifId: CLIENT, reauthentifie: false });
     expect((await reauth.app.inject({ method: "POST", url: base(), payload: { motif: "m" } })).statusCode).toBe(401);
     expect(await reauth.depot.lister(CLIENT)).toEqual([]);
+  });
+
+  it("[C-609] un identifiant de gel qui n'est pas un UUID est refusé", async () => {
+    const { app } = serveur();
+    expect((await app.inject({ method: "POST", url: `${base()}/pas-un-uuid/lever`, payload: { motif: "m" } })).statusCode).toBe(400);
   });
 
   it("[C-609] motif vide, date future, champ en trop ou acteur dans le corps : requête invalide", async () => {

@@ -7,7 +7,7 @@ import { depotGelsEnMemoire, gelActif, leverGel, poserGel, type DepsGel, type Se
 const CLIENT = "11111111-1111-4111-8111-111111111111";
 const AUTRE = "33333333-3333-4333-8333-333333333333";
 const MAINTENANT = new Date("2026-11-02T10:00:00Z");
-const admin: SessionEquipe = { acteur: "will383842", role: "administrateur", organisationId: CLIENT, reauthentifie: true };
+const admin: SessionEquipe = { acteur: "will383842", role: "administrateur", clientActifId: CLIENT, reauthentifie: true };
 function monde() {
   const depot = depotGelsEnMemoire();
   const envois = envoisServiceEnMemoire();
@@ -53,7 +53,7 @@ describe("gel pour litige : pose et levée", () => {
     await expect(poserGel(deps, admin, AUTRE, "m")).rejects.toMatchObject({ code: "action_interdite" });
     expect(await depot.lister(AUTRE)).toEqual([]);
     const g = await poserGel(deps, admin, CLIENT, "m");
-    await expect(leverGel(deps, { ...admin, organisationId: AUTRE }, AUTRE, g.id, "fin")).rejects.toMatchObject({ code: "introuvable" });
+    await expect(leverGel(deps, { ...admin, clientActifId: AUTRE }, AUTRE, g.id, "fin")).rejects.toMatchObject({ code: "introuvable" });
     await expect(leverGel(deps, admin, AUTRE, g.id, "fin")).rejects.toMatchObject({ code: "action_interdite" });
     expect(await gelActif(depot, CLIENT)).toBe(true);
   });
@@ -65,7 +65,7 @@ describe("gel pour litige : pose et levée", () => {
     expect(leve).toMatchObject({ id: g.id, motif: "premier litige", poseePar: "will383842", levePar: "will383842" });
     expect(leve.leveeLe).toEqual(MAINTENANT);
     expect(await gelActif(depot, CLIENT)).toBe(false);
-    await expect(leverGel(deps, admin, CLIENT, g.id, "encore")).rejects.toMatchObject({ code: "regle_metier" });
+    await expect(leverGel(deps, { ...admin, acteur: "autre.admin" }, CLIENT, g.id, "encore")).rejects.toMatchObject({ code: "regle_metier" });
     // Reposé : l'historique garde les deux lignes, la première reste levée.
     await poserGel(deps, admin, CLIENT, "second litige");
     const histoire = await depot.lister(CLIENT);
@@ -80,21 +80,55 @@ describe("gel pour litige : pose et levée", () => {
     await expect(leverGel(deps, admin, CLIENT, "gel-1", "")).rejects.toMatchObject({ code: "schema_invalide" });
   });
 
-  it("[C-609] deux poses identiques d'un même client ne font qu'un gel actif", async () => {
+  it("[C-609] deux poses identiques de la même personne ne font qu'un gel actif ; une autre personne est refusée", async () => {
     const { deps, depot } = monde();
-    await poserGel(deps, admin, CLIENT, "même motif");
-    await expect(poserGel(deps, admin, CLIENT, " même motif ")).rejects.toMatchObject({ code: "regle_metier" });
+    const g = await poserGel(deps, admin, CLIENT, "même motif");
+    await expect(poserGel(deps, { ...admin, acteur: "autre.admin" }, CLIENT, " même motif ")).rejects.toMatchObject({ code: "regle_metier" });
+    expect(await poserGel(deps, admin, CLIENT, " même motif ")).toMatchObject({ id: g.id });
     expect(await depot.lister(CLIENT)).toHaveLength(1);
   });
 
-  it("[C-609] le client est informé à la pose et à la levée par un e-mail de service, même avec une exclusion commerciale", async () => {
+  it("[C-609] la date de pose ne remonte pas au-delà d'une limite raisonnable", async () => {
+    const { deps, depot } = monde();
+    await expect(poserGel(deps, admin, CLIENT, "m", new Date("2020-01-01T00:00:00Z"))).rejects.toMatchObject({ code: "schema_invalide" });
+    expect(await depot.lister(CLIENT)).toEqual([]);
+  });
+
+  it("[C-609] l'avis perdu à la pose est redéposé par une nouvelle tentative, sans doublon ni second gel", async () => {
+    const { deps, depot, envois } = monde();
+    let echec = true;
+    const instable = { deposerService: async (m: Parameters<typeof envois.deposerService>[0]) => { if (echec) { echec = false; throw new Error("panne"); } await envois.deposerService(m); } };
+    const d2: DepsGel = { ...deps, envois: instable };
+    await expect(poserGel(d2, admin, CLIENT, "litige")).rejects.toThrow("panne");
+    expect(envois.deposes).toHaveLength(0);
+    const g = await poserGel(d2, admin, CLIENT, "litige");
+    expect(await depot.lister(CLIENT)).toHaveLength(1);
+    expect(envois.deposes.map((m) => m.cle)).toEqual([`avis_gel_pose:${CLIENT}:${g.id}`]);
+    await poserGel(d2, admin, CLIENT, "litige");
+    expect(envois.deposes).toHaveLength(1);
+  });
+
+  it("[C-609] l'avis perdu à la levée est redéposé par la même personne ; une autre personne est refusée", async () => {
+    const { deps, envois } = monde();
+    const g = await poserGel(deps, admin, CLIENT, "litige");
+    let echec = true;
+    const instable = { deposerService: async (m: Parameters<typeof envois.deposerService>[0]) => { if (echec) { echec = false; throw new Error("panne"); } await envois.deposerService(m); } };
+    const d2: DepsGel = { ...deps, envois: instable };
+    await expect(leverGel(d2, admin, CLIENT, g.id, "fin")).rejects.toThrow("panne");
+    await expect(leverGel(d2, { ...admin, acteur: "autre.admin" }, CLIENT, g.id, "fin")).rejects.toMatchObject({ code: "regle_metier" });
+    expect(await leverGel(d2, admin, CLIENT, g.id, "fin")).toMatchObject({ id: g.id, levePar: "will383842" });
+    await leverGel(d2, admin, CLIENT, g.id, "fin");
+    expect(envois.deposes.map((m) => m.type)).toEqual(["avis_gel_pose", "avis_gel_leve"]);
+  });
+
+  it("[C-609] le client est informé à la pose et à la levée par un e-mail de service dont le type n'est dans aucune liste commerciale", async () => {
     const { deps, envois } = monde();
     const g = await poserGel(deps, admin, CLIENT, "m");
     await leverGel(deps, admin, CLIENT, g.id, "fin");
     expect(envois.deposes.map((m) => [m.type, m.clientId, m.categorie])).toEqual([["avis_gel_pose", CLIENT, "service"], ["avis_gel_leve", CLIENT, "service"]]);
     expect(envois.deposes[0]!.cle).toBe(`avis_gel_pose:${CLIENT}:${g.id}`);
     expect(new Set(envois.deposes.map((m) => m.cle)).size).toBe(2);
-    // Les types d'avis ne sont dans aucune liste commerciale, donc aucune exclusion ne les coupe ; l'imitation refuse tout type commercial.
+    // Test de liste seulement : la preuve par une vraie exclusion est la dette LOT2-dette-T2-43-branchement (transport réel).
     for (const m of envois.deposes) expect(ENVOIS_COMMERCIAUX as readonly string[]).not.toContain(m.type);
     await expect(envois.deposerService({ type: "newsletter" as never, clientId: CLIENT, cle: "x", categorie: "service" })).rejects.toThrow();
   });

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import type { FileMinimale } from "../files/files.js";
 import { verifierChaine, type LecteurJournal } from "./verifier.js";
 
@@ -66,24 +66,13 @@ export async function enfilerCopie(file: FileMinimale, maintenant: Date): Promis
 }
 
 const statutDe = (e: unknown) => (e as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode;
-async function existe(s3: S3Client, d: DepotVerrouille): Promise<boolean> {
-  try {
-    await s3.send(new HeadObjectCommand({ Bucket: d.compartiment, Key: d.cle }));
-    return true;
-  } catch (e) {
-    if (statutDe(e) === 404) return false;
-    throw e;
-  }
-}
-
 // Adaptateur S3 (SeaweedFS). Seul un code sort : ni message ni pile de la bibliothèque. Une clé déjà présente (412) n'est pas une erreur.
 export function creerPortCopieAws(o: { endpoint: string; cleAcces: string; secret: string; region?: string }): PortCopie {
   return {
     async deposer(d) {
       const s3 = new S3Client({ endpoint: o.endpoint, region: o.region ?? "us-east-1", forcePathStyle: true, credentials: { accessKeyId: o.cleAcces, secretAccessKey: o.secret } });
       try {
-        // Anti-doublon en deux temps : la clé existe-t-elle déjà ? (sur un compartiment versionné, la brique peut ne pas appliquer If-None-Match), puis écriture conditionnelle.
-        if (await existe(s3, d)) return false;
+        // Anti-doublon : écriture conditionnelle seule (If-None-Match, appliquée par SeaweedFS 4.51 sur ce compartiment : essai d'intégration). Aucune lecture, pour qu'une clé en écriture seule suffise.
         await s3.send(new PutObjectCommand({ Bucket: d.compartiment, Key: d.cle, Body: d.octets, IfNoneMatch: "*", ObjectLockMode: d.modeRetention, ObjectLockRetainUntilDate: d.retenirJusquA }));
         return true;
       } catch (e) {

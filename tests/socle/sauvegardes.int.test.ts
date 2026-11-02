@@ -281,6 +281,63 @@ describe("sauvegardes (archivage continu, complète de nuit, restauration)", () 
     expect(avec("kv", "get", "-mount=technique", "-field=phrase", "sauvegardes").stdout.trim()).toBe(phrase);
   });
 
+  it("[C-523] restaurer.sh fonctionne en mode strict (SAUVEGARDE_ESSAI=0) avec l'empreinte et l'autorité du réseau interne", async () => {
+    // Hors essai : phrase lue dans un « coffre » en HTTPS (certificat vérifié contre BAO_CA_FICHIER), hôte SFTP vérifié contre known_hosts, jamais « none ».
+    // Le « coffre » est un openssl s_server qui sert le seul chemin lu (aucune image de plus), lancé dans le conteneur postgres sous le nom d'hôte du service.
+    // Le certificat est auto-signé et sert lui-même d'autorité : la chaîne et le nom sont vérifiés comme pour une vraie autorité (openssl -verify_return_error -verify_hostname).
+    const dir = mkdtempSync(join(tmpdir(), "strict-"));
+    const pg = conteneur("postgres");
+    const sftp = (...c: string[]) => dans("sftp-essai", ...c);
+    const lisible = (chemin: string, contenu: string) => {
+      writeFileSync(chemin, contenu);
+      chmodSync(chemin, 0o644); // fichiers publics ou factices : le conteneur de restauration ne tourne pas sous l'utilisateur de l'hôte
+    };
+    const avant = sortie("docker", ["ps", "-aq", "--filter", "name=restauration-"]).trim().split("\n").filter(Boolean);
+    let strict = "";
+    try {
+      dans("postgres", "sh", "-c", `set -e; d=/tmp/bao-tls; rm -rf $d; mkdir -p -m 700 $d/v1/technique/data; cd $d; openssl req -x509 -newkey rsa:2048 -nodes -keyout k.pem -out c.pem -days 1 -subj "/CN=postgres" -addext "subjectAltName=DNS:postgres" 2>/dev/null; printf '{"data":{"data":{"phrase":"%s"}}}' "$(cat /cles/phrase)" > v1/technique/data/sauvegardes`);
+      spawnSync("docker", ["exec", "-d", pg, "sh", "-c", "cd /tmp/bao-tls && echo $$ > pid && exec openssl s_server -accept 8443 -cert c.pem -key k.pem -WWW -quiet"]);
+      const repond = await attendre(
+        () => spawnSync("docker", ["exec", pg, "sh", "-c", "echo | openssl s_client -connect localhost:8443 -CAfile /tmp/bao-tls/c.pem -verify_return_error -verify_hostname postgres >/dev/null 2>&1"]).status === 0,
+        30,
+      );
+      expect(repond, "le faux coffre en HTTPS doit répondre").toBe(true);
+      const ca = join(dir, "ca.pem");
+      const jeton = join(dir, "jeton");
+      const bons = join(dir, "known_hosts-bon");
+      const faux = join(dir, "known_hosts-faux");
+      lisible(ca, dans("postgres", "cat", "/tmp/bao-tls/c.pem"));
+      lisible(jeton, "TEST-NE-PAS-UTILISER-jeton");
+      const ligne = (cle: string) => `sftp-essai ${cle.split(" ").slice(0, 2).join(" ")}`;
+      const vraies = sftp("sh", "-c", "cat /etc/ssh/ssh_host_*_key.pub").trim().split("\n").filter(Boolean);
+      expect(vraies.length).toBeGreaterThan(0);
+      sftp("sh", "-c", "rm -f /tmp/faux2 /tmp/faux2.pub && ssh-keygen -q -t ed25519 -N '' -f /tmp/faux2");
+      lisible(bons, vraies.map(ligne).join("\n") + "\n");
+      lisible(faux, ligne(sftp("cat", "/tmp/faux2.pub").trim()) + "\n");
+      const journal = join(dir, "journal");
+      const env = { ...process.env, SAUVEGARDE_ESSAI: "0", BAO_ADDR: "https://postgres:8443", BAO_CA_FICHIER: ca, BAO_JETON_FICHIER: jeton, SAUVEGARDE_JOURNAL: journal };
+      delete env.BAO_ESSAI_SANS_TLS;
+      // Une autre empreinte d'hôte : la restauration est refusée et ne laisse aucun conteneur.
+      const refus = spawnSync(script("restaurer.sh"), [], { encoding: "utf8", env: { ...env, SFTP_KNOWN_HOSTS: faux } });
+      expect(refus.status).not.toBe(0);
+      expect(sortie("docker", ["ps", "-aq", "--filter", "name=restauration-"]).trim().split("\n").filter(Boolean).filter((c) => !avant.includes(c))).toEqual([]);
+      // L'empreinte épinglée et l'autorité du réseau interne : la restauration aboutit.
+      strict = sortie(script("restaurer.sh"), [], { env: { ...env, SFTP_KNOWN_HOSTS: bons } }).trim().split("\n").pop() ?? "";
+      expect(strict).toMatch(/^restauration-/);
+      expect(sortie("docker", ["exec", strict, "psql", "-U", "postgres", "-d", "console", "-tAXc", SOMME]).trim()).toBe(sommeSource);
+      // La configuration du conteneur restauré est bien en mode strict avec le known_hosts, et ne contient jamais « none ».
+      const verif = sortie("docker", ["exec", strict, "sh", "-c", "grep -E '^repo1-sftp-(host-key-check-type|known-host)=' /dev/shm/pgbackrest.conf"]).trim().split("\n");
+      expect(verif).toEqual(["repo1-sftp-host-key-check-type=strict", `repo1-sftp-known-host=${bons}`]);
+      // Le journal : une ligne « echec » (empreinte refusée) et une ligne « ok », dans le rangement des essais de restauration.
+      const lignes = readdirSync(join(journal, "console", "restauration", "ponctuelle")).sort().map((f) => readFileSync(join(journal, "console", "restauration", "ponctuelle", f), "utf8").trim().split("\t")[4]);
+      expect(lignes).toEqual(["echec", "ok"]);
+    } finally {
+      if (strict) spawnSync("docker", ["rm", "-f", "-v", strict]);
+      spawnSync("docker", ["exec", pg, "sh", "-c", "kill $(cat /tmp/bao-tls/pid) 2>/dev/null; rm -rf /tmp/bao-tls"]);
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 600_000);
+
   it("[C-593] aucun rôle applicatif ni equipe n'est superutilisateur ni membre de pg_read_server_files", () => {
     // Seul « postgres » (maintenance) est superutilisateur : la limite est écrite dans le README.
     const autres = sql("postgres", "select rolname from pg_roles r where (r.rolsuper or pg_has_role(r.oid, 'pg_read_server_files', 'member')) and r.rolname <> 'postgres' and r.rolname !~ '^pg_' order by 1");

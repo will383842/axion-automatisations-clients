@@ -15,7 +15,7 @@ const AUTRE = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const SIREN = "812345676";
 const ADRESSE = { ligne1: "1 rue des Essais", codePostal: "75001", ville: "Paris", pays: "FR" as const };
 let n = 0;
-const evt = (type: string, payload: object, crm = "crm-lemoine", cle = randomUUID()) => ({
+const evt = (type: string, payload: object, crm = "crm-lemoine", cle: string = randomUUID()) => ({
   event_id: identifiantEvenementC3(type, cle),
   schema_version: 1 as const,
   occurred_at: "2026-11-02T10:00:00Z",
@@ -26,7 +26,7 @@ const evt = (type: string, payload: object, crm = "crm-lemoine", cle = randomUUI
   event_type: type,
   payload,
 });
-const devenue = (extra: object = {}, cle?: string) =>
+const devenue = (extra: object = {}, cle: string = randomUUID()) =>
   evt("entreprise.devenue_cliente", { crmCompanyId: "crm-lemoine", siren: SIREN, raisonSociale: "Lemoine Rénovation", adresse: ADRESSE, contacts: [{ nom: "Camille Test", email: "camille.test@exemple.fr" }], ...extra }, "crm-lemoine", cle);
 function monter() {
   const depot = depotEnMemoire();
@@ -182,5 +182,31 @@ describe("réception des faits du CRM : consentement et effacement", () => {
     await r.traiter(f);
     await r.traiter(f);
     expect(depot.exclusions(ORG)).toEqual([empreinte]);
+  });
+});
+
+describe("route C3 du CRM", () => {
+  const MAINTENANT = Math.floor(Date.now() / 1000);
+  const CLE = { kid: "crm-essai", secret: Buffer.alloc(32, 7) };
+  const monterRoute = (actif: boolean) => {
+    const ajouts: { donnees: unknown; opts: { jobId?: string } | undefined }[] = [];
+    const serveur = Fastify();
+    brancherErreurs(serveur);
+    routeCrm(serveur, { entrant: { cles: { clesAcceptees: async () => [CLE] }, memoire: { set: async () => "OK" }, actif: () => actif, maintenant: () => MAINTENANT }, file: { add: async (_n, donnees, opts) => void ajouts.push({ donnees, opts }) } });
+    const envoyer = (corps: string) =>
+      serveur.inject({ method: "POST", url: ROUTES_C3.crmVersConsole.chemin, payload: corps, headers: { "content-type": "application/json", "idempotency-key": "3f2b8c1e-5a4d-4e6f-9b7a-1c2d3e4f5a6b", "x-axion-key": CLE.kid } });
+    return { ajouts, envoyer, serveur };
+  };
+
+  it("[C-331] la porte du canal C3 est fermée par défaut : un fait signé n'est pas rangé", async () => {
+    const { ajouts, envoyer } = monterRoute(false);
+    expect((await envoyer(JSON.stringify(devenue()))).statusCode).toBe(503);
+    expect(ajouts).toEqual([]);
+  });
+
+  it("[C-331] un fait sans signature valide est refusé et n'entre pas dans la file", async () => {
+    const { ajouts, envoyer } = monterRoute(true);
+    expect((await envoyer(JSON.stringify(devenue()))).statusCode).toBe(401);
+    expect(ajouts).toEqual([]);
   });
 });

@@ -42,9 +42,14 @@ describe("quotas : mesure réelle", () => {
       return { async requete(texte) { requetes.push(texte); return [{ octets: 123 }]; }, async fermer() {} };
     };
     expect(await tailleBaseParLecture(ouvrir)(BASE.nomBase)).toBe(123);
+    const ouvrirTexte = async (): Promise<Connexion> => ({ async requete() { return [{ octets: "123456789012" }]; }, async fermer() {} });
+    expect(await tailleBaseParLecture(ouvrirTexte)(BASE.nomBase)).toBe(123_456_789_012);
     expect(ouvertures).toEqual([`${BASE.nomBase}/lecture`]);
     expect(requetes).toEqual([SQL_TAILLE_BASE]);
     expect(SQL_TAILLE_BASE).toMatch(/^SELECT pg_database_size\(current_database\(\)\)/);
+    // La taille est lue en texte entier (bigint), jamais en flottant : le pilote rend une chaîne que mesurer convertit.
+    expect(SQL_TAILLE_BASE).toContain("::bigint::text");
+    expect(SQL_TAILLE_BASE).not.toMatch(/float/i);
   });
 
   it("[A-247] la connexion de mesure est toujours fermée, y compris sur erreur", async () => {

@@ -6,7 +6,7 @@ import { CHEMIN_CONSOLE, CHEMIN_PORTAIL, gestionnairesDonneesQuotas, type Source
 
 // Quotas et état des données : le client A a ses chiffres, le client B les siens. La requête de A désigne B (en-tête, cookie, adresse, corps) :
 // la réponse doit être exactement celle de la même requête sans ces champs, et ne jamais porter un chiffre de B (C-536).
-// Ports en mémoire, sans Docker : le fichier suit le nom imposé par la fiche (.int.test.ts) et se lance avec SOCLE_INTEGRATION=1.
+// Ports en mémoire, mais le fichier suit le nom imposé par la fiche (.int.test.ts) : il est exclu du job tests et ne tourne que dans le job socle-integration (SOCLE_INTEGRATION=1), pas dans pnpm verifier.
 const A = "11111111-1111-4111-8111-111111111111";
 const B = "22222222-2222-4222-8222-222222222222";
 const CONFIG = lireConfigQuotas(JSON.stringify({

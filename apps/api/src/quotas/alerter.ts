@@ -1,3 +1,4 @@
+import { writeSync } from "node:fs";
 import { ErreurApi } from "../plugins/erreurs.js";
 import { dateParis } from "../commercial/lire-niveaux.js";
 import type { Mesures } from "./mesurer.js";
@@ -24,6 +25,7 @@ export interface PortsAlerte {
   // Réservation ATOMIQUE (INSERT ... ON CONFLICT DO NOTHING RETURNING) : true pour un seul appelant par (client, seuil, période).
   reserver(tenantId: string, seuil: Seuil, periode: string): Promise<boolean>;
   // Libère la réservation quand l'envoi échoue : l'alerte repart à la mesure suivante.
+  // L'adaptateur réel DATE la réservation (colonne reservee_le) et reprend celle qui est orpheline depuis plus de N minutes (dette T2-52).
   liberer(tenantId: string, seuil: Seuil, periode: string): Promise<void>;
   envoyer(alerte: AlerteQuota): Promise<void>;
   maintenant(): Date;
@@ -53,6 +55,7 @@ const touches = (p: Record<NomQuota, number>, minimum: number, maximum: number):
 
 // Une alerte par seuil et par période d'abonnement (et par client), pas à chaque mesure.
 // La réservation précède l'envoi (deux mesures simultanées n'envoient qu'une fois) ; si l'envoi échoue, elle est libérée.
+// Limite connue (dette LOT2-dette-T2-41-orpheline, T2-52) : si la libération échoue ou si le processus s'arrête entre reserver et envoyer, la réservation reste.
 export async function alerter(ports: PortsAlerte, tenantId: string, mesures: Mesures, quotas: Quotas): Promise<TypeAlerteQuota | undefined> {
   const p = pourcentagesBps(mesures, quotas);
   const atteints = touches(p, SEUIL_ATTEINT_BPS, Infinity);
@@ -64,7 +67,12 @@ export async function alerter(ports: PortsAlerte, tenantId: string, mesures: Mes
   try {
     await ports.envoyer({ type, clientId: tenantId, seuil, quotas: [...concernes], periode });
   } catch (e) {
-    await ports.liberer(tenantId, seuil, periode);
+    // La libération a son propre try : si elle échoue, l'erreur d'origine de l'envoi est quand même relancée. On journalise un code, sans donnée.
+    try {
+      await ports.liberer(tenantId, seuil, periode);
+    } catch {
+      writeSync(2, "quotas_alerte_liberation_echec\n");
+    }
     throw e;
   }
   return type;

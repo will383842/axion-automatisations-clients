@@ -37,7 +37,7 @@ export async function mesurer(ports: PortsMesure, base: BaseMesuree): Promise<Me
   return mesures;
 }
 
-export const SQL_TAILLE_BASE = "SELECT pg_database_size(current_database())::float8 AS octets";
+export const SQL_TAILLE_BASE = "SELECT pg_database_size(current_database())::bigint::text AS octets";
 export function tailleBaseParLecture(ouvrir: (nomBase: string, role: RoleConnexion) => Promise<Connexion>): (nomBase: string) => Promise<number> {
   return async (nomBase) => {
     const connexion = await ouvrir(nomBase, "lecture");

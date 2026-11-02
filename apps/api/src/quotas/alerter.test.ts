@@ -27,9 +27,10 @@ describe("quotas : alerte à 70 %", () => {
     expect(pourcentagesBps(mesures(700, 0, 0), QUOTAS).base).toBe(7000);
     expect(pourcentagesBps(mesures(699), QUOTAS).base).toBe(6990);
     expect(pourcentagesBps(mesures(0, 0, 70), QUOTAS).personnes).toBe(7000);
-    // Un volume énorme ne perd pas de précision (entier sûr au-delà de 2^53 une fois multiplié).
-    const gros = { baseOctets: 4_000_000_000_000_000, fichiersOctets: 1, personnes: 1 };
-    expect(pourcentagesBps(mesures(3_000_000_000_000_000), gros).base).toBe(7500);
+    // Un volume énorme ne perd pas de précision : ici le produit dépasse 2^53 et une division en flottant arrondirait à 7000 (le seuil de 70 %), le calcul exact donne 6999.
+    const gros = { baseOctets: 8_999_999_999_999_999, fichiersOctets: 1, personnes: 1 };
+    expect(Math.floor((6_299_999_999_999_999 * 10000) / gros.baseOctets)).toBe(7000);
+    expect(pourcentagesBps(mesures(6_299_999_999_999_999), gros).base).toBe(6999);
   });
 
   it("[A-247] une alerte part à 70 % d'un quota, une seule fois par période d'abonnement et par seuil", async () => {
@@ -54,6 +55,12 @@ describe("quotas : alerte à 70 %", () => {
     await alerter(p, T, mesures(900), QUOTAS);
     expect(envoyees[0]!.periode).toBe("2026-11-01");
     expect(Object.keys(envoyees[0]!).sort()).toEqual(["clientId", "periode", "quotas", "seuil", "type"]);
+  });
+
+  it("[A-247] en été, 22 h 30 UTC le 30/06 est déjà le 01/07 à Paris : la période est celle du 01/07", async () => {
+    const { p, envoyees } = ports("2026-06-30T22:30:00Z");
+    await alerter(p, T, mesures(900), QUOTAS);
+    expect(envoyees[0]!.periode).toBe("2026-07-01");
   });
 
   it("[A-247] un client est alerté séparément d'un autre", async () => {
@@ -164,11 +171,11 @@ describe("quotas : blocage doux à 100 %", () => {
   });
 
   it("[A-248] le refus ne dit que le motif : ni mesure, ni quota, ni client", () => {
-    try { verifierImportAutorise(mesures(1_000), QUOTAS); } catch (e) {
-      const t = JSON.stringify({ message: (e as Error).message, motif: (e as QuotaAtteint).motif });
-      expect(t).not.toMatch(/\d{3,}/);
-      expect(t).toContain("quota_atteint");
-    }
-    expect.hasAssertions();
+    let erreur: unknown;
+    try { verifierImportAutorise(mesures(1_000), QUOTAS); } catch (e) { erreur = e; }
+    expect(erreur).toBeInstanceOf(QuotaAtteint);
+    const t = JSON.stringify({ message: (erreur as Error).message, motif: (erreur as QuotaAtteint).motif });
+    expect(t).not.toMatch(/\d{3,}/);
+    expect(t).toContain("quota_atteint");
   });
 });

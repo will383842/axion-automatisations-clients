@@ -11,7 +11,7 @@ const MAINTENANT = 1_800_000_000;
 const HUB = { kid: "rec-hub-1", secret: randomBytes(32) } satisfies CleEchange;
 const CHEMIN = "/api/hub/v1/faits";
 
-function monter(options: { debit?: { max: number; fenetreSecondes: number }; echecsAvant?: number } = {}) {
+function monter(options: { debit?: { max: number; fenetreSecondes: number }; echecsAvant?: number; dedoublonner?: boolean } = {}) {
   let essais = 0;
   const serveur = Fastify({ genReqId: () => randomUUID() });
   brancherErreurs(serveur);
@@ -30,6 +30,7 @@ function monter(options: { debit?: { max: number; fenetreSecondes: number }; ech
     (s) => {
       s.post("/faits", async (r, reponse) => {
         if (++essais <= (options.echecsAvant ?? 0)) throw new Error("base indisponible");
+        if (options.dedoublonner && recus.some((c) => JSON.stringify(c) === JSON.stringify(r.body))) return reponse.status(200).send({ statut: "duplicate" });
         recus.push(r.body);
         return reponse.status(200).send({ statut: "range" });
       });
@@ -82,8 +83,8 @@ describe("[T2-16b] D3 : refus neutres", () => {
     expect(recus).toHaveLength(0);
   });
 
-  it("[T2-16b] un rejeu du même envoi signé renvoie 200 « duplicate » et ne range rien de plus", async () => {
-    const { serveur, recus } = monter();
+  it("[T2-16b] un rejeu du même envoi signé atteint le gestionnaire, qui dédoublonne : 200 « duplicate » et rien de plus rangé", async () => {
+    const { serveur, recus } = monter({ dedoublonner: true });
     const requete = demande(JSON.stringify({ a: 1 }));
     expect((await serveur.inject(requete)).json()).toEqual({ statut: "range" });
     const rejeu = await serveur.inject(requete);

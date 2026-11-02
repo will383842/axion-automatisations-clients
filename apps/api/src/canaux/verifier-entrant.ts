@@ -122,7 +122,7 @@ export function enregistrerCanal(serveur: FastifyInstance, nom: keyof typeof CAN
       });
 
       // preValidation : avant la validation du schéma du corps, qui ne doit jamais voir une requête non authentifiée.
-      s.addHook("preValidation", async (r, reponse) => {
+      s.addHook("preValidation", async (r) => {
         // Refus neutres (T2-16b, D3) : horodatage périmé, rejeu, signature fausse et clé inconnue donnent le même 401 au même corps.
         // Seul le journal interne garde la cause.
         const refuser = (code: "signature_invalide" | "horodatage_perime" | "rejeu" | "schema_invalide", message: string): never => {
@@ -156,12 +156,11 @@ export function enregistrerCanal(serveur: FastifyInstance, nom: keyof typeof CAN
         });
         const chemin = (r.raw.url ?? "").split("?")[0];
         const exempte = r.method === "POST" && nom === "hub" && chemin === `${prefixe}/faits`;
-        // Un envoi signé déjà reçu sur la route des faits : 200 « duplicate », rien n'est rangé (le Hub renvoie pendant 72 h tant qu'il n'a pas de 200).
-        if (!neuf && exempte) {
-          trace(r, "rejeu");
-          return reponse.code(200).send({ statut: "duplicate" });
-        }
-        if (!neuf) return refuser("rejeu", "Requête déjà reçue.");
+        // Un envoi signé déjà vu sur la route des faits n'est PAS répondu ici : la clé est posée avant le gestionnaire, et un premier
+        // essai en échec (500, coupure) la laisserait occupée. Le dédoublonnage par event_id du récepteur (ON CONFLICT, puis 200
+        // « deja_recu ») est la vraie protection ; ce passage ne range rien de plus.
+        if (!neuf && exempte) trace(r, "rejeu");
+        if (!neuf && !exempte) return refuser("rejeu", "Requête déjà reçue.");
         if (ECRITURES.has(r.method) && !exempte && !UUID_V4.test(enTete(r, "idempotency-key") ?? "")) return refuser("schema_invalide", "Idempotency-Key obligatoire.");
         if (corps.length > 0) {
           try {

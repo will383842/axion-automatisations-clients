@@ -118,4 +118,20 @@ describe("adaptateur Postgres du récepteur C2", { timeout: 30_000 }, () => {
     await expect(avecClient(app, a, (c) => c.query("DELETE FROM faits_recus WHERE tenant_id = $1", [a]), APPELANT)).rejects.toThrow(/permission|denied|refus/i);
     await expect(avecClient(app, a, (c) => c.query("UPDATE faits_recus SET payload = '{}'::jsonb WHERE tenant_id = $1", [a]), APPELANT)).rejects.toThrow(/permission|denied|refus/i);
   });
+
+  essai("[C-338] [T2-16b] @isolation un INSERT fait sous le client B avec tenant_id = A est refusé par le WITH CHECK de la RLS", async () => {
+    const a = randomUUID();
+    const b = randomUUID();
+    await creerOrg(a);
+    await creerOrg(b);
+    await expect(
+      avecClient(
+        app,
+        b,
+        (c) => c.query("INSERT INTO faits_recus (tenant_id, id, source, event_id, type, sequence, sujet, recu_le, payload) VALUES ($1, gen_random_uuid(), 'hub', $2, 'paiement.recu', 0, 'AXI-CLI-000001', now(), '{}'::jsonb)", [a, randomUUID()]),
+        APPELANT,
+      ),
+    ).rejects.toThrow(/row-level security|row level security|politique|policy/i);
+    expect(await avecClient(app, a, async (c) => (await c.query("SELECT count(*)::int AS n FROM faits_recus WHERE tenant_id = $1", [a])).rows[0]?.["n"])).toBe(0);
+  });
 });

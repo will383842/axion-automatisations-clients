@@ -17,6 +17,7 @@ interface Appel { base: string; role: string; texte: string; valeurs: unknown[] 
 function monde(etats: Record<string, string> = {}, lignes: Record<string, unknown>[] = [{ total: 3, id: "x", nom: "Liste", cree_le: "t", secret: "non" }]) {
   const appels: Appel[] = [];
   const ouvertures: { base: string; role: string }[] = [];
+  const vues = new Map<string, { expireLe: Date }>();
   const ports: PortsDonnees = {
     async base(tenantId) {
       const etat = etats[tenantId] ?? "active";
@@ -32,9 +33,11 @@ function monde(etats: Record<string, string> = {}, lignes: Record<string, unknow
         async fermer() {},
       };
     },
+    accordValide: async () => true,
+    vueRangee: (acteur, tenantId) => vues.get(`${acteur}|${tenantId}`),
     maintenant: () => T0,
   };
-  return { appels, ouvertures, service: creerServiceDonnees(ports) };
+  return { appels, ouvertures, service: creerServiceDonnees(ports), vues };
 }
 const client = (tenantId = A, etablissements = [ETAB_A]): SessionDonnees => ({ tenantId, role: "client", acteur: "u1", etablissements });
 const equipe = (extra: Partial<SessionDonnees> = {}): SessionDonnees => ({ tenantId: A, role: "equipe", acteur: "e1", etablissements: [], ...extra });
@@ -126,8 +129,9 @@ describe("service des données client", () => {
 
   it("[A-005] pendant la vue « comme le client », l'équipe lit en lecture seule et ne peut rien écrire", async () => {
     const ecrire: Requete = { nom: "ecrireListe", schema: z.object({}), sql: "UPDATE commun.listes_prospects SET nom = nom WHERE {{filtre}}", mode: "ecriture", metadonnees: false, parEtablissement: true, colonnes: [], valeurs: () => [] };
-    const { service, appels } = monde();
-    const mondeEcriture = creerServiceDonnees({ base: async () => ({ nomBase: "cli_1111", etat: "active" }), ouvrir: async (b, r) => ({ requete: async (t, v) => { appels.push({ base: b, role: r, texte: t, valeurs: v }); return []; }, fermer: async () => {} }), maintenant: () => T0 }, { ...LISTE_BLANCHE, ecrireListe: ecrire });
+    const { service, appels, vues } = monde();
+    const mondeEcriture = creerServiceDonnees({ base: async () => ({ nomBase: "cli_1111", etat: "active" }), ouvrir: async (b, r) => ({ requete: async (t, v) => { appels.push({ base: b, role: r, texte: t, valeurs: v }); return []; }, fermer: async () => {} }), accordValide: async () => true, vueRangee: (a, t) => vues.get(`${a}|${t}`), maintenant: () => T0 }, { ...LISTE_BLANCHE, ecrireListe: ecrire });
+    vues.set(`e1|${A}`, { expireLe: new Date(T0.getTime() + 60_000) });
     const vue = equipe({ vue: { tenantId: A, expireLe: new Date(T0.getTime() + 60_000) } });
     expect((await service.executer(vue, "listerListesProspects", {})).length).toBe(1);
     expect(await code(mondeEcriture.executer(vue, "ecrireListe", {}))).toBe("action_interdite");
@@ -144,7 +148,7 @@ describe("service des données client", () => {
   it("[A-170] un pool inactif est fermé, jamais réutilisé pour une autre base", async () => {
     let t = T0.getTime();
     const fermes: string[] = [];
-    const ports: PortsDonnees = { base: async (id) => ({ nomBase: `cli_${id.slice(0, 4)}`, etat: "active" }), ouvrir: async (b) => ({ requete: async () => [], fermer: async () => void fermes.push(b) }), maintenant: () => new Date(t) };
+    const ports: PortsDonnees = { base: async (id) => ({ nomBase: `cli_${id.slice(0, 4)}`, etat: "active" }), ouvrir: async (b) => ({ requete: async () => [], fermer: async () => void fermes.push(b) }), accordValide: async () => false, vueRangee: () => undefined, maintenant: () => new Date(t) };
     const service = creerServiceDonnees(ports);
     await service.executer(client(A), "compterPersonnes", {});
     t += 600_000;
@@ -164,6 +168,8 @@ describe("service des données client", () => {
         if (n === 1) return new Promise<Connexion>((_, rej) => { echouer = rej; });
         return Promise.resolve({ requete: async () => [], fermer: async () => {} });
       },
+      accordValide: async () => false,
+      vueRangee: () => undefined,
       maintenant: () => T0,
     };
     const service = creerServiceDonnees(ports);

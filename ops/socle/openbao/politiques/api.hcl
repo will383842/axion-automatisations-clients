@@ -19,3 +19,11 @@ path "transit/decrypt/cli-*" {
 path "transit/hmac/cli-*" {
   capabilities = ["update"]
 }
+# Service des données (T2-37c) : l'API lit les mots de passe app et lecture d'un client pour ouvrir sa connexion par PgBouncer « données ». Lecture seule, aucune liste ;
+# jamais le propriétaire, le provisionneur ni l'administration de PgBouncer. Le joker * n'est valable qu'en dernier caractère : le segment du client est un « + ».
+path "technique/data/donnees/+/app" {
+  capabilities = ["read"]
+}
+path "technique/data/donnees/+/lecture" {
+  capabilities = ["read"]
+}

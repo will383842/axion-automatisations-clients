@@ -42,12 +42,15 @@ async function appliService(session: SessionDonnees, maintenant = T0) {
   const ports: PortsDonnees = {
     async base(tenantId) { return { nomBase: `cli_${tenantId.slice(0, 4)}`, etat: "active" }; },
     async ouvrir(nomBase) { ouvertures.push(nomBase); return { async requete(texte, valeurs) { requetes.push({ texte, valeurs }); return texte.includes("commun.etablissements") ? [{ id: ETAB_A }] : [{ total: 1 }]; }, async fermer() {} }; },
+    accordValide: async () => true,
+    // La vue rangée côté serveur est celle que la session réclame : ce fichier teste la route, la vérification de la copie est dans vue-serveur.test.ts.
+    vueRangee: () => (session.vue ? { expireLe: session.vue.expireLe } : undefined),
     maintenant: () => maintenant,
   };
   const service = creerServiceDonnees(ports);
   const s = Fastify();
   brancherErreurs(s);
-  routeDonnees(s, { session: async () => session, executer: (se, nom, p) => service.executer(se, nom, p) });
+  routeDonnees(s, { session: async () => session, roleEquipe: async () => "administrateur", executer: (se, nom, p) => service.executer(se, nom, p) });
   await s.ready();
   const poster = (nom: string, payload: unknown = {}) => s.inject({ method: "POST", url: `/api/v1/donnees/${nom}?tenantId=${B}`, headers: { "x-tenant": B }, payload: payload as never });
   return { poster, ouvertures, requetes };

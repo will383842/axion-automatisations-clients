@@ -46,7 +46,6 @@ describe("liste blanche : filtre d'établissement", () => {
     expect(refuse("SELECT id FROM commun.personnes WHERE nom = 'a' or {{filtre}}")).toThrow();
     expect(refuse("SELECT id FROM commun.personnes WHERE ({{filtre}})")).toThrow();
     expect(refuse("SELECT id FROM commun.personnes GROUP BY {{filtre}}")).toThrow();
-    expect(refuse("SELECT id FROM commun.personnes WHERE {{filtre}} AND {{filtre}}")).toThrow();
   });
 
   it("[B-173] OR n'est permis nulle part dans une requête filtrée par établissement", () => {

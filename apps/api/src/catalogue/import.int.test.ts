@@ -80,4 +80,11 @@ describe("dépôt SQL de l'import", () => {
     expect(r.cree).toBe(false);
     expect(r.version.semver).toBe("1.0.0");
   });
+
+  it("[C-248] un nom de module différent sous un code d'automatisation existant est refusé et n'ajoute aucune version", async () => {
+    const code = `${lettres(5)}-321`;
+    await depot.enregistrer(entree(code, "1.0.0", hex()));
+    await expect(depot.enregistrer({ ...entree(code, "2.0.0", hex()), nomAutomatisation: "module-autre" })).rejects.toMatchObject({ code: "identifiant_deja_pris" });
+    expect((await equipe.query("SELECT count(*)::int AS n FROM versions_automatisation v JOIN automatisations x ON x.id = v.automatisation_id WHERE x.code = $1", [code])).rows[0]?.["n"]).toBe(1);
+  });
 });

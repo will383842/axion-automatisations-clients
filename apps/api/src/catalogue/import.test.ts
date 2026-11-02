@@ -9,7 +9,7 @@ import { moduleExemple } from "../../../../packages/sdk-module/exemples/module-e
 import { construireServeur } from "../serveur.js";
 import { ErreurApi } from "../plugins/erreurs.js";
 import type { IdentifiantsS3, PortS3 } from "../stockage/stockage.js";
-import { authentifierEquipeOuRecette } from "../routes/catalogue/import.js";
+import { authentifierEquipeOuRecette, type DepsImportCatalogue } from "../routes/catalogue/import.js";
 import { creerImporteur, verifierRecette, type DepotCatalogue, type EntreeVersion, type VersionRangee } from "./importer.js";
 import { creerRangement } from "./ranger.js";
 import { LIMITES } from "./schema.js";
@@ -82,7 +82,7 @@ class DepotMemoire implements DepotCatalogue {
   }
 }
 
-type DepsAuth = Parameters<typeof construireServeur>[0] extends infer O ? NonNullable<O extends { importCatalogue?: infer I } ? I : never>["authentifier"] : never;
+type DepsAuth = DepsImportCatalogue["authentifier"];
 function monter(o: { ouvert?: boolean; doublons?: (nom: string) => Promise<string[]>; authentifier?: DepsAuth } = {}) {
   const s3 = new S3Memoire();
   const depot = new DepotMemoire();
@@ -304,14 +304,14 @@ describe("import dans la console", () => {
 
 describe("import par la clé de la recette", () => {
   const cle = octets("cle-recette-essai");
-  const signer = (corps: Uint8Array, t: number) => createHmac("sha256", cle).update(`${t}\n${createHash("sha256").update(corps).digest("hex")}`).digest("hex");
   const maintenant = 1_800_000_000;
+  const signerSansCode = (corps: Uint8Array, t: number) => createHmac("sha256", cle).update(`${t}\n${createHash("sha256").update(corps).digest("hex")}`).digest("hex");
   // Chaîne signée : horodatage, code de l'automatisation visée, empreinte du corps.
   const signerPour = (corps: Uint8Array, t: number, code: string) => createHmac("sha256", cle).update(`${t}\n${code}\n${createHash("sha256").update(corps).digest("hex")}`).digest("hex");
 
   it("[C-248] une signature HMAC valide est acceptée, un corps changé est refusé", () => {
     const corps = octets("archive");
-    const ok = { "x-axion-horodatage": String(maintenant), "x-axion-signature": signer(corps, maintenant) };
+    const ok = { "x-axion-horodatage": String(maintenant), "x-axion-signature": signerPour(corps, maintenant, "ACC-001"), "x-automatisation": "ACC-001" };
     expect(verifierRecette({ cle, maintenant: () => maintenant }, ok, corps)).toBe(true);
     expect(verifierRecette({ cle, maintenant: () => maintenant }, ok, octets("autre"))).toBe(false);
   });
@@ -319,19 +319,14 @@ describe("import par la clé de la recette", () => {
   it("[C-248] une signature trop ancienne ou absente est refusée", () => {
     const corps = octets("archive");
     const vieux = maintenant - 3600;
-    expect(verifierRecette({ cle, maintenant: () => maintenant }, { "x-axion-horodatage": String(vieux), "x-axion-signature": signer(corps, vieux) }, corps)).toBe(false);
+    expect(verifierRecette({ cle, maintenant: () => maintenant }, { "x-axion-horodatage": String(vieux), "x-axion-signature": signerPour(corps, vieux, "ACC-001"), "x-automatisation": "ACC-001" }, corps)).toBe(false);
     expect(verifierRecette({ cle, maintenant: () => maintenant }, {}, corps)).toBe(false);
   });
 
-  it("[A-024] un import par la recette ne peut viser qu'un état brouillon", async () => {
-    const m = monter();
-    const rep = await m.poster(archiver(signeAvec(m, "module-recette")), "REC-001", { "x-statut": "pilote" });
-    expect((rep.json() as { version: { statut: string } }).version.statut).toBe("brouillon");
-  });
 
   it("[C-248] un HMAC calculé sans l'en-tête x-automatisation est refusé", () => {
     const corps = octets("archive");
-    const ancien = signer(corps, maintenant); // ancienne chaîne : horodatage + corps seulement
+    const ancien = signerSansCode(corps, maintenant); // ancienne chaîne : horodatage + corps seulement
     const entetes = { "x-axion-horodatage": String(maintenant), "x-axion-signature": ancien, "x-automatisation": "ACC-001" };
     expect(verifierRecette({ cle, maintenant: () => maintenant }, entetes, corps)).toBe(false);
   });

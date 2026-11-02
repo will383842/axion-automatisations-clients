@@ -194,7 +194,7 @@ describe("route C3 du CRM", () => {
     brancherErreurs(serveur);
     routeCrm(serveur, { entrant: { cles: { clesAcceptees: async () => [CLE] }, memoire: { set: async () => "OK" }, actif: () => actif, maintenant: () => MAINTENANT }, file: { add: async (_n, donnees, opts) => void ajouts.push({ donnees, opts }) } });
     const envoyer = (corps: string) =>
-      serveur.inject({ method: "POST", url: ROUTES_C3.crmVersConsole.chemin, payload: corps, headers: { "content-type": "application/json", "idempotency-key": "3f2b8c1e-5a4d-4e6f-9b7a-1c2d3e4f5a6b", "x-axion-key": CLE.kid } });
+      serveur.inject({ method: "POST", url: ROUTES_C3.crmVersConsole.chemin, payload: corps, headers: { "content-type": "application/json", "idempotency-key": randomUUID(), "x-axion-key": CLE.kid } });
     return { ajouts, envoyer, serveur };
   };
 

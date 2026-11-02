@@ -81,6 +81,14 @@ describe("pare-feu des ponts du réseau interne", () => {
     const regles = lire("etat4.txt").filter((l) => l.startsWith("regle SOCLE-PONTS "));
     expect(regles.every((l) => l.includes("-i pont-socle "))).toBe(true);
   });
+  it("[C-533] un pont sans option de nom (« <no value> » rendu par le modèle de Docker) prend le nom br-<12 premiers caractères>", () => {
+    const r = lancer([`${ID_INTERNE.slice(0, 12)}|true|${ID_INTERNE}|<no value>`]);
+    expect(r.status, r.stderr).toBe(0);
+    const regles = lire("etat4.txt").filter((l) => l.startsWith("regle SOCLE-PONTS "));
+    expect(regles).toHaveLength(2);
+    expect(regles.every((l) => l.includes(`-i br-${ID_INTERNE.slice(0, 12)} `))).toBe(true);
+    expect(r.stderr).not.toContain("no value");
+  });
   it("[C-533] idempotent : deux lancements donnent le même état, un seul saut depuis INPUT, et un pont disparu perd ses règles", () => {
     const deux = [`${ID_INTERNE.slice(0, 12)}|true|${ID_INTERNE}|`, `${ID_AUTRE_INTERNE.slice(0, 12)}|true|${ID_AUTRE_INTERNE}|`];
     expect(lancer(deux).status).toBe(0);

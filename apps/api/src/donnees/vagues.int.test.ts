@@ -131,7 +131,8 @@ describe("vagues sur des bases fictives (grappe jetable)", () => { // fiche: T2-
     const notes: string[] = [];
     const ports = mondeDe(trois, alertes, notes);
     const plan = await planifierVagues(cible, { recette: [], internes: [] }, ports);
-    const r = await deroulerPlan(plan, ports);
+    // seuilEchec 1 : le canari (1 base au hasard) peut tomber sur la base piégée sans arrêter le plan, donc pas d'instabilité.
+    const r = await deroulerPlan(plan, ports, { seuilEchec: 1 });
     expect(r.vagues.flatMap((v) => v.echecs)).toEqual([trois[1]!.nomBase]);
     expect(r.vagues.flatMap((v) => v.reussies).sort()).toEqual([trois[0]!.nomBase, trois[2]!.nomBase].sort());
     expect(alertes).toEqual([{ type: "migration_echec", clientId: trois[1]!.tenantId }]);

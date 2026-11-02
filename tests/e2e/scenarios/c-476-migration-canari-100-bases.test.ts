@@ -42,7 +42,8 @@ test("[C-476] une migration canari réussit sur 100 bases fictives (déroulement
 test("[A-228] une base dont la migration échoue reste en version 1 et alerte ; les 99 autres migrent", async () => {
   const m = monde(100, [60]);
   const plan = await planifierVagues(2, CONFIG, m.ports);
-  const r = await deroulerPlan(plan, m.ports);
+  // seuilEchec 1 : si le canari tire la base piégée, le plan ne s'arrête pas (test indépendant du tirage).
+  const r = await deroulerPlan(plan, m.ports, { seuilEchec: 1 });
   expect(r.vagues.flatMap((v) => v.echecs)).toEqual([nom(60)]);
   expect(m.alertes).toEqual([{ type: "migration_echec", clientId: "t60" }]);
   expect(m.bases.filter((b) => b.versionStructure === 1).map((b) => b.nomBase)).toEqual([nom(60)]);

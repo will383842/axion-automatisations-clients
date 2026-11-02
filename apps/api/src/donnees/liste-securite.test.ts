@@ -141,3 +141,94 @@ describe("liste blanche : filtre d'établissement", () => {
     expect(() => verifierListeBlanche(LISTE_BLANCHE)).not.toThrow();
   });
 });
+
+// Tour 4 de l'audit sécurité : le texte SQL du filtre est admis par LISTE BLANCHE stricte (tout ce qui n'est pas explicitement admis est refusé).
+describe("liste blanche stricte du texte SQL (tour 4)", () => {
+  const f = "{{filtre}}";
+  const tous = (formes: string[], extra: Partial<Requete> = {}) => { for (const sql of formes) expect(refuse(sql, extra), sql).toThrow(); };
+
+  it("[B-173] @isolation chaîne E'…' : les deux attaques (guillemet échappé vu comme fermeture) sont refusées", () => {
+    tous([
+      `SELECT nom AS id FROM commun.personnes WHERE ${f} AND nom <> E'\\' ' OR true --'`,
+      `SELECT nom AS id FROM commun.personnes WHERE ${f} AND nom <> E'\\' ' UNION ALL SELECT raison_sociale FROM commun.entreprises --'`,
+    ]);
+  });
+
+  it("[B-173] @isolation préfixes de chaîne E, U&, B, X, N et tout antislash sont refusés", () => {
+    tous([
+      `SELECT id FROM commun.personnes WHERE ${f} AND nom = E'a'`,
+      `SELECT id FROM commun.personnes WHERE ${f} AND nom = e'a'`,
+      `SELECT id FROM commun.personnes WHERE ${f} AND nom = U&'a'`,
+      `SELECT id FROM commun.personnes WHERE ${f} AND nom = u&'a'`,
+      `SELECT id FROM commun.personnes WHERE ${f} AND nom = B'1'`,
+      `SELECT id FROM commun.personnes WHERE ${f} AND nom = b'1'`,
+      `SELECT id FROM commun.personnes WHERE ${f} AND nom = X'ff'`,
+      `SELECT id FROM commun.personnes WHERE ${f} AND nom = x'ff'`,
+      `SELECT id FROM commun.personnes WHERE ${f} AND nom = N'a'`,
+      `SELECT id FROM commun.personnes WHERE ${f} AND nom <>E'a'`,
+      `SELECT id FROM commun.personnes WHERE ${f} AND nom = 'a\\b'`,
+      `SELECT id FROM commun.personnes WHERE ${f} AND nom = 'a\\'`,
+    ]);
+  });
+
+  it("[B-173] @isolation tout identifiant entre guillemets doubles est refusé, U&\"…\" compris (colonne chiffrée masquée)", () => {
+    tous([
+      `SELECT "id" FROM commun.personnes WHERE ${f}`,
+      `SELECT id FROM "commun"."personnes" WHERE ${f}`,
+      `SELECT id FROM commun.personnes WHERE ${f} AND "nom" = 'a'`,
+      `SELECT U&"courriel\\005fchiffre" AS id FROM commun.personnes WHERE ${f}`,
+      `SELECT id AS "id" FROM commun.personnes WHERE ${f}`,
+    ]);
+  });
+
+  it("[B-173] @isolation la ligne entière sous toutes ses formes est refusée (coalesce, ::text, max, count, (p).nom, p.to_jsonb, p.row_to_json)", () => {
+    tous([
+      `SELECT coalesce(p, p) AS id FROM commun.personnes p WHERE ${f}`,
+      `SELECT lower(p::text) AS id FROM commun.personnes p WHERE ${f}`,
+      `SELECT (p::text) AS id FROM commun.personnes p WHERE ${f}`,
+      `SELECT max(personnes::text) AS id FROM commun.personnes WHERE ${f}`,
+      `SELECT p.to_jsonb AS id FROM commun.personnes p WHERE ${f}`,
+      `SELECT p.row_to_json AS id FROM commun.personnes p WHERE ${f}`,
+      `SELECT count(p) AS id FROM commun.personnes p WHERE ${f}`,
+      `SELECT (p).nom AS id FROM commun.personnes p WHERE ${f}`,
+      `SELECT p::text AS id FROM commun.personnes p WHERE ${f}`,
+      `SELECT id FROM commun.personnes p WHERE ${f} AND lower(p::text) = 'a'`,
+      `SELECT id FROM commun.personnes p WHERE ${f} ORDER BY p`,
+    ]);
+  });
+
+  it("[B-173] @isolation alias.identifiant n'est admis que pour une colonne connue et non chiffrée de la table de cet alias", () => {
+    tous([
+      `SELECT p.inconnue AS id FROM commun.personnes p WHERE ${f}`,
+      `SELECT p.courriel_chiffre AS id FROM commun.personnes p WHERE ${f}`,
+      `SELECT x.id FROM commun.personnes p WHERE ${f}`,
+      `SELECT personnes.id FROM commun.personnes p WHERE ${f}`,
+      `SELECT commun.personnes.nom AS id FROM commun.personnes p WHERE ${f}`,
+      `SELECT inconnue AS id FROM commun.personnes WHERE ${f}`,
+      `SELECT id FROM commun.table_inconnue WHERE ${f}`,
+      `SELECT id FROM personnes_inconnues p WHERE ${f}`,
+    ]);
+    expect(refuse(`SELECT p.id FROM commun.personnes p WHERE ${f} AND p.nom = 'a' ORDER BY p.nom`)).not.toThrow();
+    expect(refuse(`SELECT personnes.id FROM commun.personnes WHERE ${f}`)).not.toThrow();
+    expect(refuse(`SELECT commun.personnes.id FROM commun.personnes WHERE ${f}`)).not.toThrow();
+    expect(refuse(`SELECT lower(p.nom) AS id FROM commun.personnes p WHERE ${f} AND coalesce(p.prenom, 'x') <> 'y'`)).not.toThrow();
+  });
+
+  it("[B-173] la sous-requête de projection est contrôlée à son tour (alias seul et colonne inconnue refusés dedans)", () => {
+    tous([
+      `SELECT (SELECT max(p::text) FROM commun.personnes p WHERE ${f}) AS id`,
+      `SELECT (SELECT max(p.to_jsonb) FROM commun.personnes p WHERE ${f}) AS id`,
+      `SELECT (SELECT count(*)::int FROM commun.personnes WHERE ${f} AND inconnue = 1) AS id`,
+    ]);
+    expect(refuse(`SELECT (SELECT count(*)::int FROM commun.personnes p WHERE ${f} AND p.nom = 'a') AS id`)).not.toThrow();
+  });
+
+  it("[B-173] le contrôle lexical vaut aussi pour une requête non filtrée (ni guillemets doubles, ni antislash, ni préfixe de chaîne)", () => {
+    const libre = { parEtablissement: false };
+    for (const sql of [`SELECT "id" FROM commun.personnes`, `SELECT E'a' AS id`, `SELECT 'a\\' AS id`, `SELECT U&'a' AS id`]) expect(refuse(sql, libre), sql).toThrow();
+  });
+
+  it("[B-173] une chaîne ordinaire, un nombre, un paramètre et les opérateurs simples restent admis", () => {
+    expect(refuse(`SELECT id FROM commun.personnes WHERE ${f} AND nom <> 'l''été -- ; ok' AND id <> $1 LIMIT 5`)).not.toThrow();
+  });
+});

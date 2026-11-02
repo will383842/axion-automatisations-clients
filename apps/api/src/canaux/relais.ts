@@ -5,7 +5,7 @@ import { avecClient, avecEquipe } from "../db/client-actif.js";
 import { CONSERVATION_IDEMPOTENCE_JOURS } from "../../../../packages/contrats/src/commun/signature.js";
 import { ErreurApi } from "../plugins/erreurs.js";
 import { PREFIXE } from "../files/files.js";
-import { MESSAGE_TROP_ANCIENNE, type Destination, type EchecEnvoi, type Magasin, type Ref } from "./expediteur.js";
+import { ESSAIS_MAX, MESSAGE_TROP_ANCIENNE, type Destination, type EchecEnvoi, type Magasin, type Ref } from "./expediteur.js";
 
 // Relais (A-088, C-402) : lit les lignes « a_envoyer » VALIDÉES (la transaction métier a fini), dépose une tâche par ligne, jobId = clé.
 // Valkey n'est qu'un transport : s'il est vidé, le balayage suivant redépose tout depuis la base (rien perdu, rien doublé : même jobId).
@@ -21,6 +21,8 @@ export interface OptionsRelais {
   ouverte: (d: Destination) => boolean;
   maintenant?: () => number;
   delaiAbandonMs?: number;
+  // Code seul (jamais de donnée) quand un balayage échoue ; le suivant repart.
+  journaliser?: (code: "balayage_echoue") => void;
 }
 const DESTINATIONS: Destination[] = ["hub", "crm"];
 const ABANDON_MS = 120_000;
@@ -53,7 +55,7 @@ export function creerRelais(o: OptionsRelais) {
   return {
     balayer: serie,
     demarrer(intervalleMs = 1000) {
-      minuteur ??= setInterval(() => void serie().catch(() => undefined), intervalleMs);
+      minuteur ??= setInterval(() => void serie().catch(() => o.journaliser?.("balayage_echoue")), intervalleMs);
     },
     arreter() {
       if (minuteur) clearInterval(minuteur);
@@ -116,9 +118,10 @@ export function magasinPg(app: pg.Pool, equipe: pg.Pool): Magasin {
   const clients = async (etat: string) => (await avecEquipe(equipe, (c) => c.query("SELECT DISTINCT tenant_id FROM boite_envoi WHERE etat = $1::etat_envoi", [etat]))).rows.map((r) => r["tenant_id"] as string);
   const unique = async (r: Ref, sql: string, params: unknown[]) => (await avecClient(app, r.tenantId, (c) => c.query(sql, [r.tenantId, r.id, ...params]))).rows;
   return {
-    async prendre(r, maintenant) {
-      const l = (await unique(r, `UPDATE boite_envoi SET etat = 'en_cours', nombre_essais = nombre_essais + 1, prochain_essai = $3 WHERE tenant_id = $1 AND id = $2 AND (etat = 'a_envoyer' OR (etat = 'en_cours' AND prochain_essai < $3::timestamptz - interval '2 minutes'))
-        RETURNING destination, route, methode, corps, cle_anti_doublon, nombre_essais, cree_le`, [maintenant]))[0];
+    async prendre(r, maintenant, max = ESSAIS_MAX) {
+      const l = (await unique(r, `UPDATE boite_envoi SET etat = 'en_cours', nombre_essais = nombre_essais + 1, prochain_essai = $3 WHERE tenant_id = $1 AND id = $2 AND nombre_essais < $4::int
+        AND ((etat = 'a_envoyer' AND (prochain_essai IS NULL OR prochain_essai <= $3)) OR (etat = 'en_cours' AND prochain_essai < $3::timestamptz - interval '2 minutes'))
+        RETURNING destination, route, methode, corps, cle_anti_doublon, nombre_essais, cree_le`, [maintenant, max]))[0];
       return l ? { ...r, destination: l["destination"], route: l["route"], methode: l["methode"], corps: l["corps"], cle: l["cle_anti_doublon"], etat: "en_cours", nombreEssais: l["nombre_essais"], creeLe: l["cree_le"] } : null;
     },
     async conclure(r, c) { await unique(r, "UPDATE boite_envoi SET etat = $3::etat_envoi, derniere_erreur = $4, reponse_recue = $5::jsonb, prochain_essai = NULL WHERE tenant_id = $1 AND id = $2 AND etat = 'en_cours'", [c.etat, c.erreur ?? null, c.reponse === undefined ? null : JSON.stringify(c.reponse)]); },

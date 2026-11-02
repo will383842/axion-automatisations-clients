@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { CodeErreur } from "../../../../packages/contrats/src/commun/erreurs.js";
 import { CONSERVATION_IDEMPOTENCE_JOURS, horodatageSuivant } from "../../../../packages/contrats/src/commun/signature.js";
 import { verifierAppelant, type Appelant } from "../db/client-actif.js";
 import { ErreurApi } from "../plugins/erreurs.js";
@@ -25,7 +26,8 @@ export interface LigneEnvoi extends Ref {
 export interface EchecEnvoi extends Ref { destination: Destination; route: string; nombreEssais: number; derniereErreur: string | null; creeLe: Date }
 export interface Magasin {
   // Passe la ligne à « en_cours » et compte l'essai ; null si elle est déjà envoyée, en échec ou absente.
-  prendre(r: Ref, maintenant: Date): Promise<LigneEnvoi | null>;
+  // Jamais au-delà de `max` essais, et jamais avant `prochain_essai` pour une ligne reportée.
+  prendre(r: Ref, maintenant: Date, max?: number): Promise<LigneEnvoi | null>;
   conclure(r: Ref, c: { etat: "envoye" | "echec"; erreur?: string; reponse?: unknown }): Promise<void>;
   // Nouvel essai plus tard ; compter = false quand l'essai n'a pas eu lieu (canal fermé).
   reporter(r: Ref, c: { prochainEssai: Date; erreur: string; compter: boolean }): Promise<void>;
@@ -57,7 +59,8 @@ const DELAI_MS = 10_000;
 const ATTENTE_FERME_MS = 30_000;
 const PLAFOND_MS = 300_000;
 // Une réponse 4xx est définitive (jamais un nouvel essai), sauf celles qu'un autre essai peut changer : clé de signature en rotation, rejeu, horloge, débit.
-const PASSAGERES = new Set(["rejeu", "signature_invalide", "horodatage_hors_fenetre", "debit_depasse", "porte_fermee"]);
+const PASSAGERES = new Set<CodeErreur>(["rejeu", "signature_invalide", "horodatage_perime", "debit_depasse", "porte_fermee"]);
+const ATTENTE_MIN_MS = 1000;
 // Réponse du Hub rangée en jsonb : au-delà, seule la marque de dépassement est gardée (jamais un texte tronqué en JSON invalide).
 export const REPONSE_MAX_OCTETS = 65_536;
 const MAX_HORODATAGES = 10_000;
@@ -90,11 +93,17 @@ export function creerExpediteur(d: DepsExpediteur) {
   // Dernier horodatage signé par ligne : un deuxième essai dans la même seconde ne reprend pas la même signature (le Hub la prendrait pour un rejeu, 401).
   const horodatages = new Map<string, string>();
   // Attente croissante avec aléa ; Retry-After (secondes) fait loi s'il est plus long.
-  const attente = (essais: number, retryApres?: number) => Math.max(Math.round(Math.min(1000 * 2 ** (essais - 1), PLAFOND_MS) * (0.5 + aleatoire() / 2)), Math.min(retryApres ?? 0, 3600) * 1000);
+  const attente = (essais: number, retryApres?: number) => Math.max(ATTENTE_MIN_MS, Math.round(Math.min(1000 * 2 ** (essais - 1), PLAFOND_MS) * (0.5 + aleatoire() / 2)), Math.min(retryApres ?? 0, 3600) * 1000);
+
+  async function concluEnEchec(ref: Ref, ligne: LigneEnvoi, erreur: string): Promise<Verdict> {
+    await d.magasin.conclure(ref, { etat: "echec", erreur });
+    await d.alerter({ type: "envoi_en_echec", destination: ligne.destination, cle: ligne.cle });
+    return "echec";
+  }
 
   return {
     async executer(ref: Ref): Promise<Verdict> {
-      const ligne = await d.magasin.prendre(ref, new Date(maintenant()));
+      const ligne = await d.magasin.prendre(ref, new Date(maintenant()), max);
       if (!ligne) return "ignore";
       const corps = JSON.stringify(ligne.corps);
       let headers: Record<string, string>;
@@ -102,9 +111,14 @@ export function creerExpediteur(d: DepsExpediteur) {
       try {
         headers = await d.signeur.signerRequete(CANAL[ligne.destination], ligne.methode, ligne.route, corps, horodatage);
       } catch (e) {
-        if (!(e instanceof ErreurApi && e.code === "porte_fermee")) throw e;
-        await d.magasin.reporter(ref, { prochainEssai: new Date(maintenant() + ATTENTE_FERME_MS), erreur: "porte_fermee", compter: false });
-        return "ferme";
+        if (e instanceof ErreurApi && e.code === "porte_fermee") {
+          await d.magasin.reporter(ref, { prochainEssai: new Date(maintenant() + ATTENTE_FERME_MS), erreur: "porte_fermee", compter: false });
+          return "ferme";
+        }
+        // Coffre indisponible, clé absente… : l'essai compte, sinon la ligne bouclerait sans fin (C-403). Seul un code est rangé, jamais le message.
+        if (ligne.nombreEssais >= max) return concluEnEchec(ref, ligne, "essais_epuises");
+        await d.magasin.reporter(ref, { prochainEssai: new Date(maintenant() + attente(ligne.nombreEssais)), erreur: "signature_impossible", compter: true });
+        return "reessai";
       }
       // Noté dès la signature : une coupure réseau pendant l'envoi ne doit pas faire reprendre le même horodatage.
       horodatages.delete(ligne.id);
@@ -139,12 +153,8 @@ export function creerExpediteur(d: DepsExpediteur) {
         await d.alerter({ type: "cle_reutilisee", destination: ligne.destination, cle: ligne.cle });
         return "echec";
       }
-      const definitif = statut >= 400 && statut < 500 && statut !== 408 && !PASSAGERES.has(motif);
-      if (definitif || ligne.nombreEssais >= max) {
-        await d.magasin.conclure(ref, { etat: "echec", erreur: motif });
-        await d.alerter({ type: "envoi_en_echec", destination: ligne.destination, cle: ligne.cle });
-        return "echec";
-      }
+      const definitif = statut >= 400 && statut < 500 && statut !== 408 && statut !== 429 && !PASSAGERES.has(motif as CodeErreur);
+      if (definitif || ligne.nombreEssais >= max) return concluEnEchec(ref, ligne, motif);
       await d.magasin.reporter(ref, { prochainEssai: new Date(maintenant() + attente(ligne.nombreEssais, retryApres)), erreur: motif, compter: true });
       return "reessai";
     },
@@ -164,9 +174,10 @@ export function magasinEnMemoire(maintenant: () => number = Date.now): Magasin &
     },
     lignes: () => tout,
     journal,
-    async prendre(r, maintenant) {
+    async prendre(r, maintenant, max = ESSAIS_MAX) {
       const l = trouver(r);
-      if (!l || (l.etat !== "a_envoyer" && l.etat !== "en_cours")) return null;
+      if (!l || (l.etat !== "a_envoyer" && l.etat !== "en_cours") || l.nombreEssais >= max) return null;
+      if (l.etat === "a_envoyer" && l.prochainEssai && l.prochainEssai > maintenant) return null;
       // Deux travailleurs sur la même ligne : un seul la prend (la base le fait par UPDATE conditionnel).
       if (l.etat === "en_cours" && l.priseLe && maintenant.getTime() - l.priseLe.getTime() < 120_000) return null;
       l.etat = "en_cours";

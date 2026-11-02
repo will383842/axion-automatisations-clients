@@ -101,7 +101,7 @@ describe("expéditeur", () => {
     const ref = poser(`e${randomUUID().slice(0, 6)}`);
     hub.couper();
     const verdicts: string[] = [];
-    for (let i = 0; i < 5; i++) { verdicts.push(await expediteur.executer(ref)); horloge.t += 5_000; }
+    for (let i = 0; i < 5; i++) { verdicts.push(await expediteur.executer(ref)); horloge.t += 20_000; }
     hub.rouvrir();
     expect(verdicts).toEqual(["reessai", "reessai", "reessai", "reessai", "echec"]);
     const echecs = await magasin.echecs();
@@ -116,7 +116,7 @@ describe("expéditeur", () => {
     const ref = poser(`f${randomUUID().slice(0, 6)}`);
     const cle = magasin.lignes().find((l) => l.id === ref.id)!.cle;
     hub.couper();
-    for (let i = 0; i < 5; i++) { await expediteur.executer(ref); horloge.t += 5_000; }
+    for (let i = 0; i < 5; i++) { await expediteur.executer(ref); horloge.t += 20_000; }
     hub.rouvrir();
     expect(await magasin.renvoyer(ref, { acteur: "agent-essai" })).toBe(true);
     const ligne = magasin.lignes().find((l) => l.id === ref.id)!;
@@ -158,20 +158,23 @@ describe("expéditeur", () => {
 
   it("[A-088] @envoi le canal fermé par l'interrupteur : la ligne reste à envoyer, sans essai compté", async () => {
     let ouvert = false;
-    const { magasin, poser, expediteur } = monter({ ouvert: () => ouvert });
+    const { magasin, poser, expediteur, horloge } = monter({ ouvert: () => ouvert });
     const ref = poser(`j${randomUUID().slice(0, 6)}`);
     expect(await expediteur.executer(ref)).toBe("ferme");
     const ligne = magasin.lignes().find((l) => l.id === ref.id)!;
     expect([ligne.etat, ligne.nombreEssais]).toEqual(["a_envoyer", 0]);
     ouvert = true;
+    horloge.t += 31_000;
     expect(await expediteur.executer({ ...ref })).toBe("envoye");
   });
 
   it("[C-535] [C-403] deux essais dans la même seconde portent deux horodatages différents (pas de rejeu 401)", async () => {
-    const { poser, expediteur, entetes } = monter();
+    const { magasin, poser, expediteur, entetes } = monter();
     const ref = poser(`h${randomUUID().slice(0, 6)}`);
     hub.tuerApresReception();
     expect(await expediteur.executer(ref)).toBe("reessai");
+    // Reprise après arrêt brutal : l'heure du nouvel essai est effacée, le second essai part dans la même seconde.
+    delete magasin.lignes().find((l) => l.id === ref.id)!.prochainEssai;
     expect(await expediteur.executer(ref)).toBe("envoye");
     expect(entetes).toHaveLength(2);
     expect(entetes[1]![EN_TETES.horodatage]).not.toBe(entetes[0]![EN_TETES.horodatage]);

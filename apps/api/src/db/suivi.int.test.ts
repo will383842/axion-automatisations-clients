@@ -72,6 +72,9 @@ const demande = (A: string, extra: Record<string, unknown> = {}, appelant: typeo
   inserer(A, "demandes", { organisation_id: A, canal: "courriel", categorie: "question", priorite: "normale", reference_texte: REF(), ...extra }, appelant);
 const maj = (A: string, texte: string, valeurs: unknown[], appelant: typeof APPELANT | null = APPELANT) => ecrire(app, A, (c) => c.query(texte, valeurs), appelant ?? undefined);
 const unique = () => randomUUID().replaceAll("-", "").slice(0, 8);
+// Automatisation de catalogue (table commune, écrite par le rôle de migration).
+const creerAutomatisation = async () =>
+  (await migration.query("INSERT INTO automatisations (code, nom) VALUES ($1, 'Relance de devis') RETURNING id", [`ESS-${String(Math.floor(Math.random() * 100000)).padStart(5, "0")}`])).rows[0]?.["id"] as string;
 // Écriture de l'équipe sur une table commune : une transaction avec l'acteur du journal (rejouée sur 55P03 / 40P01).
 async function ecrireEquipe<T>(fn: (c: pg.PoolClient) => Promise<T>, acteur: string | null = "agent-essai"): Promise<T> {
   for (let essai = 1; ; essai++) {
@@ -163,6 +166,13 @@ describe("suivi, avec le socle", { timeout: 90_000 }, () => {
     await creerOrg(B);
     await note(B);
     await demande(B);
+    await inserer(B, "themes_client", { organisation_id: B, couleur_principale: "couleur.action", couleur_accent: "couleur.teinte.vert.liseret", police: "police.titre", ton: "formel", actif: false });
+    await inserer(B, "outils_client", { organisation_id: B, famille: "messagerie", outil: "microsoft365" });
+    const auditB = await inserer(B, "audits_client", { organisation_id: B, type: "decouverte", date_audit: "2026-10-15", identifiant_hub: `audit-${unique()}` });
+    await inserer(B, "besoins", { audit_id: auditB["id"], categorie: "relance_devis", priorite: "haute", minutes_perdues_estimees: 60 });
+    const propB = await inserer(B, "propositions", { organisation_id: B, audit_id: auditB["id"], statut: "brouillon", identifiant_hub: `prop-${unique()}`, nombre_paliers: 2 });
+    const autoB = await creerAutomatisation();
+    await inserer(B, "propositions_automatisations", { proposition_id: propB["id"], automatisation_id: autoB, palier: 1 });
     for (const table of ["notes", "demandes", "themes_client", "outils_client", "audits_client", "besoins", "propositions", "propositions_automatisations"]) {
       expect((await ecrire(app, A, (c) => c.query(`SELECT count(*)::int AS n FROM ${table}`))).rows[0]?.n, table).toBe(0);
     }
@@ -234,13 +244,23 @@ describe("suivi, avec le socle", { timeout: 90_000 }, () => {
     await expect(inserer(A, "propositions", { organisation_id: A, statut: "brouillon", identifiant_hub: `p-${unique()}`, nombre_paliers: 0 })).rejects.toMatchObject({ code: "23514" });
     await expect(inserer(A, "propositions_automatisations", { proposition_id: proposition["id"], automatisation_id: randomUUID(), palier: 1 })).rejects.toMatchObject({ code: "23503" });
     await expect(inserer(A, "propositions_automatisations", { proposition_id: randomUUID(), automatisation_id: randomUUID(), palier: 1 })).rejects.toMatchObject({ code: "23503" });
+    const auto = await creerAutomatisation();
+    const liaison = await inserer(A, "propositions_automatisations", { proposition_id: proposition["id"], automatisation_id: auto, palier: 2 });
+    expect(liaison).toMatchObject({ proposition_id: proposition["id"], automatisation_id: auto, palier: 2 });
+    const relues = await ecrire(app, A, (c) => c.query("SELECT automatisation_id, palier FROM propositions_automatisations WHERE proposition_id = $1", [proposition["id"]]));
+    expect(relues.rows).toEqual([{ automatisation_id: auto, palier: 2 }]);
+    await expect(inserer(A, "propositions_automatisations", { proposition_id: proposition["id"], automatisation_id: await creerAutomatisation(), palier: 6 })).rejects.toMatchObject({ code: "23514" });
+    await expect(maj(A, "UPDATE propositions_automatisations SET palier = 3 WHERE id = $1", [liaison["id"]])).rejects.toMatchObject({ code: "42501" });
+    const avecAuto = await demande(A, { automatisation_id: auto });
+    expect(avecAuto).toMatchObject({ automatisation_id: auto });
+    await expect(demande(A, { automatisation_id: randomUUID() })).rejects.toMatchObject({ code: "23503" });
     await maj(A, "UPDATE propositions SET statut = 'envoyee' WHERE id = $1", [proposition["id"]]);
     await expect(maj(A, "UPDATE propositions SET identifiant_hub = 'autre' WHERE id = $1", [proposition["id"]])).rejects.toMatchObject({ code: "42501" });
     await expect(maj(A, "DELETE FROM propositions WHERE id = $1", [proposition["id"]])).rejects.toMatchObject({ code: "42501" });
   });
 
   it("[A-200] le registre des traitements existe dans la base console, lisible par l'équipe seule ; chaque ligne garde finalité, base légale, catégories, destinataires, durée, mesures", async () => {
-    const v = { code: `traitement-${unique()}`, finalite: "Suivi des automatisations du client", base_legale: "contrat", categories_donnees: "Identité professionnelle, métadonnées d'exécution", destinataires: "Équipe AXION IA", duree_conservation: "Durée du contrat puis 90 jours", mesures_securite: "Chiffrement, isolation par client, journal d'audit" };
+    const v = { code: `traitement-${unique()}`, finalite: "Suivi des automatisations du client", base_legale: "contrat", categories_donnees: "Identité professionnelle, métadonnées d'exécution", destinataires: "Équipe AXION IA", duree_conservation: "24 mois après la fin du contrat, puis proposition de suppression (jamais automatique)", mesures_securite: "Chiffrement, isolation par client, journal d'audit (IP en HMAC)" };
     const cles = Object.keys(v);
     const r = await ecrireEquipe((c) => c.query(`INSERT INTO registre_traitements (${cles.join(", ")}) VALUES (${cles.map((_, i) => `$${i + 1}`).join(", ")}) RETURNING id`, Object.values(v)));
     expect((await equipe.query("SELECT finalite, base_legale FROM registre_traitements WHERE id = $1", [r.rows[0]?.["id"]])).rows[0]).toMatchObject({ base_legale: "contrat" });

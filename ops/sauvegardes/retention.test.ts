@@ -261,8 +261,7 @@ describe("scripts de sauvegarde (réserves 2, 3, 5 et 6 de la PR #59)", () => {
     writeFileSync(join(d, "jeton"), "TEST-NE-PAS-UTILISER-jeton");
     const debut = Date.now();
     const r = await new Promise<{ status: number | null; stderr: string }>((fin) => {
-      const env = { ...process.env, BAO_ADDR: `http://127.0.0.1:${port}`, BAO_JETON_FICHIER: join(d, "jeton"), BAO_DELAI: "2" };
-      delete env.SAUVEGARDE_ESSAI;
+      const env = { ...process.env, BAO_ADDR: `http://127.0.0.1:${port}`, BAO_JETON_FICHIER: join(d, "jeton"), BAO_DELAI: "2", BAO_ESSAI_SANS_TLS: "1", SAUVEGARDE_ESSAI: "1" };
       const p = spawnSync(join(d, "lire-phrase-chiffrement.sh"), [], { encoding: "utf8", env, timeout: 20_000 });
       fin({ status: p.status, stderr: p.stderr });
     });

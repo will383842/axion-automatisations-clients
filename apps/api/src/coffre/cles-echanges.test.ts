@@ -123,6 +123,15 @@ describe("clés HMAC des échanges (C-015)", () => {
     await refus(echanges().cleActive("c4-lemoine", "emission"), "introuvable");
     await refus(echanges().cleActive("c1", "reception"), "introuvable");
   });
+  it("[C-017] le canal ji (jetons d'instance) a ses propres clés, distinctes de c4-<cellule>, lues par la politique echanges seulement", async () => {
+    const ji = await echanges().tourner("ji", "emission");
+    const c4 = await echanges().tourner("c4-lemoine", "emission");
+    expect(ji.secret.equals(c4.secret)).toBe(false);
+    expect([...bao.etat.kv.keys()].sort()).toEqual([`echanges/c4-lemoine/${c4.kid}`, `echanges/ji/${ji.kid}`].sort());
+    expect((await echanges().cleActive("ji", "emission")).kid).toBe(ji.kid);
+    for (const role of ["courtier", "equipe", "api"]) await refus(echanges(role).cleActive("ji", "emission"), "refuse");
+    for (const piege of ["ji-", "JI", "ji/x", "ji2", "jis"]) await refus(echanges().cleActive(piege, "emission"));
+  });
   it.each(["", "C1", "c5", "c1/../clients/x", "c1/", "c4-", "c4-A", "c4-a/b", "*", "..", "c1\n", "c1?x=1", "c1%2f", "c4--a"])(
     "[C-015] @isolation canal piégé %j refusé sans appel réseau",
     async (canal) => {

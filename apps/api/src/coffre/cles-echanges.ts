@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { ErreurCoffre, type OptionsBao } from "./coffre.js";
 
+// Canal « ji » (C-017) : clés des jetons d'instance, DISTINCTES de la clé HMAC de la cellule (c4-<cellule>) ; sens emission.
 // Clés HMAC des échanges (C-015) : KV v2 sous technique/echanges/<canal>/<kid>, lues par le jeton « echanges » seulement.
 // Par canal et par sens, une clé active et, pendant 24 h après une rotation, l'ancienne (annexe des contrats, section 0).
 // coffre.ts n'ouvre que clients/ et transit/ : le montage technique/ a donc son propre appel, avec les mêmes garde-fous.
@@ -16,7 +17,7 @@ export interface OptionsEchanges extends OptionsBao {
 
 const CHEVAUCHEMENT_MS = 24 * 3600_000;
 const DELAI_MS = 5000;
-const CANAL = /^(?:c1|c2|c3|c6|c4-[a-z0-9]+(?:-[a-z0-9]+)*)$/;
+const CANAL = /^(?:c1|c2|c3|c6|ji|c4-[a-z0-9]+(?:-[a-z0-9]+)*)$/;
 const KID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const SENS = new Set<string>(["emission", "reception"]);
 const indisponible = () => new ErreurCoffre("coffre_indisponible");

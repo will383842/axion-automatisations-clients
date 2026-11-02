@@ -8,6 +8,9 @@ import { integer, uuid } from "drizzle-orm/pg-core";
 const dossier = new URL("../../../drizzle/", import.meta.url);
 const migration = readFileSync(new URL("0004_tables_clients.sql", dossier), "utf8");
 
+// clients.ts importe suivi.ts (clé étrangère instances → cellules, T4-21) : les tables de suivi sont chargées aussi, leur migration est 0011.
+const PROPRES = ["contacts", "instances", "organisations"];
+
 describe("tableClient()", () => {
   const cles = (t: Parameters<typeof getTableConfig>[0]) => {
     const c = getTableConfig(t);
@@ -34,8 +37,8 @@ describe("tableClient()", () => {
 
 describe("migration des tables de client", () => {
   it("[A-119] @isolation chaque table de tableClient() a ENABLE et FORCE ROW LEVEL SECURITY, ses deux politiques et le déclencheur d'audit prévu", () => {
-    expect(TABLES_CLIENT.map((t) => t.nom).filter((n) => !n.startsWith("essai_")).sort()).toEqual(["contacts", "instances", "organisations"]);
-    for (const { nom, audit } of TABLES_CLIENT.filter((t) => !t.nom.startsWith("essai_"))) {
+    expect(TABLES_CLIENT.map((t) => t.nom).filter((n) => PROPRES.includes(n)).sort()).toEqual(["contacts", "instances", "organisations"]);
+    for (const { nom, audit } of TABLES_CLIENT.filter((t) => PROPRES.includes(t.nom))) {
       expect(migration, nom).toContain(`ALTER TABLE "public"."${nom}" ENABLE ROW LEVEL SECURITY`);
       expect(migration, nom).toContain(`ALTER TABLE "public"."${nom}" FORCE ROW LEVEL SECURITY`);
       expect(migration, nom).toMatch(new RegExp(`CREATE POLICY isolation_client ON "public"\\."${nom}" FOR ALL TO console_app USING \\(tenant_id = NULLIF\\(current_setting\\('app.tenant_id', true\\), ''\\)::uuid\\) WITH CHECK`));

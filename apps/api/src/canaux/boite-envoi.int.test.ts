@@ -119,10 +119,13 @@ describe("boîte d'envoi avec le socle", { timeout: 30_000 }, () => {
     const A = randomUUID();
     await creerOrg(A);
     const magasin = magasinPg(app, equipe);
+    // console_app ne peut modifier que l'état, les essais, l'erreur et la réponse (ADR 0050) : la ligne ancienne est insérée telle quelle, en échec.
     const poser = async (n: string, jours: number) => {
-      const d = await avecClient(app, A, (c) => deposer(transactionOuverte(c), intention(n)));
-      await avecClient(app, A, (c) => c.query("UPDATE boite_envoi SET etat = 'echec', derniere_erreur = 'reseau', cree_le = now() - make_interval(days => $3) WHERE tenant_id = $1 AND id = $2", [A, d.id, jours]));
-      return { tenantId: A, id: d.id };
+      const d = intention(n);
+      const id = randomUUID();
+      await avecClient(app, A, (c) => c.query("INSERT INTO boite_envoi (tenant_id, id, destination, route, methode, corps, cle_anti_doublon, empreinte_corps, etat, derniere_erreur, cree_le) VALUES ($1, $2, 'hub', $3, 'POST', $4::jsonb, $5, $6, 'echec', 'reseau', now() - make_interval(days => $7::int))",
+        [A, id, d.route, JSON.stringify(d.corps), randomUUID(), createHash("sha256").update(JSON.stringify(d.corps)).digest("hex"), jours]));
+      return { tenantId: A, id };
     };
     const vieille = await poser("vieille", 31);
     await expect(magasin.renvoyer(vieille, APPELANT)).rejects.toThrow(/30 jours/);

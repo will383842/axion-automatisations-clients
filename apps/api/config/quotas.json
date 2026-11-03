@@ -1,0 +1,6 @@
+{
+  "avertissement": "valeurs à valider par Will avant le lot 8a ; ce fichier ne porte que des quotas, aucune valeur commerciale",
+  "essentiel": { "base_octets": 2147483648, "fichiers_octets": 5368709120, "personnes": 2000 },
+  "pro": { "base_octets": 10737418240, "fichiers_octets": 26843545600, "personnes": 10000 },
+  "etendu": { "base_octets": 53687091200, "fichiers_octets": 107374182400, "personnes": 50000 }
+}

@@ -3,7 +3,7 @@ import { creerVerrouMemoire, creerVerrouValkey, type ClientValkey } from "./verr
 
 describe("verrou par connexion", () => {
   it("[A-336] un seul titulaire à la fois, et la libération vérifie le jeton de verrou", async () => {
-    let t = 0;
+    const t = 0;
     const v = creerVerrouMemoire(() => t);
     const a = await v.prendre("conn-1", 1000);
     expect(a).not.toBeNull();

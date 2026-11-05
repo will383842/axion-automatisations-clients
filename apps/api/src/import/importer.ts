@@ -8,11 +8,14 @@ export interface PortsImport { ouvrir(): Promise<TransactionImport> }
 export type SessionImport = { acteur: string; etablissementId: string };
 export type FichierImport = { colonnes: string[]; lignes: Record<string, string>[] };
 
+// La garde regarde les colonnes annoncées ET toutes les clés réellement présentes dans les lignes : une liste annoncée incomplète ne masque rien.
+const colonnesVues = (f: FichierImport) => [...new Set([...f.colonnes, ...f.lignes.flatMap((l) => Object.keys(l))])];
+
 export async function importerPersonnes(ports: PortsImport, session: SessionImport, fichier: FichierImport): Promise<{ importees: number }> {
   const tx = await ports.ouvrir();
   let termine = false;
   try {
-    const verdict = await verifierImport(tx.client, session.acteur, fichier.colonnes);
+    const verdict = await verifierImport(tx.client, session.acteur, colonnesVues(fichier));
     if (!verdict.accepte) {
       await tx.valider(); // la trace du refus survit : COMMIT, pas ROLLBACK
       termine = true;

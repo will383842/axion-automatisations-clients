@@ -17,3 +17,6 @@ export const EXCEPTIONS: readonly string[] = ["etablissement_sante", "profession
 
 // Petits mots ignorés avant la comparaison par mots (« numéro de sécu », « N° sécu », « num sécu »).
 export const MOTS_VIDES: readonly string[] = ["de", "du", "des", "d", "n", "no", "num"];
+
+// Motifs assez rares pour être repérés aussi en début ou en fin d'un nom collé (« ibanclient »). « rib », « nir », « secu » en sont exclus : trop de mots les commencent (« tribu », « senior »).
+export const COLLES: readonly string[] = ["iban"];

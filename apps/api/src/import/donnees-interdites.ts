@@ -1,44 +1,50 @@
 // Données interdites à l'import (T2-47, C-060) : on regarde les NOMS de colonnes, jamais le contenu. Refuser = ne pas stocker ; rien d'existant n'est purgé.
 import { ErreurRegleMetier, type Requeteur } from "../instances/activer.ts";
-import { CATEGORIES, type Categorie, EXCEPTIONS, MOTIFS, MOTS_VIDES } from "./motifs-interdits.ts";
+import { CATEGORIES, COLLES, type Categorie, EXCEPTIONS, MOTIFS, MOTS_VIDES } from "./motifs-interdits.ts";
 
 export const MOTIF_DONNEES_INTERDITES = "donnees_interdites";
 export type ColonneInterdite = { colonne: string; categorie: Categorie };
 
-// NFKD (pleine largeur, accents), séparation des mots collés en casse mixte (« numSecu »), minuscules, tout ce qui n'est pas lettre ou chiffre devient `_`,
-// petits mots vides retirés : « Numéro de Sécurité-Sociale » → « numero_securite_sociale ».
-const normaliser = (nom: string) =>
+// Racine d'un mot : sans chiffres en fin de mot ni « s » final (« IBANs », « iban2 », « IBAN1 » → « iban »).
+const racine = (mot: string) => mot.replace(/\d+$/, "").replace(/s$/, "");
+
+// NFKD (pleine largeur, accents), caractères invisibles retirés, séparation des mots collés en casse mixte (« numSecu »), minuscules, tout ce qui n'est pas lettre ou chiffre devient `_`,
+// petits mots vides retirés, chaque mot ramené à sa racine : « Numéro de Sécurité-Sociale » → « numero_securite_sociale ».
+const normaliser = (nom: string, sansVides = true) =>
   nom
     .normalize("NFKD")
-    .replace(/[\p{M}\p{Cf}]/gu, "")
+    .replace(/[\p{M}\p{Cf}\p{Cc}]/gu, "")
     .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
     .replace(/([A-Z]+)([A-Z][a-z])/g, "$1_$2")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "_")
     .split("_")
-    .filter((m) => m && !MOTS_VIDES.includes(m))
+    .filter((m) => m && !(sansVides && MOTS_VIDES.includes(m)))
+    .map(racine)
+    .filter(Boolean)
     .join("_");
 
-// Égalité de mots, avec le pluriel en « s » accepté (« maladies » = « maladie »).
-const memeMot = (mot: string, motif: string) => mot === motif || mot === `${motif}s`;
-
 // Un motif court doit être un ou plusieurs MOTS entiers (« nir » n'est pas dans « senior ») ; un motif long (8 lettres et plus) est aussi cherché collé (« numerosecuritesociale »).
-function correspond(colonne: string, motif: string): boolean {
+// Les motifs de COLLES (« iban ») sont aussi cherchés en début ou en fin du nom collé (« ibanclient », « clientiban », « i b a n »).
+function correspond(colonne: string, motif: string, brut: string): boolean {
   const mots = colonne.split("_");
-  const m = motif.split("_");
-  for (let i = 0; i + m.length <= mots.length; i++) if (m.every((x, j) => memeMot(mots[i + j] as string, x))) return true;
-  const colle = motif.replace(/_/g, "");
-  return colle.length >= 8 && colonne.replace(/_/g, "").includes(colle);
+  const m = motif.split("_").map(racine);
+  for (let i = 0; i + m.length <= mots.length; i++) if (m.every((x, j) => mots[i + j] === x)) return true;
+  const colle = m.join("");
+  const nomColle = brut.split("_").join(""); // sans retrait des petits mots : « i b a n » contient le mot « n »
+  if (colle.length >= 8 && nomColle.includes(colle)) return true;
+  return COLLES.includes(motif) && (nomColle.startsWith(colle) || nomColle.endsWith(colle));
 }
 
-const estException = (colonne: string) => EXCEPTIONS.some((e) => colonne === e || colonne === `${e}s`);
+const exceptionsNormalisees = EXCEPTIONS.map((e) => e.split("_").map(racine).join("_"));
+const estException = (colonne: string) => exceptionsNormalisees.includes(colonne);
 
 export function detecter(colonnes: string[]): ColonneInterdite[] {
   const trouvees: ColonneInterdite[] = [];
   for (const colonne of colonnes) {
     const n = normaliser(colonne);
     if (estException(n)) continue;
-    const categorie = CATEGORIES.find((c) => MOTIFS[c].some((m) => correspond(n, m)));
+    const categorie = CATEGORIES.find((c) => MOTIFS[c].some((m) => correspond(n, m, normaliser(colonne, false))));
     if (categorie) trouvees.push({ colonne, categorie });
   }
   return trouvees;

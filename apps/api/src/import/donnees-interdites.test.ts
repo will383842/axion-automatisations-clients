@@ -81,7 +81,7 @@ describe("détection des données interdites à l'import", () => {
     await expect(verifierImport(client, "", ["IBAN"])).rejects.toThrow(/acteur/);
   });
 
-  it("[C-060] le refus ne lève pas : l'appelant peut donc enchaîner son propre COMMIT (la survie de la trace au COMMIT est prouvée par le critère 3 de la fiche T2-47b, pas ici)", async () => {
+  it("[C-060] le refus est rendu et non levé : l'appelant enchaîne ensuite son propre COMMIT (la survie de la trace est prouvée dans importer.test.ts)", async () => {
     const journal: string[] = [];
     const client = { query: async (t: string) => (journal.push(t), { rows: [], rowCount: 1 }) };
     // Si verifierImport levait dans la transaction, le ROLLBACK annulerait la trace du refus.
@@ -126,5 +126,24 @@ describe("refus d'import : ce que fait verifierImport", () => {
     const { textes, client } = enregistrer();
     await verifierImport(client, "equipe-bertin", ["iban"]);
     expect(textes.join(" ")).not.toMatch(/\b(DELETE|UPDATE|TRUNCATE|DROP)\b/i);
+  });
+});
+
+// T2-47b : variantes de noms de colonnes à couvrir.
+describe("garde des noms de colonnes : variantes (T2-47b)", () => {
+  it("[C-060] IBANClient (sigle collé à un mot en casse mixte) est repéré", () => {
+    expect(detecter(["IBANClient"]).map((c) => c.categorie)).toEqual(["bancaire"]);
+  });
+  it("[C-060] motdepasse collé est repéré", () => {
+    expect(detecter(["motdepasse"]).map((c) => c.categorie)).toEqual(["mot_de_passe"]);
+  });
+  it("[C-060] numsecu collé est repéré", () => {
+    expect(detecter(["numsecu"]).map((c) => c.categorie)).toEqual(["securite_sociale"]);
+  });
+  it("[C-060] un espace de largeur nulle glissé dans le nom ne masque pas la colonne", () => {
+    expect(detecter(["IB\u200BAN", "mot\u200Bde\u200Bpasse"]).map((c) => c.categorie)).toEqual(["bancaire", "mot_de_passe"]);
+  });
+  it.each(["code_commune_insee", "diagnostic_performance_energetique"])("[C-060] la colonne légitime « %s » passe", (colonne) => {
+    expect(detecter([colonne])).toEqual([]);
   });
 });

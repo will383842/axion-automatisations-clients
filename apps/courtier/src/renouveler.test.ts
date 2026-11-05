@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { demarrerFauxGraph, type FauxGraph } from "../../../packages/harnais/src/faux-graph/serveur.ts";
 import { creerJournal } from "./journal.js";
-import { creerVerrouMemoire, type Verrou } from "./verrou.js";
+import { creerMarqueMemoire, creerVerrouMemoire, type Verrou } from "./verrou.js";
 import { ErreurFournisseur, ErreurRenouvellement, renouvelerSiBesoin, type ConnexionARenouveler, type PortsRenouvellement, type ReponseFournisseur, type Secret } from "./renouveler.js";
 
 // Attaques prévues (audit) : 1 vingt demandes en même temps ; 2 jeton tournant consommé deux fois ; 3 panne entre la réponse
@@ -22,6 +22,7 @@ function monde(sur: Partial<PortsRenouvellement> = {}, depart: Partial<Secret> =
   const etat = { appels: 0, ecritures: 0, rouges: [] as string[], pauses: [] as string[], averifier: [] as string[], alertes: [] as string[], lignes: [] as string[], etatConnexion: "ok" as "ok" | "a_verifier" | "rouge", horloge: T0 };
   const p: PortsRenouvellement = {
     verrou: creerVerrouMemoire(() => etat.horloge),
+    marque: creerMarqueMemoire(),
     journal: creerJournal((l) => etat.lignes.push(l)),
     maintenant: () => etat.horloge,
     attendre: (ms) => new Promise((ok) => setTimeout(ok, Math.min(ms, 2))),
@@ -182,5 +183,70 @@ describe("renouvellement en avance", () => {
     const w = monde({ fournisseur: async () => { n++; if (n === 1) throw new ErreurFournisseur("refuse"); return { access_token: NOUVEL_ACCES, refresh_token: NOUVEAU_RENOUVELLEMENT, expires_in: 3600 }; } });
     expect((await erreur(renouvelerSiBesoin(w.p, CONN)))?.code).toBe("fournisseur_indisponible");
     expect((await renouvelerSiBesoin(w.p, CONN)).jetonAcces).toBe(NOUVEL_ACCES);
+  });
+
+  // Monde à horloge réelle : le bail expire vraiment. L'état de connexion reste « ok » et le marquage ne fait rien :
+  // seule la marque durable peut empêcher un nouvel appel (sinon le test ne prouve rien).
+  const mondeHorlogeReelle = (sur: Partial<PortsRenouvellement> = {}) => {
+    const w = monde({ maintenant: () => Date.now(), verrou: creerVerrouMemoire(() => Date.now()), bailMs: 60, delaiFournisseurMs: 30, essaisEcriture: 1, etatConnexion: async () => "ok", ...sur }, { expires_at: Math.floor(Date.now() / 1000) + 300 });
+    return w;
+  };
+  const dormir = (ms: number) => new Promise((ok) => setTimeout(ok, ms));
+
+  it("[A-336] ecriture lente au-dela du bail : aucun second appel au fournisseur", async () => {
+    const w = mondeHorlogeReelle({ ecrire: () => new Promise<void>(() => undefined), marquerAVerifier: async () => undefined });
+    expect((await erreur(renouvelerSiBesoin(w.p, CONN)))?.code).toBe("ecriture_echouee");
+    expect(w.etat.appels).toBe(1);
+    await dormir(100); // le bail est fini : un second processus prend le verrou, relit l'ANCIEN secret
+    expect((await erreur(renouvelerSiBesoin(w.p, CONN)))?.code).toBe("a_verifier");
+    expect(w.etat.appels).toBe(1);
+  });
+
+  it("[A-336] reponse incertaine + panne du marquage : aucun nouvel appel au fournisseur", async () => {
+    const w = mondeHorlogeReelle({
+      fournisseur: async () => { w.etat.appels++; throw new ErreurFournisseur("incertain"); },
+      marquerAVerifier: async () => { throw new Error("base en panne"); },
+    });
+    expect((await erreur(renouvelerSiBesoin(w.p, CONN)))?.code).toBe("marquage_echoue"); // l'erreur de marquage n'est pas avalée
+    await dormir(100); // le bail expire
+    expect((await erreur(renouvelerSiBesoin(w.p, CONN)))?.code).toMatch(/^(a_verifier|marquage_echoue)$/); // le marquage est toujours en panne
+    expect(w.etat.appels).toBe(1);
+  });
+
+  it("[A-336] marque durable lue avant tout appel, et marque en panne de lecture = aucun appel", async () => {
+    const w = monde();
+    await w.p.marque.poser(`${CONN.tenantId}:${CONN.connexionId}`);
+    expect((await erreur(renouvelerSiBesoin(w.p, CONN)))?.code).toBe("a_verifier");
+    expect(w.etat.appels).toBe(0);
+    const v = monde({ marque: { poser: async () => undefined, presente: async () => { throw new Error("valkey"); }, effacer: async () => undefined } });
+    expect((await erreur(renouvelerSiBesoin(v.p, CONN)))?.code).toBe("a_verifier");
+    expect(v.etat.appels).toBe(0);
+  });
+
+  it("[A-336] marque impossible à poser : aucun appel au fournisseur", async () => {
+    const w = monde({ marque: { poser: async () => { throw new Error("valkey"); }, presente: async () => false, effacer: async () => undefined } });
+    expect((await erreur(renouvelerSiBesoin(w.p, CONN)))?.code).toBe("marque_echouee");
+    expect(w.etat.appels).toBe(0);
+    expect(w.etat.averifier).toEqual([CONN.connexionId]);
+  });
+
+  it("[A-336] verrou perdu avant l'appel : la connexion passe « à vérifier », sans appel", async () => {
+    const w = monde({ verrou: { ...creerVerrouMemoire(() => T0), prolonger: async () => false } });
+    expect((await erreur(renouvelerSiBesoin(w.p, CONN)))?.code).toBe("verrou_perdu");
+    expect(w.etat.appels).toBe(0);
+    expect(w.etat.averifier).toEqual([CONN.connexionId]);
+  });
+
+  it("[A-336] horloge figée et verrou tenu par un autre : l'attente s'arrête, pas de boucle infinie", async () => {
+    const w = monde();
+    await w.p.verrou.prendre(`${CONN.tenantId}:${CONN.connexionId}`, 1_000_000);
+    expect((await erreur(renouvelerSiBesoin(w.p, CONN)))?.code).toBe("attente_depassee");
+    expect(w.etat.appels).toBe(0);
+  });
+
+  it("[A-336] la marque tombe après l'écriture réussie : le renouvellement suivant est permis", async () => {
+    const w = monde({}, { expires_at: Math.floor(T0 / 1000) + 300 });
+    await renouvelerSiBesoin(w.p, CONN);
+    expect(await w.p.marque.presente(`${CONN.tenantId}:${CONN.connexionId}`)).toBe(false);
   });
 });

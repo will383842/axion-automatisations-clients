@@ -24,6 +24,18 @@ export function creerVerrouMemoire(maintenant: () => number): Verrou {
   };
 }
 
+// Marque durable « renouvellement en cours » (T4-40) : posée avant l'appel au fournisseur, sans durée ; seul un effacement explicite la retire.
+// Tant qu'elle existe, aucun titulaire du verrou n'appelle le fournisseur : le jeton tournant a peut-être été consommé.
+export interface MarqueRenouvellement {
+  poser(cle: string): Promise<void>;
+  presente(cle: string): Promise<boolean>;
+  effacer(cle: string): Promise<void>;
+}
+export function creerMarqueMemoire(): MarqueRenouvellement {
+  const posees = new Set<string>();
+  return { poser: async (cle) => { posees.add(cle); }, presente: async (cle) => posees.has(cle), effacer: async (cle) => { posees.delete(cle); } };
+}
+
 // Sous-ensemble de ioredis (Valkey) : SET ... PX ... NX et EVAL. Aucune dépendance ajoutée ici.
 export interface ClientValkey {
   set(cle: string, valeur: string, ...args: (string | number)[]): Promise<string | null>;
@@ -40,5 +52,16 @@ export function creerVerrouValkey(client: ClientValkey, prefixe = "verrou:renouv
     },
     prolonger: async (cle, jeton, bailMs) => Number(await client.eval(PROLONGER, 1, prefixe + cle, jeton, bailMs)) === 1,
     liberer: async (cle, jeton) => { await client.eval(LIBERER, 1, prefixe + cle, jeton); },
+  };
+}
+
+const EXISTE = "return redis.call('exists', KEYS[1])";
+const EFFACER = "return redis.call('del', KEYS[1])";
+// Marque Valkey : SET sans durée (aucun PX) ; la persistance du Valkey du socle la garde après redémarrage.
+export function creerMarqueValkey(client: ClientValkey, prefixe = "marque:renouvellement:"): MarqueRenouvellement {
+  return {
+    poser: async (cle) => { await client.set(prefixe + cle, "1"); },
+    presente: async (cle) => Number(await client.eval(EXISTE, 1, prefixe + cle)) === 1,
+    effacer: async (cle) => { await client.eval(EFFACER, 1, prefixe + cle); },
   };
 }

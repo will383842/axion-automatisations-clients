@@ -144,4 +144,19 @@ describe("jeton d'instance (C-017)", () => {
       await expect(emettreJetonInstance(coffre.cles, { instanceId: INSTANCE, cellule }, () => NOW), cellule).rejects.toThrow();
     }
   });
+
+  it("[C-017] un jeton mal formé, périmé ou visant une autre instance est refusé sans aucun appel au coffre (faux coffre espion)", async () => {
+    const bons = ["", "ji1.a.b", "ji1.W10.AAAA"];
+    const perime = forger(cleJi, charge({ exp: Math.floor((NOW - 1000) / 1000) }));
+    const autre = forger(cleJi, charge({ instanceId: AUTRE_INSTANCE }));
+    const autreCellule = forger(cleJi, charge({ cellule: "cellule-deux" }));
+    for (const jeton of [...bons, perime, autre, autreCellule]) await expect(verifierJetonInstance(coffre.cles, jeton, attendu, () => NOW)).resolves.toBeNull();
+    expect(coffre.appels).toEqual([]);
+  });
+
+  it("[C-017] une panne du coffre rend null au lieu de lever", async () => {
+    const jeton = forger(cleJi, charge());
+    const panne = { cleActive: coffre.cles.cleActive, clesAcceptees: async () => { throw new Error("coffre indisponible"); } };
+    await expect(verifierJetonInstance(panne, jeton, attendu, () => NOW)).resolves.toBeNull();
+  });
 });

@@ -30,6 +30,8 @@ export function chargerConfig(env: Record<string, string | undefined>, listes: L
   if (!hote) throw new Error("VALKEY_HOTE est obligatoire");
   const brut = env.EXECUTEUR_ENVIRONNEMENT ?? "production";
   if (brut !== "production" && brut !== "recette") throw new Error("EXECUTEUR_ENVIRONNEMENT doit valoir production ou recette");
+  // Échec fermé : l'image de production fixe NODE_ENV=production ; elle ne peut jamais prendre la liste de la recette, quelle que soit la variable posée.
+  if (brut === "recette" && env.NODE_ENV === "production") throw new Error("EXECUTEUR_ENVIRONNEMENT=recette refusé sur un exécuteur de production (NODE_ENV=production)");
   return {
     cellule: env.EXECUTEUR_CELLULE ?? "auto-run-1",
     valkey: { host: hote, port: entier(env, "VALKEY_PORT", 6379) },

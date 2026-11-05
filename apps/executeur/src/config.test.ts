@@ -28,8 +28,17 @@ describe("clés acceptées par l'exécuteur selon l'environnement", () => {
     await expect(chargerModule(signerArtefact(base(), recette), config.clesAcceptees)).rejects.toMatchObject({ code: "module_non_signe" });
   });
 
+  it("[A-304] EXECUTEUR_ENVIRONNEMENT=recette sur l'exécuteur de production : refus au démarrage, aucune clé modules-recette acceptée", () => {
+    for (const prod of [{ NODE_ENV: "production" }, { NODE_ENV: "production", EXECUTEUR_ENVIRONNEMENT: "recette" }]) {
+      const essai = () => chargerConfig({ ...env, EXECUTEUR_ENVIRONNEMENT: "recette", ...prod }, listes);
+      expect(essai).toThrow("recette");
+    }
+    // Sans NODE_ENV (cas non reconnu comme production), la recette reste possible : c'est le déploiement de recette qui le fixe.
+    expect(chargerConfig({ ...env, EXECUTEUR_ENVIRONNEMENT: "production", NODE_ENV: "production" }, listes).clesAcceptees.map((c) => c.idCle)).toEqual(["modules-publication:v1"]);
+  });
+
   it("[A-304] l'exécuteur de la recette accepte les deux clés", async () => {
-    const config = chargerConfig({ ...env, EXECUTEUR_ENVIRONNEMENT: "recette" }, listes);
+    const config = chargerConfig({ ...env, EXECUTEUR_ENVIRONNEMENT: "recette", NODE_ENV: "recette" }, listes);
     expect((await chargerModule(signerArtefact(base(), recette), config.clesAcceptees))["default"]).toBe(42);
     expect((await chargerModule(signerArtefact(base(), publication), config.clesAcceptees))["default"]).toBe(42);
   });

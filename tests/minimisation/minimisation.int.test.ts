@@ -3,10 +3,11 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { importerPersonnes, type TransactionImport } from "../../apps/api/src/import/importer.ts";
 
 // T2-47 : sonde de minimisation. Un marqueur unique par essai est déposé dans la base d'un client fictif ; la sonde vérifie qu'on le retrouve dans cette base et nulle part ailleurs.
 // ATTENTION : ce n'est PAS la garde de bout en bout. Le dépôt se fait ici directement en SQL, sans passer par la plateforme (pas de route d'import dans apps/api/src à ce jour).
-// Dette LOT2-dette-T2-47-garde (fiche T2-47b) : faire entrer le marqueur par l'API d'import.
+// Fiche T2-47b : les nouveaux essais ci-dessous font entrer le marqueur par le code d'import de l'API.
 // Cibles (grappe jetable, jamais de vraies données) : six variables de cible, voir « pret » ci-dessous. Toutes sont obligatoires.
 // Sans elles ces essais sautent ; critère de la dette : le job « socle-integration » ÉCHOUE si l'une d'elles manque.
 const E = process.env;
@@ -116,6 +117,56 @@ describe.skipIf(!pret)("sonde de minimisation (pas la garde de bout en bout : de
     }
   }, 60_000);
 
-  // DETTE LOT2-dette-T2-47-garde : aucune route d'import n'existe dans apps/api/src ; tant qu'elle manque, la garde de bout en bout ne peut pas être écrite.
-  it.todo("un marqueur importé par l'API, passé par une exécution d'essai puis le lot de nuit, est absent de console, moteur, Valkey, journaux API et CI et compartiments communs"); // fiche: T2-47b
+  // Entrée par le code d'import de l'API (importerPersonnes) et non par du SQL direct. Pas encore de route HTTP ni d'exécution d'essai / lot de nuit dans le dépôt : voir ESCALADE de la fiche T2-47b.
+  const transaction = (client: Requeteur) => async (): Promise<TransactionImport> => {
+    await client.query("BEGIN");
+    return { client: client as never, valider: async () => void (await client.query("COMMIT")), annuler: async () => void (await client.query("ROLLBACK")) };
+  };
+  const session = (etablissementId: unknown) => ({ acteur: "equipe-bertin", etablissementId: String(etablissementId) });
+
+  it("[C-060] un marqueur importé par le code d'import est dans la base du client et absent de console, moteur, Valkey, journaux et compartiments communs", async () => {
+    const marqueur = nouveauMarqueur();
+    const client = await ouvrir(E[nom("CLIENT_URL")] as string);
+    const console_ = await ouvrir(E[nom("CONSOLE_URL")] as string);
+    const moteur = await ouvrir(E[nom("MOTEUR_URL")] as string);
+    try {
+      const etab = await client.query("INSERT INTO commun.etablissements (nom) VALUES ('Atelier Bertin') RETURNING id");
+      await importerPersonnes({ ouvrir: transaction(client) }, session(etab.rows[0]?.["id"]), { colonnes: ["nom"], lignes: [{ nom: marqueur }] });
+      expect(await ouTrouverEnBase(client, marqueur)).toContain("commun.personnes.nom");
+      expect(await ouTrouverEnBase(console_, marqueur)).toEqual([]);
+      expect(await ouTrouverEnBase(moteur, marqueur)).toEqual([]);
+      expect((await ouTrouverDansValkey(E[nom("VALKEY_URL")] as string, marqueur)).trouves).toEqual([]);
+      expect(ouTrouverDansFichiers(E[nom("JOURNAUX")] as string, marqueur)).toEqual([]);
+      expect(ouTrouverDansFichiers(E[nom("COMMUNS")] as string, marqueur)).toEqual([]);
+    } finally {
+      await Promise.all([client.end(), console_.end(), moteur.end()]);
+    }
+  }, 120_000);
+
+  it("[C-043] un import accepté, répété, laisse la ligne du client en un seul exemplaire", async () => {
+    const marqueur = nouveauMarqueur();
+    const client = await ouvrir(E[nom("CLIENT_URL")] as string);
+    try {
+      const etab = await client.query("INSERT INTO commun.etablissements (nom) VALUES ('Atelier Bertin') RETURNING id");
+      for (let i = 0; i < 2; i++) await importerPersonnes({ ouvrir: transaction(client) }, session(etab.rows[0]?.["id"]), { colonnes: ["nom"], lignes: [{ nom: marqueur }] });
+      expect((await client.query("SELECT id FROM commun.personnes WHERE nom = $1", [marqueur])).rows).toHaveLength(1);
+    } finally {
+      await client.end();
+    }
+  }, 60_000);
+
+  it("[C-060] la trace d'un refus survit à la fin de la transaction et aucune ligne du fichier n'est gardée", async () => {
+    const marqueur = nouveauMarqueur();
+    const client = await ouvrir(E[nom("CLIENT_URL")] as string);
+    try {
+      const etab = await client.query("INSERT INTO commun.etablissements (nom) VALUES ('Atelier Bertin') RETURNING id");
+      await expect(importerPersonnes({ ouvrir: transaction(client) }, session(etab.rows[0]?.["id"]), { colonnes: ["nom", "IBAN"], lignes: [{ nom: marqueur, IBAN: "x" }] })).rejects.toMatchObject({ motif: "donnees_interdites" });
+      // Lue après la fin de la transaction : la trace est bien validée.
+      const trace = await client.query("SELECT 1 FROM trace.evenements WHERE qui = 'equipe-bertin' AND objet = 'refus:donnees_interdites:bancaire'");
+      expect(trace.rows.length).toBeGreaterThan(0);
+      expect(await ouTrouverEnBase(client, marqueur)).toEqual([]);
+    } finally {
+      await client.end();
+    }
+  }, 60_000);
 });

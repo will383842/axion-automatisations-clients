@@ -104,10 +104,19 @@ describe("basculer", () => {
   });
   it("[C-536] @isolation les rôles du client n'entrent dans la base qu'après la bascule, et un échec les laisse dehors", async () => {
     const { p, tenantId, r, j, cible, acteur } = montage();
-    p.ouvrirAuxRoles = async () => { throw new Error("roles_echoue"); };
+    p.ouvrirAuxRoles = async (n) => { j.ordre.push(`roles:${n}`); throw new Error("roles_echoue"); };
     await confirmerBascule(p, tenantId, r.id, acteur("u1"));
     await expect(confirmerBascule(p, tenantId, r.id, acteur("u2"))).rejects.toThrow("roles_echoue");
-    expect(j.renommages.at(-1)).toEqual([`${cible}_avant_2`, cible]);
+    // La restaurée est d'abord remise sous son nom fermé (« _restau_ »), puis l'ancienne reprend le sien : sans le premier retour, la restaurée resterait sous « cli_<id> ».
+    expect(j.renommages).toEqual([
+      [cible, `${cible}_avant_2`], [`${cible}_restau_2`, cible],
+      [cible, `${cible}_restau_2`], [`${cible}_avant_2`, cible],
+    ]);
+    // Les rôles ne sont sollicités qu'après les deux renommages, et la reprise de PgBouncer vient en dernier.
+    expect(j.ordre.indexOf(`roles:${cible}`)).toBeGreaterThan(j.ordre.indexOf(`rename:${cible}_restau_2>${cible}`));
+    expect(j.ordre.at(-1)).toBe(`reprise:${cible}`);
+    expect(j.journal).toContain("bascule_echouee");
+    expect(j.journal).not.toContain("bascule_faite");
     expect(j.basculee).toBe(false);
   });
 });

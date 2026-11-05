@@ -51,7 +51,7 @@ describe("garde : motifs courts en mots entiers, leet, synonymes, lettres non la
     ["num_sec_soc", "securite_sociale"], ["N° sec soc", "securite_sociale"], ["insee", "securite_sociale"], ["N° INSEE", "securite_sociale"], ["numero_insee", "securite_sociale"],
     ["medical", "sante"], ["antecedents_medicaux", "sante"], ["antecedent_medical", "sante"], ["diagnostic_medical", "sante"], ["parti_politique", "opinion"], ["casier", "infraction"],
     ["compte_bancaire", "bancaire"], ["numero_compte_bancaire", "bancaire"],
-    ["ɪʙᴀɴ", "caracteres_non_latins"], ["iƅan", "caracteres_non_latins"], ["ｉｂａｎ", "bancaire"], ["mot_de_passe_汉字", "caracteres_non_latins"],
+    ["ɪʙᴀɴ", "caracteres_non_latins"], ["iƅan", "caracteres_non_latins"], ["ｉｂａｎ", "bancaire"], ["汉字_ɪʙᴀɴ", "caracteres_non_latins"],
     ["ibanclient", "bancaire"], ["ribclient", "bancaire"], ["clientnir", "securite_sociale"], ["numsecuclient", "securite_sociale"], ["moncodenirfr", "securite_sociale"], ["mdpclient", "mot_de_passe"],
   ];
   it.each(interdits)("[C-060] le nom « %s » est refusé (%s)", (colonne, categorie) => {

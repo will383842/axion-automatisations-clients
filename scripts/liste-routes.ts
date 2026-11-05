@@ -6,6 +6,7 @@ import { routeCanaux } from "../apps/api/src/routes/canaux.js";
 import { routeImportCatalogue } from "../apps/api/src/routes/catalogue/import.js";
 import { routeCrm } from "../apps/api/src/routes/crm.js";
 import { routeDonnees } from "../apps/api/src/routes/donnees.js";
+import { routeExecuteur } from "../apps/api/src/routes/executeur/index.js";
 import { routeEntree } from "../apps/api/src/routes/entree.js";
 import { routeGel } from "../apps/api/src/routes/gel.js";
 import { brancherHub } from "../apps/api/src/routes/hub.js";
@@ -106,6 +107,7 @@ export async function listerRoutes(): Promise<RouteListee[]> {
   brancherHub(appli, { entrant, recepteur: { alerter: () => undefined } as never });
   routeCrm(appli, { entrant, recepteur: rien, file: rien });
   routeImportCatalogue(appli, { ouvert: false, importeur: rien, authentifier: garde as never });
+  routeExecuteur(appli, { actif: () => false, cles: rien, memoire: rien, depot: rien });
   await appli.ready();
   await appli.close();
   return [...vues.values()].sort((a, b) => `${a.chemin} ${a.methode}`.localeCompare(`${b.chemin} ${b.methode}`));

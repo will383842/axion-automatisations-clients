@@ -36,7 +36,7 @@ function monter() {
     memoire: { async set(k: string) { if (vus.has(k)) return null; vus.add(k); return "OK"; } } as never,
     depot: {
       async resoudre(id) { return instances[id] ?? null; },
-      async configuration() { lectures++; return null; },
+      async configuration(tenantId, id) { lectures++; return { instanceId: id, clientId: tenantId, automatisationId: randomUUID(), moduleCode: "relance-devis", moduleVersion: "1.2.0", reglages: { delai: 3 }, dureeCacheSecondes: 3600 }; },
     },
     maintenant: () => MAINTENANT,
   });

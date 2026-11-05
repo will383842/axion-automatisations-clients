@@ -59,6 +59,8 @@ export async function basculer(p: PortsBascule, tenantId: string, id: string): P
   if (r.basculee) throw new Error("deja_basculee");
   if (distincts(r.confirmations) < NECESSAIRES) throw new Error("confirmation_manquante");
   const cible = nomBaseDe(tenantId);
+  // Isolation (C-536) : l'enregistrement doit être celui de ce client ET pointer sa propre copie ; sinon aucun renommage.
+  if (r.tenantId !== tenantId || r.nomBase !== `${cible}_restau_${r.numero}`) throw new Error("restauration_incoherente");
   const avant = `${cible}_avant_${r.numero}`;
   let ancienneRenommee = false;
   let restauree = false;

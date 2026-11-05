@@ -52,6 +52,22 @@ describe("basculer", () => {
     await expect(confirmerBascule(p, randomUUID(), r.id, acteur())).rejects.toThrow("restauration_introuvable");
     expect(j.confirmations).toHaveLength(0);
   });
+  it("[C-536] @isolation une restauration pointant la base de B est refusée sans aucun renommage", async () => {
+    const { p, tenantId, r, j, acteur } = montage();
+    const autre = nomBaseDe(randomUUID());
+    r.nomBase = `${autre}_restau_2`;
+    await confirmerBascule(p, tenantId, r.id, acteur("u1"));
+    await expect(confirmerBascule(p, tenantId, r.id, acteur("u2"))).rejects.toThrow("restauration_incoherente");
+    expect(j.renommages).toHaveLength(0);
+    expect(j.basculee).toBe(false);
+  });
+  it("[C-536] @isolation un enregistrement au nom d'un autre client est refusé sans aucun renommage", async () => {
+    const { p, tenantId, r, j, acteur } = montage();
+    const lire = p.lire; p.lire = async (t, id) => { const x = await lire(t, id); return x && { ...x, tenantId: randomUUID() }; };
+    await confirmerBascule(p, tenantId, r.id, acteur("u1"));
+    await expect(confirmerBascule(p, tenantId, r.id, acteur("u2"))).rejects.toThrow("restauration_incoherente");
+    expect(j.renommages).toHaveLength(0);
+  });
   it("[C-048] l'ancienne base est gardée sous un autre nom après bascule", async () => {
     const { p, tenantId, r, j, cible, acteur } = montage();
     await confirmerBascule(p, tenantId, r.id, acteur("u1")); await confirmerBascule(p, tenantId, r.id, acteur("u2"));

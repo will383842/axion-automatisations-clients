@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { detecter, ErreurDonneesInterdites, verifierImport } from "./donnees-interdites.ts";
+import { EXCEPTIONS } from "./motifs-interdits.ts";
 
 // T2-47 : détection des données interdites à l'import, sur les noms de colonnes seulement (jamais sur le contenu).
 describe("détection des données interdites à l'import", () => {
@@ -172,6 +173,58 @@ describe("garde des noms de colonnes : contournements courants (T2-47b)", () => 
   });
   it.each(["libanais", "senior", "ribambelle", "tribu", "code_commune_insee2", "codes_insee", "etablissements_sante", "diagnostic_energetique1", "carte_grise2", "Professionnels santé", "adresse", "nom1", "telephone2"])(
     "[C-060] la colonne légitime « %s » passe malgré la normalisation élargie",
+    (colonne) => {
+      expect(detecter([colonne])).toEqual([]);
+    },
+  );
+});
+
+// Banc de contournements (tour 2) : casse mixte, accents, séparateurs, homoglyphes grecs et cyrilliques, caractères invisibles, mots collés dans les deux sens, pluriels, FR/EN, synonymes.
+describe("banc de noms de colonnes interdits", () => {
+  const ZW = "​";
+  const banc: [string, string][] = [
+    // casse mixte et racine (« s » final)
+    ["PassWord", "mot_de_passe"], ["pass word", "mot_de_passe"], ["PASSWORD", "mot_de_passe"], ["Pass-Word", "mot_de_passe"], ["passwords", "mot_de_passe"], ["user_PassWord", "mot_de_passe"],
+    ["passWd", "mot_de_passe"], ["MotDePasse", "mot_de_passe"], ["mots de passe", "mot_de_passe"], ["mdp", "mot_de_passe"], ["MDP", "mot_de_passe"], ["m d p", "mot_de_passe"],
+    // homoglyphes
+    ["Ιban", "bancaire"], ["іban", "bancaire"], ["ΙΒΑΝ", "bancaire"], ["ıban", "bancaire"], ["раssword", "mot_de_passe"], ["пароль_мdp", "mot_de_passe"], ["nіr", "securite_sociale"], ["ѕecu", "securite_sociale"],
+    // caractères invisibles
+    [`i${ZW}ban`, "bancaire"], [`pass${ZW}word`, "mot_de_passe"], [`n­ir`, "securite_sociale"], [`ib⁠an`, "bancaire"], ["iㅤban", "bancaire"],
+    // iban et variantes
+    ["IBAN", "bancaire"], ["iban2", "bancaire"], ["IBAN1", "bancaire"], ["IBANs", "bancaire"], ["IBANClient", "bancaire"], ["i b a n", "bancaire"], ["i.b.a.n", "bancaire"], ["codeibanclient", "bancaire"], ["moncodeibanfr", "bancaire"], ["clientiban", "bancaire"], ["iban_client", "bancaire"], ["ＩＢＡＮ", "bancaire"],
+    // synonymes bancaires
+    ["BIC", "bancaire"], ["swift", "bancaire"], ["Swift Code", "bancaire"], ["credit_card", "bancaire"], ["Credit Card", "bancaire"], ["card_number", "bancaire"], ["cardNumber", "bancaire"], ["cardnumber", "bancaire"], ["CVC", "bancaire"], ["cvv", "bancaire"],
+    ["bank_account", "bancaire"], ["Bank Account", "bancaire"], ["account_number", "bancaire"], ["numero_compte", "bancaire"], ["Numéro de compte", "bancaire"], ["coordonnees_bancaires", "bancaire"], ["Coordonnées bancaires", "bancaire"],
+    ["releve_identite_bancaire", "bancaire"], ["Relevé d'identité bancaire", "bancaire"], ["rib", "bancaire"], ["RIB", "bancaire"], ["ribclient", "bancaire"], ["clientrib", "bancaire"], ["rib_client", "bancaire"], ["numero_cb", "bancaire"], ["num_cb", "bancaire"], ["N° CB", "bancaire"], ["cb", "bancaire"], ["numéros de cartes bancaires", "bancaire"],
+    // sécurité sociale
+    ["ssn", "securite_sociale"], ["SSN", "securite_sociale"], ["social_security_number", "securite_sociale"], ["Social Security Number", "securite_sociale"], ["nss", "securite_sociale"], ["NSS", "securite_sociale"], ["n°ss", "securite_sociale"], ["N° SS", "securite_sociale"],
+    ["num_ss", "securite_sociale"], ["n_ss", "securite_sociale"], ["nir", "securite_sociale"], ["NIR", "securite_sociale"], ["nirclient", "securite_sociale"], ["clientnir", "securite_sociale"], ["nir_client", "securite_sociale"], ["numsecuclient", "securite_sociale"],
+    ["numsecu", "securite_sociale"], ["NumSecu", "securite_sociale"], ["numéro de sécu", "securite_sociale"], ["Numéro de Sécurité-Sociale", "securite_sociale"], ["numerosecuritesociale", "securite_sociale"], ["secu_client", "securite_sociale"],
+    // mots de passe et secrets
+    ["pin", "mot_de_passe"], ["PIN", "mot_de_passe"], ["secret", "mot_de_passe"], ["token", "mot_de_passe"], ["tokens", "mot_de_passe"], ["api_key", "mot_de_passe"], ["apiKey", "mot_de_passe"], ["API-KEY", "mot_de_passe"], ["access_token", "mot_de_passe"], ["accessToken", "mot_de_passe"],
+    ["mdpclient", "mot_de_passe"], ["clientmdp", "mot_de_passe"], ["mdp_client", "mot_de_passe"], ["pwd", "mot_de_passe"], ["code_pin", "mot_de_passe"], ["passwordclient", "mot_de_passe"],
+    // santé, opinion, infraction (pluriels, accents)
+    ["Santé", "sante"], ["groupe sanguin", "sante"], ["Maladies", "sante"], ["Médecin traitant", "sante"], ["opinions politiques", "opinion"], ["Appartenance syndicale", "opinion"], ["casier_judiciaire", "infraction"], ["Condamnations", "infraction"],
+  ];
+  it.each(banc)("[C-060] le nom « %s » est repéré (%s)", (colonne, categorie) => {
+    expect(detecter([colonne])).toEqual([{ colonne, categorie }]);
+  });
+
+  it("[C-060] le banc compte au moins 80 noms", () => {
+    expect(banc.length).toBeGreaterThanOrEqual(80);
+  });
+
+  it("[C-060] chaque nom de la liste EXCEPTIONS passe, avec ses variantes de casse et de séparateur", () => {
+    for (const e of EXCEPTIONS) {
+      expect(detecter([e]), e).toEqual([]);
+      expect(detecter([e.toUpperCase()]), e.toUpperCase()).toEqual([]);
+      expect(detecter([e.replaceAll("_", " ")]), e).toEqual([]);
+      expect(detecter([e.replaceAll("_", "-")]), e).toEqual([]);
+    }
+  });
+
+  it.each(["code_commune_insee", "Code commune INSEE", "diagnostic_performance_energetique", "pays_liban", "Pays Liban", "liban", "ibanez", "Ibanez", "libanais", "senior", "tribu", "nirvana", "pinterest", "secretaire", "tokenisation", "bicolore", "cbd", "ribambelle", "nom", "prenom", "courriel", "telephone", "siret", "code_postal", "adresse", "date_naissance", "commentaire"])(
+    "[C-060] la colonne légitime « %s » passe",
     (colonne) => {
       expect(detecter([colonne])).toEqual([]);
     },

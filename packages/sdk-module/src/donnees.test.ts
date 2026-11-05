@@ -12,7 +12,7 @@ const accepte = (surcharge: Record<string, unknown>) => expect(() => defineAutom
 const refuse = (surcharge: Record<string, unknown>, motif?: RegExp) => expect(() => defineAutomation(avec(surcharge))).toThrow(motif);
 const ecran = (composant: string, proprietes: Record<string, unknown>) => ({ composant, proprietes });
 
-describe("C4 0.5.0 : données et écrans d'un module (T4-49)", () => {
+describe("C4 0.5.0 : données et écrans d'un module (T4-49, T4-50a)", () => {
   it("[C-624] un manifeste avec une requête déclarée valide est accepté ; un nom hors motif (souligné, majuscule) est refusé", () => {
     accepte({ donnees: donnees(), permissions: [permission] });
     refuse({ donnees: donnees({ requetes: [{ ...requete, nom: "lister_prospects" }] }) }, /donnees/);
@@ -41,6 +41,42 @@ describe("C4 0.5.0 : données et écrans d'un module (T4-49)", () => {
     const avecTable = (table: string) => ({ requetes: [{ ...requete, forme: { ...requete.forme, table } }], actions: [] });
     for (const table of ["a_prospection.prospects", "public.prospects", "prospects", "commun.Prospects", "commun.prospects; drop", `commun.${"a".repeat(64)}`]) refuse({ donnees: avecTable(table) }, /donnees/);
     accepte({ donnees: avecTable("commun.prospects") });
+  });
+
+  it("[C-624] une requête en mode écriture ou avec plus de 30 paramètres est refusée", () => {
+    refuse({ donnees: donnees({ requetes: [{ ...requete, mode: "ecriture" }] }) }, /donnees/);
+    const n = (k: number) => Object.fromEntries(Array.from({ length: k }, (_, i) => [`p${i}`, { type: "uuid" }]));
+    refuse({ donnees: donnees({ requetes: [{ ...requete, parametres: n(31) }] }) }, /30 paramètres/);
+    // 30 n'est pas refusé pour sa taille (il l'est ici pour des paramètres inutilisés).
+    refuse({ donnees: donnees({ requetes: [{ ...requete, parametres: n(30) }] }) }, /non utilisé/);
+  });
+
+  it("[C-624] l'établissement et les noms réservés ne sont jamais déclarables", () => {
+    const forme = (surcharge: Record<string, unknown>) => ({ ...requete.forme, ...surcharge });
+    const avecForme = (f: unknown, parametres: unknown = requete.parametres) => ({ requetes: [{ ...requete, parametres, forme: f }], actions: [] });
+    refuse({ donnees: avecForme(forme({ sortie: { lignes: [{ colonne: "etablissement_id" }] } })) }, /donnees/);
+    refuse({ donnees: avecForme(forme({ sortie: { lignes: [{ colonne: "id", alias: "tenant_id" }] } })) }, /donnees/);
+    const p = { etablissement_id: { type: "uuid" } };
+    refuse({ donnees: avecForme(forme({ filtres: [{ colonne: "etablissement_id", operateur: "egal", parametre: "etablissement_id" }] }), p) }, /donnees/);
+    for (const nom of ["constructor", "valueOf", "pg_sleep", "current_user"]) refuse({ donnees: avecForme(forme({ filtres: [{ colonne: "statut", operateur: "egal", parametre: nom }] }), { [nom]: { type: "uuid" } }) }, /donnees/);
+  });
+
+  it("[C-624] une clé __proto__ propre est refusée, jamais ignorée", () => {
+    const brut = JSON.parse(JSON.stringify({ requetes: [requete], actions: [] }));
+    brut.requetes[0].parametres = JSON.parse('{"__proto__":"x","statut":{"type":"texte","max":40}}');
+    refuse({ donnees: brut }, /donnees/);
+    refuse({ donnees: JSON.parse('{"__proto__":{},"requetes":[],"actions":[]}') }, /donnees/);
+  });
+
+  it("[C-624] une requête incohérente (paramètre non déclaré, défaut invalide, bornes inversées, sans limite) est refusée", () => {
+    const f = requete.forme;
+    const avecReq = (r: Record<string, unknown>) => ({ requetes: [{ ...requete, ...r }], actions: [] });
+    refuse({ donnees: avecReq({ forme: { ...f, filtres: [{ colonne: "statut", operateur: "egal", parametre: "autre" }] } }) }, /non déclaré|non utilisé/);
+    refuse({ donnees: avecReq({ forme: { ...f, filtres: [{ colonne: "statut", operateur: "est_nul", parametre: "statut" }] } }) }, /inutile/);
+    refuse({ donnees: avecReq({ parametres: { statut: { type: "texte", max: 2, defaut: "trop long" } } }) }, /défaut invalide/);
+    refuse({ donnees: avecReq({ parametres: { statut: { type: "entier", min: 5, max: 1 } } }) }, /donnees/);
+    refuse({ donnees: avecReq({ forme: { ...f, limite: undefined } }) }, /limite obligatoire/);
+    refuse({ donnees: avecReq({ forme: { ...f, sortie: { lignes: [{ colonne: "id" }, { colonne: "nom", alias: "id" }] } } }) }, /répétés/);
   });
 
   it("[C-624] un manifeste 0.3.0 reste valide", () => {
@@ -108,7 +144,6 @@ describe("C4 0.5.0 : données et écrans d'un module (T4-49)", () => {
     const port: NonNullable<ContexteEtape["donnees"]> = {
       lire: async (nom, parametres) => (appels.push(`lire:${nom}:${JSON.stringify(parametres)}`), []),
     };
-    expect("ecrire" in port).toBe(false);
     expect(await port.lire("lister-prospects", { statut: "ouvert" })).toEqual([]);
     expect(appels).toEqual(['lire:lister-prospects:{"statut":"ouvert"}']);
     // @ts-expect-error C4 0.5.0 : le port n'a plus d'écriture (ADR 0109).

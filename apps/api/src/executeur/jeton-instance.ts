@@ -30,20 +30,11 @@ export async function emettreJetonInstance(cles: ClesJi, portee: Portee, mainten
 }
 
 // Rend la charge si le jeton est valide ET porte sur l'instance et la cellule attendues ; sinon null (aucune raison donnée).
-export async function verifierJetonInstance(cles: ClesJi, jeton: string, attendu: Portee, maintenant: () => number = Date.now): Promise<ChargeJetonInstance | null> {
+export async function verifierJetonInstance(cles: Pick<ClesJi, "clesAcceptees">, jeton: string, attendu: Portee, maintenant: () => number = Date.now): Promise<ChargeJetonInstance | null> {
   if (typeof jeton !== "string" || jeton.length > TAILLE_MAX) return null;
   const parties = jeton.split(".");
   const [prefixe, brut, sig] = parties;
   if (parties.length !== 3 || prefixe !== PREFIXE || !brut || !sig || !BASE64URL.test(brut) || !BASE64URL.test(sig)) return null;
-  const recue = Buffer.from(sig, "base64url");
-  const corps = `${prefixe}.${brut}`;
-  // Toutes les clés acceptées sont essayées sans sortie anticipée ; chaque comparaison suit un contrôle de longueur.
-  let signee = false;
-  for (const cle of await cles.clesAcceptees("ji", "emission")) {
-    const attendue = signature(cle.secret, corps);
-    if (recue.length === attendue.length && timingSafeEqual(recue, attendue)) signee = true;
-  }
-  if (!signee) return null;
   let charge: unknown;
   try {
     charge = JSON.parse(Buffer.from(brut, "base64url").toString("utf8"));
@@ -55,5 +46,20 @@ export async function verifierJetonInstance(cles: ClesJi, jeton: string, attendu
   if (c["v"] !== 1 || typeof c["instanceId"] !== "string" || !UUID.test(c["instanceId"]) || !celluleValide(c["cellule"]) || !Number.isSafeInteger(c["exp"])) return null;
   if (maintenant() >= (c["exp"] as number) * 1000) return null;
   if (c["instanceId"].toLowerCase() !== attendu.instanceId.toLowerCase() || c["cellule"] !== attendu.cellule) return null;
+  const recue = Buffer.from(sig, "base64url");
+  const corps = `${prefixe}.${brut}`;
+  // Le coffre n'est lu qu'APRÈS tous les contrôles qui ne demandent aucun secret (forme, charge, durée, instance et cellule attendues) :
+  // un jeton mal formé ne coûte aucun appel. Une panne du coffre rend null, jamais une exception.
+  // Toutes les clés acceptées sont essayées sans sortie anticipée ; chaque comparaison suit un contrôle de longueur.
+  let signee = false;
+  try {
+    for (const cle of await cles.clesAcceptees("ji", "emission")) {
+      const attendue = signature(cle.secret, corps);
+      if (recue.length === attendue.length && timingSafeEqual(recue, attendue)) signee = true;
+    }
+  } catch {
+    return null;
+  }
+  if (!signee) return null;
   return { v: 1, instanceId: c["instanceId"], cellule: c["cellule"], exp: c["exp"] as number };
 }

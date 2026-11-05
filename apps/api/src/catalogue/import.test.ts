@@ -40,9 +40,10 @@ function tar(entrees: Entree[]): Uint8Array {
 }
 const archiver = (a: Artefact, extra: Entree[] = []) => gzipSync(tar([...Object.entries(a).map(([nom, contenu]) => ({ nom, contenu })), ...extra]));
 
-function modeleSigne(code: string, o: { version?: string; licence?: string; signataire?: SignataireMemoire; marque?: string } = {}) {
+function modeleSigne(code: string, o: { version?: string; licence?: string; signataire?: SignataireMemoire; marque?: string; donnees?: unknown } = {}) {
   const signataire = o.signataire ?? new SignataireMemoire("cle-essai-1");
-  const man = JSON.parse(manifesteJson({ ...moduleExemple, code, version: o.version ?? "1.0.0", paquet: `@axion-auto/${code}` })) as object;
+  const man = JSON.parse(manifesteJson({ ...moduleExemple, code, version: o.version ?? "1.0.0", paquet: `@axion-auto/${code}` })) as object & { donnees?: unknown };
+  if (o.donnees !== undefined) man.donnees = o.donnees;
   const fichiers: Artefact = {
     "module.js": octets(`export default 1; // ${o.marque ?? "a"}\n`),
     "manifest.json": octets(JSON.stringify(man)),
@@ -105,7 +106,7 @@ function monter(o: { ouvert?: boolean; doublons?: (nom: string) => Promise<strin
     serveur.inject({ method: "POST", url: "/api/catalogue/v1/versions", payload: Buffer.from(archive), headers: { "content-type": "application/gzip", "x-test-acteur": "equipe", "x-automatisation": code, ...entetes } });
   return { s3, depot, signataire, cles, importeur, serveur, poster };
 }
-const signeAvec = (m: ReturnType<typeof monter>, code: string, o: { version?: string; licence?: string; marque?: string } = {}) => modeleSigne(code, { ...o, signataire: m.signataire }).artefact;
+const signeAvec = (m: ReturnType<typeof monter>, code: string, o: { version?: string; licence?: string; marque?: string; donnees?: unknown } = {}) => modeleSigne(code, { ...o, signataire: m.signataire }).artefact;
 
 describe("vérification de l'artefact par la console", () => {
   it("[C-248] un artefact dont le SBOM contient une licence AGPL est refusé par la console même si le poste l'a accepté", () => {
@@ -382,5 +383,26 @@ describe("import par la clé de la recette", () => {
     const rep = await m.poster(archiver(signeAvec(m, "module-equipe")), "ACC-003", { "x-statut": "publiee" });
     expect(rep.statusCode).toBe(201);
     expect((rep.json() as { version: { statut: string } }).version.statut).toBe("brouillon");
+  });
+});
+
+describe("données déclarées à l'import", () => {
+  const requete = (forme: object, parametres: object = {}) => ({ requetes: [{ nom: "lire-essai", mode: "lecture", parametres, forme }], actions: [] });
+  const lignes = (colonne: string, table = "commun.listes_prospects") => ({ type: "simple", table, sortie: { lignes: [{ colonne }] }, limite: { fixe: 10 } });
+  it("[C-624] l'import refuse etablissement_id en sortie et une table hors commun, sans rien ranger ni enregistrer", async () => {
+    for (const donnees of [requete(lignes("etablissement_id")), requete(lignes("id", "a_module.notes")), requete(lignes("courriel_chiffre", "commun.personnes"))]) {
+      const m = monter();
+      const rep = await m.poster(archiver(signeAvec(m, "module-donnees-refus", { donnees })));
+      expect(rep.statusCode).toBe(422);
+      expect(JSON.stringify(rep.json())).toContain("manifeste_invalide");
+      expect(m.depot.versions).toHaveLength(0);
+      expect(m.depot.automatisations.size).toBe(0);
+      expect(m.s3.objets.size).toBe(0);
+    }
+  });
+  it("[C-624] un manifeste sans données ou avec une requête valide reste importé", async () => {
+    const m = monter();
+    expect((await m.poster(archiver(signeAvec(m, "module-sans-donnees")))).statusCode).toBe(201);
+    expect((await m.poster(archiver(signeAvec(m, "module-avec-donnees", { donnees: requete(lignes("nom")) })), "ACC-002")).statusCode).toBe(201);
   });
 });

@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { constaterLuks } from "./constat-luks.ts";
-import { constaterPorts, verdictPorts } from "./constat-ports.ts";
+import { PORTS_PAR_DEFAUT, adressesDe, constaterPorts, verdictPorts } from "./constat-ports.ts";
 import { mesurerRemiseEnService } from "./remise-en-service.ts";
 
 // Scripts de constat prêts pour le vrai serveur, essayés ici sur des sorties simulées.
@@ -49,6 +49,20 @@ describe("constat des ports depuis l'extérieur", () => {
     expect(verdictPorts([22, 443]).length).toBe(1);
     expect(verdictPorts([]).length).toBe(1);
     expect(verdictPorts([8200, 5432, 443]).length).toBe(2);
+  });
+});
+
+describe("constat des ports : étendue", () => {
+  it("[A-066] le balayage couvre TOUS les ports TCP (1 à 65535), pas seulement les ports connus", () => {
+    expect(PORTS_PAR_DEFAUT.length).toBe(65535);
+    for (const p of [1, 443, 1025, 30000, 32768, 65535]) expect(PORTS_PAR_DEFAUT).toContain(p);
+  });
+  it("[A-066] un hôte à plusieurs adresses (IPv4 et IPv6) est balayé sur chacune ; une adresse écrite reste telle quelle", async () => {
+    expect(await adressesDe("127.0.0.1")).toEqual(["127.0.0.1"]);
+    expect(await adressesDe("::1")).toEqual(["::1"]);
+  });
+  it("[A-066] un hôte introuvable est une erreur, jamais « conforme »", async () => {
+    await expect(adressesDe("introuvable.invalid")).rejects.toThrow();
   });
 });
 

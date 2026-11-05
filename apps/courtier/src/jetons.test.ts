@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { creerRegistreJetons } from "./jetons.js";
+import { creerRegistreJetons, creerStockageRemisesMemoire } from "./jetons.js";
 
 const A = "11111111-1111-4111-8111-111111111111";
 const EXEC = "22222222-2222-4222-8222-222222222222";
-const portee = { tenantId: A, executionId: EXEC, portees: ["messagerie.lire"] } as const;
+const INSTANCE = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const CONN = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+const portee = { tenantId: A, instanceId: INSTANCE, connexionId: CONN, executionId: EXEC, portees: ["messagerie.lire"] } as const;
 
 describe("jetons courts", () => {
   it("[C-014] un jeton court est lié à (client, exécution, portées) et rien d'autre", () => {
@@ -45,12 +47,35 @@ describe("jetons courts", () => {
     expect(String(r)).not.toContain(jeton);
   });
 
-  it("une remise n'est servie qu'une fois par (exécution, connexion), même après la fin de l'exécution", () => {
+  it("[C-014] une remise n'est servie qu'une fois par (exécution, connexion), même après la fin de l'exécution", async () => {
     const r = creerRegistreJetons();
-    expect(r.reserver(EXEC, "c1", 60_000)).toBe(true);
-    expect(r.reserver(EXEC, "c1", 60_000)).toBe(false);
-    expect(r.reserver(EXEC, "c2", 60_000)).toBe(true);
+    expect(await r.reserver(EXEC, "c1")).toBe(true);
+    expect(await r.reserver(EXEC, "c1")).toBe(false);
+    expect(await r.reserver(EXEC, "c2")).toBe(true);
     r.revoquerExecution(EXEC);
-    expect(r.reserver(EXEC, "c1", 60_000)).toBe(false);
+    expect(await r.reserver(EXEC, "c1")).toBe(false);
+    await r.liberer(EXEC, "c1");
+    expect(await r.reserver(EXEC, "c1")).toBe(true);
+  });
+
+  it("[C-014] @isolation l'anti-rejeu survit à l'échéance et au redémarrage : il vit dans le registre durable", async () => {
+    let t = 1_000_000;
+    const durable = creerStockageRemisesMemoire();
+    const r1 = creerRegistreJetons({ maintenant: () => t, remises: durable });
+    expect(await r1.reserver(EXEC, CONN)).toBe(true);
+    t += 10 * 3600_000; // bien au-delà de l'échéance (+60 s)
+    expect(await r1.reserver(EXEC, CONN)).toBe(false);
+    const r2 = creerRegistreJetons({ maintenant: () => t, remises: durable }); // redémarrage : nouveau registre, même stockage
+    expect(await r2.reserver(EXEC, CONN)).toBe(false);
+  });
+
+  it("[C-014] @isolation un jeton ne vaut que pour son client, son instance, sa connexion et son exécution", () => {
+    const r = creerRegistreJetons();
+    const { jeton } = r.emettre(portee, 60_000);
+    expect(r.verifier(jeton, { tenantId: A, instanceId: INSTANCE, connexionId: CONN, executionId: EXEC })).toEqual(portee);
+    const autre = "99999999-9999-4999-8999-999999999999";
+    for (const faux of [{ tenantId: autre }, { instanceId: autre }, { connexionId: autre }, { executionId: autre }]) {
+      expect(r.verifier(jeton, { tenantId: A, instanceId: INSTANCE, connexionId: CONN, executionId: EXEC, ...faux })).toBeNull();
+    }
   });
 });

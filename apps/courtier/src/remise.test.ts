@@ -9,22 +9,28 @@ const INSTANCE_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const INSTANCE_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const EXEC = "22222222-2222-4222-8222-222222222222";
 const CONN = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+const CONN_AUTRE_MODULE = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
 const MARQUEUR_ACCES = "marqueur-acces-4f9d2c7e1b";
 const MARQUEUR_RENOUVELLEMENT = "marqueur-renouvellement-8a31c0de55";
 const MARQUEUR_MOT_DE_PASSE = "marqueur-mdp-61be90aa37";
 const T0 = 1_800_000_000_000;
 
-const connexions: Record<string, Connexion> = {
-  [INSTANCE_A]: { tenantId: A, celluleCode: "cellule-1", famille: "oauth", referenceCoffre: `bao:clients/${A}/d0d0d0d0-0000-4000-8000-000000000001`, portees: ["messagerie.lire"] },
-  [INSTANCE_B]: { tenantId: B, celluleCode: "cellule-2", famille: "oauth", referenceCoffre: `bao:clients/${B}/d0d0d0d0-0000-4000-8000-000000000002`, portees: ["messagerie.lire"] },
-};
+// Le faux filtre sur le COUPLE (instanceId, connexionId), comme la table connexions sous RLS : une connexion
+// d'un autre module du même client n'est pas servie pour cette instance.
+const lignes_connexions: Connexion[] = [
+  { instanceId: INSTANCE_A, connexionId: CONN, tenantId: A, celluleCode: "cellule-1", famille: "oauth", referenceCoffre: `bao:clients/${A}/d0d0d0d0-0000-4000-8000-000000000001`, portees: ["messagerie.lire", "messagerie.envoyer"], porteesModule: ["messagerie.lire", "contacts.lire"] },
+  { instanceId: INSTANCE_B, connexionId: CONN, tenantId: B, celluleCode: "cellule-2", famille: "oauth", referenceCoffre: `bao:clients/${B}/d0d0d0d0-0000-4000-8000-000000000002`, portees: ["messagerie.lire"], porteesModule: ["messagerie.lire"] },
+  { instanceId: "99999999-9999-4999-8999-999999999999", connexionId: CONN_AUTRE_MODULE, tenantId: A, celluleCode: "cellule-1", famille: "oauth", referenceCoffre: `bao:clients/${A}/d0d0d0d0-0000-4000-8000-000000000003`, portees: ["messagerie.lire"], porteesModule: ["messagerie.lire"] },
+];
+const connexions: Record<string, Connexion> = { [INSTANCE_A]: lignes_connexions[0]!, [INSTANCE_B]: lignes_connexions[1]! };
 
 function ports(sur: Partial<PortsRemise> = {}) {
   const lus: string[] = [];
   const lignes: string[] = [];
   const p: PortsRemise = {
     verifierJetonInstance: async () => true,
-    connexion: async (instance) => connexions[instance],
+    connexion: async (instance, connexion) => lignes_connexions.find((c) => c.instanceId === instance && c.connexionId === connexion),
+    executionEnCours: async () => true,
     lireCoffre: async (chemin) => {
       lus.push(chemin);
       return { access_token: MARQUEUR_ACCES, refresh_token: MARQUEUR_RENOUVELLEMENT, expires_at: Math.floor(T0 / 1000) + 3600, mot_de_passe: MARQUEUR_MOT_DE_PASSE };
@@ -37,7 +43,7 @@ function ports(sur: Partial<PortsRemise> = {}) {
   };
   return { p, lus, lignes };
 }
-const demande = (instanceId: string, executionId = EXEC) => ({ instanceId, executionId, connexionId: CONN });
+const demande = (instanceId: string, executionId = EXEC, connexionId = CONN) => ({ instanceId, executionId, connexionId });
 const appelant = (cellule: string) => ({ cellule, jetonInstance: "ji1.x.y" });
 const code = async (f: Promise<unknown>) => (await f.then(() => null, (e: unknown) => e)) as ErreurRemise | null;
 
@@ -112,7 +118,49 @@ describe("remise", () => {
     const { p } = ports({ connexion: async () => ({ ...connexions[INSTANCE_A]!, famille: "messagerie" }) });
     const r = await remettre(p, appelant("cellule-1"), demande(INSTANCE_A));
     if (r.type !== "mandataire") throw new Error("type inattendu");
-    expect(p.jetons.lire(r.jeton)).toEqual({ tenantId: A, executionId: EXEC, portees: ["messagerie.lire"] });
+    expect(p.jetons.lire(r.jeton)).toEqual({ tenantId: A, instanceId: INSTANCE_A, connexionId: CONN, executionId: EXEC, portees: ["messagerie.lire"] }); // intersection connexion ∩ module
     expect(JSON.stringify(r)).not.toContain(MARQUEUR_MOT_DE_PASSE);
+  });
+
+  it("[A-337] la messagerie ne fait pas lire le mot de passe au courtier : le coffre n'est pas interrogé", async () => {
+    const { p, lus } = ports({ connexion: async () => ({ ...connexions[INSTANCE_A]!, famille: "messagerie" }) });
+    await remettre(p, appelant("cellule-1"), demande(INSTANCE_A));
+    expect(lus).toEqual([]);
+  });
+
+  it("[C-014] @isolation une exécution inconnue, terminée ou d'une autre instance est refusée, coffre non interrogé", async () => {
+    const vues: unknown[] = [];
+    const { p, lus } = ports({ executionEnCours: async (e) => { vues.push(e); return false; } });
+    expect((await code(remettre(p, appelant("cellule-1"), demande(INSTANCE_A))))?.code).toBe("refusee");
+    expect(lus).toEqual([]);
+    expect(vues).toEqual([{ executionId: EXEC, instanceId: INSTANCE_A, cellule: "cellule-1" }]);
+    // refusée sans consommer la réservation : l'exécution en cours peut ensuite être servie
+    const bon = ports({ executionEnCours: async (e) => e.executionId === EXEC && e.instanceId === INSTANCE_A && e.cellule === "cellule-1" });
+    expect((await code(remettre(bon.p, appelant("cellule-1"), demande(INSTANCE_A, "44444444-4444-4444-8444-444444444444"))))?.code).toBe("refusee");
+    expect(bon.lus).toEqual([]);
+    expect(await remettre(bon.p, appelant("cellule-1"), demande(INSTANCE_A))).toMatchObject({ type: "oauth" });
+    // une panne du port refuse aussi
+    const panne = ports({ executionEnCours: async () => { throw new Error("panne"); } });
+    expect((await code(remettre(panne.p, appelant("cellule-1"), demande(INSTANCE_A))))?.code).toBe("refusee");
+    expect(panne.lus).toEqual([]);
+  });
+
+  it("[C-014] @isolation une connexion d'un autre module du même client est refusée pour cette instance", async () => {
+    const { p, lus } = ports();
+    expect((await code(remettre(p, appelant("cellule-1"), demande(INSTANCE_A, EXEC, CONN_AUTRE_MODULE))))?.code).toBe("refusee");
+    expect(lus).toEqual([]);
+    // un port qui rendrait la ligne d'un autre couple est écarté par le courtier lui-même
+    const trompeur = ports({ connexion: async () => lignes_connexions[2] });
+    expect((await code(remettre(trompeur.p, appelant("cellule-1"), demande(INSTANCE_A))))?.code).toBe("refusee");
+    expect(trompeur.lus).toEqual([]);
+  });
+
+  it("[C-014] la remise OAuth refuse un jeton fournisseur dont la durée restante est trop courte", async () => {
+    const court = ports({ lireCoffre: async () => ({ access_token: MARQUEUR_ACCES, expires_at: Math.floor(T0 / 1000) + 10 }) });
+    expect((await code(remettre(court.p, appelant("cellule-1"), demande(INSTANCE_A))))?.code).toBe("valeur_invalide");
+    expect(court.lignes.join("\n")).not.toContain(MARQUEUR_ACCES);
+    // la réservation est rendue : une fois le coffre rafraîchi, la même exécution est servie
+    court.p.lireCoffre = async () => ({ access_token: MARQUEUR_ACCES, expires_at: Math.floor(T0 / 1000) + 3600 });
+    expect(await remettre(court.p, appelant("cellule-1"), demande(INSTANCE_A))).toMatchObject({ type: "oauth" });
   });
 });

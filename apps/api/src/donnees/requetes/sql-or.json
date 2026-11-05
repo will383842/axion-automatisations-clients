@@ -1,0 +1,274 @@
+[
+ {
+  "requete": "compterPersonnes",
+  "parametres": {},
+  "etablissements": [
+   "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+  ],
+  "texte": "SELECT count(*)::int AS \"total\" FROM \"commun\".\"personnes\" AS \"t\" WHERE \"t\".\"etablissement_id\" = ANY($1::uuid[])",
+  "valeurs": [
+   [
+    "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+   ]
+  ],
+  "colonnes": [
+   "total"
+  ]
+ },
+ {
+  "requete": "compterPersonnes",
+  "parametres": {},
+  "etablissements": [
+   "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+   "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+  ],
+  "texte": "SELECT count(*)::int AS \"total\" FROM \"commun\".\"personnes\" AS \"t\" WHERE \"t\".\"etablissement_id\" = ANY($1::uuid[])",
+  "valeurs": [
+   [
+    "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+   ]
+  ],
+  "colonnes": [
+   "total"
+  ]
+ },
+ {
+  "requete": "compterPersonnes",
+  "parametres": {},
+  "etablissements": [],
+  "texte": "SELECT count(*)::int AS \"total\" FROM \"commun\".\"personnes\" AS \"t\" WHERE \"t\".\"etablissement_id\" = ANY($1::uuid[])",
+  "valeurs": [
+   []
+  ],
+  "colonnes": [
+   "total"
+  ]
+ },
+ {
+  "requete": "listerListesProspects",
+  "parametres": {},
+  "etablissements": [
+   "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+  ],
+  "texte": "SELECT \"t\".\"id\" AS \"id\", \"t\".\"nom\" AS \"nom\", \"t\".\"cree_le\" AS \"cree_le\" FROM \"commun\".\"listes_prospects\" AS \"t\" WHERE \"t\".\"etablissement_id\" = ANY($1::uuid[]) ORDER BY \"t\".\"cree_le\" DESC, \"t\".\"id\" ASC LIMIT $2::int8",
+  "valeurs": [
+   [
+    "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+   ],
+   50
+  ],
+  "colonnes": [
+   "id",
+   "nom",
+   "cree_le"
+  ]
+ },
+ {
+  "requete": "listerListesProspects",
+  "parametres": {},
+  "etablissements": [
+   "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+   "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+  ],
+  "texte": "SELECT \"t\".\"id\" AS \"id\", \"t\".\"nom\" AS \"nom\", \"t\".\"cree_le\" AS \"cree_le\" FROM \"commun\".\"listes_prospects\" AS \"t\" WHERE \"t\".\"etablissement_id\" = ANY($1::uuid[]) ORDER BY \"t\".\"cree_le\" DESC, \"t\".\"id\" ASC LIMIT $2::int8",
+  "valeurs": [
+   [
+    "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+   ],
+   50
+  ],
+  "colonnes": [
+   "id",
+   "nom",
+   "cree_le"
+  ]
+ },
+ {
+  "requete": "listerListesProspects",
+  "parametres": {},
+  "etablissements": [],
+  "texte": "SELECT \"t\".\"id\" AS \"id\", \"t\".\"nom\" AS \"nom\", \"t\".\"cree_le\" AS \"cree_le\" FROM \"commun\".\"listes_prospects\" AS \"t\" WHERE \"t\".\"etablissement_id\" = ANY($1::uuid[]) ORDER BY \"t\".\"cree_le\" DESC, \"t\".\"id\" ASC LIMIT $2::int8",
+  "valeurs": [
+   [],
+   50
+  ],
+  "colonnes": [
+   "id",
+   "nom",
+   "cree_le"
+  ]
+ },
+ {
+  "requete": "listerListesProspects",
+  "parametres": {
+   "limite": 5
+  },
+  "etablissements": [
+   "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+  ],
+  "texte": "SELECT \"t\".\"id\" AS \"id\", \"t\".\"nom\" AS \"nom\", \"t\".\"cree_le\" AS \"cree_le\" FROM \"commun\".\"listes_prospects\" AS \"t\" WHERE \"t\".\"etablissement_id\" = ANY($1::uuid[]) ORDER BY \"t\".\"cree_le\" DESC, \"t\".\"id\" ASC LIMIT $2::int8",
+  "valeurs": [
+   [
+    "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+   ],
+   5
+  ],
+  "colonnes": [
+   "id",
+   "nom",
+   "cree_le"
+  ]
+ },
+ {
+  "requete": "listerListesProspects",
+  "parametres": {
+   "limite": 5
+  },
+  "etablissements": [
+   "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+   "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+  ],
+  "texte": "SELECT \"t\".\"id\" AS \"id\", \"t\".\"nom\" AS \"nom\", \"t\".\"cree_le\" AS \"cree_le\" FROM \"commun\".\"listes_prospects\" AS \"t\" WHERE \"t\".\"etablissement_id\" = ANY($1::uuid[]) ORDER BY \"t\".\"cree_le\" DESC, \"t\".\"id\" ASC LIMIT $2::int8",
+  "valeurs": [
+   [
+    "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+   ],
+   5
+  ],
+  "colonnes": [
+   "id",
+   "nom",
+   "cree_le"
+  ]
+ },
+ {
+  "requete": "listerListesProspects",
+  "parametres": {
+   "limite": 5
+  },
+  "etablissements": [],
+  "texte": "SELECT \"t\".\"id\" AS \"id\", \"t\".\"nom\" AS \"nom\", \"t\".\"cree_le\" AS \"cree_le\" FROM \"commun\".\"listes_prospects\" AS \"t\" WHERE \"t\".\"etablissement_id\" = ANY($1::uuid[]) ORDER BY \"t\".\"cree_le\" DESC, \"t\".\"id\" ASC LIMIT $2::int8",
+  "valeurs": [
+   [],
+   5
+  ],
+  "colonnes": [
+   "id",
+   "nom",
+   "cree_le"
+  ]
+ },
+ {
+  "requete": "listerListesProspects",
+  "parametres": {
+   "limite": 200
+  },
+  "etablissements": [
+   "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+  ],
+  "texte": "SELECT \"t\".\"id\" AS \"id\", \"t\".\"nom\" AS \"nom\", \"t\".\"cree_le\" AS \"cree_le\" FROM \"commun\".\"listes_prospects\" AS \"t\" WHERE \"t\".\"etablissement_id\" = ANY($1::uuid[]) ORDER BY \"t\".\"cree_le\" DESC, \"t\".\"id\" ASC LIMIT $2::int8",
+  "valeurs": [
+   [
+    "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+   ],
+   200
+  ],
+  "colonnes": [
+   "id",
+   "nom",
+   "cree_le"
+  ]
+ },
+ {
+  "requete": "listerListesProspects",
+  "parametres": {
+   "limite": 200
+  },
+  "etablissements": [
+   "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+   "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+  ],
+  "texte": "SELECT \"t\".\"id\" AS \"id\", \"t\".\"nom\" AS \"nom\", \"t\".\"cree_le\" AS \"cree_le\" FROM \"commun\".\"listes_prospects\" AS \"t\" WHERE \"t\".\"etablissement_id\" = ANY($1::uuid[]) ORDER BY \"t\".\"cree_le\" DESC, \"t\".\"id\" ASC LIMIT $2::int8",
+  "valeurs": [
+   [
+    "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+   ],
+   200
+  ],
+  "colonnes": [
+   "id",
+   "nom",
+   "cree_le"
+  ]
+ },
+ {
+  "requete": "listerListesProspects",
+  "parametres": {
+   "limite": 200
+  },
+  "etablissements": [],
+  "texte": "SELECT \"t\".\"id\" AS \"id\", \"t\".\"nom\" AS \"nom\", \"t\".\"cree_le\" AS \"cree_le\" FROM \"commun\".\"listes_prospects\" AS \"t\" WHERE \"t\".\"etablissement_id\" = ANY($1::uuid[]) ORDER BY \"t\".\"cree_le\" DESC, \"t\".\"id\" ASC LIMIT $2::int8",
+  "valeurs": [
+   [],
+   200
+  ],
+  "colonnes": [
+   "id",
+   "nom",
+   "cree_le"
+  ]
+ },
+ {
+  "requete": "etatDonnees",
+  "parametres": {},
+  "etablissements": [
+   "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+  ],
+  "texte": "SELECT (SELECT count(*)::int FROM \"commun\".\"personnes\" AS \"t1\" WHERE \"t1\".\"etablissement_id\" = ANY($1::uuid[])) AS \"personnes\", (SELECT coalesce(sum(\"t2\".\"taille_octets\"), 0)::float8 FROM \"commun\".\"index_fichiers\" AS \"t2\" WHERE \"t2\".\"etablissement_id\" = ANY($1::uuid[])) AS \"taille_fichiers\"",
+  "valeurs": [
+   [
+    "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+   ]
+  ],
+  "colonnes": [
+   "personnes",
+   "taille_fichiers"
+  ]
+ },
+ {
+  "requete": "etatDonnees",
+  "parametres": {},
+  "etablissements": [
+   "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+   "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+  ],
+  "texte": "SELECT (SELECT count(*)::int FROM \"commun\".\"personnes\" AS \"t1\" WHERE \"t1\".\"etablissement_id\" = ANY($1::uuid[])) AS \"personnes\", (SELECT coalesce(sum(\"t2\".\"taille_octets\"), 0)::float8 FROM \"commun\".\"index_fichiers\" AS \"t2\" WHERE \"t2\".\"etablissement_id\" = ANY($1::uuid[])) AS \"taille_fichiers\"",
+  "valeurs": [
+   [
+    "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+   ]
+  ],
+  "colonnes": [
+   "personnes",
+   "taille_fichiers"
+  ]
+ },
+ {
+  "requete": "etatDonnees",
+  "parametres": {},
+  "etablissements": [],
+  "texte": "SELECT (SELECT count(*)::int FROM \"commun\".\"personnes\" AS \"t1\" WHERE \"t1\".\"etablissement_id\" = ANY($1::uuid[])) AS \"personnes\", (SELECT coalesce(sum(\"t2\".\"taille_octets\"), 0)::float8 FROM \"commun\".\"index_fichiers\" AS \"t2\" WHERE \"t2\".\"etablissement_id\" = ANY($1::uuid[])) AS \"taille_fichiers\"",
+  "valeurs": [
+   []
+  ],
+  "colonnes": [
+   "personnes",
+   "taille_fichiers"
+  ]
+ }
+]

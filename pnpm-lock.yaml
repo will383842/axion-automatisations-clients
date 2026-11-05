@@ -47,6 +47,12 @@ importers:
       '@aws-sdk/s3-request-presigner':
         specifier: ^3.1156.0
         version: 3.1156.0
+      '@axion-auto/contrats':
+        specifier: workspace:*
+        version: link:../../packages/contrats
+      '@axion-auto/donnees-module':
+        specifier: workspace:*
+        version: link:../../packages/donnees-module
       '@axion-auto/reglages-heritage':
         specifier: workspace:*
         version: link:../../packages/reglages-heritage
@@ -292,6 +298,12 @@ importers:
         version: 7.3.7(@types/node@22.20.5)(tsx@4.23.15)
 
   packages/donnees-fictives: {}
+
+  packages/donnees-module:
+    dependencies:
+      '@axion-auto/contrats':
+        specifier: workspace:*
+        version: link:../contrats
 
   packages/harnais:
     dependencies:

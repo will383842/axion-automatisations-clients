@@ -1,6 +1,6 @@
 # 0112 · C4 0.5.0 : requêtes déclarées en structure, lecture seule de `commun`
 
-Date : 05/11/2026 · Statut : proposé, en attente de l'accord de l'architecte (règle 5 de `CLAUDE.md`) et de l'audit en deux tours (T4-50a) · Contrat touché : C4 (0.4.0 → 0.5.0) · Migration : aucune
+Date : 05/11/2026 · Statut : accepté (arbitrage de l'architecte du 05/11/2026) · Contrat touché : C4 (0.4.0 → 0.5.0) · Migration : aucune
 
 ## Contexte
 L'ADR 0109 supprime tout texte SQL fourni par un module ; l'ADR 0043 avait ouvert `donnees` avec un champ `sql`. Le contrat doit suivre : un module déclare une forme, jamais du SQL. Aucune version importée ne porte de `donnees` non vide (vérifié le 05/11/2026), aucune fixture gelée n'est touchée (C4 n'est pas gelé).

@@ -3,6 +3,8 @@ import type { Connexion } from "../donnees/service.js";
 import type { ContexteChamp } from "../donnees/colonnes-chiffrees.js";
 import { construireManifeste, empreinteSha256, type FichierManifeste } from "./manifeste.js";
 import { ecrireZip, type EntreeZip } from "./zip-flux.js";
+import { GelPourLitige, exigerAucunGel } from "../gel/garde.js";
+import type { GelLitige } from "../retention/purger.js";
 
 // Export complet d'UN client (A-252, B-371, B-374, C-536) : un CSV (RFC 4180, UTF-8) et un JSON Lines par table de `commun`, `a_<code>` et `trace`,
 // ses fichiers, le manifeste SHA-256 signé et verifier.txt, dans un ZIP déposé chiffré dans son compartiment sous exports/<demande>.zip.
@@ -142,3 +144,72 @@ const modeEmploi = (cle: string, empreinteManifeste: string) => [
   `SHA-256 de manifeste.json : ${empreinteManifeste}`,
   "",
 ].join("\n");
+
+// ---- Demande, lien signé et retrait (T2-42b) ----
+// Le client vient toujours de la session (jamais du corps, d'un en-tête ni de l'adresse) ; le registre est lu PAR client : la demande de B avec le tenant de A
+// est un export absent. Le lien dure 15 minutes au plus (DUREE_LIEN_MAX de T1A-11) et chaque téléchargement est tracé. Le retrait ne vise que la COPIE d'export.
+export const DUREE_LIEN_EXPORT = 900;
+export const MOTIFS_EQUIPE = ["fin_de_contrat", "demande_ecrite_client"] as const;
+export type MotifEquipe = (typeof MOTIFS_EQUIPE)[number];
+export interface EntreeRegistre { tenantId: string; demande: string; cle: string; expireLe: Date; retire: boolean }
+export interface PortsService {
+  registre: {
+    trouver(tenantId: string, demande?: string): Promise<EntreeRegistre | undefined>;
+    expires(maintenant: Date): Promise<EntreeRegistre[]>;
+    marquerRetire(tenantId: string, demande: string): Promise<void>;
+  };
+  file: { ajouter(jobId: string, donnees: { tenantId: string; demande: string; acteur: string }): Promise<void> };
+  lien(tenantId: string, cle: string, secondes: number): Promise<string>;
+  retirerObjet(tenantId: string, cle: string): Promise<void>;
+  gel: Pick<GelLitige, "gelActif">;
+  retraitActif: boolean;
+  tracer(evenement: Record<string, unknown>): Promise<void>;
+  maintenant(): Date;
+  nouvelleDemande(): string;
+}
+
+export function creerServiceExport(p: PortsService) {
+  const demander = async (tenantId: string, acteur: string, motif?: MotifEquipe) => {
+    const demande = p.nouvelleDemande();
+    await p.file.ajouter(idTacheExport(tenantId, demande), { tenantId, demande, acteur });
+    await p.tracer({ type: "export_demande", tenantId, demande, acteur, ...(motif ? { motif } : {}) });
+    return { demande };
+  };
+  return {
+    // B-371 : à tout moment, sans condition autre que la session.
+    demander: (d: { tenantId: string; acteur: string }) => demander(d.tenantId, d.acteur),
+    // L'équipe ne lance l'export que pour une fin de contrat ou à la demande écrite du client, et la trace garde le motif.
+    async demanderParEquipe(d: { tenantId: string; acteur: string; motif: MotifEquipe }) {
+      if (!MOTIFS_EQUIPE.includes(d.motif)) throw new Error("motif_invalide");
+      return demander(d.tenantId, d.acteur, d.motif);
+    },
+    async lien(d: { tenantId: string; demande?: string; acteur: string }) {
+      const e = await p.registre.trouver(d.tenantId, d.demande);
+      if (!e || e.tenantId !== d.tenantId || e.retire) throw new Error("introuvable");
+      const maintenant = p.maintenant();
+      if (e.expireLe.getTime() <= maintenant.getTime()) throw new Error("export_expire");
+      const lien = await p.lien(d.tenantId, e.cle, DUREE_LIEN_EXPORT);
+      await p.tracer({ type: "export_telecharge", tenantId: d.tenantId, demande: e.demande, acteur: d.acteur });
+      return { demande: e.demande, expireLe: e.expireLe, lien, lienExpireLe: new Date(maintenant.getTime() + DUREE_LIEN_EXPORT * 1000) };
+    },
+    // Fermé par défaut (EXPORTS_RETRAIT_ACTIF) ; un gel pour litige suspend le retrait du client concerné, qui reprend après la levée (C-609).
+    async retirerExpires(): Promise<{ retires: number; suspendus: number; ferme: boolean }> {
+      if (!p.retraitActif) return { retires: 0, suspendus: 0, ferme: true };
+      let retires = 0;
+      let suspendus = 0;
+      for (const e of await p.registre.expires(p.maintenant())) {
+        try {
+          await exigerAucunGel(p.gel, e.tenantId, "retrait_exports");
+        } catch (x) {
+          if (x instanceof GelPourLitige) { suspendus++; await p.tracer({ type: "export_retrait_suspendu", tenantId: e.tenantId, demande: e.demande, motif: "gel_pour_litige" }); continue; }
+          throw x;
+        }
+        await p.retirerObjet(e.tenantId, e.cle);
+        await p.registre.marquerRetire(e.tenantId, e.demande);
+        await p.tracer({ type: "export_retire", tenantId: e.tenantId, demande: e.demande });
+        retires++;
+      }
+      return { retires, suspendus, ferme: false };
+    },
+  };
+}

@@ -18,3 +18,15 @@ Les PR parallèles se bloquaient par des conflits sur des fichiers où chacune a
 - Limite : deux PR ouvertes en parallèle qui prennent le même numéro d'ADR (deux noms de fichier différents) sont toutes deux vertes ; GitHub les fusionne l'une après l'autre sans conflit et la garde ne devient rouge que sur `main`, après coup. Même limite pour `spec/preuves.md` : deux PR qui ajoutent le même numéro en des endroits éloignés fusionnent sans conflit ; le test `[zero-conflit]` qui lit le vrai fichier tourne dans `pnpm test`, donc dans `ci.yml` sur `push: main`, et rend `main` rouge tout de suite.
 - Proposition à Will : activer sur `main` la protection « Require branches to be up to date before merging » (ou une file de fusion), seule façon de faire jouer la garde avant la fusion. Décision de Will, rien n'est changé ici.
 - Aucun workflow modifié.
+
+## Mise à jour du 05/11/2026 : un fichier de preuves par fiche
+Constat : `merge=union` ne joue pas pour GitHub. Après chaque fusion, toutes les PR ouvertes qui ajoutaient une ligne en fin de `spec/preuves.md` passaient en conflit (une session « fusion de main » et une nouvelle CI de 15 à 25 minutes chacune).
+
+Décision :
+- Toute nouvelle ligne de preuve ou de dette va dans un fichier NEUF `spec/preuves/<branche-assainie>.md` (minuscules, tout autre caractère que `a-z0-9` devient un tiret : `lot-0/preuves-par-fiche` → `spec/preuves/lot-0-preuves-par-fiche.md`). Une PR n'ajoute que son fichier ; elle n'édite ni celui d'une autre PR ni `spec/preuves.md`.
+- `spec/preuves.md` reste tel quel : historique, en lecture seule par convention. Il n'est pas déplacé, pour ne pas mettre en conflit les PR déjà ouvertes (qui peuvent encore y ajouter leur ligne jusqu'à leur fusion).
+- Les lecteurs passent par l'agrégat `scripts/agreger-preuves.ts` : historique d'abord, puis les fichiers de `spec/preuves/` dans l'ordre des noms (le `README.md` du dossier exclu). `couverture-req` et les tests qui lisent une dette l'utilisent ; une garde (test `[ADR-preuves]`) refuse un code qui lit encore `spec/preuves.md` directement et un nom de fichier non assaini.
+- Compléter une preuve déjà écrite : ligne `<numéro> (suite) → …` dans son propre fichier. Une seconde ligne `<numéro> → …` reste un doublon, refusé par `couverture-req` sur l'agrégat.
+- Vérifié par `git merge-tree` sur deux branches factices : deux fichiers neufs ne se conflictent pas ; l'ajout en fin de fichier, sans pilote local, se conflicte (témoin).
+
+Conséquences : `merge=union` reste pour l'historique tant que des PR anciennes y écrivent. Limite : deux branches de même nom assaini écriraient le même fichier (cas exclu par la règle une fiche = une branche). La garde de lecture directe est un motif, non exhaustif (chemin construit en morceaux).

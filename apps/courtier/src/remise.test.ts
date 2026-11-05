@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { creerJournal } from "./journal.js";
 import { creerRegistreJetons } from "./jetons.js";
 import { ErreurRemise, remettre, type Connexion, type PortsRemise } from "./remise.js";
@@ -162,5 +162,23 @@ describe("remise", () => {
     // la réservation est rendue : une fois le coffre rafraîchi, la même exécution est servie
     court.p.lireCoffre = async () => ({ access_token: MARQUEUR_ACCES, expires_at: Math.floor(T0 / 1000) + 3600 });
     expect(await remettre(court.p, appelant("cellule-1"), demande(INSTANCE_A))).toMatchObject({ type: "oauth" });
+  });
+
+  it("[A-337] un appel de coffre qui ne répond pas échoue après le délai (horloge factice), abandonné et la réservation libérée", async () => {
+    const taches: Array<() => void> = [];
+    let signal: AbortSignal | undefined;
+    let appels = 0;
+    const { p } = ports({
+      lireCoffre: (_chemin, s) => { appels += 1; signal = s; return appels === 1 ? new Promise<Record<string, unknown>>(() => undefined) : Promise.resolve({ access_token: MARQUEUR_ACCES, expires_at: Math.floor(T0 / 1000) + 3600 }); },
+      planifier: (f) => { taches.push(f); return () => undefined; },
+      delaiCoffreMs: 5000,
+    });
+    const attente = code(remettre(p, appelant("cellule-1"), demande(INSTANCE_A)));
+    await vi.waitFor(() => expect(taches.length).toBe(1));
+    taches.splice(0).forEach((f) => f());
+    expect((await attente)?.code).toBe("coffre_indisponible");
+    expect(signal?.aborted).toBe(true);
+    // la réservation est libérée : une nouvelle demande de la même exécution peut aboutir
+    await expect(remettre(p, appelant("cellule-1"), demande(INSTANCE_A))).resolves.toMatchObject({ type: "oauth" });
   });
 });

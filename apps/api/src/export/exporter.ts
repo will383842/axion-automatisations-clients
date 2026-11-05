@@ -152,6 +152,7 @@ export const MOTIFS_EQUIPE = ["fin_de_contrat", "demande_ecrite_client"] as cons
 export type MotifEquipe = (typeof MOTIFS_EQUIPE)[number];
 export interface EntreeRegistre { tenantId: string; demande: string; cle: string; expireLe: Date; retire: boolean }
 export interface TxRetrait { gelActif(tenantId: string): Promise<boolean> }
+const DEMANDE_SURE = /^[A-Za-z0-9-]{1,64}$/;
 export const cleExport = (demande: string) => `exports/${demande}.zip`;
 export interface PortsService {
   registre: {
@@ -202,6 +203,11 @@ export function creerServiceExport(p: PortsService) {
       for (const e of await p.registre.expires(p.maintenant())) {
         // Le retrait ne vise QUE la copie d'export : toute autre clé lue dans le registre est refusée sans suppression.
         if (e.cle !== cleExport(e.demande)) { await p.tracer({ type: "export_retrait_refuse", tenantId: e.tenantId, demande: e.demande, motif: "cle_inattendue" }); continue; }
+        // Défense en profondeur : la demande est un simple identifiant (jamais de « / » ni de « .. », la clé ne sort donc pas de exports/), et elle est relue
+        // PAR client : si le registre de ce client ne la connaît pas, l'entrée est refusée sans suppression.
+        if (!DEMANDE_SURE.test(e.demande)) { await p.tracer({ type: "export_retrait_refuse", tenantId: e.tenantId, demande: e.demande, motif: "cle_inattendue" }); continue; }
+        const propre = await p.registre.trouver(e.tenantId, e.demande);
+        if (!propre || propre.tenantId !== e.tenantId || propre.cle !== e.cle) { await p.tracer({ type: "export_retrait_refuse", tenantId: e.tenantId, demande: e.demande, motif: "hors_client" }); continue; }
         try {
           await p.sousVerrou(e.tenantId, (tx) => retirerSousGel(tx, (t, id) => t.gelActif(id), e.tenantId, "retrait_exports", async () => {
             // Intention AVANT la suppression irréversible : si la suite échoue, la trace reste ; l'objet absent est retiré sans erreur à la reprise.

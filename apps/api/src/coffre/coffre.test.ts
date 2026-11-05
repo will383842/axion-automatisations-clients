@@ -486,7 +486,8 @@ describe("infrastructure OpenBao", () => {
       }
     }
     const api = politique("api");
-    expect(api.filter((d) => d.chemin.startsWith("transit/")).every((d) => /\/cli-\*$/.test(d.chemin))).toBe(true);
+    // Seule exception nommée : signer le manifeste d'export (T2-42b).
+    expect(api.filter((d) => d.chemin.startsWith("transit/") && d.chemin !== "transit/sign/exports-signature").every((d) => /\/cli-\*$/.test(d.chemin))).toBe(true);
     expect(api.some((d) => d.chemin.startsWith("transit/export") || d.chemin.startsWith("transit/backup"))).toBe(false);
     expect(api.some((d) => d.chemin === "transit/keys/cli-*" && d.capacites.includes("read"))).toBe(false);
     expect(api.some((d) => chemin_correspond(d.chemin, "transit/keys/autre") )).toBe(false);

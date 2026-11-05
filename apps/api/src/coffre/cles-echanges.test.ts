@@ -242,7 +242,9 @@ describe("politiques OpenBao de la fiche T1A-07", () => {
   it("[C-015] @isolation aucune politique ne donne sudo, suppression, export ni chemin large ; courtier, equipe et api ne touchent pas technique/", () => {
     for (const role of ["signature", "echanges", "secours", "courtier", "equipe"]) expect(interdits(politique(role), role), role).toEqual([]);
     // L'API garde seulement la destruction d'une clé client (T1A-06) : jamais sudo, jamais sys/, jamais le chemin racine.
-    expect(interdits(politique("api")).filter((d) => d.capacites.includes("sudo") || !d.chemin.startsWith("transit/keys/cli-"))).toEqual([]);
+    // Seule exception nommée : la signature du manifeste d'export (T2-42b), en « update » sur transit/sign/exports-signature.
+    expect(interdits(politique("api")).filter((d) => d.chemin !== "transit/sign/exports-signature").filter((d) => d.capacites.includes("sudo") || !d.chemin.startsWith("transit/keys/cli-"))).toEqual([]);
+    expect(politique("api").filter((d) => d.chemin.includes("export"))).toEqual([{ chemin: "transit/sign/exports-signature", capacites: ["update"] }]);
     for (const role of ["courtier", "equipe"]) expect(politique(role).filter((d) => d.chemin.startsWith("technique") || d.chemin.includes("modules-signature")), role).toEqual([]);
     // L'API lit seulement le mot de passe lecture des bases clients (T2-37c) ; aucune clé d'échange, aucune clé de signature.
     expect(politique("api").filter((d) => d.chemin.startsWith("technique") && !/^technique\/data\/donnees\/\+\/lecture$/.test(d.chemin) || d.chemin.includes("modules-signature") || d.chemin.includes("echanges"))).toEqual([]);

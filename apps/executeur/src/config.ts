@@ -1,3 +1,5 @@
+import { clesAcceptees, EPINGLEES, type ClePublique, type Environnement, type ListesEpinglees } from "../../../packages/sdk-module/src/emballage/cles-publiques.ts";
+
 export type Palier = "essentiel" | "pro" | "etendu";
 
 export interface ConfigExecuteur {
@@ -9,6 +11,9 @@ export interface ConfigExecuteur {
   delaiRemiseMs: number;
   // Travaux traités en même temps par la cellule : plus grand que le plus grand palier, pour servir plusieurs clients.
   concurrence: number;
+  // « production » par défaut. Les clés acceptées en découlent : la liste épinglée du dépôt, jamais une valeur lue d'une requête ou d'une variable (T4-26).
+  environnement: Environnement;
+  clesAcceptees: readonly ClePublique[];
 }
 
 // Entier strictement positif ou refus au démarrage : une valeur non numérique ne passe jamais en silence.
@@ -20,9 +25,13 @@ function entier(env: Record<string, string | undefined>, cle: string, defaut: nu
   return n;
 }
 
-export function chargerConfig(env: Record<string, string | undefined>): ConfigExecuteur {
+export function chargerConfig(env: Record<string, string | undefined>, listes: ListesEpinglees = EPINGLEES): ConfigExecuteur {
   const hote = env.VALKEY_HOTE;
   if (!hote) throw new Error("VALKEY_HOTE est obligatoire");
+  const brut = env.EXECUTEUR_ENVIRONNEMENT ?? "production";
+  if (brut !== "production" && brut !== "recette") throw new Error("EXECUTEUR_ENVIRONNEMENT doit valoir production ou recette");
+  // Échec fermé : l'image de production fixe NODE_ENV=production ; elle ne peut jamais prendre la liste de la recette, quelle que soit la variable posée.
+  if (brut === "recette" && env.NODE_ENV === "production") throw new Error("EXECUTEUR_ENVIRONNEMENT=recette refusé sur un exécuteur de production (NODE_ENV=production)");
   return {
     cellule: env.EXECUTEUR_CELLULE ?? "auto-run-1",
     valkey: { host: hote, port: entier(env, "VALKEY_PORT", 6379) },
@@ -30,5 +39,7 @@ export function chargerConfig(env: Record<string, string | undefined>): ConfigEx
     bailPlaceMs: entier(env, "EXECUTEUR_BAIL_PLACE_MS", 300_000),
     delaiRemiseMs: entier(env, "EXECUTEUR_DELAI_REMISE_MS", 5_000),
     concurrence: entier(env, "EXECUTEUR_CONCURRENCE", 16),
+    environnement: brut,
+    clesAcceptees: clesAcceptees(brut, listes),
   };
 }

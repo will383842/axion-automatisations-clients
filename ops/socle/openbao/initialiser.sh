@@ -36,6 +36,9 @@ bao secrets enable -path=technique -version=2 kv >/dev/null
 bao write -f transit/keys/modules-signature type=ed25519 exportable=false >/dev/null
 # Clé de signature des exports des clients (B-374) : même réglage, jamais exportable ; la clé publique se lit, la privée ne sort pas.
 bao write -f transit/keys/exports-signature type=ed25519 exportable=false >/dev/null
+# Clés de la recette et de la production (T4-26) : séparées, jamais exportables ; seule modules-publication signe au passage à « publiée ».
+bao write -f transit/keys/modules-recette type=ed25519 exportable=false >/dev/null
+bao write -f transit/keys/modules-publication type=ed25519 exportable=false >/dev/null
 for role in api courtier equipe signature echanges secours; do
   bao policy write "$role" - <"$dossier/politiques/$role.hcl" >/dev/null
   jeton="$(bao token create -policy="$role" -no-default-policy -orphan -period=768h -format=json | jq -r '.auth.client_token')"
@@ -43,6 +46,13 @@ for role in api courtier equipe signature echanges secours; do
   printf '%s=%s\n' "$(printf '%s' "$role" | tr '[:lower:]' '[:upper:]')" "$jeton" >>"$fichier"
   unset jeton
 done
+
+# Publication des modules (T4-26) : politique et jeton à part, limités à transit/sign/modules-publication.
+bao policy write publication - <"$dossier/politiques/publication.hcl" >/dev/null
+jeton="$(bao token create -policy=publication -no-default-policy -orphan -period=768h -format=json | jq -r '.auth.client_token')"
+masquer "$jeton"
+printf 'PUBLICATION=%s\n' "$jeton" >>"$fichier"
+unset jeton
 
 # Provisionnement des bases des clients (T2-34) : politique et jeton à part, lus par le seul dossier apps/api/src/provisionnement.
 bao policy write provisionneur - <"$dossier/politiques/provisionneur.hcl" >/dev/null

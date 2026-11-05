@@ -18,6 +18,7 @@ describe("recette intégrée du socle", () => {
     for (const env of [
       { RECETTE_CIBLE: "production" },
       { RECETTE_CIBLE: "prod" },
+      { RECETTE_CIBLE: "Production" },
       { AXION_ENV: "production" },
       { NODE_ENV: "production" },
       { RECETTE_CIBLE: "inconnue" },

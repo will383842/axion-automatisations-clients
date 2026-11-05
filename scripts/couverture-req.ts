@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { agregerPreuves } from "./agreger-preuves.js";
 
 // Garde « exigence sans test » (C-555, C-543). Le corps de PR est lu comme du texte, jamais exécuté.
 
@@ -76,7 +77,7 @@ export function lireLigneExigences(corps: string): string | null {
   return null;
 }
 
-// `spec/preuves.md` est fusionné en union (ADR 0029) : deux branches qui prouvent le même numéro donnent un doublon, refusé ici.
+// Preuves = agrégat de `spec/preuves.md` et `spec/preuves/*.md` (ADR 0029) : deux branches qui prouvent le même numéro donnent un doublon, refusé ici.
 export function doublonsPreuves(preuves: string): string[] {
   const vus = new Set<string>();
   const erreurs: string[] = [];
@@ -139,7 +140,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const schema = JSON.parse(lire("spec/req-ids.schema.json")) as Schema;
   const reqs = validerReqIds(JSON.parse(lire("spec/req-ids.json")), schema);
   const tests = process.argv.slice(2).filter(existsSync).flatMap((f) => extraireTests(JSON.parse(lire(f))));
-  const preuves = existsSync("spec/preuves.md") ? lire("spec/preuves.md") : "";
+  const preuves = agregerPreuves();
   const res = verifierCouverture({ reqs, corps: process.env["CORPS_PR"] ?? "", tests, preuves });
   for (const c of res.couverture) console.log(`${c.id} → ${c.tests.join(", ")}`);
   for (const a of res.avertissements) console.warn(`avertissement : ${a}`);

@@ -71,6 +71,8 @@ describe("preuves : un fichier par fiche (ADR 0029, mise à jour)", () => {
     writeFileSync(join(d, "spec/preuves.md"), "C-392 → historique\n");
     writeFileSync(join(d, "spec/preuves/lot-1-a.md"), "C-392 → encore\n");
     expect(doublonsPreuves(agregerPreuves(d))).toEqual(["C-392 : présent deux fois dans spec/preuves.md"]);
+    writeFileSync(join(d, "spec/preuves/lot-1-a.md"), "C-392 (suite) → complément\n");
+    expect(doublonsPreuves(agregerPreuves(d))).toEqual([]);
   });
 
   it("[ADR-preuves] un nom de fichier non assaini sous spec/preuves/ est signalé", () => {
@@ -111,6 +113,8 @@ describe("preuves : un fichier par fiche (ADR 0029, mise à jour)", () => {
     expect(consommateursDirects('const p = readFileSync("spec/preuves.md", "utf8");')).toHaveLength(1);
     expect(consommateursDirects('const p = lire("../../../../../spec/preuves.md");')).toHaveLength(1);
     expect(consommateursDirects('new URL("../spec/preuves.md", import.meta.url)')).toHaveLength(1);
+    expect(consommateursDirects("grep -n C-392 spec/preuves.md")).toHaveLength(1);
+    expect(consommateursDirects('trouves.push("spec/preuves.md");')).toEqual([]);
     expect(consommateursDirects('// voir `spec/preuves.md`\nwriteFileSync(join(d, "spec/preuves.md"), "x");')).toEqual([]);
     const fichiers: string[] = [];
     const parcourir = (dossier: string) => {

@@ -5,6 +5,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { sqlPg } from "./adaptateur-sql.js";
 import { adminPg, nomBaseDe, nomsRoles, type Admin } from "./etapes-base.js";
 import { ecrireEchec, journalEchecs } from "./journal-echecs.js";
+import { grappePartagee } from "./verrou-grappe.js";
 // Journal des échecs (CI) : le rapport JSON n'est pas publié ; la cause de chaque test rouge s'imprime ici, adresses de connexion masquées.
 journalEchecs(import.meta.url);
 
@@ -30,6 +31,8 @@ const adresseAdmin = () => {
 };
 const adresseBouncer = () => `postgresql://x:x@${docker("inspect", "-f", '{{(index .NetworkSettings.Networks "socle_interne").IPAddress}}', conteneur("pgbouncer-donnees"))}:6432/postgres`;
 const ADMIN = process.env["T235_PG_ADMIN_URL"] ?? adresseAdmin();
+// Verrou PARTAGÉ de la grappe données : ce fichier ne tourne jamais pendant la saturation [A-236] de tests/donnees/grappe.int.test.ts (53300 en CI).
+grappePartagee(() => ADMIN);
 const BOUNCER = process.env["T235_PGBOUNCER_URL"] ?? adresseBouncer();
 const empreinte = (mdp: string) => {
   const sel = randomBytes(16);

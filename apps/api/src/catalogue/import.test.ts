@@ -40,13 +40,13 @@ function tar(entrees: Entree[]): Uint8Array {
 }
 const archiver = (a: Artefact, extra: Entree[] = []) => gzipSync(tar([...Object.entries(a).map(([nom, contenu]) => ({ nom, contenu })), ...extra]));
 
-function modeleSigne(code: string, o: { version?: string; licence?: string; signataire?: SignataireMemoire; marque?: string; donnees?: unknown } = {}) {
+function modeleSigne(code: string, o: { version?: string; licence?: string; signataire?: SignataireMemoire; marque?: string; donnees?: unknown; brut?: (texte: string) => string } = {}) {
   const signataire = o.signataire ?? new SignataireMemoire("cle-essai-1");
   const man = JSON.parse(manifesteJson({ ...moduleExemple, code, version: o.version ?? "1.0.0", paquet: `@axion-auto/${code}` })) as object & { donnees?: unknown };
   if (o.donnees !== undefined) man.donnees = o.donnees;
   const fichiers: Artefact = {
     "module.js": octets(`export default 1; // ${o.marque ?? "a"}\n`),
-    "manifest.json": octets(JSON.stringify(man)),
+    "manifest.json": octets(o.brut ? o.brut(JSON.stringify(man)) : JSON.stringify(man)),
     "sbom.cdx.json": octets(JSON.stringify(sbom(code, o.version ?? "1.0.0", o.licence ? [{ nom: "lib-essai", version: "1.0.0", licence: o.licence }] : []))),
   };
   return { signataire, cles: [{ idCle: "cle-essai-1", publique: signataire.clePublique }], artefact: signerArtefact(fichiers, signataire) };
@@ -106,7 +106,7 @@ function monter(o: { ouvert?: boolean; doublons?: (nom: string) => Promise<strin
     serveur.inject({ method: "POST", url: "/api/catalogue/v1/versions", payload: Buffer.from(archive), headers: { "content-type": "application/gzip", "x-test-acteur": "equipe", "x-automatisation": code, ...entetes } });
   return { s3, depot, signataire, cles, importeur, serveur, poster };
 }
-const signeAvec = (m: ReturnType<typeof monter>, code: string, o: { version?: string; licence?: string; marque?: string; donnees?: unknown } = {}) => modeleSigne(code, { ...o, signataire: m.signataire }).artefact;
+const signeAvec = (m: ReturnType<typeof monter>, code: string, o: { version?: string; licence?: string; marque?: string; donnees?: unknown; brut?: (texte: string) => string } = {}) => modeleSigne(code, { ...o, signataire: m.signataire }).artefact;
 
 describe("vérification de l'artefact par la console", () => {
   it("[C-248] un artefact dont le SBOM contient une licence AGPL est refusé par la console même si le poste l'a accepté", () => {
@@ -404,5 +404,44 @@ describe("données déclarées à l'import", () => {
     const m = monter();
     expect((await m.poster(archiver(signeAvec(m, "module-sans-donnees")))).statusCode).toBe(201);
     expect((await m.poster(archiver(signeAvec(m, "module-avec-donnees", { donnees: requete(lignes("nom")) })), "ACC-002")).statusCode).toBe(201);
+  });
+  // Le manifest.json signé est ce que le lecteur de l'exécuteur relira : la vérification porte sur ses octets, pas sur la copie de zod.
+  const charge = '{"donnees":{"requetes":[{"nom":"lire-essai","mode":"lecture","parametres":{},"forme":{"type":"simple","table":"commun.personnes","sortie":{"lignes":[{"colonne":"courriel_chiffre"}]},"limite":{"fixe":10}}}],"actions":[]}}';
+  const sansRien = async (brut: (t: string) => string, nom: string) => {
+    const m = monter();
+    const rep = await m.poster(archiver(signeAvec(m, nom, { brut })));
+    expect(rep.statusCode).toBe(422);
+    expect(JSON.stringify(rep.json())).toContain("manifeste_invalide");
+    expect(m.depot.versions).toHaveLength(0);
+    expect(m.depot.automatisations.size).toBe(0);
+    expect(m.s3.objets.size).toBe(0);
+  };
+  const ajout = (cle: string) => (t: string) => t.replace(/^\{/, `{${cle},`);
+  it("[C-624] une clé __proto__ à la racine du manifeste est refusée à l'import, sans rien ranger ni enregistrer", async () => {
+    await sansRien(ajout(`"__proto__":${charge}`), "module-proto-racine");
+  });
+  it("[C-624] une clé __proto__ imbriquée ailleurs que dans donnees est refusée, sans rien ranger ni enregistrer", async () => {
+    await sansRien(ajout(`"connecteurs2":{"a":[{"__proto__":${charge}}]}`), "module-proto-imbrique");
+    await sansRien(ajout(`"schemaX":{"b":{"__proto__":{}}}`), "module-proto-vide");
+  });
+  it("[C-624] une clé __proto__ écrite en échappement unicode est refusée", async () => {
+    await sansRien(ajout(`"\\u005f_proto__":${charge}`), "module-proto-unicode");
+  });
+  it("[C-624] constructor portant prototype est refusé, sans rien ranger ni enregistrer", async () => {
+    await sansRien(ajout(`"constructor":{"prototype":${charge}}`), "module-constructeur");
+  });
+  it("[C-624] un manifeste trop profond est refusé proprement, sans rien ranger ni enregistrer", async () => {
+    await sansRien(ajout(`"profond":${"[".repeat(500)}${"]".repeat(500)}`), "module-profond");
+  });
+  it("[C-624] clés dupliquées : la vérification voit la même valeur que le lecteur (la dernière)", async () => {
+    await sansRien((t) => t.replace(/^\{/, `{"donnees":{"requetes":[],"actions":[]},`).replace(/\}$/, `,"donnees":${JSON.parse(charge).donnees ? JSON.stringify(JSON.parse(charge).donnees) : "{}"}}`), "module-doublon-mauvais-dernier");
+    const m = monter();
+    const bon = (t: string) => t.replace(/^\{/, `{"donnees":${JSON.stringify(JSON.parse(charge).donnees)},`).replace(/\}$/, `,"donnees":{"requetes":[],"actions":[]}}`);
+    expect((await m.poster(archiver(signeAvec(m, "module-doublon-bon-dernier", { brut: bon })))).statusCode).toBe(201);
+  });
+  it("[C-624] la casse ne cache rien : DONNEES ou __PROTO__ restent de simples clés inertes, donnees reste vérifiée", async () => {
+    const m = monter();
+    const rep = await m.poster(archiver(signeAvec(m, "module-casse", { brut: ajout(`"DONNEES":${JSON.parse(charge).donnees ? JSON.stringify(JSON.parse(charge).donnees) : "{}"},"__PROTO__":{"a":1}`) })));
+    expect(rep.statusCode).toBe(201);
   });
 });

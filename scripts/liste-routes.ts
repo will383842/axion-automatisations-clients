@@ -3,6 +3,7 @@ import ts from "typescript";
 import { brancherErreurs } from "../apps/api/src/plugins/erreurs.js";
 import { routeATrancher } from "../apps/api/src/routes/a-trancher.js";
 import { routeCanaux } from "../apps/api/src/routes/canaux.js";
+import { routeImportCatalogue } from "../apps/api/src/routes/catalogue/import.js";
 import { routeCrm } from "../apps/api/src/routes/crm.js";
 import { routeDonnees } from "../apps/api/src/routes/donnees.js";
 import { routeEntree } from "../apps/api/src/routes/entree.js";
@@ -33,6 +34,7 @@ export const EXEMPTEES: Readonly<Record<string, string>> = {
   "POST /api/console/v1/entree": "Entrée C6 : jeton signé dans le corps, réponse toujours la même adresse de connexion.",
   "POST /api/hub/v1/faits": "Réception du canal Hub : signature vérifiée, interrupteur fermé par défaut, aucun utilisateur de client.",
   "POST /api/crm/v1/evenements": "Réception du canal CRM : signature vérifiée, interrupteur fermé par défaut, aucun utilisateur de client.",
+  "POST /api/catalogue/v1/versions": "Import d'une version (T4-25) : réservé à l'équipe ou au poste de la recette signé, catalogue commun sans donnée de client, interrupteur IMPORT_OUVERT fermé par défaut.",
 };
 const DECLARATION = /\[C-536\] @isolation (GET|POST|PUT|PATCH|DELETE) (\/[^\s"'`]*)/g;
 
@@ -103,6 +105,7 @@ export async function listerRoutes(): Promise<RouteListee[]> {
   const entrant = { cles: rien, memoire: rien, actif: () => false };
   brancherHub(appli, { entrant, recepteur: { alerter: () => undefined } as never });
   routeCrm(appli, { entrant, recepteur: rien, file: rien });
+  routeImportCatalogue(appli, { ouvert: false, importeur: rien, authentifier: garde as never });
   await appli.ready();
   await appli.close();
   return [...vues.values()].sort((a, b) => `${a.chemin} ${a.methode}`.localeCompare(`${b.chemin} ${b.methode}`));

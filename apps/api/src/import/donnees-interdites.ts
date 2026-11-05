@@ -1,50 +1,74 @@
 // Données interdites à l'import (T2-47, C-060) : on regarde les NOMS de colonnes, jamais le contenu. Refuser = ne pas stocker ; rien d'existant n'est purgé.
 import { ErreurRegleMetier, type Requeteur } from "../instances/activer.ts";
-import { CATEGORIES, COLLES, type Categorie, EXCEPTIONS, MOTIFS, MOTS_VIDES } from "./motifs-interdits.ts";
+import { AFFIXES, CATEGORIES, COLLES, CONFUSABLES, type Categorie, EXCEPTIONS, MOTIFS, MOTS_VIDES } from "./motifs-interdits.ts";
 
 export const MOTIF_DONNEES_INTERDITES = "donnees_interdites";
 export type ColonneInterdite = { colonne: string; categorie: Categorie };
 
-// Racine d'un mot : sans chiffres en fin de mot ni « s » final (« IBANs », « iban2 », « IBAN1 » → « iban »).
+// Racine d'un mot, utilisée seulement pour comparer les EXCEPTIONS (des deux côtés) : sans chiffres ni « s » final.
 const racine = (mot: string) => mot.replace(/\d+$/, "").replace(/s$/, "");
 
-// NFKD (pleine largeur, accents), caractères invisibles retirés, séparation des mots collés en casse mixte (« numSecu »), minuscules, tout ce qui n'est pas lettre ou chiffre devient `_`,
-// petits mots vides retirés, chaque mot ramené à sa racine : « Numéro de Sécurité-Sociale » → « numero_securite_sociale ».
-const normaliser = (nom: string, sansVides = true) =>
+// NFKD (pleine largeur, accents), caractères invisibles retirés, lettres grecques ou cyrilliques ressemblantes remplacées par la lettre latine,
+// séparation des mots collés en casse mixte (« PassWord », « IBANClient »), minuscules ; tout ce qui n'est pas une lettre (chiffres compris) sépare les mots.
+// La casse est lue AVANT toute suppression de lettre : aucune racine n'est retirée ici (« password » ne devient jamais « pas »).
+const mots = (nom: string): string[] =>
   nom
     .normalize("NFKD")
     .replace(/[\p{M}\p{Cf}\p{Cc}]/gu, "")
-    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/[\u0131\u0370-\u03ff\u0400-\u04ff\u0500-\u052f]/g, (c) => CONFUSABLES[c] ?? c)
+    .replace(/([a-z])([A-Z])/g, "$1_$2")
     .replace(/([A-Z]+)([A-Z][a-z])/g, "$1_$2")
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .split("_")
-    .filter((m) => m && !(sansVides && MOTS_VIDES.includes(m)))
-    .map(racine)
-    .filter(Boolean)
-    .join("_");
+    .split(/[^a-z]+/)
+    .filter(Boolean);
 
-// Un motif court doit être un ou plusieurs MOTS entiers (« nir » n'est pas dans « senior ») ; un motif long (8 lettres et plus) est aussi cherché collé (« numerosecuritesociale »).
-// Les motifs de COLLES (« iban ») sont aussi cherchés en début ou en fin du nom collé (« ibanclient », « clientiban », « i b a n »).
-function correspond(colonne: string, motif: string, brut: string): boolean {
-  const mots = colonne.split("_");
-  const m = motif.split("_").map(racine);
-  for (let i = 0; i + m.length <= mots.length; i++) if (m.every((x, j) => mots[i + j] === x)) return true;
-  const colle = m.join("");
-  const nomColle = brut.split("_").join(""); // sans retrait des petits mots : « i b a n » contient le mot « n »
-  if (colle.length >= 8 && nomColle.includes(colle)) return true;
-  return COLLES.includes(motif) && (nomColle.startsWith(colle) || nomColle.endsWith(colle));
+const egal = (mot: string, m: string) => mot === m || mot === `${m}s`;
+
+const colle = (motif: string) => motif.split("_").join("");
+const JETONS_MOTIFS = new Set(CATEGORIES.flatMap((c) => MOTIFS[c].map(colle)));
+const JETONS = [...new Set([...JETONS_MOTIFS, ...AFFIXES])].sort((x, y) => y.length - x.length);
+
+// Vrai si `texte` se découpe entièrement en jetons connus (motifs ou affixes, avec « s » final facultatif) dont le motif `cible`.
+function decoupable(texte: string, cible: string): boolean {
+  const atteint = new Set<string>(["0:0"]);
+  for (let i = 0; i < texte.length; i++) {
+    for (const utilise of [0, 1]) {
+      if (!atteint.has(`${i}:${utilise}`)) continue;
+      for (const j of JETONS) {
+        for (const fin of ["", "s"]) {
+          const t = j + fin;
+          if (texte.startsWith(t, i)) atteint.add(`${i + t.length}:${utilise || (j === cible ? 1 : 0)}`);
+        }
+      }
+    }
+  }
+  return atteint.has(`${texte.length}:1`);
 }
 
-const exceptionsNormalisees = EXCEPTIONS.map((e) => e.split("_").map(racine).join("_"));
-const estException = (colonne: string) => exceptionsNormalisees.includes(colonne);
+// Un motif court doit être un ou plusieurs MOTS entiers (« nir » n'est pas dans « senior ») ; un motif long (8 lettres et plus) est aussi cherché collé (« numerosecuritesociale »).
+// Les motifs de COLLES (« iban ») sont aussi cherchés en début ou en fin du nom collé (« ibanclient », « clientiban », « i b a n ») ;
+// tout motif est cherché dans un mot collé qui se découpe en motif + affixes connus, dans les deux sens (« ribclient », « moncodenirfr », « numsecuclient »).
+function correspond(utiles: string[], tous: string[], motif: string): boolean {
+  const m = motif.split("_");
+  for (let i = 0; i + m.length <= utiles.length; i++) if (m.every((x, j) => egal(utiles[i + j] as string, x))) return true;
+  const c = colle(motif);
+  const nomColle = tous.join(""); // sans retrait des petits mots : « i b a n » contient le mot « n »
+  if (c.length >= 8 && nomColle.includes(c)) return true;
+  if (COLLES.includes(motif) && (nomColle.startsWith(c) || nomColle.endsWith(c))) return true;
+  return [...tous, nomColle].some((t) => t.length >= c.length && decoupable(t, c));
+}
+
+const normaliserException = (nom: string) => mots(nom).map(racine).join("_");
+const exceptionsNormalisees = EXCEPTIONS.map(normaliserException);
+const estException = (nom: string) => exceptionsNormalisees.includes(normaliserException(nom));
 
 export function detecter(colonnes: string[]): ColonneInterdite[] {
   const trouvees: ColonneInterdite[] = [];
   for (const colonne of colonnes) {
-    const n = normaliser(colonne);
-    if (estException(n)) continue;
-    const categorie = CATEGORIES.find((c) => MOTIFS[c].some((m) => correspond(n, m, normaliser(colonne, false))));
+    if (estException(colonne)) continue;
+    const tous = mots(colonne);
+    const utiles = tous.filter((m) => !MOTS_VIDES.includes(m));
+    const categorie = CATEGORIES.find((c) => MOTIFS[c].some((m) => correspond(utiles, tous, m)));
     if (categorie) trouvees.push({ colonne, categorie });
   }
   return trouvees;

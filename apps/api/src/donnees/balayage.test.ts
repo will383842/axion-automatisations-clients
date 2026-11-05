@@ -8,15 +8,14 @@ const session: SessionDonnees = { tenantId: A, role: "client", acteur: "u1", eta
 function monde() {
   let t = Date.parse("2026-11-02T10:00:00Z");
   const fermes: string[] = [];
-  let liberer!: () => void;
   const ports: PortsDonnees = {
     base: async () => ({ nomBase: "cli_1111", etat: "active" }),
-    ouvrir: async (b, r) => ({ requete: async () => { if (r === "app") await new Promise<void>((ok) => { liberer = ok; }); return []; }, fermer: async () => void fermes.push(b) }),
+    ouvrir: async (b) => ({ requete: async () => [], fermer: async () => void fermes.push(b) }),
     accordValide: async () => false,
     vueRangee: () => undefined,
     maintenant: () => new Date(t),
   };
-  return { service: creerServiceDonnees(ports), fermes, avancer: (ms: number) => { t += ms; }, liberer: () => liberer() };
+  return { service: creerServiceDonnees(ports), fermes, avancer: (ms: number) => { t += ms; } };
 }
 
 describe("fermeture des pools par minuterie", () => {
@@ -38,18 +37,16 @@ describe("fermeture des pools par minuterie", () => {
   });
 
   it("[A-170] une requête en cours n'est jamais interrompue par le balayage, même après le délai", async () => {
-    const m = monde();
-    const ecriture: SessionDonnees = { ...session };
-    const ecrire = { ...(await import("./requetes/liste.js")).LISTE_BLANCHE };
-    const { z } = await import("zod");
-    const svc = creerServiceDonnees({ base: async () => ({ nomBase: "cli_1111", etat: "active" }), ouvrir: async (b, r) => ({ requete: async () => { if (r === "app") await new Promise<void>((ok) => { m.liberer = ok; }); return []; }, fermer: async () => void m.fermes.push(b) }), accordValide: async () => false, vueRangee: () => undefined, maintenant: () => new Date(Date.parse("2026-11-02T10:00:00Z") + 0) }, { ...ecrire, ecrireListe: { nom: "ecrireListe", schema: z.object({}), sql: "UPDATE commun.listes_prospects SET nom = nom WHERE {{filtre}}", mode: "ecriture", metadonnees: false, parEtablissement: true, colonnes: [], valeurs: () => [] } });
-    const enCours = svc.executer(ecriture, "ecrireListe", {});
+    const fermes: string[] = [];
+    let liberer!: () => void;
+    const svc = creerServiceDonnees({ base: async () => ({ nomBase: "cli_1111", etat: "active" }), ouvrir: async (b) => ({ requete: async () => { await new Promise<void>((ok) => { liberer = ok; }); return []; }, fermer: async () => void fermes.push(b) }), accordValide: async () => false, vueRangee: () => undefined, maintenant: () => new Date(Date.parse("2026-11-02T10:00:00Z")) });
+    const enCours = svc.executer(session, "compterPersonnes", {});
     await new Promise((r) => setTimeout(r, 0));
     await svc.balayer(-1);
-    expect(m.fermes).toEqual([]);
-    m.liberer();
+    expect(fermes).toEqual([]);
+    liberer();
     await enCours;
     await svc.balayer(-1);
-    expect(m.fermes).toEqual(["cli_1111"]);
+    expect(fermes).toEqual(["cli_1111"]);
   });
 });

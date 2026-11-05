@@ -6,6 +6,7 @@ import type { RegistreJetons } from "./jetons.js";
 // La signature de la cellule et le jeton d'instance sont vérifiés par l'API (le courtier ne lit pas technique/) : ports en entrée.
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const MARGE_MS = 60_000;
+const DUREE_RESTANTE_MIN_MS = 30_000; // un jeton fournisseur plus court est refusé : il expirerait avant usage
 const CLES = ["connexionId", "executionId", "instanceId"];
 
 export class ErreurRemise extends Error {
@@ -16,17 +17,23 @@ export class ErreurRemise extends Error {
 }
 
 export interface Connexion {
+  instanceId: string; // le couple (instanceId, connexionId) est revérifié par le courtier
+  connexionId: string;
   tenantId: string;
   celluleCode: string | null;
   famille: "oauth" | "messagerie" | "base";
   referenceCoffre: string;
-  portees: readonly string[];
+  portees: readonly string[]; // accordées à la connexion
+  porteesModule: readonly string[]; // déclarées par le module de l'instance ; le jeton porte l'intersection
 }
 export interface PortsRemise {
   // Demande à l'API de vérifier le jeton d'instance (clé ji) : le courtier ne lit jamais echanges/ji.
   verifierJetonInstance(jeton: string, portee: { instanceId: string; cellule: string }): Promise<boolean>;
   // Lecture de la table connexions sous RLS ; tenantId vient de la base, jamais de la demande.
   connexion(instanceId: string, connexionId: string): Promise<Connexion | undefined>;
+  // Contrat : vrai seulement si l'exécution existe, est EN COURS, et appartient à cette instance et à cette cellule
+  // (table executions sous RLS ou exécution signée par l'API). Inconnue, terminée, autre instance ou panne : faux.
+  executionEnCours(e: { executionId: string; instanceId: string; cellule: string }): Promise<boolean>;
   lireCoffre(chemin: string): Promise<Record<string, unknown>>;
   jetons: RegistreJetons;
   journal: Journal;
@@ -55,21 +62,25 @@ export async function remettre(p: PortsRemise, appelant: { cellule: string; jeto
     p.journal.tracer({ evenement: "remise_refusee", ...base, ...extra, code });
     throw new ErreurRemise(code);
   };
+  if (!appelant.jetonInstance) return refuser("refusee");
   // Même code pour jeton refusé, instance inconnue, autre cellule ou référence hors du client : aucune raison donnée.
   if (!(await p.verifierJetonInstance(appelant.jetonInstance, { instanceId: d.instanceId, cellule: appelant.cellule }).catch(() => false))) return refuser("refusee");
   const c = await p.connexion(d.instanceId, d.connexionId).catch(() => undefined);
-  if (!c || c.celluleCode !== appelant.cellule || !UUID.test(c.tenantId)) return refuser("refusee");
+  if (!c || c.celluleCode !== appelant.cellule || !UUID.test(c.tenantId) || c.instanceId !== d.instanceId || c.connexionId !== d.connexionId) return refuser("refusee");
   const chemin = cheminDeLaReference(c.referenceCoffre, c.tenantId);
   if (!chemin) return refuser("refusee", { tenantId: c.tenantId });
   if (c.famille === "base") return refuser("famille_non_geree", { tenantId: c.tenantId, famille: c.famille });
+  // L'exécution doit exister, être en cours et appartenir à cette instance et cette cellule, AVANT toute réservation ou lecture du coffre.
+  if (!(await p.executionEnCours({ executionId: d.executionId, instanceId: d.instanceId, cellule: appelant.cellule }).catch(() => false))) return refuser("refusee", { tenantId: c.tenantId });
   const duree = p.dureeExecutionMs + MARGE_MS;
-  if (!p.jetons.reserver(d.executionId, d.connexionId, duree)) return refuser("deja_remise", { tenantId: c.tenantId });
+  if (!(await p.jetons.reserver(d.executionId, d.connexionId))) return refuser("deja_remise", { tenantId: c.tenantId });
 
-  let valeur: Record<string, unknown>;
+  // Messagerie : le mot de passe reste dans le coffre, c'est le mandataire qui le lit ; le courtier ne le lit pas.
+  let valeur: Record<string, unknown> = {};
   try {
-    valeur = await p.lireCoffre(chemin);
+    if (c.famille === "oauth") valeur = await p.lireCoffre(chemin);
   } catch {
-    p.jetons.liberer(d.executionId, d.connexionId);
+    await p.jetons.liberer(d.executionId, d.connexionId);
     return refuser("coffre_indisponible", { tenantId: c.tenantId }); // le message d'origine est écarté : il pourrait contenir la valeur
   }
   const fin = p.maintenant() + duree;
@@ -77,13 +88,13 @@ export async function remettre(p: PortsRemise, appelant: { cellule: string; jeto
   if (c.famille === "oauth") {
     const acces = valeur["access_token"];
     const expireFournisseur = valeur["expires_at"];
-    if (typeof acces !== "string" || acces === "" || typeof expireFournisseur !== "number" || expireFournisseur * 1000 <= p.maintenant()) {
-      p.jetons.liberer(d.executionId, d.connexionId);
+    if (typeof acces !== "string" || acces === "" || typeof expireFournisseur !== "number" || expireFournisseur * 1000 - p.maintenant() < DUREE_RESTANTE_MIN_MS) {
+      await p.jetons.liberer(d.executionId, d.connexionId);
       return refuser("valeur_invalide", { tenantId: c.tenantId });
     }
     remise = { type: "oauth", jetonAcces: acces, expire: new Date(Math.min(fin, expireFournisseur * 1000)).toISOString() };
   } else {
-    const { jeton, expire } = p.jetons.emettre({ tenantId: c.tenantId, executionId: d.executionId, portees: c.portees }, duree);
+    const { jeton, expire } = p.jetons.emettre({ tenantId: c.tenantId, instanceId: d.instanceId, connexionId: d.connexionId, executionId: d.executionId, portees: c.portees.filter((x) => c.porteesModule.includes(x)) }, duree);
     remise = { type: "mandataire", jeton, expire: expire.toISOString() };
   }
   p.journal.tracer({ evenement: "remise", ...base, tenantId: c.tenantId, famille: c.famille });

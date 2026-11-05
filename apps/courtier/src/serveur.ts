@@ -29,7 +29,7 @@ export function creerServeur(p: PortsServeur): Server {
         let brut: unknown;
         try { brut = JSON.parse(corps.toString("utf8")); } catch { return repondre(400, { code: "demande_invalide" }); }
         try {
-          repondre(200, await remettre(p, { cellule, jetonInstance: en("x-axion-jeton-instance") }, brut));
+          repondre(200, await remettre(p, { cellule, jetonInstance: /^Instance (\S+)$/.exec(en("authorization"))?.[1] ?? "" }, brut));
         } catch (e) {
           if (e instanceof ErreurRemise) return repondre(STATUT[e.code], { code: e.code });
           p.journal.tracer({ evenement: "erreur_interne", cellule, code: "interne" });

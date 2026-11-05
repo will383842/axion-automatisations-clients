@@ -10,7 +10,12 @@ function blocs(texte: string): Bloc[] {
   return [...sansCommentaires(texte).matchAll(/path\s+"([^"]+)"\s*\{([^}]*)\}/g)].map((m) => ({ chemin: m[1]!, capacites: [...(m[2]!.match(/capabilities\s*=\s*\[([^\]]*)\]/)?.[1] ?? "").matchAll(/"([^"]+)"/g)].map((c) => c[1]!) }));
 }
 // Un chemin de politique couvre un chemin cible : « + » vaut exactement un segment, « * » (en dernier caractère) vaut tout suffixe.
-const couvre = (motif: string, cible: string) => motif === cible;
+const echapper = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const couvre = (motif: string, cible: string) => {
+  const final = motif.endsWith("*");
+  const corps = (final ? motif.slice(0, -1) : motif).split("+").map(echapper).join("[^/]+");
+  return new RegExp(`^${corps}${final ? ".*" : ""}$`).test(cible);
+};
 const lecteurs = (cible: string) => readdirSync(DOSSIER).filter((f) => f.endsWith(".hcl")).filter((f) => blocs(lire(f)).some((b) => couvre(b.chemin, cible) && b.capacites.some((c) => ["read", "sudo"].includes(c))));
 
 describe("politiques OpenBao du courtier", () => {

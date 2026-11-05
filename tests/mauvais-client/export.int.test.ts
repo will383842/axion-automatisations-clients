@@ -21,7 +21,7 @@ async function jouer(url: string, entetes: Record<string, string> = {}) {
     file: { ajouter: async () => undefined },
     lien: async (t, cle) => { liens.push(`${t}:${cle}`); return "https://stockage.test/lien"; },
     retirerObjet: async () => undefined,
-    gel: { gelActif: async () => false },
+    sousVerrou: async (_t, f) => f({ gelActif: async () => false }),
     retraitActif: false,
     tracer: async () => undefined,
     maintenant: () => T0,

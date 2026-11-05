@@ -26,7 +26,6 @@ function monde(o: { retraitActif?: boolean; gel?: string[]; gelDansTransaction?:
     file: { async ajouter(id, donnees) { jobs.push({ id, donnees }); } },
     async lien(tenantId, cle, secondes) { liens.push({ tenantId, cle, secondes }); return `https://stockage.test/${cle}?sig=x`; },
     async retirerObjet(t, cle) { casse("objet"); ordre.push("objet"); retires.push(`${t}:${cle}`); },
-    gel: { async gelActif(t) { return (o.gel ?? []).includes(t); } },
     // Le verrou par client : le gel est relu DANS cette transaction (un gel posé entre la liste des échus et la suppression est vu ici).
     async sousVerrou(_t, f) { return f({ gelActif: async (t: string) => (o.gel ?? []).includes(t) || (o.gelDansTransaction ?? []).includes(t) }); },
     retraitActif: o.retraitActif ?? false,

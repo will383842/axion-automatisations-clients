@@ -3,8 +3,7 @@ import type { Connexion } from "../donnees/service.js";
 import type { ContexteChamp } from "../donnees/colonnes-chiffrees.js";
 import { construireManifeste, empreinteSha256, type FichierManifeste } from "./manifeste.js";
 import { ecrireZip, type EntreeZip } from "./zip-flux.js";
-import { GelPourLitige, exigerAucunGel } from "../gel/garde.js";
-import type { GelLitige } from "../retention/purger.js";
+import { GelPourLitige, retirerSousGel } from "../gel/garde.js";
 
 // Export complet d'UN client (A-252, B-371, B-374, C-536) : un CSV (RFC 4180, UTF-8) et un JSON Lines par table de `commun`, `a_<code>` et `trace`,
 // ses fichiers, le manifeste SHA-256 signé et verifier.txt, dans un ZIP déposé chiffré dans son compartiment sous exports/<demande>.zip.
@@ -152,6 +151,8 @@ export const DUREE_LIEN_EXPORT = 900;
 export const MOTIFS_EQUIPE = ["fin_de_contrat", "demande_ecrite_client"] as const;
 export type MotifEquipe = (typeof MOTIFS_EQUIPE)[number];
 export interface EntreeRegistre { tenantId: string; demande: string; cle: string; expireLe: Date; retire: boolean }
+export interface TxRetrait { gelActif(tenantId: string): Promise<boolean> }
+export const cleExport = (demande: string) => `exports/${demande}.zip`;
 export interface PortsService {
   registre: {
     trouver(tenantId: string, demande?: string): Promise<EntreeRegistre | undefined>;
@@ -161,7 +162,8 @@ export interface PortsService {
   file: { ajouter(jobId: string, donnees: { tenantId: string; demande: string; acteur: string }): Promise<void> };
   lien(tenantId: string, cle: string, secondes: number): Promise<string>;
   retirerObjet(tenantId: string, cle: string): Promise<void>;
-  gel: Pick<GelLitige, "gelActif">;
+  // Transaction du retrait, sous le verrou par client de la pose du gel : le gel est relu avec `tx` (retirerSousGel), jamais avant.
+  sousVerrou<T>(tenantId: string, f: (tx: TxRetrait) => Promise<T>): Promise<T>;
   retraitActif: boolean;
   tracer(evenement: Record<string, unknown>): Promise<void>;
   maintenant(): Date;
@@ -198,15 +200,20 @@ export function creerServiceExport(p: PortsService) {
       let retires = 0;
       let suspendus = 0;
       for (const e of await p.registre.expires(p.maintenant())) {
+        // Le retrait ne vise QUE la copie d'export : toute autre clé lue dans le registre est refusée sans suppression.
+        if (e.cle !== cleExport(e.demande)) { await p.tracer({ type: "export_retrait_refuse", tenantId: e.tenantId, demande: e.demande, motif: "cle_inattendue" }); continue; }
         try {
-          await exigerAucunGel(p.gel, e.tenantId, "retrait_exports");
+          await p.sousVerrou(e.tenantId, (tx) => retirerSousGel(tx, (t, id) => t.gelActif(id), e.tenantId, "retrait_exports", async () => {
+            // Intention AVANT la suppression irréversible : si la suite échoue, la trace reste ; l'objet absent est retiré sans erreur à la reprise.
+            await p.tracer({ type: "export_retrait_intention", tenantId: e.tenantId, demande: e.demande });
+            await p.retirerObjet(e.tenantId, e.cle);
+            await p.registre.marquerRetire(e.tenantId, e.demande);
+            await p.tracer({ type: "export_retire", tenantId: e.tenantId, demande: e.demande });
+          }));
         } catch (x) {
           if (x instanceof GelPourLitige) { suspendus++; await p.tracer({ type: "export_retrait_suspendu", tenantId: e.tenantId, demande: e.demande, motif: "gel_pour_litige" }); continue; }
           throw x;
         }
-        await p.retirerObjet(e.tenantId, e.cle);
-        await p.registre.marquerRetire(e.tenantId, e.demande);
-        await p.tracer({ type: "export_retire", tenantId: e.tenantId, demande: e.demande });
         retires++;
       }
       return { retires, suspendus, ferme: false };

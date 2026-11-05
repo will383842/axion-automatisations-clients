@@ -10,6 +10,7 @@ import { DOSSIER_CLI, lireEntrees, migrerBase, ouvrirConnexionModule, roleMigrat
 import { sqlPg } from "./adaptateur-sql.js";
 import { adminPg, nomBaseDe, nomsRoles } from "./etapes-base.js";
 import { ecrireEchec, journalEchecs } from "./journal-echecs.js";
+import { grappePartagee } from "./verrou-grappe.js";
 // Journal des échecs (CI) : le rapport JSON n'est pas publié ; la cause de chaque test rouge s'imprime ici, adresses de connexion masquées.
 journalEchecs(import.meta.url);
 
@@ -31,6 +32,8 @@ const adresseAdmin = () => {
   return `postgresql://provisionneur:${mdp}@localhost/postgres?host=%2Ftmp%2Fsocle-donnees-socket`;
 };
 const ADMIN = process.env["T235_PG_ADMIN_URL"] ?? adresseAdmin();
+// Verrou PARTAGÉ de la grappe données : ce fichier ne tourne jamais pendant la saturation [A-236] de tests/donnees/grappe.int.test.ts (53300 en CI).
+grappePartagee(() => ADMIN);
 const ESSAI = fileURLToPath(new URL("../../../../tests/modules/essai/migrations", import.meta.url));
 const vers = (base: string) => { const u = new URL(ADMIN); u.pathname = `/${base}`; return u.toString(); };
 // Connexions : UN pool par base (mémorisé, taille 1) et un pool « postgres » partagé. Tout est fermé après CHAQUE essai (afterEach) : sans cela, chaque essai laissait ~4 pools inactifs

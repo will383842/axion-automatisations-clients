@@ -1,3 +1,5 @@
+import { nouveauTournant, type Tournant } from "./jeton-tournant.js";
+
 // État en mémoire du faux Microsoft 365 : brouillons, Éléments envoyés, mode de panne.
 
 export type Mode = "normal" | "quota" | "reponse_perdue" | "panne_generale" | "consentement_admin_requis" | "mauvais_compte";
@@ -20,6 +22,7 @@ export type EtatGraph = {
   // Consentement de l'administrateur PAR locataire (clé : « client_id|locataire »).
   consentementRequis: boolean;
   consentements: Set<string>;
+  tournant: Tournant;
 };
 
-export const nouvelEtat = (): EtatGraph => ({ mode: "normal", brouillons: new Map(), envoyes: [], consentementRequis: false, consentements: new Set() });
+export const nouvelEtat = (): EtatGraph => ({ mode: "normal", brouillons: new Map(), envoyes: [], consentementRequis: false, consentements: new Set(), tournant: nouveauTournant() });

@@ -31,6 +31,7 @@ const invalide = () => new ErreurApi("schema_invalide", "Requête invalide.");
 const traduire = (e: unknown): never => {
   const m = e instanceof Error ? e.message : "";
   if (m === "introuvable") throw new ErreurApi("introuvable", "Ressource introuvable.");
+  if (m === "motif_invalide") throw invalide();
   if (m === "export_expire") throw new ErreurApi("regle_metier", "Cet export n'est plus disponible : demandez-en un nouveau.");
   throw e;
 };

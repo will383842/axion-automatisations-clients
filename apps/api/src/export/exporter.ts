@@ -191,9 +191,11 @@ export function creerServiceExport(p: PortsService) {
       if (!e || e.tenantId !== d.tenantId || e.retire) throw new Error("introuvable");
       const maintenant = p.maintenant();
       if (e.expireLe.getTime() <= maintenant.getTime()) throw new Error("export_expire");
-      const lien = await p.lien(d.tenantId, e.cle, DUREE_LIEN_EXPORT);
+      // Le lien ne survit jamais à l'export : durée = min(15 minutes, temps restant), au moins une seconde (l'échéance est déjà dépassée sinon).
+      const duree = Math.max(1, Math.min(DUREE_LIEN_EXPORT, Math.floor((e.expireLe.getTime() - maintenant.getTime()) / 1000)));
+      const lien = await p.lien(d.tenantId, e.cle, duree);
       await p.tracer({ type: "export_telecharge", tenantId: d.tenantId, demande: e.demande, acteur: d.acteur });
-      return { demande: e.demande, expireLe: e.expireLe, lien, lienExpireLe: new Date(maintenant.getTime() + DUREE_LIEN_EXPORT * 1000) };
+      return { demande: e.demande, expireLe: e.expireLe, lien, lienExpireLe: new Date(Math.min(maintenant.getTime() + DUREE_LIEN_EXPORT * 1000, e.expireLe.getTime())) };
     },
     // Fermé par défaut (EXPORTS_RETRAIT_ACTIF) ; un gel pour litige suspend le retrait du client concerné, qui reprend après la levée (C-609).
     async retirerExpires(): Promise<{ retires: number; suspendus: number; ferme: boolean }> {

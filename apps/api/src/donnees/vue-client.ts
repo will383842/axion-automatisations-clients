@@ -6,11 +6,27 @@ import type { SessionDonnees } from "./service.js";
 // pendant 60 minutes, en lecture seule (le service refuse toute écriture pendant la vue), avec une trace visible du client.
 export const DUREE_VUE_MS = 60 * 60 * 1000;
 export interface EvenementVue { tenantId: string; acteur: string; action: "vue_client_ouverte"; motif: string; expireLe: Date; visibleDuClient: true }
+export interface VueRangee { acteur: string; tenantId: string; expireLe: Date }
+// Stock en mémoire du processus : une vue par (acteur, client), oubliée à son terme. Perdu au redémarrage : la vue doit alors être rouverte (fermé par défaut).
+export function creerStockVues(maintenant: () => Date) {
+  const vues = new Map<string, VueRangee>();
+  const cle = (acteur: string, tenantId: string) => JSON.stringify([acteur, tenantId]);
+  return {
+    ranger(vue: VueRangee): void { vues.set(cle(vue.acteur, vue.tenantId), { ...vue }); },
+    lire(acteur: string, tenantId: string): VueRangee | undefined {
+      const v = vues.get(cle(acteur, tenantId));
+      if (v && !(maintenant() < v.expireLe)) { vues.delete(cle(acteur, tenantId)); return undefined; }
+      return v ? { ...v } : undefined;
+    },
+  };
+}
 export interface DepsVue {
   accordValide(tenantId: string, instant: Date): Promise<boolean>;
   tracer(evenement: EvenementVue): Promise<void>;
-  // Fin de l'intervention en cours : la vue ne dure jamais plus longtemps qu'elle.
-  finIntervention?(tenantId: string, instant: Date): Promise<Date | undefined>;
+  // Fin de l'intervention en cours : la vue ne dure jamais plus longtemps qu'elle. Exigée : sans elle (ou si sa lecture échoue), pas de vue.
+  finIntervention(tenantId: string, instant: Date): Promise<Date | undefined>;
+  // Range la vue côté serveur : le service ne croit que cette copie, jamais ce que la session porte.
+  ranger(vue: VueRangee): void;
   maintenant(): Date;
 }
 
@@ -22,11 +38,13 @@ export async function ouvrirVueClient(d: DepsVue, session: SessionDonnees, tenan
   const maintenant = d.maintenant();
   // Ferme par défaut : un accord illisible vaut pas d'accord.
   if (!(await d.accordValide(id.data, maintenant).catch(() => false))) throw new ErreurApi("action_interdite", "Action interdite.");
-  const fin = d.finIntervention ? await d.finIntervention(id.data, maintenant).catch(() => undefined) : undefined;
-  const plafond = maintenant.getTime() + DUREE_VUE_MS;
-  const expireLe = new Date(fin && fin.getTime() < plafond ? fin.getTime() : plafond);
+  // Fin d'intervention illisible ou absente : pas de vue (jamais 60 minutes « par défaut »).
+  const fin = await d.finIntervention(id.data, maintenant).catch(() => undefined);
+  if (!fin || !(fin.getTime() > maintenant.getTime())) throw new ErreurApi("action_interdite", "Action interdite.");
+  const expireLe = new Date(Math.min(fin.getTime(), maintenant.getTime() + DUREE_VUE_MS));
   // Pas de trace, pas de vue.
   await d.tracer({ tenantId: id.data, acteur: session.acteur, action: "vue_client_ouverte", motif: m, expireLe, visibleDuClient: true }).catch(() => { throw new ErreurApi("erreur_interne", "Erreur interne."); });
+  d.ranger({ acteur: session.acteur, tenantId: id.data, expireLe });
   return { ...session, tenantId: id.data, vue: { tenantId: id.data, expireLe } };
 }
 

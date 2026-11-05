@@ -2,9 +2,9 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { z } from "zod";
 import { ErreurApi } from "../plugins/erreurs.js";
-import { LISTE_BLANCHE, verifierListeBlanche, type Requete } from "./requetes/liste.js";
+import { LISTE_BLANCHE, verifierListeBlanche } from "./requetes/liste.js";
+import { declarer } from "./requetes/structure.js";
 import { creerServiceDonnees, type Connexion, type PortsDonnees, type SessionDonnees } from "./service.js";
 
 const A = "11111111-1111-4111-8111-111111111111";
@@ -17,6 +17,7 @@ interface Appel { base: string; role: string; texte: string; valeurs: unknown[] 
 function monde(etats: Record<string, string> = {}, lignes: Record<string, unknown>[] = [{ total: 3, id: "x", nom: "Liste", cree_le: "t", secret: "non" }]) {
   const appels: Appel[] = [];
   const ouvertures: { base: string; role: string }[] = [];
+  const vues = new Map<string, { expireLe: Date }>();
   const ports: PortsDonnees = {
     async base(tenantId) {
       const etat = etats[tenantId] ?? "active";
@@ -32,9 +33,11 @@ function monde(etats: Record<string, string> = {}, lignes: Record<string, unknow
         async fermer() {},
       };
     },
+    accordValide: async () => true,
+    vueRangee: (acteur, tenantId) => vues.get(`${acteur}|${tenantId}`),
     maintenant: () => T0,
   };
-  return { appels, ouvertures, service: creerServiceDonnees(ports) };
+  return { appels, ouvertures, service: creerServiceDonnees(ports), vues };
 }
 const client = (tenantId = A, etablissements = [ETAB_A]): SessionDonnees => ({ tenantId, role: "client", acteur: "u1", etablissements });
 const equipe = (extra: Partial<SessionDonnees> = {}): SessionDonnees => ({ tenantId: A, role: "equipe", acteur: "e1", etablissements: [], ...extra });
@@ -92,17 +95,18 @@ describe("service des données client", () => {
     const { service, appels } = monde();
     await service.executer(client(A, [ETAB_A]), "listerListesProspects", { limite: 5, etablissements: [ETAB_B], etablissement_id: ETAB_B, etablissementId: ETAB_B });
     const a = appels[0]!;
-    expect(a.texte).toMatch(/etablissement_id = ANY\(\$2::uuid\[\]\)/);
-    expect(a.valeurs).toEqual([5, [ETAB_A]]);
+    expect(a.texte).toContain('"t"."etablissement_id" = ANY($1::uuid[])');
+    expect(a.valeurs).toEqual([[ETAB_A], 5]);
     await service.executer(client(A, []), "compterPersonnes", {});
     expect(appels[1]!.valeurs).toEqual([[]]);
   });
 
-  it("[B-173] une requête qui déclare le filtre sans l'emplacement, ou l'inverse, est refusée à la déclaration", () => {
-    const base: Requete = { nom: "x", schema: z.object({}), sql: "SELECT 1", mode: "lecture", metadonnees: true, parEtablissement: true, colonnes: ["a"], valeurs: () => [] };
-    expect(() => verifierListeBlanche({ x: base })).toThrow();
-    expect(() => verifierListeBlanche({ x: { ...base, parEtablissement: false, sql: "SELECT 1 WHERE {{filtre}}" } })).toThrow();
+  it("[B-173] une déclaration avec un champ sql, un nom qui n'est pas sa clé ou une écriture est refusée au chargement", () => {
+    const base = { nom: "x", mode: "lecture", metadonnees: true, parametres: {}, forme: { type: "simple", table: "commun.personnes", sortie: { agregats: [{ fonction: "compter", alias: "n" }] } } };
+    expect(() => verifierListeBlanche({ x: base })).not.toThrow();
+    expect(() => verifierListeBlanche({ x: { ...base, sql: "SELECT 1" } })).toThrow();
     expect(() => verifierListeBlanche({ x: { ...base, nom: "y" } })).toThrow();
+    expect(() => verifierListeBlanche({ x: { ...base, mode: "ecriture" } })).toThrow();
     expect(() => verifierListeBlanche(LISTE_BLANCHE)).not.toThrow();
   });
 
@@ -124,16 +128,15 @@ describe("service des données client", () => {
     expect(appels.filter((a) => a.texte.includes("listes_prospects"))).toEqual([]);
   });
 
-  it("[A-005] pendant la vue « comme le client », l'équipe lit en lecture seule et ne peut rien écrire", async () => {
-    const ecrire: Requete = { nom: "ecrireListe", schema: z.object({}), sql: "UPDATE commun.listes_prospects SET nom = nom WHERE {{filtre}}", mode: "ecriture", metadonnees: false, parEtablissement: true, colonnes: [], valeurs: () => [] };
-    const { service, appels } = monde();
-    const mondeEcriture = creerServiceDonnees({ base: async () => ({ nomBase: "cli_1111", etat: "active" }), ouvrir: async (b, r) => ({ requete: async (t, v) => { appels.push({ base: b, role: r, texte: t, valeurs: v }); return []; }, fermer: async () => {} }), maintenant: () => T0 }, { ...LISTE_BLANCHE, ecrireListe: ecrire });
+  it("[A-005] pendant la vue « comme le client », l'équipe lit en lecture seule : aucun rôle app n'est ouvert, aucune écriture n'est déclarable", async () => {
+    const { service, appels, ouvertures, vues } = monde();
+    vues.set(`e1|${A}`, { expireLe: new Date(T0.getTime() + 60_000) });
     const vue = equipe({ vue: { tenantId: A, expireLe: new Date(T0.getTime() + 60_000) } });
     expect((await service.executer(vue, "listerListesProspects", {})).length).toBe(1);
-    expect(await code(mondeEcriture.executer(vue, "ecrireListe", {}))).toBe("action_interdite");
+    await service.executer(client(), "listerListesProspects", {});
+    expect(ouvertures.every((o) => o.role === "lecture")).toBe(true);
     expect(appels.some((a) => a.role === "app")).toBe(false);
-    await mondeEcriture.executer(client(), "ecrireListe", {});
-    expect(appels.at(-1)!.role).toBe("app");
+    expect(() => declarer({ nom: "ecrireListe", mode: "ecriture", metadonnees: false, parametres: {}, forme: { type: "simple", table: "commun.listes_prospects", sortie: { lignes: [{ colonne: "id" }] }, limite: { fixe: 1 } } })).toThrow();
   });
 
   it("[A-170] seules les colonnes déclarées sortent, jamais une colonne en plus", async () => {
@@ -144,7 +147,7 @@ describe("service des données client", () => {
   it("[A-170] un pool inactif est fermé, jamais réutilisé pour une autre base", async () => {
     let t = T0.getTime();
     const fermes: string[] = [];
-    const ports: PortsDonnees = { base: async (id) => ({ nomBase: `cli_${id.slice(0, 4)}`, etat: "active" }), ouvrir: async (b) => ({ requete: async () => [], fermer: async () => void fermes.push(b) }), maintenant: () => new Date(t) };
+    const ports: PortsDonnees = { base: async (id) => ({ nomBase: `cli_${id.slice(0, 4)}`, etat: "active" }), ouvrir: async (b) => ({ requete: async () => [], fermer: async () => void fermes.push(b) }), accordValide: async () => false, vueRangee: () => undefined, maintenant: () => new Date(t) };
     const service = creerServiceDonnees(ports);
     await service.executer(client(A), "compterPersonnes", {});
     t += 600_000;
@@ -164,6 +167,8 @@ describe("service des données client", () => {
         if (n === 1) return new Promise<Connexion>((_, rej) => { echouer = rej; });
         return Promise.resolve({ requete: async () => [], fermer: async () => {} });
       },
+      accordValide: async () => false,
+      vueRangee: () => undefined,
       maintenant: () => T0,
     };
     const service = creerServiceDonnees(ports);
@@ -184,6 +189,8 @@ describe("service des données client", () => {
     const vues: string[] = [];
     const ports: PortsDonnees = {
       async base(t) { return { nomBase: t === A ? "cli_1111" : "cli_2222", etat: "active" }; },
+      accordValide: async () => false,
+      vueRangee: async () => undefined,
       async ouvrir(base): Promise<Connexion> {
         return {
           async requete(texte) {
@@ -196,16 +203,35 @@ describe("service des données client", () => {
       },
       maintenant: () => T0,
     };
-    const requete = { ...LISTE_BLANCHE["compterPersonnes"]!, nom: "deuxVariantes", sql: "SELECT 1 AS n /* ancienne */", variantes: [{ depuis: 2, sql: "SELECT 2 AS n /* nouvelle */" }] };
+    const compte = (table: string) => ({ type: "simple", table, sortie: { agregats: [{ fonction: "compter", alias: "n" }] } });
+    const requete = declarer({ nom: "deuxVariantes", mode: "lecture", metadonnees: true, parametres: {}, forme: compte("commun.personnes"), variantes: [{ depuis: 2, forme: compte("commun.listes_prospects") }] });
     const service = creerServiceDonnees(ports, { deuxVariantes: requete });
     await service.executer(client(A), "deuxVariantes", {});
     await service.executer(client(B), "deuxVariantes", {});
-    expect(vues.filter((v) => v.includes("nouvelle")).map((v) => v.split("|")[0])).toEqual(["cli_1111"]);
-    expect(vues.filter((v) => v.includes("ancienne")).map((v) => v.split("|")[0])).toEqual(["cli_2222"]);
+    expect(vues.filter((v) => v.includes("listes_prospects")).map((v) => v.split("|")[0])).toEqual(["cli_1111"]);
+    expect(vues.filter((v) => v.includes("commun\".\"personnes")).map((v) => v.split("|")[0])).toEqual(["cli_2222"]);
     // Une version illisible ou absente : variante la plus ancienne, jamais la nouvelle.
     versions["cli_1111"] = Number.NaN;
     vues.length = 0;
     await service.executer(client(A), "deuxVariantes", {});
-    expect(vues.some((v) => v.includes("nouvelle"))).toBe(false);
+    expect(vues.some((v) => v.includes("listes_prospects"))).toBe(false);
+  });
+  it("[A-170] le service n'envoie que le SQL du générateur et ses deux constantes : aucun autre texte SELECT dans le code des données", () => {
+    const dossier = fileURLToPath(new URL("./", import.meta.url));
+    const fichiers = [`${dossier}service.ts`, ...readdirSync(`${dossier}requetes`).filter((f) => f.endsWith(".ts") && !f.includes(".test.") && f !== "generer.ts").map((f) => `${dossier}requetes/${f}`)];
+    const trouves: string[] = [];
+    for (const f of fichiers) {
+      const code = readFileSync(f, "utf8").split("\n").filter((l) => !l.trimStart().startsWith("//")).join("\n");
+      for (const m of code.matchAll(/(["'`])((?:(?!\1)[^\n\\])*\bSELECT\b(?:(?!\1)[^\n\\])*)\1/gi)) trouves.push(m[2]!);
+    }
+    expect(trouves.filter((t) => /\s/.test(t)).sort()).toEqual(["SELECT coalesce(max(version), 0) AS v FROM public.version_structure", "SELECT id FROM commun.etablissements"]);
+  });
+
+  it("[B-173] la lecture des établissements de l'équipe est un texte constant : aucune entrée de la session ni de la requête n'y passe", async () => {
+    const { service, appels } = monde();
+    await service.executer(equipe({ acteur: "x'; DROP TABLE commun.personnes; --" }), "compterPersonnes", { tenantId: B, q: "' OR true --" });
+    const lecture = appels.find((a) => a.texte.includes("commun.etablissements"))!;
+    expect(lecture.texte).toBe("SELECT id FROM commun.etablissements");
+    expect(lecture.valeurs).toEqual([]);
   });
 });

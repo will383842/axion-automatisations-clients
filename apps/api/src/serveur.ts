@@ -12,6 +12,7 @@ import { ErreurApi } from "./plugins/erreurs.js";
 import { PREFIXE } from "./files/files.js";
 import { executerTache, type Resultat } from "./provisionnement/machine.js";
 import { routeProvisionnement, type DepsRoutesProvisionnement } from "./routes/provisionnement.js";
+import { routeDonnees, type DepsRoutesDonnees } from "./routes/donnees.js";
 import { routeCrm, type DepsCrm } from "./routes/crm.js";
 import { routeExecuteur, type DepsExecuteur } from "./routes/executeur/index.js";
 import { routeSante } from "./routes/sante.js";
@@ -37,7 +38,7 @@ export function creerTravailleurProvisionnement(o: {
 }
 
 // `provisionnement` : routes de reprise fournies par l'appelant ; absent, la route n'existe pas (fermé par défaut).
-export function construireServeur(options: { config?: Config; pool?: pg.Pool; journal?: { write(ligne: string): void }; provisionnement?: DepsRoutesProvisionnement; crm?: DepsCrm; executeur?: DepsExecuteur; importCatalogue?: DepsImportCatalogue } = {}) {
+export function construireServeur(options: { config?: Config; pool?: pg.Pool; journal?: { write(ligne: string): void }; provisionnement?: DepsRoutesProvisionnement; crm?: DepsCrm; executeur?: DepsExecuteur; donnees?: DepsRoutesDonnees; importCatalogue?: DepsImportCatalogue } = {}) {
   // id_trace : toujours choisi par le serveur, l'en-tête du client est ignoré.
   const serveur = Fastify({ genReqId: () => randomUUID(), requestIdHeader: false, ...(options.journal ? { logger: { level: "info", stream: options.journal, base: {}, serializers: serialiseursJournal } } : {}) });
   brancherErreurs(serveur);
@@ -49,6 +50,8 @@ export function construireServeur(options: { config?: Config; pool?: pg.Pool; jo
   if (options.crm) routeCrm(serveur, options.crm);
   // API de l'exécuteur (C4) : absente sans dépendances ; fournie, la porte reste fermée tant que actif() rend faux (EXECUTEUR_API_OUVERTE, fermé par défaut).
   if (options.executeur) routeExecuteur(serveur, options.executeur);
+  // Service des données (T2-37c) : branché seulement si l'appelant fournit la session, le rôle d'équipe et le service ; absent, la route n'existe pas.
+  if (options.donnees) routeDonnees(serveur, options.donnees);
   // Import des versions (T4-25) : la route n'existe que si l'appelant la fournit, et répond 503 tant que `ouvert` est faux (IMPORT_OUVERT, fermé par défaut).
   if (options.importCatalogue) routeImportCatalogue(serveur, options.importCatalogue);
   return serveur;

@@ -88,7 +88,6 @@ describe("OpenBao réel : signature de production des modules", () => {
 
   it("[C-018] un module signé par la recette n'est pas accepté par la liste de production du coffre réel", async () => {
     const { racine, publication } = await lancer();
-    await admin(racine, "POST", "transit/keys/modules-publication/config", { min_decryption_version: 1 }).catch(() => undefined);
     const s = await creerSignataireOpenBao(publication, "modules-publication").signerArtefact(base());
     const recetteCle = await clePublique(racine, "modules-recette", 1);
     expect(verifierArtefact(s, [recetteCle])).toEqual({ ok: false, code: "module_non_signe" });

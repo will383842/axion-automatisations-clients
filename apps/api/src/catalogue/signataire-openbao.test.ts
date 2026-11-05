@@ -54,7 +54,9 @@ function creerFauxTransit() {
     if (etat.scelle) return rep(503, { errors: ["Vault is sealed"] });
     const role = etat.jetons.get(new Headers(init?.headers).get("x-vault-token") ?? "");
     const capacite = methode === "GET" ? "read" : "update";
-    if (role !== "publication" || !droitsPublication().some((d) => d.chemin === chemin && d.capacites.includes(capacite))) return rep(403, { errors: ["permission denied"] });
+    // « recette » : droit de TEST seulement (la politique de la recette n'est pas livrée par T4-26) ; « publication » : le vrai fichier.
+    const droits = role === "publication" ? droitsPublication() : role === "recette" ? [{ chemin: "transit/sign/modules-recette", capacites: ["update"] }] : [];
+    if (!droits.some((d) => d.chemin === chemin && d.capacites.includes(capacite))) return rep(403, { errors: ["permission denied"] });
     if (etat.corpsFixe !== undefined) return rep(200, etat.corpsFixe);
     const m = /^transit\/sign\/(modules-[a-z]+)$/.exec(chemin);
     const cle = m ? cles.get(m[1] ?? "") : undefined;
@@ -70,7 +72,7 @@ function monde() {
   const bao = creerFauxTransit();
   bao.creer("modules-publication");
   bao.creer("modules-recette");
-  const signataire = (cle: "modules-publication" | "modules-recette") => creerSignataireOpenBao({ url: URL_BAO, jeton: bao.jeton("publication"), fetch: bao.fetch }, cle);
+  const signataire = (cle: "modules-publication" | "modules-recette") => creerSignataireOpenBao({ url: URL_BAO, jeton: bao.jeton(cle === "modules-publication" ? "publication" : "recette"), fetch: bao.fetch }, cle);
   return { bao, signataire };
 }
 const refus = { ok: false, code: "module_non_signe" } as const;
@@ -198,6 +200,8 @@ describe("signataire OpenBao (clé non exportable du coffre)", () => {
     }
     const sans = creerSignataireOpenBao({ ...o, jeton: bao.jeton("api") }, "modules-publication");
     await expect(sans.signer(e)).rejects.toMatchObject({ code: "refuse" });
+    // Le jeton de publication ne peut pas signer pour la recette (ni l'inverse).
+    await expect(creerSignataireOpenBao(o, "modules-recette").signer(e)).rejects.toMatchObject({ code: "refuse" });
   });
 
   it("[C-018] la politique publication ne lit aucune valeur du coffre ni aucune autre clé", () => {
@@ -206,7 +210,7 @@ describe("signataire OpenBao (clé non exportable du coffre)", () => {
     // Le fichier ne contient que ce bloc (hors commentaires) : aucun joker, aucun autre mot-clé.
     const code = hcl.split("\n").filter((l) => !l.trim().startsWith("#")).join("\n").trim();
     expect(code).toBe('path "transit/sign/modules-publication" {\n  capabilities = ["update"]\n}');
-    expect(hcl).not.toMatch(/\*|\+|sudo|"read"|"list"|"delete"|"create"|keys\/|export|config|verify/);
+    expect(code).not.toMatch(/\*|\+|sudo|"read"|"list"|"delete"|"create"|keys\/|export|config|verify/);
   });
 
   it("[C-018] initialiser.sh crée modules-publication et modules-recette (ed25519, exportable=false), pose la politique publication et un jeton à elle seule", () => {

@@ -59,3 +59,16 @@ describe("import de personnes : branchement de verifierImport", () => {
     expect(journal).toEqual(["ROLLBACK"]);
   });
 });
+
+describe("import de personnes : la garde couvre aussi les clés des lignes (T2-47b)", () => {
+  it("[C-060] une colonne interdite présente dans les lignes mais absente de la liste annoncée est refusée, sans stockage", async () => {
+    const { ports, validees } = baseFactice();
+    await expect(importerPersonnes(ports, session, { colonnes: ["nom"], lignes: [{ nom: "Bertin", IBAN1: "x" }] })).rejects.toMatchObject({ motif: "donnees_interdites" });
+    expect(validees.some((t) => /commun\.personnes/.test(t))).toBe(false);
+  });
+  it("[A-033] le message du refus ne contient aucune valeur du fichier", async () => {
+    const { ports } = baseFactice();
+    const e = await importerPersonnes(ports, session, { colonnes: ["nom", "IBANs"], lignes: [{ nom: "MARQUEUR-ESSAI-xyz", IBANs: "FR76-INVENTE" }] }).catch((x: Error) => x);
+    expect((e as Error).message).not.toMatch(/MARQUEUR-ESSAI|FR76-INVENTE/);
+  });
+});

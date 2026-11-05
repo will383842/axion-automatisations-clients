@@ -147,3 +147,33 @@ describe("garde des noms de colonnes : variantes (T2-47b)", () => {
     expect(detecter([colonne])).toEqual([]);
   });
 });
+
+// T2-47b (audit tour 1) : contournements par des noms courants (pluriel, chiffre en suffixe, mots collés, lettres espacées).
+describe("garde des noms de colonnes : contournements courants (T2-47b)", () => {
+  it.each(["IBANs", "IBAN1", "iban2", "ibanclient", "clientiban", "IBAN_2", "ibans_client", "i b a n", "I.B.A.N", "IBAN​1"])("[C-060] le contournement « %s » est repéré (bancaire)", (colonne) => {
+    expect(detecter([colonne])).toEqual([{ colonne, categorie: "bancaire" }]);
+  });
+  it.each([
+    ["mots de passe", "mot_de_passe"],
+    ["motdepasse2", "mot_de_passe"],
+    ["motdepasseclient", "mot_de_passe"],
+    ["passwords", "mot_de_passe"],
+    ["password1", "mot_de_passe"],
+    ["numsecu2", "securite_sociale"],
+    ["numerosecu", "securite_sociale"],
+    ["numerosecuritesociale1", "securite_sociale"],
+    ["NIR1", "securite_sociale"],
+    ["nirs", "securite_sociale"],
+    ["maladies2", "sante"],
+    ["RIB2", "bancaire"],
+    ["cvv1", "bancaire"],
+  ])("[C-060] le contournement « %s » est repéré (%s)", (colonne, categorie) => {
+    expect(detecter([colonne])).toEqual([{ colonne, categorie }]);
+  });
+  it.each(["libanais", "senior", "ribambelle", "tribu", "code_commune_insee2", "codes_insee", "etablissements_sante", "diagnostic_energetique1", "carte_grise2", "Professionnels santé", "adresse", "nom1", "telephone2"])(
+    "[C-060] la colonne légitime « %s » passe malgré la normalisation élargie",
+    (colonne) => {
+      expect(detecter([colonne])).toEqual([]);
+    },
+  );
+});

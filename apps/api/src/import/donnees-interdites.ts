@@ -10,8 +10,9 @@ export type ColonneInterdite = { colonne: string; categorie: Categorie };
 const normaliser = (nom: string) =>
   nom
     .normalize("NFKD")
-    .replace(/\p{M}/gu, "")
+    .replace(/[\p{M}\p{Cf}]/gu, "")
     .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1_$2")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "_")
     .split("_")
@@ -57,7 +58,7 @@ export type VerdictImport = { accepte: true } | { accepte: false; erreur: Erreur
 
 // À appeler dans la transaction de la base du client, avant tout stockage. `acteur` est obligatoire : aucun repli sur un acteur par défaut.
 // Un refus est RENDU (verdict), jamais levé : la trace du refus est écrite dans la transaction de l'appelant, qui doit la VALIDER (COMMIT) puis renvoyer `verdict.erreur`.
-// Lever ici ferait annuler la trace par le ROLLBACK de l'appelant. Branchement dans la route d'import : dette LOT2-dette-T2-47-garde (verifierImport n'est appelé nulle part aujourd'hui).
+// Lever ici ferait annuler la trace par le ROLLBACK de l'appelant. Appelée par importer.ts ; la route HTTP reste à brancher (voir ESCALADE de la fiche T2-47b).
 export async function verifierImport(client: Requeteur, acteur: string, colonnes: string[]): Promise<VerdictImport> {
   if (!acteur.trim()) throw new Error("verifierImport : acteur obligatoire");
   const trouvees = detecter(colonnes);

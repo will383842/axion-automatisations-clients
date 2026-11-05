@@ -8,7 +8,7 @@ const T0 = new Date("2026-11-02T10:00:00Z");
 const equipe: SessionDonnees = { tenantId: A, role: "equipe", acteur: "e1", etablissements: [] };
 function deps(accord: boolean, tracerEchoue = false) {
   const traces: Record<string, unknown>[] = [];
-  const d: DepsVue = { accordValide: async () => accord, tracer: async (e) => { if (tracerEchoue) throw new Error("journal"); traces.push(e as never); }, maintenant: () => T0 };
+  const d: DepsVue = { accordValide: async () => accord, tracer: async (e) => { if (tracerEchoue) throw new Error("journal"); traces.push(e as never); }, finIntervention: async () => new Date(T0.getTime() + 7_200_000), ranger: () => {}, maintenant: () => T0 };
   return { d, traces };
 }
 const code = async (p: Promise<unknown>) => ((await p.catch((e: unknown) => e)) as ErreurApi).code;

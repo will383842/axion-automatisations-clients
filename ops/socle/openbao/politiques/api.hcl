@@ -23,3 +23,10 @@ path "transit/rewrap/cli-*" {
 path "transit/hmac/cli-*" {
   capabilities = ["update"]
 }
+# Service des données (T2-37c) : l'API lit le seul mot de passe « lecture » d'un client pour ouvrir sa connexion par PgBouncer « données ». Moindre privilège :
+# le service ne sert que des requêtes en lecture (l'écriture déclarée est refusée au chargement), donc le mot de passe « app » n'est PAS lisible ; il ne sera ajouté
+# qu'avec l'écriture déclarée, par une fiche et un test. Lecture seule, aucune liste, aucun accès à /metadata ; jamais le propriétaire, le provisionneur ni
+# l'administration de PgBouncer. Le joker * n'est valable qu'en dernier caractère : le segment du client est un « + ». Un essai fige la liste entière des droits.
+path "technique/data/donnees/+/lecture" {
+  capabilities = ["read"]
+}

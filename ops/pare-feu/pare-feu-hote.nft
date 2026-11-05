@@ -1,5 +1,5 @@
 # Pare-feu de l'hôte (A-066, C-533) : tout est fermé en entrée sauf TCP 443 ; la sortie est fermée par défaut.
-# Une instruction par ligne : ops/pare-feu/analyser.ts lit ce fichier et échoue au moindre autre accept en entrée.
+# Une instruction par ligne : ops/pare-feu/analyser.ts lit ce fichier en liste blanche stricte et refuse tout autre accept (entrée, sortie ou transfert) et toute autre instruction.
 # Aucune adresse écrite ici : les destinations de sortie permises sont ajoutées à l'installation dans l'ensemble « sorties_permises »
 # (voir docs/serveur-de-test-gestes-de-will.md), jamais dans le dépôt.
 # Les ports publiés par Docker passent par ses propres règles : le dépôt n'en publie que sur l'adresse locale (essai dans pare-feu.test.ts),

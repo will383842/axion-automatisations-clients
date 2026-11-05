@@ -181,4 +181,16 @@ describe("remise", () => {
     // la réservation est libérée : une nouvelle demande de la même exécution peut aboutir
     await expect(remettre(p, appelant("cellule-1"), demande(INSTANCE_A))).resolves.toMatchObject({ type: "oauth" });
   });
+
+  it("[C-014] un port d'API ou de base qui ne répond pas (jeton, connexion, exécution) donne « refusee » après le délai, coffre non interrogé", async () => {
+    for (const port of ["verifierJetonInstance", "connexion", "executionEnCours"] as const) {
+      const taches: Array<() => void> = [];
+      const { p, lus } = ports({ [port]: () => new Promise(() => undefined), planifier: (f) => { taches.push(f); return () => undefined; }, delaiPortsMs: 5000 } as Partial<PortsRemise>);
+      const attente = code(remettre(p, appelant("cellule-1"), demande(INSTANCE_A)));
+      await vi.waitFor(() => expect(taches.length).toBe(1));
+      taches.splice(0).forEach((f) => f());
+      expect((await attente)?.code).toBe("refusee");
+      expect(lus).toEqual([]);
+    }
+  });
 });

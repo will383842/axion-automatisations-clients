@@ -9,6 +9,24 @@ const MARGE_MS = 60_000;
 const DUREE_RESTANTE_MIN_MS = 30_000; // un jeton fournisseur plus court est refusé : il expirerait avant usage
 const CLES = ["connexionId", "executionId", "instanceId"];
 
+// Planifie une échéance et rend son annulation ; remplaçable par une horloge factice dans les essais.
+export type Planifier = (f: () => void, ms: number) => () => void;
+export const planifierReel: Planifier = (f, ms) => { const t = setTimeout(f, ms); return () => clearTimeout(t); };
+export const DELAI_PAR_DEFAUT_MS = 5000;
+
+// Course entre un appel de port et son échéance : à l'échéance, `signal` est annulé (l'appel en vol est abandonné)
+// et l'erreur est propre, sans rien de ce que le port aurait pu dire.
+export async function avecDelai<T>(appel: (signal: AbortSignal) => Promise<T>, ms: number, planifier: Planifier): Promise<T> {
+  const controle = new AbortController();
+  let annuler = () => undefined as void;
+  const echeance = new Promise<never>((_, ko) => { annuler = planifier(() => { controle.abort(); ko(new Error("delai")); }, ms); });
+  try {
+    return await Promise.race([appel(controle.signal), echeance]);
+  } finally {
+    annuler();
+  }
+}
+
 export class ErreurRemise extends Error {
   constructor(readonly code: "demande_invalide" | "refusee" | "deja_remise" | "coffre_indisponible" | "valeur_invalide" | "famille_non_geree") {
     super(code);
@@ -34,7 +52,10 @@ export interface PortsRemise {
   // Contrat : vrai seulement si l'exécution existe, est EN COURS, et appartient à cette instance et à cette cellule
   // (table executions sous RLS ou exécution signée par l'API). Inconnue, terminée, autre instance ou panne : faux.
   executionEnCours(e: { executionId: string; instanceId: string; cellule: string }): Promise<boolean>;
-  lireCoffre(chemin: string): Promise<Record<string, unknown>>;
+  // `signal` est annulé à l'échéance : le port abandonne l'appel au coffre.
+  lireCoffre(chemin: string, signal?: AbortSignal): Promise<Record<string, unknown>>;
+  planifier?: Planifier; // horloge des délais (réelle par défaut)
+  delaiCoffreMs?: number; // délai maximal d'une lecture du coffre (5 s par défaut)
   jetons: RegistreJetons;
   journal: Journal;
   maintenant(): number;
@@ -78,7 +99,7 @@ export async function remettre(p: PortsRemise, appelant: { cellule: string; jeto
   // Messagerie : le mot de passe reste dans le coffre, c'est le mandataire qui le lit ; le courtier ne le lit pas.
   let valeur: Record<string, unknown> = {};
   try {
-    if (c.famille === "oauth") valeur = await p.lireCoffre(chemin);
+    if (c.famille === "oauth") valeur = await avecDelai((signal) => p.lireCoffre(chemin, signal), p.delaiCoffreMs ?? DELAI_PAR_DEFAUT_MS, p.planifier ?? planifierReel);
   } catch {
     await p.jetons.liberer(d.executionId, d.connexionId);
     return refuser("coffre_indisponible", { tenantId: c.tenantId }); // le message d'origine est écarté : il pourrait contenir la valeur

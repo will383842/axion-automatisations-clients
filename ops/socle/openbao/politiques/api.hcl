@@ -30,3 +30,8 @@ path "transit/hmac/cli-*" {
 path "technique/data/donnees/+/lecture" {
   capabilities = ["read"]
 }
+# Export signé (T2-42b) : l'API fait signer le manifeste par la clé exports-signature (Ed25519, non exportable). Signer seulement : ni lecture de la clé, ni vérification,
+# ni création, aucun joker.
+path "transit/sign/exports-signature" {
+  capabilities = ["update"]
+}

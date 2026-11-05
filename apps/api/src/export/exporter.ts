@@ -3,6 +3,7 @@ import type { Connexion } from "../donnees/service.js";
 import type { ContexteChamp } from "../donnees/colonnes-chiffrees.js";
 import { construireManifeste, empreinteSha256, type FichierManifeste } from "./manifeste.js";
 import { ecrireZip, type EntreeZip } from "./zip-flux.js";
+import { GelPourLitige, retirerSousGel } from "../gel/garde.js";
 
 // Export complet d'UN client (A-252, B-371, B-374, C-536) : un CSV (RFC 4180, UTF-8) et un JSON Lines par table de `commun`, `a_<code>` et `trace`,
 // ses fichiers, le manifeste SHA-256 signé et verifier.txt, dans un ZIP déposé chiffré dans son compartiment sous exports/<demande>.zip.
@@ -142,3 +143,88 @@ const modeEmploi = (cle: string, empreinteManifeste: string) => [
   `SHA-256 de manifeste.json : ${empreinteManifeste}`,
   "",
 ].join("\n");
+
+// ---- Demande, lien signé et retrait (T2-42b) ----
+// Le client vient toujours de la session (jamais du corps, d'un en-tête ni de l'adresse) ; le registre est lu PAR client : la demande de B avec le tenant de A
+// est un export absent. Le lien dure 15 minutes au plus (DUREE_LIEN_MAX de T1A-11) et chaque téléchargement est tracé. Le retrait ne vise que la COPIE d'export.
+export const DUREE_LIEN_EXPORT = 900;
+export const MOTIFS_EQUIPE = ["fin_de_contrat", "demande_ecrite_client"] as const;
+export type MotifEquipe = (typeof MOTIFS_EQUIPE)[number];
+export interface EntreeRegistre { tenantId: string; demande: string; cle: string; expireLe: Date; retire: boolean }
+export interface TxRetrait { gelActif(tenantId: string): Promise<boolean> }
+const DEMANDE_SURE = /^[A-Za-z0-9-]{1,64}$/;
+export const cleExport = (demande: string) => `exports/${demande}.zip`;
+export interface PortsService {
+  registre: {
+    trouver(tenantId: string, demande?: string): Promise<EntreeRegistre | undefined>;
+    expires(maintenant: Date): Promise<EntreeRegistre[]>;
+    marquerRetire(tenantId: string, demande: string): Promise<void>;
+  };
+  file: { ajouter(jobId: string, donnees: { tenantId: string; demande: string; acteur: string }): Promise<void> };
+  lien(tenantId: string, cle: string, secondes: number): Promise<string>;
+  retirerObjet(tenantId: string, cle: string): Promise<void>;
+  // Transaction du retrait, sous le verrou par client de la pose du gel : le gel est relu avec `tx` (retirerSousGel), jamais avant.
+  sousVerrou<T>(tenantId: string, f: (tx: TxRetrait) => Promise<T>): Promise<T>;
+  retraitActif: boolean;
+  tracer(evenement: Record<string, unknown>): Promise<void>;
+  maintenant(): Date;
+  nouvelleDemande(): string;
+}
+
+export function creerServiceExport(p: PortsService) {
+  const demander = async (tenantId: string, acteur: string, motif?: MotifEquipe) => {
+    const demande = p.nouvelleDemande();
+    await p.file.ajouter(idTacheExport(tenantId, demande), { tenantId, demande, acteur });
+    await p.tracer({ type: "export_demande", tenantId, demande, acteur, ...(motif ? { motif } : {}) });
+    return { demande };
+  };
+  return {
+    // B-371 : à tout moment, sans condition autre que la session.
+    demander: (d: { tenantId: string; acteur: string }) => demander(d.tenantId, d.acteur),
+    // L'équipe ne lance l'export que pour une fin de contrat ou à la demande écrite du client, et la trace garde le motif.
+    async demanderParEquipe(d: { tenantId: string; acteur: string; motif: MotifEquipe }) {
+      if (!MOTIFS_EQUIPE.includes(d.motif)) throw new Error("motif_invalide");
+      return demander(d.tenantId, d.acteur, d.motif);
+    },
+    async lien(d: { tenantId: string; demande?: string; acteur: string }) {
+      const e = await p.registre.trouver(d.tenantId, d.demande);
+      if (!e || e.tenantId !== d.tenantId || e.retire) throw new Error("introuvable");
+      const maintenant = p.maintenant();
+      if (e.expireLe.getTime() <= maintenant.getTime()) throw new Error("export_expire");
+      // Le lien ne survit jamais à l'export : durée = min(15 minutes, temps restant), au moins une seconde (l'échéance est déjà dépassée sinon).
+      const duree = Math.max(1, Math.min(DUREE_LIEN_EXPORT, Math.floor((e.expireLe.getTime() - maintenant.getTime()) / 1000)));
+      const lien = await p.lien(d.tenantId, e.cle, duree);
+      await p.tracer({ type: "export_telecharge", tenantId: d.tenantId, demande: e.demande, acteur: d.acteur });
+      return { demande: e.demande, expireLe: e.expireLe, lien, lienExpireLe: new Date(Math.min(maintenant.getTime() + DUREE_LIEN_EXPORT * 1000, e.expireLe.getTime())) };
+    },
+    // Fermé par défaut (EXPORTS_RETRAIT_ACTIF) ; un gel pour litige suspend le retrait du client concerné, qui reprend après la levée (C-609).
+    async retirerExpires(): Promise<{ retires: number; suspendus: number; ferme: boolean }> {
+      if (!p.retraitActif) return { retires: 0, suspendus: 0, ferme: true };
+      let retires = 0;
+      let suspendus = 0;
+      for (const e of await p.registre.expires(p.maintenant())) {
+        // Le retrait ne vise QUE la copie d'export : toute autre clé lue dans le registre est refusée sans suppression.
+        if (e.cle !== cleExport(e.demande)) { await p.tracer({ type: "export_retrait_refuse", tenantId: e.tenantId, demande: e.demande, motif: "cle_inattendue" }); continue; }
+        // Défense en profondeur : la demande est un simple identifiant (jamais de « / » ni de « .. », la clé ne sort donc pas de exports/), et elle est relue
+        // PAR client : si le registre de ce client ne la connaît pas, l'entrée est refusée sans suppression.
+        if (!DEMANDE_SURE.test(e.demande)) { await p.tracer({ type: "export_retrait_refuse", tenantId: e.tenantId, demande: e.demande, motif: "cle_inattendue" }); continue; }
+        const propre = await p.registre.trouver(e.tenantId, e.demande);
+        if (!propre || propre.tenantId !== e.tenantId || propre.cle !== e.cle) { await p.tracer({ type: "export_retrait_refuse", tenantId: e.tenantId, demande: e.demande, motif: "hors_client" }); continue; }
+        try {
+          await p.sousVerrou(e.tenantId, (tx) => retirerSousGel(tx, (t, id) => t.gelActif(id), e.tenantId, "retrait_exports", async () => {
+            // Intention AVANT la suppression irréversible : si la suite échoue, la trace reste ; l'objet absent est retiré sans erreur à la reprise.
+            await p.tracer({ type: "export_retrait_intention", tenantId: e.tenantId, demande: e.demande });
+            await p.retirerObjet(e.tenantId, e.cle);
+            await p.registre.marquerRetire(e.tenantId, e.demande);
+            await p.tracer({ type: "export_retire", tenantId: e.tenantId, demande: e.demande });
+          }));
+        } catch (x) {
+          if (x instanceof GelPourLitige) { suspendus++; await p.tracer({ type: "export_retrait_suspendu", tenantId: e.tenantId, demande: e.demande, motif: "gel_pour_litige" }); continue; }
+          throw x;
+        }
+        retires++;
+      }
+      return { retires, suspendus, ferme: false };
+    },
+  };
+}

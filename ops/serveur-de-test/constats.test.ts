@@ -31,7 +31,7 @@ describe("constat des disques chiffrés", () => {
   });
   it("[A-242] une couche « crypt » voisine, sur un autre disque, ne rend pas le volume en clair chiffré", () => {
     const deux = JSON.stringify({ blockdevices: [JSON.parse(CLAIR).blockdevices[0], JSON.parse(CHIFFRE).blockdevices[0]] });
-    expect(constaterLuks(deux, ["/var/lib/donnees"]).every((x) => x.chiffre)).toBe(true); // le chiffré porte ce montage ici
+    expect(constaterLuks(deux, ["/var/lib/donnees"])[0]?.chiffre).toBe(false); // le même montage vu en clair ET en chiffré : jamais déclaré chiffré
     expect(constaterLuks(JSON.stringify({ blockdevices: [JSON.parse(CLAIR).blockdevices[0], { name: "sdb", type: "disk", mountpoints: [null], children: [{ name: "x", type: "crypt", mountpoints: ["/autre"] }] }] }), ["/var/lib/donnees"])[0]?.chiffre).toBe(false);
   });
 });

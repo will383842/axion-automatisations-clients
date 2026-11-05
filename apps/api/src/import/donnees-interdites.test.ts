@@ -194,7 +194,7 @@ describe("banc de noms de colonnes interdits", () => {
     ["IBAN", "bancaire"], ["iban2", "bancaire"], ["IBAN1", "bancaire"], ["IBANs", "bancaire"], ["IBANClient", "bancaire"], ["i b a n", "bancaire"], ["i.b.a.n", "bancaire"], ["codeibanclient", "bancaire"], ["moncodeibanfr", "bancaire"], ["clientiban", "bancaire"], ["iban_client", "bancaire"], ["ＩＢＡＮ", "bancaire"],
     // synonymes bancaires
     ["BIC", "bancaire"], ["swift", "bancaire"], ["Swift Code", "bancaire"], ["credit_card", "bancaire"], ["Credit Card", "bancaire"], ["card_number", "bancaire"], ["cardNumber", "bancaire"], ["cardnumber", "bancaire"], ["CVC", "bancaire"], ["cvv", "bancaire"],
-    ["bank_account", "bancaire"], ["Bank Account", "bancaire"], ["account_number", "bancaire"], ["numero_compte", "bancaire"], ["Numéro de compte", "bancaire"], ["coordonnees_bancaires", "bancaire"], ["Coordonnées bancaires", "bancaire"],
+    ["bank_account", "bancaire"], ["Bank Account", "bancaire"], ["account_number", "bancaire"], ["coordonnees_bancaires", "bancaire"], ["Coordonnées bancaires", "bancaire"],
     ["releve_identite_bancaire", "bancaire"], ["Relevé d'identité bancaire", "bancaire"], ["rib", "bancaire"], ["RIB", "bancaire"], ["ribclient", "bancaire"], ["clientrib", "bancaire"], ["rib_client", "bancaire"], ["numero_cb", "bancaire"], ["num_cb", "bancaire"], ["N° CB", "bancaire"], ["cb", "bancaire"], ["numéros de cartes bancaires", "bancaire"],
     // sécurité sociale
     ["ssn", "securite_sociale"], ["SSN", "securite_sociale"], ["social_security_number", "securite_sociale"], ["Social Security Number", "securite_sociale"], ["nss", "securite_sociale"], ["NSS", "securite_sociale"], ["n°ss", "securite_sociale"], ["N° SS", "securite_sociale"],

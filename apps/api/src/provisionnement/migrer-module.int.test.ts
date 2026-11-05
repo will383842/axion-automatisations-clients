@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { DOSSIER_CLI, lireEntrees, migrerBase, ouvrirConnexionModule, roleMigrationModule } from "../donnees/migrer-base.js";
 import { sqlPg } from "./adaptateur-sql.js";
 import { adminPg, nomBaseDe, nomsRoles } from "./etapes-base.js";
@@ -33,18 +33,43 @@ const adresseAdmin = () => {
 const ADMIN = process.env["T235_PG_ADMIN_URL"] ?? adresseAdmin();
 const ESSAI = fileURLToPath(new URL("../../../../tests/modules/essai/migrations", import.meta.url));
 const vers = (base: string) => { const u = new URL(ADMIN); u.pathname = `/${base}`; return u.toString(); };
-const pools: pg.Pool[] = [];
-const pool = (base: string) => { const p = new pg.Pool({ connectionString: vers(base), max: 1 }); p.on("error", () => undefined); pools.push(p); return p; };
-afterAll(async () => { await Promise.all(pools.map((p) => p.end().catch(() => undefined))); });
+// Connexions : UN pool par base (mémorisé, taille 1) et un pool « postgres » partagé. Tout est fermé après CHAQUE essai (afterEach) : sans cela, chaque essai laissait ~4 pools inactifs
+// jusqu'à la fin du fichier et la grappe répondait 53300 « too many clients already » quand d'autres fichiers .int.test.ts tournaient en parallèle.
+const pools = new Map<string, pg.Pool>();
+const clients = new Set<pg.Client>();
+const pool = (base: string) => {
+  let p = pools.get(base);
+  if (!p) { p = new pg.Pool({ connectionString: vers(base), max: 1 }); p.on("error", () => undefined); pools.set(base, p); }
+  return p;
+};
+// Client unique suivi : fermé même si l'essai échoue avant son propre finally.
+const client = (base: string) => { const k = new pg.Client({ connectionString: vers(base) }); k.on("error", () => undefined); clients.add(k); return k; };
+const client2 = (url: string) => { const k = new pg.Client({ connectionString: url }); k.on("error", () => undefined); clients.add(k); return k; };
+const fermerClient = async (k: pg.Client) => { clients.delete(k); await k.end().catch(() => undefined); };
+const fermerBase = async (base: string) => { const p = pools.get(base); pools.delete(base); await p?.end().catch(() => undefined); };
+const toutFermer = async () => {
+  const k = [...clients]; clients.clear();
+  const p = [...pools.values()]; pools.clear();
+  await Promise.all([...k.map((x) => x.end().catch(() => undefined)), ...p.map((x) => x.end().catch(() => undefined))]);
+};
+afterEach(toutFermer);
+afterAll(toutFermer);
+// Sessions ouvertes sur une base (hors la session qui compte).
+const connexionsSur = async (base: string) => Number((await pool("postgres").query("SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()", [base])).rows[0]?.n);
 const empreinteVide = `SCRAM-SHA-256$4096:${randomBytes(16).toString("base64")}$${randomBytes(32).toString("base64")}:${randomBytes(32).toString("base64")}`;
 
 async function clientNonFerme() {
   const id = randomUUID();
   const base = nomBaseDe(id);
-  const admin = adminPg(sqlPg(pool("postgres")), (b) => sqlPg(pool(b)));
-  await admin.creerBase(base, "modele_v1");
-  let v = 0;
-  for (const r of Object.values(nomsRoles(id))) await admin.poserRole(r, empreinteVide, ++v);
+  // La recette (adminPg) a ses propres pools, fermés dès que la base et les rôles sont posés.
+  const jetables: pg.Pool[] = [];
+  const jetable = (b: string) => { const p = new pg.Pool({ connectionString: vers(b), max: 1 }); p.on("error", () => undefined); jetables.push(p); return p; };
+  try {
+    const admin = adminPg(sqlPg(jetable("postgres")), (b) => sqlPg(jetable(b)));
+    await admin.creerBase(base, "modele_v1");
+    let v = 0;
+    for (const r of Object.values(nomsRoles(id))) await admin.poserRole(r, empreinteVide, ++v);
+  } finally { await Promise.all(jetables.map((p) => p.end().catch(() => undefined))); }
   const dans = pool(base);
   await dans.query(`GRANT ${nomsRoles(id).proprietaire} TO CURRENT_USER WITH SET TRUE`);
   // Comme après la fermeture : le propriétaire possède la base (il y crée donc le schéma du module).
@@ -89,6 +114,14 @@ describe("migrations d'un module (grappe jetable)", () => { // fiche: T2-35
     expect((await comme(c, c.roles.proprietaire, "SELECT has_table_privilege($1, 'a_essai.essai_notes', 'INSERT') AS i, has_table_privilege($1, 'a_essai.essai_notes', 'DELETE') AS d", [c.roles.app]))[0]).toEqual({ i: true, d: false });
   }, 60_000);
 
+  // Fuite de connexions (53300 « too many clients » en CI) : après une migration de module et la fermeture des pools de l'essai, aucune session ne doit rester sur la base.
+  it("[A-219] aucune connexion ne reste ouverte sur la base du client après une migration de module", async () => {
+    const c = await clientNonFerme();
+    await migrerBase(c.base, 1, { url: vers(c.base), dossier: ESSAI, module: "essai" });
+    await fermerBase(c.base);
+    expect(await connexionsSur(c.base)).toBe(0);
+  }, 60_000);
+
   it("[A-219] @isolation le rôle de migration du module ne possède et n'écrit que a_<code> : rien dans commun ni public, même sans le filtre du texte", async () => {
     const c = await clientNonFerme();
     await migrerBase(c.base, 1, { url: vers(c.base), dossier: ESSAI, module: "essai" });
@@ -100,7 +133,7 @@ describe("migrations d'un module (grappe jetable)", () => { // fiche: T2-35
     await expect(c.dans.query(`SET ROLE ${m}`)).rejects.toMatchObject({ code: "42501" });
     // Sous ce rôle, même les ordres que le filtre laisserait passer échouent hors du schéma du module.
     await c.dans.query(`GRANT ${m} TO CURRENT_USER WITH SET TRUE`);
-    const k = new pg.Client({ connectionString: vers(c.base) });
+    const k = client(c.base);
     await k.connect();
     try {
       await k.query(`SET ROLE ${m}`);
@@ -109,7 +142,7 @@ describe("migrations d'un module (grappe jetable)", () => { // fiche: T2-35
       }
       await k.query("COMMIT").catch(() => undefined);
       await k.query("CREATE TABLE a_essai.autre (id int)");
-    } finally { await k.end(); }
+    } finally { await fermerClient(k); }
     // L'application ne touche pas au journal de versions du module.
     expect((await comme(c, c.roles.proprietaire, "SELECT has_table_privilege($1, 'a_essai.version_structure', 'SELECT') AS s", [c.roles.app]))[0]).toEqual({ s: false });
   }, 60_000);
@@ -129,7 +162,7 @@ describe("migrations d'un module (grappe jetable)", () => { // fiche: T2-35
   async function rejouerR1(reinit: string) {
     const c = await clientNonFerme();
     const avant = await instantane(c);
-    const admin = new pg.Client({ connectionString: vers(c.base) });
+    const admin = client(c.base);
     await admin.connect();
     const mod = await ouvrirConnexionModule(admin, vers(c.base), c.base, "essai");
     try {
@@ -137,52 +170,52 @@ describe("migrations d'un module (grappe jetable)", () => { // fiche: T2-35
       expect(identite).toEqual({ s: roleMigrationModule(c.base, "essai"), c: roleMigrationModule(c.base, "essai") });
       // F1 : le refus 42501 est celui de l'ALTER ROLE (message vérifié) ; le témoin positif ci-dessous prouve que la même charge SANS l'ALTER ROLE passe.
       await expect(mod.client.query(chargeR1(reinit).replace("ROLE_APP", c.roles.app))).rejects.toMatchObject({ code: "42501", message: expect.stringMatching(/alter role|permission denied/i) });
-    } finally { await mod.fermer(); await admin.end(); }
+    } finally { await mod.fermer(); await fermerClient(admin); }
     expect(await instantane(c)).toEqual(avant);
     // Le mot de passe « connu » n'ouvre rien : le rôle _app n'a pas changé de mot de passe.
     const u = new URL(vers(c.base)); u.username = c.roles.app; u.password = "connu";
-    const k = new pg.Client({ connectionString: u.toString() });
+    const k = client2(u.toString());
     k.on("error", () => undefined);
     // F1 : refus d'authentification (28P01), pas une autre panne de connexion.
     await expect(k.connect()).rejects.toMatchObject({ code: "28P01" });
-    await k.end().catch(() => undefined);
+    await fermerClient(k);
   }
   it("[A-219] @isolation témoin positif : la charge R1 SANS l'ALTER ROLE passe sur la connexion du rôle du module (le refus vient donc bien de l'ALTER ROLE)", async () => {
     const c = await clientNonFerme();
-    const admin = new pg.Client({ connectionString: vers(c.base) });
+    const admin = client(c.base);
     await admin.connect();
     const mod = await ouvrirConnexionModule(admin, vers(c.base), c.base, "essai");
     try {
       await expect(mod.client.query(chargeR1("SELECT 1").replace("ALTER ROLE ROLE_APP PASSWORD 'connu';", ""))).resolves.toBeTruthy();
-    } finally { await mod.fermer(); await admin.end(); }
+    } finally { await mod.fermer(); await fermerClient(admin); }
   }, 60_000);
   // F5 : mutation de preuve de A-219. Avec l'ancien SET ROLE sur la session du PROVISIONNEUR, la charge R1 réussit : l'essai R1 ci-dessus rougirait. Cet essai rejoue la mutation à chaque passage de la CI.
   it("[A-219] @isolation mutation de preuve : sous SET ROLE du propriétaire sur la session du provisionneur, la charge R1 réussit (l'essai R1 rougirait)", async () => {
     const c = await clientNonFerme();
-    const admin = new pg.Client({ connectionString: vers(c.base) });
+    const admin = client(c.base);
     await admin.connect();
     try {
       await admin.query(`GRANT ${c.roles.proprietaire} TO CURRENT_USER WITH SET TRUE`);
       await admin.query(`SET ROLE ${c.roles.proprietaire}`);
       await expect(admin.query(chargeR1("RESET ROLE").replace("ROLE_APP", c.roles.app).replace("SET search_path = a_essai;", "")), "la charge R1 aurait dû réussir sous l'ancien SET ROLE").resolves.toBeTruthy();
-    } finally { await admin.query("RESET ROLE").catch(() => undefined); await admin.end(); }
+    } finally { await admin.query("RESET ROLE").catch(() => undefined); await fermerClient(admin); }
   }, 60_000);
   it("[A-219] @isolation F3 : un droit TEMP ou CREATE du rôle du module sur la base fait refuser l'ouverture avant toute migration", async () => {
     const c = await clientNonFerme();
     await c.dans.query("RESET ROLE");
     await pool("postgres").query(`SET ROLE ${c.roles.proprietaire}; GRANT TEMPORARY ON DATABASE ${c.base} TO PUBLIC; RESET ROLE`);
-    const admin = new pg.Client({ connectionString: vers(c.base) });
+    const admin = client(c.base);
     await admin.connect();
     try {
       await expect(ouvrirConnexionModule(admin, vers(c.base), c.base, "essai")).rejects.toThrow(/hors de a_essai/);
       // Aucun rôle laissé LOGIN : le refus survient avant le ALTER ROLE … LOGIN.
       expect((await pool("postgres").query("SELECT rolcanlogin FROM pg_roles WHERE rolname = $1", [roleMigrationModule(c.base, "essai")])).rows[0]?.rolcanlogin).toBe(false);
-    } finally { await admin.end(); }
+    } finally { await fermerClient(admin); }
   }, 60_000);
   it("[A-219] @isolation F2 : l'ALTER ROLE … LOGIN envoie une empreinte SCRAM, jamais le mot de passe en clair, et le rôle est NOLOGIN après la fermeture", async () => {
     const c = await clientNonFerme();
     const texte: string[] = [];
-    const admin = new pg.Client({ connectionString: vers(c.base) });
+    const admin = client(c.base);
     await admin.connect();
     const origine = admin.query.bind(admin) as (...a: unknown[]) => unknown;
     (admin as unknown as { query: unknown }).query = (...a: unknown[]) => { if (typeof a[0] === "string") texte.push(a[0]); return origine(...a); };
@@ -190,7 +223,7 @@ describe("migrations d'un module (grappe jetable)", () => { // fiche: T2-35
     try {
       const alter = texte.find((t) => /ALTER ROLE .* LOGIN/.test(t));
       expect(alter).toMatch(/PASSWORD 'SCRAM-SHA-256\$4096:/);
-    } finally { await mod.fermer(); await admin.end(); }
+    } finally { await mod.fermer(); await fermerClient(admin); }
     expect((await pool("postgres").query("SELECT rolcanlogin FROM pg_roles WHERE rolname = $1", [roleMigrationModule(c.base, "essai")])).rows[0]?.rolcanlogin).toBe(false);
   }, 60_000);
 
@@ -200,27 +233,27 @@ describe("migrations d'un module (grappe jetable)", () => { // fiche: T2-35
   it("[A-219] @isolation un rôle _mod_ d'un autre client ne se connecte pas à la base du client, un rôle _mod_ NOLOGIN non plus", async () => {
     const a = await clientNonFerme();
     const b = await clientNonFerme();
-    const admin = new pg.Client({ connectionString: vers(a.base) });
+    const admin = client(a.base);
     await admin.connect();
     // Témoin : le rôle du module de A, ouvert par migrerBase, se connecte bien à la base de A (la règle pg_hba existe).
     const mod = await ouvrirConnexionModule(admin, vers(a.base), a.base, "essai");
-    try { expect((await mod.client.query("SELECT current_user AS u")).rows[0]?.u).toBe(roleMigrationModule(a.base, "essai")); } finally { await mod.fermer(); await admin.end(); }
+    try { expect((await mod.client.query("SELECT current_user AS u")).rows[0]?.u).toBe(roleMigrationModule(a.base, "essai")); } finally { await mod.fermer(); await fermerClient(admin); }
     // Un rôle _mod_ de B, LOGIN avec un mot de passe connu du test : atteint la base de A par pg_hba, mais PostgreSQL refuse le CONNECT.
     const etranger = roleMigrationModule(b.base, "essai");
     const mdp = randomBytes(24).toString("hex");
     await pool("postgres").query(`CREATE ROLE ${etranger} LOGIN NOINHERIT PASSWORD '${mdp}'`);
     const vers_ = (base: string, role: string, secret: string) => { const u = new URL(vers(base)); u.username = role; u.password = secret; return u.toString(); };
     try {
-      const k = new pg.Client({ connectionString: vers_(a.base, etranger, mdp) });
+      const k = client2(vers_(a.base, etranger, mdp));
       k.on("error", () => undefined);
       await expect(k.connect()).rejects.toMatchObject({ code: "42501" });
-      await k.end().catch(() => undefined);
+      await fermerClient(k);
       // NOLOGIN et mot de passe NULL (état du rôle du module après toute migration) : aucune connexion, même vers sa propre base.
       await pool("postgres").query(`ALTER ROLE ${roleMigrationModule(a.base, "essai")} NOLOGIN PASSWORD NULL`);
-      const n = new pg.Client({ connectionString: vers_(a.base, roleMigrationModule(a.base, "essai"), mdp) });
+      const n = client2(vers_(a.base, roleMigrationModule(a.base, "essai"), mdp));
       n.on("error", () => undefined);
       await expect(n.connect()).rejects.toMatchObject({ code: expect.stringMatching(/^(28P01|28000)$/) });
-      await n.end().catch(() => undefined);
+      await fermerClient(n);
     } finally { await pool("postgres").query(`ALTER ROLE ${etranger} NOLOGIN PASSWORD NULL`); }
   }, 90_000);
 

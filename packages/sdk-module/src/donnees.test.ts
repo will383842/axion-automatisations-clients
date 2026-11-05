@@ -3,16 +3,16 @@ import { z } from "zod";
 import { defineAutomation, validerEcrans, type ContexteEtape, type Manifeste } from "./index.ts";
 import { manifesteExemple } from "../exemples/module-exemple.ts";
 
-const requete = { nom: "lister-prospects", parametres: { type: "object", properties: {}, additionalProperties: false }, sql: "select id, nom from a_prospection.prospects where statut = $1", mode: "lecture", colonnes: ["id", "nom"], liste: true, pagination: { curseur: "id" }, parEtablissement: true };
-const action = { nom: "changer-statut", parametres: { type: "object", properties: { statut: { type: "string" } }, additionalProperties: false }, sql: "update a_prospection.prospects set statut = $1 where id = $2", mode: "ecriture", colonnes: ["id"], liste: false, parEtablissement: true, historique: true };
+const requete = { nom: "lister-prospects", mode: "lecture", parametres: { statut: { type: "texte", max: 40 } }, forme: { type: "simple", table: "commun.prospects", sortie: { lignes: [{ colonne: "id" }, { colonne: "nom" }] }, filtres: [{ colonne: "statut", operateur: "egal", parametre: "statut" }], limite: { fixe: 50 } } };
+const action = { nom: "changer-statut", mode: "ecriture", parametres: {}, forme: requete.forme, historique: true };
 const permission = { nom: "voir-prospects", libelle: "Voir les prospects", parDefaut: ["administrateur", "utilisateur"] };
-const donnees = (surcharge: Record<string, unknown> = {}) => ({ requetes: [requete], actions: [action], ...surcharge });
+const donnees = (surcharge: Record<string, unknown> = {}) => ({ requetes: [requete], actions: [], ...surcharge });
 const avec = (surcharge: Record<string, unknown>) => ({ ...manifesteExemple, ...surcharge }) as unknown as Manifeste;
 const accepte = (surcharge: Record<string, unknown>) => expect(() => defineAutomation(avec(surcharge))).not.toThrow();
 const refuse = (surcharge: Record<string, unknown>, motif?: RegExp) => expect(() => defineAutomation(avec(surcharge))).toThrow(motif);
 const ecran = (composant: string, proprietes: Record<string, unknown>) => ({ composant, proprietes });
 
-describe("C4 0.4.0 : données et écrans d'un module (T4-49)", () => {
+describe("C4 0.5.0 : données et écrans d'un module (T4-49)", () => {
   it("[C-624] un manifeste avec une requête déclarée valide est accepté ; un nom hors motif (souligné, majuscule) est refusé", () => {
     accepte({ donnees: donnees(), permissions: [permission] });
     refuse({ donnees: donnees({ requetes: [{ ...requete, nom: "lister_prospects" }] }) }, /donnees/);
@@ -27,16 +27,25 @@ describe("C4 0.4.0 : données et écrans d'un module (T4-49)", () => {
     expect(validerEcrans([ecran("Bouton", { libelle: "Changer", action: "Changer_Statut" })]).ok).toBe(false);
   });
 
-  it("[C-624] une requête de liste sans pagination par curseur est refusée", () => {
-    const sansPagination = { ...requete, pagination: undefined };
-    refuse({ donnees: donnees({ requetes: [sansPagination] }) }, /pagination/);
-    accepte({ donnees: donnees({ requetes: [{ ...requete, liste: false, pagination: undefined }] }) });
+  it("[C-624] une requête qui porte un champ sql est refusée", () => {
+    refuse({ donnees: donnees({ actions: [], requetes: [{ ...requete, sql: "select id from commun.prospects" }] }) }, /C4 0\.5\.0 : sql retiré \(ADR 0109\), déclarer une forme/);
+    for (const cle of ["colonnes", "liste", "pagination", "parEtablissement", "extra"]) refuse({ donnees: { requetes: [{ ...requete, [cle]: true }], actions: [] } }, /donnees/);
   });
 
-  it("[C-625] une action d'écriture sans historique est refusée", () => {
-    const sans = { ...action, historique: undefined };
-    refuse({ donnees: donnees({ actions: [sans] }) }, /historique/);
-    refuse({ donnees: donnees({ actions: [{ ...action, historique: false }] }) }, /historique/);
+  it("[C-624] une action déclarée est refusée tant que l'écriture est fermée", () => {
+    refuse({ donnees: { requetes: [requete], actions: [action] } }, /écriture est fermée/);
+    accepte({ donnees: { requetes: [requete], actions: [] } });
+  });
+
+  it("[C-624] une table hors commun est refusée", () => {
+    const avecTable = (table: string) => ({ requetes: [{ ...requete, forme: { ...requete.forme, table } }], actions: [] });
+    for (const table of ["a_prospection.prospects", "public.prospects", "prospects", "commun.Prospects", "commun.prospects; drop", `commun.${"a".repeat(64)}`]) refuse({ donnees: avecTable(table) }, /donnees/);
+    accepte({ donnees: avecTable("commun.prospects") });
+  });
+
+  it("[C-624] un manifeste 0.3.0 reste valide", () => {
+    accepte({});
+    expect(defineAutomation(avec({})).donnees).toBeUndefined();
   });
 
   it("[C-626] une requête qui nomme une permission non déclarée est refusée", () => {
@@ -52,8 +61,8 @@ describe("C4 0.4.0 : données et écrans d'un module (T4-49)", () => {
     refuse({ ecrans: tableau("lister-prospects") }, /source/);
     refuse({ donnees: donnees(), ecrans: tableau("inconnue") }, /source/);
     accepte({ donnees: donnees(), ecrans: tableau("lister-prospects") });
-    refuse({ donnees: donnees(), ecrans: [ecran("Formulaire", { titre: "Statut", action: "inconnue" })] }, /action/);
-    accepte({ donnees: donnees(), ecrans: [ecran("Formulaire", { titre: "Statut", action: "changer-statut" })] });
+    // L'écriture est fermée : aucune action n'est déclarable, donc aucun écran ne peut en nommer une.
+    refuse({ donnees: donnees(), ecrans: [ecran("Formulaire", { titre: "Statut", action: "changer-statut" })] }, /action/);
   });
 
   it("[B-170] les huit composants du portail existent ; les alias 0.3.0 restent acceptés", () => {
@@ -94,31 +103,23 @@ describe("C4 0.4.0 : données et écrans d'un module (T4-49)", () => {
     refuse({ fonctions: [{ nom: "envoi-courriel", libelle: "A" }, { nom: "envoi-courriel", libelle: "B" }] }, /fonctions/);
   });
 
-  it("[C-624] le contexte d'étape type un port donnees (lire, ecrire) qui ne prend que des noms et des paramètres", async () => {
+  it("[C-624] le contexte d'étape type un port donnees en lecture seule (lire) qui ne prend que des noms et des paramètres", async () => {
     const appels: string[] = [];
     const port: NonNullable<ContexteEtape["donnees"]> = {
       lire: async (nom, parametres) => (appels.push(`lire:${nom}:${JSON.stringify(parametres)}`), []),
-      ecrire: async (nom) => void appels.push(`ecrire:${nom}`),
     };
+    expect("ecrire" in port).toBe(false);
     expect(await port.lire("lister-prospects", { statut: "ouvert" })).toEqual([]);
-    await port.ecrire("changer-statut");
-    expect(appels).toEqual(['lire:lister-prospects:{"statut":"ouvert"}', "ecrire:changer-statut"]);
+    expect(appels).toEqual(['lire:lister-prospects:{"statut":"ouvert"}']);
+    // @ts-expect-error C4 0.5.0 : le port n'a plus d'écriture (ADR 0109).
+    void port.ecrire;
   });
 
   it("[B-171] aucun champ du manifeste n'accepte du JavaScript (fonction, texte évalué)", () => {
     refuse({ donnees: donnees({ requetes: [{ ...requete, sql: () => "select 1" }] }) }, /donnees/);
     refuse({ donnees: donnees({ requetes: [{ ...requete, parametres: () => ({}) }] }) }, /donnees/);
     refuse({ permissions: [{ ...permission, libelle: () => "x" }] }, /permissions/);
-    refuse({ donnees: donnees({ requetes: [{ ...requete, sql: "select 1; drop table a_prospection.prospects" }] }) }, /sql/);
-    refuse({ donnees: donnees({ requetes: [{ ...requete, sql: "select * from commun.t where x = '1' -- ${x}" }] }) }, /sql/);
     expect(validerEcrans([ecran("Tableau", { titre: "x", source: "${alert(1)}" })]).ok).toBe(false);
-  });
-
-  it("[C-624] le SQL n'a que des paramètres $1…$n et une requête lecture ne contient aucune écriture", () => {
-    refuse({ donnees: donnees({ requetes: [{ ...requete, sql: "update a_prospection.prospects set statut = 'x'" }] }) }, /sql/);
-    refuse({ donnees: donnees({ requetes: [{ ...requete, sql: "select id from a_prospection.prospects where statut = 'ouvert'" }] }) }, /sql/);
-    refuse({ donnees: donnees({ actions: [{ ...action, mode: "lecture", sql: "delete from a_prospection.prospects where id = $1" }] }) }, /sql/);
-    refuse({ donnees: donnees({ requetes: [{ ...requete, mode: "ecriture" }] }) }, /donnees/);
   });
 
   it("[A-300] un manifeste 0.3.0 reste valide tel quel, sans aucun champ nouveau", () => {

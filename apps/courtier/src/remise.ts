@@ -56,6 +56,7 @@ export interface PortsRemise {
   lireCoffre(chemin: string, signal?: AbortSignal): Promise<Record<string, unknown>>;
   planifier?: Planifier; // horloge des délais (réelle par défaut)
   delaiCoffreMs?: number; // délai maximal d'une lecture du coffre (5 s par défaut)
+  delaiPortsMs?: number; // délai maximal de l'API et de la base (5 s par défaut) ; au-delà : refus
   jetons: RegistreJetons;
   journal: Journal;
   maintenant(): number;
@@ -83,16 +84,17 @@ export async function remettre(p: PortsRemise, appelant: { cellule: string; jeto
     p.journal.tracer({ evenement: "remise_refusee", ...base, ...extra, code });
     throw new ErreurRemise(code);
   };
+  const limite = <T>(appel: () => Promise<T>): Promise<T> => avecDelai(() => appel(), p.delaiPortsMs ?? DELAI_PAR_DEFAUT_MS, p.planifier ?? planifierReel);
   if (!appelant.jetonInstance) return refuser("refusee");
   // Même code pour jeton refusé, instance inconnue, autre cellule ou référence hors du client : aucune raison donnée.
-  if (!(await p.verifierJetonInstance(appelant.jetonInstance, { instanceId: d.instanceId, cellule: appelant.cellule }).catch(() => false))) return refuser("refusee");
-  const c = await p.connexion(d.instanceId, d.connexionId).catch(() => undefined);
+  if (!(await limite(() => p.verifierJetonInstance(appelant.jetonInstance, { instanceId: d.instanceId, cellule: appelant.cellule })).catch(() => false))) return refuser("refusee");
+  const c = await limite(() => p.connexion(d.instanceId, d.connexionId)).catch(() => undefined);
   if (!c || c.celluleCode !== appelant.cellule || !UUID.test(c.tenantId) || c.instanceId !== d.instanceId || c.connexionId !== d.connexionId) return refuser("refusee");
   const chemin = cheminDeLaReference(c.referenceCoffre, c.tenantId);
   if (!chemin) return refuser("refusee", { tenantId: c.tenantId });
   if (c.famille === "base") return refuser("famille_non_geree", { tenantId: c.tenantId, famille: c.famille });
   // L'exécution doit exister, être en cours et appartenir à cette instance et cette cellule, AVANT toute réservation ou lecture du coffre.
-  if (!(await p.executionEnCours({ executionId: d.executionId, instanceId: d.instanceId, cellule: appelant.cellule }).catch(() => false))) return refuser("refusee", { tenantId: c.tenantId });
+  if (!(await limite(() => p.executionEnCours({ executionId: d.executionId, instanceId: d.instanceId, cellule: appelant.cellule })).catch(() => false))) return refuser("refusee", { tenantId: c.tenantId });
   const duree = p.dureeExecutionMs + MARGE_MS;
   if (!(await p.jetons.reserver(d.executionId, d.connexionId))) return refuser("deja_remise", { tenantId: c.tenantId });
 

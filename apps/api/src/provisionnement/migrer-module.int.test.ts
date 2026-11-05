@@ -36,6 +36,9 @@ const vers = (base: string) => { const u = new URL(ADMIN); u.pathname = `/${base
 const pools: pg.Pool[] = [];
 const pool = (base: string) => { const p = new pg.Pool({ connectionString: vers(base), max: 1 }); p.on("error", () => undefined); pools.push(p); return p; };
 afterAll(async () => { await Promise.all(pools.map((p) => p.end().catch(() => undefined))); });
+// Sessions ouvertes sur une base (hors la session qui compte).
+const connexionsSur = async (base: string) => Number((await pool("postgres").query("SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()", [base])).rows[0]?.n);
+const fermerBase = async (_base: string): Promise<void> => undefined; // à écrire : ferme les pools de cette base
 const empreinteVide = `SCRAM-SHA-256$4096:${randomBytes(16).toString("base64")}$${randomBytes(32).toString("base64")}:${randomBytes(32).toString("base64")}`;
 
 async function clientNonFerme() {
@@ -87,6 +90,14 @@ describe("migrations d'un module (grappe jetable)", () => { // fiche: T2-35
     expect((await c.dans.query("SELECT count(*)::int AS n FROM pg_tables WHERE tablename = 'essai_notes' AND schemaname <> 'a_essai'")).rows[0]?.n).toBe(0);
     // L'application lit et écrit dans le schéma du module, sans DELETE.
     expect((await comme(c, c.roles.proprietaire, "SELECT has_table_privilege($1, 'a_essai.essai_notes', 'INSERT') AS i, has_table_privilege($1, 'a_essai.essai_notes', 'DELETE') AS d", [c.roles.app]))[0]).toEqual({ i: true, d: false });
+  }, 60_000);
+
+  // Fuite de connexions (53300 « too many clients » en CI) : après une migration de module et la fermeture des pools de l'essai, aucune session ne doit rester sur la base.
+  it("[A-219] aucune connexion ne reste ouverte sur la base du client après une migration de module", async () => {
+    const c = await clientNonFerme();
+    await migrerBase(c.base, 1, { url: vers(c.base), dossier: ESSAI, module: "essai" });
+    await fermerBase(c.base);
+    expect(await connexionsSur(c.base)).toBe(0);
   }, 60_000);
 
   it("[A-219] @isolation le rôle de migration du module ne possède et n'écrit que a_<code> : rien dans commun ni public, même sans le filtre du texte", async () => {

@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { Readable } from "node:stream";
 import { describe, expect, it } from "vitest";
 import { nomBaseDe } from "../provisionnement/etapes-base.js";
@@ -27,9 +27,11 @@ function monde() {
 }
 
 function ports(m: ReturnType<typeof monde>, dumps: Map<string, Buffer>) {
-  const j = { bases: new Map<string, { roles: string[]; contenu: string }>(), retirees: [] as string[], instances: [] as { horodatage: string; detruite: boolean }[], enregistrees: [] as Restauration[] };
+  const j = { creations: 0, bases: new Map<string, { roles: string[]; contenu: string }>(), retirees: [] as string[], instances: [] as { horodatage: string; detruite: boolean }[], enregistrees: [] as Restauration[] };
+  const sha = (b: Buffer) => createHash("sha256").update(b).digest("hex");
   const p: PortsRestauration = {
     bao: m.bao,
+    async empreinteEnregistree(t, date) { const d = dumps.get(cheminDump(t, date)); return d ? sha(d) : undefined; },
     lireDump: (c) => Readable.from(dumps.has(c) ? [dumps.get(c)!] : []),
     async demarrerInstanceJetable(horodatage): Promise<InstanceJetable> {
       const i = { horodatage, detruite: false }; j.instances.push(i);
@@ -37,7 +39,7 @@ function ports(m: ReturnType<typeof monde>, dumps: Map<string, Buffer>) {
     },
     async numeroSuivant() { return 3; },
     async rolesDuClient(t) { return [`${nomBaseDe(t)}_app`, `${nomBaseDe(t)}_lecture`]; },
-    async creerBaseTemporaire(nom, roles) { j.bases.set(nom, { roles, contenu: "" }); },
+    async creerBaseTemporaire(nom, roles) { j.creations++; j.bases.set(nom, { roles, contenu: "" }); },
     async charger(nom, flux) { const o: Buffer[] = []; for await (const x of flux) o.push(x as Buffer); j.bases.get(nom)!.contenu = Buffer.concat(o).toString(); },
     async retirerBaseTemporaire(nom) { j.retirees.push(nom); j.bases.delete(nom); },
     async enregistrer(r) { j.enregistrees.push(r); },
@@ -77,8 +79,9 @@ describe("restaurer-client", () => {
     const appeles: { nom: string; roles: string[] }[] = [];
     const creer = p.creerBaseTemporaire; p.creerBaseTemporaire = async (nom, roles) => { appeles.push({ nom, roles }); return creer(nom, roles); };
     const r = await preparerRestauration(p, a, { depuis: "dump", date: "2026-11-01" });
-    expect(appeles).toEqual([{ nom: r.nomBase, roles: [`${nomBaseDe(a)}_app`, `${nomBaseDe(a)}_lecture`] }]);
-    expect(appeles[0]!.roles.some((x) => x.includes(nomBaseDe(b)))).toBe(false);
+    // Verrouillée : aucun rôle du client (ni d'un autre) n'y entre tant qu'elle n'est pas basculée.
+    expect(appeles).toEqual([{ nom: r.nomBase, roles: [] }]);
+    expect(appeles.flatMap((x) => x.roles).some((x) => x.includes(nomBaseDe(b)))).toBe(false);
     expect(r.nomBase).not.toBe(nomBaseDe(a));
     expect(j.bases.has(nomBaseDe(a))).toBe(false);
   });
@@ -86,13 +89,16 @@ describe("restaurer-client", () => {
     const m = monde(); const a = randomUUID(); const b = randomUUID();
     const { p, j } = ports(m, new Map([[cheminDump(b, "2026-11-01"), await m.chiffrer(a, "donnees-de-A")]]));
     await expect(preparerRestauration(p, b, { depuis: "dump", date: "2026-11-01" })).rejects.toBeDefined();
-    expect(j.retirees).toEqual([`${nomBaseDe(b)}_restau_3`]);
+    // La clé est refusée AVANT toute écriture : aucune base temporaire n'a même été créée.
+    expect(j.creations).toBe(0);
+    expect(j.enregistrees).toHaveLength(0);
   });
   it("[C-048] le dump d'un client dont la clé est détruite ne se restaure pas", async () => {
     const m = monde(); const a = randomUUID();
     const { p, j } = ports(m, new Map([[cheminDump(a, "2026-11-01"), await m.chiffrer(a, "x")]]));
     m.detruire(a);
     await expect(preparerRestauration(p, a, { depuis: "dump", date: "2026-11-01" })).rejects.toBeDefined();
+    expect(j.creations).toBe(0);
     expect(j.enregistrees).toHaveLength(0);
   });
   it("[C-048] une date ou un instant mal formés sont refusés avant tout travail", async () => {
@@ -100,5 +106,56 @@ describe("restaurer-client", () => {
     await expect(preparerRestauration(p, randomUUID(), { depuis: "dump", date: "../autre" })).rejects.toThrow("source_invalide");
     await expect(preparerRestauration(p, randomUUID(), { depuis: "instant", horodatage: "hier" })).rejects.toThrow("source_invalide");
     expect(j.bases.size + j.instances.length).toBe(0);
+  });
+});
+
+describe("restaurer-client : contrôle avant écriture", () => {
+  const grand = "x".repeat(200_000); // plusieurs blocs
+  it("[C-048] un dump altéré est refusé avant toute écriture (empreinte différente)", async () => {
+    const m = monde(); const a = randomUUID(); const bon = await m.chiffrer(a, grand);
+    const { p, j } = ports(m, new Map([[cheminDump(a, "2026-11-01"), bon]]));
+    const alteré = Buffer.from(bon); alteré[alteré.length - 40]! ^= 1;
+    p.lireDump = () => Readable.from([alteré]);
+    await expect(preparerRestauration(p, a, { depuis: "dump", date: "2026-11-01" })).rejects.toThrow("empreinte_differente");
+    expect(j.creations).toBe(0);
+  });
+  it("[C-048] un dump altéré dont l'empreinte a été refaite est refusé par la lecture à blanc", async () => {
+    const m = monde(); const a = randomUUID(); const bon = await m.chiffrer(a, grand);
+    const alteré = Buffer.from(bon); alteré[alteré.length - 40]! ^= 1;
+    const { p, j } = ports(m, new Map([[cheminDump(a, "2026-11-01"), alteré]]));
+    await expect(preparerRestauration(p, a, { depuis: "dump", date: "2026-11-01" })).rejects.toThrow("dechiffrement_impossible");
+    expect(j.creations).toBe(0);
+  });
+  it("[C-048] un dump coupé est refusé avant toute écriture, avec ou sans empreinte à jour", async () => {
+    const m = monde(); const a = randomUUID(); const bon = await m.chiffrer(a, grand);
+    const coupe = bon.subarray(0, bon.length - 200);
+    const e1 = ports(m, new Map([[cheminDump(a, "2026-11-01"), bon]]));
+    e1.p.lireDump = () => Readable.from([coupe]);
+    await expect(preparerRestauration(e1.p, a, { depuis: "dump", date: "2026-11-01" })).rejects.toThrow("empreinte_differente");
+    const e2 = ports(m, new Map([[cheminDump(a, "2026-11-01"), coupe]]));
+    await expect(preparerRestauration(e2.p, a, { depuis: "dump", date: "2026-11-01" })).rejects.toThrow("dechiffrement_impossible");
+    expect(e1.j.creations + e2.j.creations).toBe(0);
+  });
+  it("[C-048] sans empreinte enregistrée, le dump n'est pas restauré", async () => {
+    const m = monde(); const a = randomUUID();
+    const { p, j } = ports(m, new Map([[cheminDump(a, "2026-11-01"), await m.chiffrer(a, "x")]]));
+    p.empreinteEnregistree = async () => undefined;
+    await expect(preparerRestauration(p, a, { depuis: "dump", date: "2026-11-01" })).rejects.toThrow("empreinte_absente");
+    expect(j.creations).toBe(0);
+  });
+  it("[C-536] @isolation si le nettoyage échoue, l'erreur d'origine est gardée et la base temporaire reste verrouillée", async () => {
+    const m = monde(); const a = randomUUID(); const { p, j } = ports(m, new Map());
+    p.charger = async () => { throw new Error("copie_echouee"); };
+    p.retirerBaseTemporaire = async () => { throw new Error("nettoyage_echoue"); };
+    await expect(preparerRestauration(p, a, { depuis: "instant", horodatage: "2026-11-02T10:00:00.000Z" })).rejects.toThrow("copie_echouee");
+    expect([...j.bases.values()].every((b) => b.roles.length === 0)).toBe(true);
+    expect(j.instances[0]!.detruite).toBe(true);
+    expect(j.enregistrees).toHaveLength(0);
+  });
+  it("[A-240] l'échec de destruction de l'instance ne masque pas l'erreur d'origine", async () => {
+    const m = monde(); const a = randomUUID(); const { p } = ports(m, new Map());
+    p.demarrerInstanceJetable = async () => ({ dumper: () => Readable.from([Buffer.from("x")]), detruire: async () => { throw new Error("destruction_echouee"); } });
+    p.charger = async () => { throw new Error("copie_echouee"); };
+    await expect(preparerRestauration(p, a, { depuis: "instant", horodatage: "2026-11-02T10:00:00.000Z" })).rejects.toThrow("copie_echouee");
   });
 });

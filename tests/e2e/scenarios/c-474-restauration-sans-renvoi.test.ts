@@ -22,7 +22,7 @@ test("[C-474] @envoi sauvegarde à T0, envoi à T1, restauration de T0 : aucun r
     lire: async () => ({ ...r, confirmations: [...confirmations], basculee }),
     ajouterConfirmation: async (_t, _i, c) => { confirmations.push(c); },
     marquerBasculee: async () => { basculee = true; Object.assign(baseClient, sauvegardeT0); },
-    pauser: async () => {}, reprendre: async () => {}, renommer: async () => {}, journaliser: async () => {},
+    pauser: async () => {}, ouvrirAuxRoles: async () => {}, reprendre: async () => {}, renommer: async () => {}, journaliser: async () => {},
   };
   await confirmerBascule(ports, tenantId, r.id, { id: "u1", equipe: true, reauthJeton: randomUUID() });
   await confirmerBascule(ports, tenantId, r.id, { id: "u2", equipe: true, reauthJeton: randomUUID() });

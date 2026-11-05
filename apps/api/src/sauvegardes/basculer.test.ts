@@ -14,6 +14,7 @@ function montage() {
     async marquerBasculee() { j.basculee = true; },
     async pauser(n) { j.ordre.push(`pause:${n}`); },
     async reprendre(n) { j.ordre.push(`reprise:${n}`); },
+    async ouvrirAuxRoles(n) { j.ordre.push(`roles:${n}`); },
     async renommer(de, vers) { j.ordre.push(`rename:${de}>${vers}`); j.renommages.push([de, vers]); },
     async journaliser(e) { j.journal.push(e); },
   };
@@ -54,7 +55,7 @@ describe("basculer", () => {
   it("[C-048] l'ancienne base est gardée sous un autre nom après bascule", async () => {
     const { p, tenantId, r, j, cible, acteur } = montage();
     await confirmerBascule(p, tenantId, r.id, acteur("u1")); await confirmerBascule(p, tenantId, r.id, acteur("u2"));
-    expect(j.ordre).toEqual([`pause:${cible}`, `rename:${cible}>${cible}_avant_2`, `rename:${cible}_restau_2>${cible}`, `reprise:${cible}`]);
+    expect(j.ordre).toEqual([`pause:${cible}`, `rename:${cible}>${cible}_avant_2`, `rename:${cible}_restau_2>${cible}`, `roles:${cible}`, `reprise:${cible}`]);
     expect(j.journal).toContain("bascule_faite");
     expect(j.basculee).toBe(true);
   });
@@ -71,6 +72,42 @@ describe("basculer", () => {
     await expect(confirmerBascule(p, tenantId, r.id, acteur("u2"))).rejects.toThrow("renommage_echoue");
     expect(j.renommages).toEqual([[cible, `${cible}_avant_2`], [`${cible}_avant_2`, cible]]);
     expect(j.ordre.at(-1)).toBe(`reprise:${cible}`);
+    expect(j.basculee).toBe(false);
+  });
+  it("[B-041] un jeton vide, blanc ou absent n'est jamais une réauthentification", async () => {
+    const { p, tenantId, r, j } = montage();
+    for (const reauthJeton of ["", "   ", undefined as unknown as string]) {
+      await expect(confirmerBascule(p, tenantId, r.id, { id: "u1", equipe: true, reauthJeton })).rejects.toThrow("reauthentification_requise");
+    }
+    expect(j.confirmations).toHaveLength(0);
+  });
+  it("[B-041] le même jeton refusé même par deux personnes ou avec des blancs autour", async () => {
+    const { p, tenantId, r, j } = montage(); const jeton = randomUUID();
+    await confirmerBascule(p, tenantId, r.id, { id: "u1", equipe: true, reauthJeton: jeton });
+    await expect(confirmerBascule(p, tenantId, r.id, { id: "u2", equipe: true, reauthJeton: jeton })).rejects.toThrow("reauthentification_requise");
+    await expect(confirmerBascule(p, tenantId, r.id, { id: "u2", equipe: true, reauthJeton: ` ${jeton}\n` })).rejects.toThrow("reauthentification_requise");
+    expect(j.renommages).toHaveLength(0);
+    expect(j.basculee).toBe(false);
+  });
+  it("[B-041] deux confirmations simultanées avec le même jeton ne basculent pas", async () => {
+    const { p, tenantId, r, j } = montage(); const jeton = randomUUID();
+    const lire = p.lire; p.lire = async (t, id) => { const x = await lire(t, id); await new Promise((ok) => setTimeout(ok, 5)); return x; };
+    await Promise.allSettled([1, 2].map((i) => confirmerBascule(p, tenantId, r.id, { id: `u${i}`, equipe: true, reauthJeton: jeton })));
+    expect(j.renommages).toHaveLength(0);
+    expect(j.basculee).toBe(false);
+  });
+  it("[B-041] basculer() compte des jetons distincts, pas des lignes", async () => {
+    const { p, tenantId, r, j } = montage(); const jeton = randomUUID();
+    j.confirmations.push({ acteurId: "u1", reauthJeton: jeton }, { acteurId: "u2", reauthJeton: jeton });
+    await expect(basculer(p, tenantId, r.id)).rejects.toThrow("confirmation_manquante");
+    expect(j.renommages).toHaveLength(0);
+  });
+  it("[C-536] @isolation les rôles du client n'entrent dans la base qu'après la bascule, et un échec les laisse dehors", async () => {
+    const { p, tenantId, r, j, cible, acteur } = montage();
+    p.ouvrirAuxRoles = async () => { throw new Error("roles_echoue"); };
+    await confirmerBascule(p, tenantId, r.id, acteur("u1"));
+    await expect(confirmerBascule(p, tenantId, r.id, acteur("u2"))).rejects.toThrow("roles_echoue");
+    expect(j.renommages.at(-1)).toEqual([`${cible}_avant_2`, cible]);
     expect(j.basculee).toBe(false);
   });
 });

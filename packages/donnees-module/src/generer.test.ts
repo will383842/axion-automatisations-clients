@@ -1,3 +1,4 @@
+import type { Forme } from "@axion-auto/contrats/src/c4/forme.ts";
 import { describe, expect, it } from "vitest";
 import { genererSql } from "./generer.js";
 import { analyserModele } from "./modele.js";
@@ -5,7 +6,7 @@ import { verifierForme } from "./verifier.js";
 
 const E1 = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const modele = analyserModele('CREATE TABLE "commun"."personnes" (\n  "id" uuid PRIMARY KEY,\n  "etablissement_id" uuid NOT NULL,\n  "nom" text,\n  "courriel_chiffre" bytea\n);');
-const forme = (colonne: string) => ({ type: "simple", table: "commun.personnes", sortie: { lignes: [{ colonne }] }, limite: { fixe: 10 } }) as const;
+const forme = (colonne: string): Forme => ({ type: "simple", table: "commun.personnes", sortie: { lignes: [{ colonne }] }, limite: { fixe: 10 } });
 
 describe("paquet donnees-module : aucune variable globale", () => {
   it("[A-170] genererSql et verifierForme n'utilisent que le modèle reçu", () => {

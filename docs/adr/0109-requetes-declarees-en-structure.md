@@ -1,6 +1,6 @@
 # 0109 · Requêtes déclarées en structure : aucun texte SQL fourni, un seul générateur
 
-Date : 05/11/2026 · Statut : proposé (décision du chef d'orchestre, 05/11/2026) · Contrat touché : aucun (C4 à réviser, voir conséquences) · Migration : aucune
+Date : 05/11/2026 · Statut : accepté · Contrat touché : aucun (C4 à réviser, voir conséquences) · Migration : aucune
 
 ## Contexte
 Le service des données acceptait un texte SQL écrit à la main avec un emplacement `{{filtre}}`. Pour être sûr, il fallait un analyseur qui comprenne le SQL comme PostgreSQL. Cinq tours d'audit ont chacun trouvé un contournement (OR et UNION, sous-requêtes, fonctions de lecture, chaînes `E'…'` et `U&`, `(expr).fonction`, espaces Unicode, `nom::text(1)`).

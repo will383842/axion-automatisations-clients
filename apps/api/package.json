@@ -12,6 +12,8 @@
     "@aws-sdk/client-iam": "^3.1156.0",
     "@aws-sdk/client-s3": "^3.1156.0",
     "@aws-sdk/s3-request-presigner": "^3.1156.0",
+    "@axion-auto/contrats": "workspace:*",
+    "@axion-auto/donnees-module": "workspace:*",
     "@axion-auto/reglages-heritage": "workspace:*",
     "bullmq": "^6.4.2",
     "drizzle-orm": "^0.45.4",

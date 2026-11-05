@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { agregerPreuves } from "./agreger-preuves.js";
+import { agregerPreuves } from "./agreger-preuves.ts";
 
 // Garde « exigence sans test » (C-555, C-543). Le corps de PR est lu comme du texte, jamais exécuté.
 

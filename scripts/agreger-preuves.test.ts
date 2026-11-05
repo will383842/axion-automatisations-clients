@@ -109,6 +109,11 @@ describe("preuves : un fichier par fiche (ADR 0029, mise à jour)", () => {
     expect(agregerPreuves(RACINE).startsWith(historique.trimEnd())).toBe(true);
   });
 
+  it("[ADR-preuves] node charge couverture-req.ts et agreger-preuves.ts sans outil de compilation (commande de la CI)", () => {
+    const r = spawnSync(process.execPath, ["-e", "await import('./scripts/couverture-req.ts'); await import('./scripts/agreger-preuves.ts')"], { cwd: RACINE, encoding: "utf8" });
+    expect(r.status, r.stderr).toBe(0);
+  });
+
   it("[ADR-preuves] aucun consommateur ne lit encore spec/preuves.md directement (tous passent par agregerPreuves)", () => {
     expect(consommateursDirects('const p = readFileSync("spec/preuves.md", "utf8");')).toHaveLength(1);
     expect(consommateursDirects('const p = lire("../../../../../spec/preuves.md");')).toHaveLength(1);

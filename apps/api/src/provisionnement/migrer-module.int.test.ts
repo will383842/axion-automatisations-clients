@@ -45,7 +45,7 @@ const pool = (base: string) => {
 // Client unique suivi : fermé même si l'essai échoue avant son propre finally.
 const client = (base: string) => { const k = new pg.Client({ connectionString: vers(base) }); k.on("error", () => undefined); clients.add(k); return k; };
 const client2 = (url: string) => { const k = new pg.Client({ connectionString: url }); k.on("error", () => undefined); clients.add(k); return k; };
-const fermerClient = async (k: pg.Client) => { clients.delete(k); await fermerClient(k); };
+const fermerClient = async (k: pg.Client) => { clients.delete(k); await k.end().catch(() => undefined); };
 const fermerBase = async (base: string) => { const p = pools.get(base); pools.delete(base); await p?.end().catch(() => undefined); };
 const toutFermer = async () => {
   const k = [...clients]; clients.clear();

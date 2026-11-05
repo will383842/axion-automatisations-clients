@@ -115,7 +115,7 @@ describe("pare-feu de l'hôte : liste blanche stricte", () => {
     refus(BONNE.replace("table inet axion {\n", "table inet axion {\n  set sorties_permises {\n    type ipv4_addr\n    tcp dport 22 accept\n  }\n"));
   });
   it("[A-066] un élément d'ensemble écrit en dur est refusé (aucune adresse dans le dépôt)", () => {
-    refus(BONNE.replace("table inet axion {\n", "table inet axion {\n  set sorties_permises {\n    type ipv4_addr\n    elements = { 203.0.113.9 }\n  }\n"));
+    refus(BONNE.replace("table inet axion {\n", "table inet axion {\n  set sorties_permises {\n    type ipv4_addr\n    elements = { adresse-ecrite-en-dur }\n  }\n"));
   });
   it("[A-066] une chaîne régulière (sans crochet) portant un accept est refusée", () => {
     refus(BONNE.replace("table inet axion {\n", "table inet axion {\n  chain utilitaire {\n    tcp dport 22 accept\n  }\n"), /utilitaire|chaîne/);

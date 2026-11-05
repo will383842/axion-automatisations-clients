@@ -1,10 +1,19 @@
 // Constat depuis l'EXTÉRIEUR (A-066) : quels ports TCP répondent ? Seul 443 doit répondre. À lancer d'une machine hors du serveur.
 // Usage : node constat-ports.ts <hôte>   (code 0 conforme, 1 écart, 2 usage)
+import { lookup } from "node:dns/promises";
 import { connect } from "node:net";
 import { pathToFileURL } from "node:url";
 
-const SERVICES_CONNUS = [1433, 2375, 2376, 3000, 3306, 5432, 6379, 6432, 8000, 8080, 8200, 8443, 9000, 9090, 27017];
-export const PORTS_PAR_DEFAUT = [...new Set([...Array.from({ length: 1024 }, (_, i) => i + 1), ...SERVICES_CONNUS])];
+// Tous les ports TCP : une plage ouverte au-dessus de 1024 ne doit pas passer inaperçue.
+export const PORTS_PAR_DEFAUT = Array.from({ length: 65535 }, (_, i) => i + 1);
+
+// Toutes les adresses de l'hôte (IPv4 ET IPv6) : un pare-feu fermé en IPv4 et ouvert en IPv6 doit être vu.
+export async function adressesDe(hote: string): Promise<string[]> {
+  const res = await lookup(hote, { all: true });
+  const adresses = [...new Set(res.map((a) => a.address))];
+  if (adresses.length === 0) throw new Error("hôte sans adresse");
+  return adresses;
+}
 
 const ouvert = (hote: string, port: number, delaiMs: number) =>
   new Promise<boolean>((fin) => {
@@ -17,8 +26,8 @@ const ouvert = (hote: string, port: number, delaiMs: number) =>
 
 export async function constaterPorts(hote: string, ports: number[], delaiMs: number): Promise<number[]> {
   const ouverts: number[] = [];
-  for (let i = 0; i < ports.length; i += 200) {
-    const lot = ports.slice(i, i + 200);
+  for (let i = 0; i < ports.length; i += 1000) {
+    const lot = ports.slice(i, i + 1000);
     const res = await Promise.all(lot.map((p) => ouvert(hote, p, delaiMs)));
     lot.forEach((p, k) => { if (res[k]) ouverts.push(p); });
   }
@@ -34,7 +43,13 @@ export function verdictPorts(ouverts: number[]): string[] {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const hote = process.argv[2];
   if (!hote) { console.error("usage : node constat-ports.ts <hôte>"); process.exit(2); }
-  const ecarts = verdictPorts(await constaterPorts(hote, PORTS_PAR_DEFAUT, 1500));
+  let adresses: string[];
+  try { adresses = await adressesDe(hote); } catch { console.error("hôte introuvable : aucun constat"); process.exit(2); }
+  const ecarts: string[] = [];
+  for (const a of adresses) {
+    const famille = a.includes(":") ? "IPv6" : "IPv4";
+    for (const e of verdictPorts(await constaterPorts(a, PORTS_PAR_DEFAUT, 1500))) ecarts.push(`${famille} : ${e}`);
+  }
   for (const e of ecarts) console.log(`ECART : ${e}`);
   console.log(ecarts.length === 0 ? "CONFORME : seul le port 443 répond" : `${ecarts.length} écart(s)`);
   process.exit(ecarts.length === 0 ? 0 : 1);

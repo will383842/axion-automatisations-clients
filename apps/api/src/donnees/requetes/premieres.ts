@@ -1,38 +1,22 @@
-import { z } from "zod";
-import type { Requete } from "./liste.js";
+import { declarer, type RequeteDeclaree } from "./structure.js";
 
-// Premières requêtes : compter les personnes, lister les listes de prospects, état des données (T2-41).
-export function premieresRequetes(): Record<string, Requete> {
-  const compterPersonnes: Requete = {
-    nom: "compterPersonnes",
-    schema: z.object({}),
-    sql: "SELECT count(*)::int AS total FROM commun.personnes WHERE {{filtre}}",
-    mode: "lecture",
-    metadonnees: true,
-    parEtablissement: true,
-    colonnes: ["total"],
-    valeurs: () => [],
-  };
-  const Lister = z.object({ limite: z.number().int().min(1).max(200).default(50) });
-  const listerListesProspects: Requete = {
-    nom: "listerListesProspects",
-    schema: Lister,
-    sql: "SELECT id, nom, cree_le FROM commun.listes_prospects WHERE {{filtre}} ORDER BY cree_le DESC LIMIT $1",
-    mode: "lecture",
-    metadonnees: false,
-    parEtablissement: true,
-    colonnes: ["id", "nom", "cree_le"],
-    valeurs: (p: z.infer<typeof Lister>) => [p.limite],
-  };
-  const etatDonnees: Requete = {
-    nom: "etatDonnees",
-    schema: z.object({}),
-    sql: "SELECT (SELECT count(*)::int FROM commun.personnes WHERE {{filtre}}) AS personnes, (SELECT coalesce(sum(taille_octets), 0)::float8 FROM commun.index_fichiers WHERE {{filtre}}) AS taille_fichiers",
-    mode: "lecture",
-    metadonnees: true,
-    parEtablissement: true,
-    colonnes: ["personnes", "taille_fichiers"],
-    valeurs: () => [],
-  };
+// Premières requêtes, déclarées en structure (aucun texte SQL) : compter les personnes, lister les listes de prospects, état des données (T2-41).
+export function premieresRequetes(): Record<string, RequeteDeclaree> {
+  const compterPersonnes = declarer({
+    nom: "compterPersonnes", mode: "lecture", metadonnees: true, parametres: {},
+    forme: { type: "simple", table: "commun.personnes", sortie: { agregats: [{ fonction: "compter", alias: "total" }] } },
+  });
+  const listerListesProspects = declarer({
+    nom: "listerListesProspects", mode: "lecture", metadonnees: false,
+    parametres: { limite: { type: "entier", min: 1, max: 200, defaut: 50 } },
+    forme: { type: "simple", table: "commun.listes_prospects", sortie: { lignes: [{ colonne: "id" }, { colonne: "nom" }, { colonne: "cree_le" }] }, tri: [{ colonne: "cree_le", sens: "desc" }], limite: { parametre: "limite" } },
+  });
+  const etatDonnees = declarer({
+    nom: "etatDonnees", mode: "lecture", metadonnees: true, parametres: {},
+    forme: { type: "composee", parties: [
+      { alias: "personnes", table: "commun.personnes", agregat: { fonction: "compter", alias: "personnes" } },
+      { alias: "taille_fichiers", table: "commun.index_fichiers", agregat: { fonction: "somme", colonne: "taille_octets", alias: "taille_fichiers" } },
+    ] },
+  });
   return { compterPersonnes, listerListesProspects, etatDonnees };
 }

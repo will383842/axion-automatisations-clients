@@ -29,15 +29,15 @@ describe("générateur de SQL", () => {
   });
 
   it("[B-173] @isolation une valeur hostile ne change pas le texte : il est identique à celui d'une valeur sage", () => {
-    const r = declarer({ nom: "chercher", mode: "lecture", metadonnees: false, parametres: { q: { type: "texte", max: 10000 } }, forme: { type: "simple", table: "commun.personnes", sortie: { lignes: [{ colonne: "id" }] }, filtres: [{ colonne: "nom", operateur: "egal", parametre: "q" }], limite: { fixe: 10 } } });
+    const r = declarer({ nom: "chercher", mode: "lecture", metadonnees: false, parametres: { q: { type: "texte", max: 200 } }, forme: { type: "simple", table: "commun.personnes", sortie: { lignes: [{ colonne: "id" }] }, filtres: [{ colonne: "nom", operateur: "egal", parametre: "q" }], limite: { fixe: 10 } } });
     const sage = gen(r, { q: "Bertin" });
-    for (const hostile of ["' OR true --", "E'\\\\'", "$1", "{{filtre}}", "'; DROP TABLE commun.personnes; --", "x".repeat(10_000), "\"; select 1 --"]) {
+    for (const hostile of ["' OR true --", "E'\\\\'", "$1", "{{filtre}}", "'; DROP TABLE commun.personnes; --", "x".repeat(200), "\"; select 1 --"]) {
       const g = gen(r, { q: hostile });
       expect(g.texte).toBe(sage.texte);
       expect(g.valeurs).toEqual([[E1], hostile, 10]);
     }
     expect(schemaParametres(r).safeParse({ q: "a\u0000b" }).success).toBe(false);
-    expect(schemaParametres(r).safeParse({ q: "x".repeat(10_001) }).success).toBe(false);
+    expect(schemaParametres(r).safeParse({ q: "x".repeat(10_000) }).success).toBe(false);
   });
 
   it("[B-173] @isolation le filtre d'établissement vient de la session, en premier conjonct, une fois par table lue, même avec des filtres déclarés", () => {

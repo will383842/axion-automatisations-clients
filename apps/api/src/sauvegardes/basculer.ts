@@ -24,20 +24,30 @@ export interface PortsBascule {
   pauser(nomBase: string): Promise<void>;
   reprendre(nomBase: string): Promise<void>;
   renommer(de: string, vers: string): Promise<void>;
+  /** Accorde CONNECT aux seuls rôles du client sur la base devenue « cli_<id> » (la restaurée est créée fermée). */
+  ouvrirAuxRoles(nomBase: string, tenantId: string): Promise<void>;
   journaliser(evenement: "confirmation_posee" | "bascule_faite" | "bascule_echouee", tenantId: string, id: string): Promise<void>;
 }
 
 const NECESSAIRES = 2;
+// Un jeton ne compte que s'il est un vrai texte non vide, sans blancs autour ; on compte des jetons DISTINCTS, jamais des lignes.
+const jeton = (j: unknown): string => (typeof j === "string" ? j.trim() : "");
+const distincts = (cs: Confirmation[]) => new Set(cs.map((c) => jeton(c.reauthJeton)).filter((j) => j !== "")).size;
 
 export async function confirmerBascule(p: PortsBascule, tenantId: string, id: string, acteur: Acteur): Promise<{ confirmations: number; basculee: boolean }> {
   if (!acteur.equipe) throw new Error("action_interdite");
   const r = await p.lire(tenantId, id);
   if (!r) throw new Error("restauration_introuvable");
   if (r.basculee) throw new Error("deja_basculee");
-  if (r.confirmations.some((c) => c.reauthJeton === acteur.reauthJeton)) throw new Error("reauthentification_requise");
-  await p.ajouterConfirmation(tenantId, id, { acteurId: acteur.id, reauthJeton: acteur.reauthJeton });
+  const j = jeton(acteur.reauthJeton);
+  if (j === "" || r.confirmations.some((c) => jeton(c.reauthJeton) === j)) throw new Error("reauthentification_requise");
+  await p.ajouterConfirmation(tenantId, id, { acteurId: acteur.id, reauthJeton: j });
   await p.journaliser("confirmation_posee", tenantId, id);
-  const n = r.confirmations.length + 1;
+  // Relecture : deux appels simultanés avec le même jeton ont tous deux passé le contrôle ci-dessus ; seule la relecture les départage.
+  const apres = await p.lire(tenantId, id);
+  if (!apres) throw new Error("restauration_introuvable");
+  if (apres.confirmations.filter((c) => jeton(c.reauthJeton) === j).length > 1) throw new Error("reauthentification_requise");
+  const n = distincts(apres.confirmations);
   if (n < NECESSAIRES) return { confirmations: n, basculee: false };
   await basculer(p, tenantId, id);
   return { confirmations: n, basculee: true };
@@ -47,17 +57,21 @@ export async function basculer(p: PortsBascule, tenantId: string, id: string): P
   const r = await p.lire(tenantId, id);
   if (!r) throw new Error("restauration_introuvable");
   if (r.basculee) throw new Error("deja_basculee");
-  if (r.confirmations.length < NECESSAIRES) throw new Error("confirmation_manquante");
+  if (distincts(r.confirmations) < NECESSAIRES) throw new Error("confirmation_manquante");
   const cible = nomBaseDe(tenantId);
   const avant = `${cible}_avant_${r.numero}`;
   let ancienneRenommee = false;
+  let restauree = false;
   await p.pauser(cible);
   try {
     await p.renommer(cible, avant);
     ancienneRenommee = true;
     await p.renommer(r.nomBase, cible);
+    restauree = true;
+    await p.ouvrirAuxRoles(cible, tenantId);
     await p.marquerBasculee(tenantId, id);
   } catch (e) {
+    if (restauree) await p.renommer(cible, r.nomBase);
     if (ancienneRenommee) await p.renommer(avant, cible);
     await p.journaliser("bascule_echouee", tenantId, id);
     throw e;

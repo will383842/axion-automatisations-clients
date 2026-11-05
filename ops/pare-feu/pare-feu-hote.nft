@@ -1,0 +1,28 @@
+# Pare-feu de l'hôte (A-066, C-533) : tout est fermé en entrée sauf TCP 443 ; la sortie est fermée par défaut.
+# Une instruction par ligne : ops/pare-feu/analyser.ts lit ce fichier en liste blanche stricte et refuse tout autre accept (entrée, sortie ou transfert) et toute autre instruction.
+# Aucune adresse écrite ici : les destinations de sortie permises sont ajoutées à l'installation dans l'ensemble « sorties_permises »
+# (voir docs/serveur-de-test-gestes-de-will.md), jamais dans le dépôt.
+# Les ports publiés par Docker passent par ses propres règles : le dépôt n'en publie que sur l'adresse locale (essai dans pare-feu.test.ts),
+# et ops/socle/pare-feu-ponts.sh protège l'hôte contre les ponts internes.
+flush ruleset
+
+table inet axion {
+  set sorties_permises {
+    type ipv4_addr
+    flags interval
+  }
+  chain entree {
+    type filter hook input priority 0; policy drop;
+    ct state invalid drop
+    ct state established,related accept
+    iif "lo" accept
+    icmpv6 type { nd-neighbor-solicit, nd-neighbor-advert, nd-router-advert } accept
+    tcp dport 443 accept
+  }
+  chain sortie {
+    type filter hook output priority 0; policy drop;
+    oif "lo" accept
+    ct state established,related accept
+    ip daddr @sorties_permises tcp dport 443 accept
+  }
+}

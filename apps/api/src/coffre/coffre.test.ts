@@ -511,6 +511,7 @@ describe("infrastructure OpenBao", () => {
       { chemin: "transit/rewrap/cli-*", capacites: ["update"] },
       { chemin: "transit/hmac/cli-*", capacites: ["update"] },
       { chemin: "technique/data/donnees/+/lecture", capacites: ["read"] },
+      { chemin: "transit/sign/exports-signature", capacites: ["update"] },
     ]);
   });
   it("[A-005] initialiser.sh : syntaxe valide, pas de trace, masque avant usage, fichier privé effacé, jeton racine révoqué", () => {

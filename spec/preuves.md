@@ -313,4 +313,3 @@ A-241 → exercice mensuel : 3 bases tirées avec graine notée, sommes de contr
 B-041 → bascule à double confirmation, deux réauthentifications distinctes, refus d'un utilisateur de client : tests « [B-041] » de apps/api/src/sauvegardes/basculer.test.ts, 2026-11-05
 C-048 → restauration d'un seul client depuis son dump (clé détruite = refus) et ancienne base gardée sous « _avant_<n> » après bascule : tests « [C-048] » de restaurer-client.test.ts et basculer.test.ts, 2026-11-05
 C-474 → sauvegarde à T0, envoi à T1, restauration de T0, aucun renvoi : test « [C-474] @envoi » de tests/e2e/scenarios/c-474-restauration-sans-renvoi.test.ts (simulé, sans Docker), 2026-11-05
-C-536 → partie restauration (T2-40) : tests « [C-536] @isolation » de restaurer-client.test.ts (rôles de la base temporaire, dump d'un client refusé sous un autre) et basculer.test.ts (restauration d'un autre client introuvable), 2026-11-05

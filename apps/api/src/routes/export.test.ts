@@ -8,11 +8,11 @@ const B = "22222222-2222-4222-8222-222222222222";
 const D = "33333333-3333-4333-8333-333333333333";
 const LIMITE = new Date("2026-12-02T10:00:00Z");
 
-function serveur(o: { reauth?: boolean } = {}) {
+function serveur(o: { reauth?: boolean; motifRefuse?: boolean } = {}) {
   const appels: string[] = [];
   const service: ServiceExport = {
     async demander(x) { appels.push(`demander:${x.tenantId}`); return { demande: D }; },
-    async demanderParEquipe(x) { appels.push(`equipe:${x.tenantId}:${x.motif}`); return { demande: D }; },
+    async demanderParEquipe(x) { if (o.motifRefuse) throw new Error("motif_invalide"); appels.push(`equipe:${x.tenantId}:${x.motif}`); return { demande: D }; },
     async lien(x) { appels.push(`lien:${x.tenantId}:${x.demande ?? "-"}`); return { demande: D, expireLe: LIMITE, lien: "https://stockage.test/x", lienExpireLe: new Date("2026-11-05T10:15:00Z") }; },
   };
   const app = Fastify();
@@ -58,5 +58,12 @@ describe("routes de l'export", () => {
     const ok = await app.inject({ method: "POST", url: `/api/console/v1/clients/${B}/export`, payload: { motif: "demande_ecrite_client" } });
     expect(ok.statusCode).toBe(202);
     expect(appels).toEqual([`equipe:${B}:demande_ecrite_client`]);
+  });
+
+  it("[C-536] un motif refusé par le service est une requête invalide (400), jamais une erreur interne", async () => {
+    const { app, appels } = serveur({ motifRefuse: true });
+    const r = await app.inject({ method: "POST", url: `/api/console/v1/clients/${B}/export`, payload: { motif: "fin_de_contrat" } });
+    expect(r.statusCode).toBe(400);
+    expect(appels).toEqual([]);
   });
 });

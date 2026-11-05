@@ -66,6 +66,13 @@ describe("service d'export : demande, lien signé, retrait", () => {
     expect(tard.liens).toEqual([]);
   });
 
+  it("[A-252] le lien ne dépasse jamais l'échéance de l'export (borne à min(maintenant + durée, expireLe))", async () => {
+    const m = monde({ maintenant: new Date(dateExpiration(T0).getTime() - 100_000) });
+    const r = await m.s.lien({ tenantId: A, acteur: "client" });
+    expect(r.lienExpireLe.getTime()).toBe(r.expireLe.getTime());
+    expect(m.liens).toEqual([{ tenantId: A, cle: `exports/${D1}.zip`, secondes: 100 }]);
+  });
+
   it("[C-536] le lien d'un export demandé avec le tenant de A ne sert jamais un export de B", async () => {
     const m = monde({ entrees: [{ tenantId: B, demande: D1, cle: `exports/${D1}.zip`, expireLe: dateExpiration(T0), retire: false }] });
     await expect(m.s.lien({ tenantId: A, demande: D1, acteur: "client" })).rejects.toThrow("introuvable");

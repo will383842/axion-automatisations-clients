@@ -4,6 +4,7 @@ import { ErreurApi } from "../plugins/erreurs.js";
 import { ErreurRangement, type creerRangement } from "./ranger.js";
 import { CodeAutomatisation } from "./schema.js";
 import { verifierArtefactImporte } from "./verifier-artefact.js";
+import { verifierDonneesDeclarees } from "./verifier-donnees-declarees.js";
 
 // Import d'une version (T4-25). Toute version importée naît « brouillon » : aucun paramètre de la requête ne choisit l'état (A-024, A-305).
 // Une version rangée ne change plus jamais (A-407) : même version et même empreinte = réponse identique ; sinon 409. Aucune mise à jour ni suppression n'existe ici.
@@ -41,6 +42,7 @@ export function creerImporteur(o: { cles: readonly ClePublique[]; rangement: Ran
       if (!CodeAutomatisation.safeParse(codeAutomatisation).success) throw new ErreurApi("schema_invalide", "Requête invalide.");
       const v = verifierArtefactImporte(archive, o.cles);
       if (!v.ok) throw v.code === "archive_invalide" ? new ErreurApi("schema_invalide", "Archive invalide.") : new ErreurApi("regle_metier", `Artefact refusé : ${v.code}.`);
+      const dd = verifierDonneesDeclarees(v.manifeste); if (dd.length) throw new ErreurApi("regle_metier", `Artefact refusé : manifeste_invalide. ${dd.join(" ; ")}`); // avant tout rangement (échec fermé)
       const lie = await o.depot.nomAutomatisation(codeAutomatisation);
       if (lie !== undefined && lie !== v.manifeste.code) throw refusAutreModule();
       let ref: string;

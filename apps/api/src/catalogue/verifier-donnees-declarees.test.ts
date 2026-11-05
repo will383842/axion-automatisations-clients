@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { analyserModele, chargerModele, MODELE_BASE_CLIENT, serialiserModele } from "@axion-auto/donnees-module";
+import { chargerModele, MODELE_BASE_CLIENT, serialiserModele } from "@axion-auto/donnees-module";
 import { verifierDonneesDeclarees } from "./verifier-donnees-declarees.js";
 
 // Manifestes inventés : aucune donnée de client. Le modèle est celui du paquet (instantané commité).
@@ -48,6 +48,5 @@ describe("vérification des données déclarées à l'import", () => {
     const i = serialiserModele(MODELE_BASE_CLIENT);
     const ancien = chargerModele({ ...i, tables: i.tables.map(([n, t]) => [n, n === "commun.listes_prospects" ? { ...t, colonnes: t.colonnes.filter(([c]) => c !== "nom") } : t]) });
     expect(verifierDonneesDeclarees(avec(requete()), ancien).join(" ")).toContain("colonne refusée : nom");
-    expect(analyserModele).toBeTypeOf("function");
   });
 });

@@ -2,6 +2,11 @@
 
 Une entrée par version, par contrat. Procédure : `README.md` et ADR 0032.
 
+## 2026-11-05 · c4 0.5.0 (T4-50a, ADR 0109 et 0112) · rétrécissement (0.x)
+- `donnees.requetes[]` : objet strict `{ nom, mode: "lecture", parametres, forme, permission? }`. `parametres` : 30 au plus, types `uuid`, `texte`, `entier`, `horodatage`, `liste_uuid`. `forme` : Simple ou Composée (`forme.ts`), table `^commun\.[a-z][a-z0-9_]{0,62}$` (lecture seule de `commun`).
+- Retirés : `sql`, `colonnes`, `liste`, `pagination`, `parEtablissement`. `donnees.actions` doit être vide (l'écriture est fermée). `PortDonnees.ecrire` retiré du SDK.
+- Un manifeste 0.3.0 ou 0.4.0 sans `donnees` reste valide ; un 0.4.0 avec `sql` ou `actions` est refusé (« C4 0.5.0 : sql retiré (ADR 0109), déclarer une forme »). Aucune version importée ne portait de `donnees` non vide (vérifié). `fixtures-gelees/` inchangé (C4 non gelé).
+
 ## 2026-11-01 · c5 0.5.0 (T2-03, ADR 0051)
 - Règle `ecriture_commune_ouverte` (ajoutée à la fin de `REGLES_C5`) : sur une table de `TABLES_COMMUNES`, aucun rôle (superutilisateurs, rôles `pg_*` et propriétaire de la table exceptés) hors `rolesEquipe` et `rolesAdministration`, deux listes EXACTES de noms (défaut d'équipe : `console_equipe`, `moteur_equipe`), n'a de droit d'écriture (`INSERT`, `UPDATE`, `DELETE`, `TRUNCATE`, `TRIGGER`, `REFERENCES`), direct, hérité, par colonne ou via `PUBLIC`. `TABLES_COMMUNES` passe à 13 entrées (le catalogue). Rétrécissement (0.x) : un schéma qui passait peut maintenant être signalé. **À valider par l'architecte.**
 

@@ -1,8 +1,9 @@
 import { z } from "zod";
+import { Forme, Parametres } from "./forme.ts";
 
-// C4 0.4.0 (révision additive, ADR 0043) : ce qu'un module déclare pour être une petite application.
-// Aucun champ de 0.3.0 n'est touché. Le SQL n'est jamais exécuté d'après ce schéma : il en fixe la forme ;
-// la vraie vérification (schéma a_<code> seul en écriture, commun en lecture) est faite à l'import (T4-50).
+// C4 0.4.0 (révision additive, ADR 0043) puis 0.5.0 (ADR 0109, ADR 0112) : ce qu'un module déclare pour être une petite application.
+// 0.5.0 retire le texte SQL : une requête est une forme (forme.ts), lecture seule de `commun`, aucune action.
+// La vérification contre le modèle des bases clients est faite à l'import (T4-50c).
 
 // Même motif que Bouton.action des écrans : tirets, jamais de soulignés.
 export const NOM_DECLARE = /^[a-z][a-z0-9-]{1,40}$/;
@@ -20,53 +21,16 @@ export const GardeIa = z
   .partial()
   .strict();
 
-// SQL paramétré : des $1…$n et rien d'autre (ni littéral, ni commentaire, ni seconde instruction).
-const ECRITURE = /\b(insert|update|delete|merge|truncate|drop|alter|create|grant|revoke|copy|call|do)\b/i;
-const Sql = z
-  .string()
-  .min(1)
-  .max(4000)
-  .refine((s) => !/[;']|--|\/\*|\$(?!\d)/.test(s), "sql : paramètres $1…$n seulement, ni littéral, ni commentaire, ni point-virgule");
+const MSG_SQL = "C4 0.5.0 : sql retiré (ADR 0109), déclarer une forme";
+const MSG_ACTIONS = "C4 0.5.0 : aucune action déclarable, l'écriture est fermée (ADR 0109)";
+// Une requête = un nom, la lecture, des paramètres typés et une forme ; rien d'autre (ni sql, ni colonnes, ni liste, ni pagination, ni parEtablissement).
+export const Requete = z.strictObject(
+  { nom: NomDeclare, mode: z.literal("lecture"), parametres: Parametres, forme: Forme, permission: NomDeclare.optional() },
+  { error: (i) => (i.code === "unrecognized_keys" && i.keys.includes("sql") ? MSG_SQL : undefined) },
+);
 
-const Parametres = z
-  .object({ type: z.literal("object"), properties: z.record(z.string().max(60), z.json()), required: z.array(z.string().max(60)).max(30).optional(), additionalProperties: z.literal(false) })
-  .strict();
-
-const Colonne = z.string().regex(/^[a-z][a-z0-9_]{0,62}$/);
-const base = {
-  nom: NomDeclare,
-  parametres: Parametres,
-  sql: Sql,
-  colonnes: z.array(Colonne).min(1).max(30),
-  // Une lecture de liste se pagine toujours par curseur (jamais de page sans borne).
-  liste: z.boolean(),
-  pagination: z.object({ curseur: Colonne }).strict().optional(),
-  parEtablissement: z.boolean(),
-  permission: NomDeclare.optional(),
-};
-const pagineeSiListe = (d: { liste: boolean; pagination?: unknown }, ctx: z.RefinementCtx) => {
-  if (d.liste && !d.pagination) ctx.addIssue({ code: "custom", path: ["pagination"], message: "pagination par curseur obligatoire pour une liste" });
-};
-
-export const Requete = z
-  .object({ ...base, mode: z.literal("lecture") })
-  .strict()
-  .superRefine(pagineeSiListe)
-  .superRefine((d, ctx) => {
-    if (ECRITURE.test(d.sql)) ctx.addIssue({ code: "custom", path: ["sql"], message: "sql : une requête de lecture n'écrit pas" });
-  });
-
-export const Action = z
-  .object({ ...base, mode: z.enum(["lecture", "ecriture"]), historique: z.boolean().optional() })
-  .strict()
-  .superRefine(pagineeSiListe)
-  .superRefine((d, ctx) => {
-    // C-625 : la ligne d'historique est écrite par le port, jamais par le SQL du module.
-    if (d.mode === "ecriture" && d.historique !== true) ctx.addIssue({ code: "custom", path: ["historique"], message: "historique: true obligatoire pour une écriture" });
-    if (d.mode === "lecture" && ECRITURE.test(d.sql)) ctx.addIssue({ code: "custom", path: ["sql"], message: "sql : une action en lecture n'écrit pas" });
-  });
-
-export const Donnees = z.object({ requetes: z.array(Requete).max(50).default([]), actions: z.array(Action).max(50).default([]) }).strict();
+// `actions` reste dans la forme pour que 0.4.0 ait une réponse claire, mais doit être vide : aucune écriture déclarée.
+export const Donnees = z.strictObject({ requetes: z.array(Requete).max(50).default([]), actions: z.array(z.looseObject({ nom: z.string(), permission: z.string().optional() })).max(0, MSG_ACTIONS).default([]) });
 
 export const Permission = z
   .object({ nom: NomDeclare, libelle: z.string().min(1).max(120), parDefaut: z.array(z.enum(ROLES_PORTAIL)).max(ROLES_PORTAIL.length) })

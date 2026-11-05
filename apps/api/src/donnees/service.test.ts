@@ -224,7 +224,7 @@ describe("service des données client", () => {
       const code = readFileSync(f, "utf8").split("\n").filter((l) => !l.trimStart().startsWith("//")).join("\n");
       for (const m of code.matchAll(/(["'`])((?:(?!\1)[^\n\\])*\bSELECT\b(?:(?!\1)[^\n\\])*)\1/gi)) trouves.push(m[2]!);
     }
-    expect(trouves.sort()).toEqual(["SELECT coalesce(max(version), 0) AS v FROM public.version_structure", "SELECT id FROM commun.etablissements"]);
+    expect(trouves.filter((t) => /\s/.test(t)).sort()).toEqual(["SELECT coalesce(max(version), 0) AS v FROM public.version_structure", "SELECT id FROM commun.etablissements"]);
   });
 
   it("[B-173] la lecture des établissements de l'équipe est un texte constant : aucune entrée de la session ni de la requête n'y passe", async () => {

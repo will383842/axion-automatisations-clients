@@ -121,7 +121,7 @@ describe("générateur de SQL", () => {
     expect(textes.length).toBeGreaterThan(300);
     for (const texte of textes) {
       expect(texte, texte).toMatch(/^[\x20-\x7e]+$/);
-      expect(texte, texte).not.toMatch(/['\;]|--|\/\*|\bOR\b|\bUNION\b|\bor\b/);
+      expect(texte, texte).not.toMatch(/[';\\]|--|\/\*|\bOR\b|\bUNION\b|\bor\b/);
       for (const c of MODELE.chiffrees) expect(texte, c).not.toContain(c);
     }
   });

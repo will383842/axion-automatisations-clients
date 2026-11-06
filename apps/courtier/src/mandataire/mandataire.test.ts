@@ -2,7 +2,7 @@ import { createServer, connect, type Server, type Socket } from "node:net";
 import { EventEmitter, once } from "node:events";
 import { afterEach, describe, expect, it } from "vitest";
 import { creerRegistreJetons } from "../jetons.ts";
-import { type ConnexionMessagerie, type PortsMandataire } from "./authentifier.ts";
+import { secretsDe, type ConnexionMessagerie, type PortsMandataire } from "./authentifier.ts";
 import { servirImap } from "./imap.ts";
 import { FiltreCommandes, Masqueur, ErreurMandataire, ouvrirTlsVerifie } from "./relayer.ts";
 import { servirSmtp } from "./smtp.ts";
@@ -109,7 +109,7 @@ function monter(protocole: "imap" | "smtp", reels: Record<string, number>) {
     journaliser: (l) => void journal.push(l),
     maintenant: () => (t += 5),
   };
-  const jeton = (inst: string, conn: string, tenant: string) => jetons.emettre({ tenantId: tenant, instanceId: inst, connexionId: conn, executionId: EXEC, portees: ["messagerie"] }, 60_000).jeton;
+  const jeton = (inst: string, conn: string, tenant: string, portees: readonly string[] = ["messagerie.lecture", "messagerie.envoi"]) => jetons.emettre({ tenantId: tenant, instanceId: inst, connexionId: conn, executionId: EXEC, portees }, 60_000).jeton;
   const serveur: Server = createServer((s) => void (protocole === "imap" ? servirImap(s, p) : servirSmtp(s, p)));
   fermer.push(() => serveur.close());
   return { p, jetons, jeton, ouvertures, journal, ecouter: async () => (await new Promise<void>((r) => serveur.listen(0, "127.0.0.1", r)), (serveur.address() as { port: number }).port) };
@@ -344,5 +344,71 @@ describe("mandataire IMAP/SMTP du courtier", () => {
     expect(typeof ligne["dureeMs"]).toBe("number");
     expect(ligne["octets"] as number).toBeGreaterThan(0);
     expect(m.journal.join("\n")).not.toMatch(new RegExp(`${MARQUEUR}|SELECT|${MDP_A}`));
+  });
+
+  it("[A-335] jeton sans la portée messagerie.envoi : AUTH PLAIN refusé par le mandataire SMTP, aucune connexion sortante", async () => {
+    const reel = await fauxServeur("smtp", MDP_A, "essai-a@exemple.fr");
+    const m = monter("smtp", { "serveur-a.exemple.test": reel.port });
+    const port = await m.ecouter();
+    const rep: string[] = [];
+    for (const portees of [["messagerie.lecture"], []] as const) {
+      const c = await client(port);
+      c.envoyer(`AUTH PLAIN ${Buffer.from(`\0${INST_A}\0${m.jeton(INST_A, CONN_A, CLIENT_A, portees)}`).toString("base64")}\r\n`);
+      await c.attendre(/535 /);
+      rep.push(c.tout());
+    }
+    const inconnu = await client(port);
+    inconnu.envoyer(`AUTH PLAIN ${Buffer.from(`\0${INST_A}\0cj1_inconnu`).toString("base64")}\r\n`);
+    await inconnu.attendre(/535 /);
+    expect(new Set([...rep, inconnu.tout()]).size).toBe(1);
+    expect(m.ouvertures).toEqual([]);
+    expect(reel.recu).toEqual([]);
+  });
+
+  it("[A-335] jeton sans la portée messagerie.lecture : AUTHENTICATE refusé par le mandataire IMAP, refus identique au jeton inconnu", async () => {
+    const reel = await fauxServeur("imap", MDP_A, "essai-a@exemple.fr");
+    const m = monter("imap", { "serveur-a.exemple.test": reel.port });
+    const port = await m.ecouter();
+    const rep: string[] = [];
+    for (const portees of [["messagerie.envoi"], []] as const) {
+      const c = await client(port);
+      c.envoyer(`a1 AUTHENTICATE PLAIN ${Buffer.from(`\0${INST_A}\0${m.jeton(INST_A, CONN_A, CLIENT_A, portees)}`).toString("base64")}\r\n`);
+      await c.attendre(/a1 NO/);
+      rep.push(c.tout());
+    }
+    const inconnu = await client(port);
+    inconnu.envoyer(`a1 AUTHENTICATE PLAIN ${Buffer.from(`\0${INST_A}\0cj1_inconnu`).toString("base64")}\r\n`);
+    await inconnu.attendre(/a1 NO/);
+    expect(new Set([...rep, inconnu.tout()]).size).toBe(1);
+    expect(m.ouvertures).toEqual([]);
+    expect(reel.recu).toEqual([]);
+  });
+
+  it("[A-335] jeton en lecture seule : STORE et EXPUNGE refusés par le filtre et jamais transmis", async () => {
+    for (const cmd of ["STORE 1:* +FLAGS (\\Deleted)", "UID STORE 1 +FLAGS (\\Deleted)", "EXPUNGE", "MOVE 1 Corbeille", "COPY 1 Autre", "APPEND INBOX {2}", "DELETE INBOX", "RENAME A B", "SETACL INBOX x lrw", "CREATE X"]) {
+      expect(new FiltreCommandes("imap").pousser(Buffer.from(`a2 ${cmd}\r\n`)).refus, cmd).toBeDefined();
+    }
+    expect(new FiltreCommandes("imap").pousser(Buffer.from("a2 SELECT INBOX\r\na3 UID FETCH 1 (BODY[])\r\na4 EXAMINE INBOX\r\n")).refus).toBeUndefined();
+    const reel = await fauxServeur("imap", MDP_A, "essai-a@exemple.fr");
+    const m = monter("imap", { "serveur-a.exemple.test": reel.port });
+    const c = await client(await m.ecouter());
+    c.envoyer(`a1 AUTHENTICATE PLAIN ${Buffer.from(`\0${INST_A}\0${m.jeton(INST_A, CONN_A, CLIENT_A, ["messagerie.lecture"])}`).toString("base64")}\r\n`);
+    await c.attendre(/a1 OK/);
+    const avant = reel.recu.length;
+    c.envoyer("a2 STORE 1:* +FLAGS (\\Deleted)\r\n");
+    await c.attendre(/a2 BAD/);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(reel.recu.slice(avant).join("\n")).not.toMatch(/STORE|EXPUNGE/);
+  });
+
+  it("[A-335] mot de passe non ASCII recopié par le serveur réel : masqué dans le flux reçu par l'exécuteur", () => {
+    const mdp = "Mdp-é-essai";
+    const mq = new Masqueur(secretsDe("essai-a@exemple.fr", mdp));
+    const entree = Buffer.from(`a2 BAD ${mdp} refuse\r\n`, "utf8");
+    const sortie = Buffer.concat([mq.pousser(entree), mq.fin()]);
+    expect(sortie.length).toBe(entree.length);
+    expect(sortie.toString("utf8")).not.toContain("Mdp-");
+    expect(sortie.toString("latin1")).not.toContain("Mdp-");
+    expect(sortie.toString("utf8")).toContain("refuse");
   });
 });

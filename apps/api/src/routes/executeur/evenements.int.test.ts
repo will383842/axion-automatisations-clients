@@ -43,8 +43,9 @@ beforeAll(async () => {
 afterAll(async () => { await Promise.all(ouverts.map((o) => o.end().catch(() => undefined))); });
 
 const creerOrg = (A: string) => avecClient(app, A, (c) => c.query("INSERT INTO organisations (id, tenant_id, console_client_id, raison_sociale) VALUES ($1, $1, $1, 'Atelier Bertin')", [A]), APPELANT);
-const creerInstance = (A: string, id: string = randomUUID()) =>
-  avecClient(app, A, async (c) => { await c.query("INSERT INTO instances (id, tenant_id, organisation_id, code_automatisation, formule, environnement, etat) VALUES ($1, $2, $2, 'relance-devis', 'abonnement', 'test', 'pause')", [id, A]); return id; }, APPELANT);
+// Depuis 0019 (ADR 0111) console_app ne fournit pas `id` (42501) : la base le génère, on le relit.
+const creerInstance = (A: string) =>
+  avecClient(app, A, async (c) => (await c.query("INSERT INTO instances (tenant_id, organisation_id, code_automatisation, formule, environnement, etat) VALUES ($1, $1, 'relance-devis', 'abonnement', 'test', 'pause') RETURNING id", [A])).rows[0]?.["id"] as string, APPELANT);
 const lignes = (A: string) => avecClient(app, A, async (c) => (await c.query("SELECT id, statut, duree_ms, elements_traites, code_erreur, auteur FROM executions")).rows as { id: string; statut: string; duree_ms: string | null; elements_traites: number; code_erreur: string | null; auteur: string }[], APPELANT);
 
 describe("rangement des événements sur la vraie base (T4-23)", () => {

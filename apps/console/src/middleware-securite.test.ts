@@ -2,7 +2,8 @@ import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createElement } from "react";
-import { describe, expect, it } from "vitest";
+import { execFileSync } from "node:child_process";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { NextRequest } from "next/server.js";
 import { problemesCookie } from "../../../packages/securite-web/src/cookies.ts";
 import { problemesEntetes } from "../../../packages/securite-web/src/entetes.ts";
@@ -11,6 +12,11 @@ import { cookieEffacer, cookieSession, cookieTransaction } from "./lib/session.t
 import { middleware } from "./middleware.ts";
 
 const ORIGINE = "https://console.exemple.test";
+// Adresse interne de la sortie autonome de Next : nextUrl.origin vaut toujours celle-là, jamais l'adresse publique (E1).
+const INTERNE = "http://localhost:3000";
+const ancienneOrigine = process.env["CONSOLE_ORIGINE"];
+beforeAll(() => { process.env["CONSOLE_ORIGINE"] = ORIGINE; });
+afterAll(() => { if (ancienneOrigine === undefined) delete process.env["CONSOLE_ORIGINE"]; else process.env["CONSOLE_ORIGINE"] = ancienneOrigine; });
 const COOKIE = "__Host-session=abc";
 const appeler = (chemin: string, init: { methode?: string; origine?: string; cookie?: string | null } = {}) =>
   middleware(new NextRequest(`${ORIGINE}${chemin}`, { method: init.methode ?? "GET", headers: { ...(init.cookie === null ? {} : { cookie: init.cookie ?? COOKIE }), ...(init.origine ? { origin: init.origine } : {}) } }));
@@ -64,5 +70,43 @@ describe("sécurité des écrans de la console", () => {
       const texte = readFileSync(`${racine}${f}`, "utf8");
       expect(texte, f).not.toMatch(/dangerouslySetInnerHTML|\.innerHTML\s*=|\.outerHTML\s*=|document\.write\(|<script[\s>]|next\/script/);
     }
+  });
+  it("[C-681] le middleware compare l'origine à CONSOLE_ORIGINE et non à l'adresse interne de Next", () => {
+    const interne = (origine: string) =>
+      middleware(new NextRequest(`${INTERNE}/alertes`, { method: "POST", headers: { cookie: COOKIE, origin: origine } }));
+    expect(interne(ORIGINE).status).not.toBe(403);
+    expect(interne(INTERNE).status).toBe(403);
+    expect(interne("https://autre-site.test").status).toBe(403);
+    // Configuration absente ou invalide : refus.
+    for (const valeur of [undefined, "", "pas-une-adresse", "http://console.exemple.test"]) {
+      if (valeur === undefined) delete process.env["CONSOLE_ORIGINE"]; else process.env["CONSOLE_ORIGINE"] = valeur;
+      try {
+        expect(interne(ORIGINE).status, String(valeur)).toBe(403);
+      } finally {
+        process.env["CONSOLE_ORIGINE"] = ORIGINE;
+      }
+    }
+  });
+
+  it("[C-681] le formulaire de déconnexion de la console passe le contrôle d'origine", () => {
+    const source = readFileSync(fileURLToPath(new URL("./app/(equipe)/layout.tsx", import.meta.url)), "utf8");
+    const formulaire = /<form action="([^"]+)" method="post">/.exec(source);
+    expect(formulaire, "formulaire de déconnexion introuvable").not.toBeNull();
+    // Un vrai navigateur envoie l'origine publique ; Next voit l'adresse interne.
+    const r = middleware(new NextRequest(`${INTERNE}${formulaire![1]}`, { method: "POST", headers: { cookie: COOKIE, origin: ORIGINE } }));
+    expect(r.status).not.toBe(403);
+  });
+
+  it("[C-681] chaque balise script de chaque page servie porte le nonce de sa CSP", { timeout: 420_000 }, () => {
+    const racine = fileURLToPath(new URL("../", import.meta.url));
+    execFileSync("pnpm", ["exec", "next", "build"], { cwd: racine, stdio: "pipe", timeout: 400_000, env: { ...process.env, NEXT_TELEMETRY_DISABLED: "1", NODE_ENV: "production" } });
+    const html = (d: string): string[] =>
+      readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? html(`${d}/${e.name}`) : e.name.endsWith(".html") ? [`${d}/${e.name}`] : []));
+    // Une page prérendue au build est figée : aucun nonce ne peut y être posé par réponse. Toute page servie doit donc être dynamique.
+    const figees = html(`${racine}.next/server/app`);
+    for (const f of figees) {
+      for (const balise of readFileSync(f, "utf8").match(/<script\b[^>]*>/g) ?? []) expect(balise, f).toMatch(/\snonce="[^"]+"/);
+    }
+    expect(figees, "pages prérendues sans nonce").toEqual([]);
   });
 });

@@ -28,6 +28,7 @@ export default async function MiseEnPage({ children }: { children: ReactNode }) 
       <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
         <div style={{ display: "flex", gap: v("espacement-16"), alignItems: "center", justifyContent: "flex-end", padding: v("espacement-12") }}>
           {retourBO ? <a href={retourBO}>Back-office d’axion-ia</a> : null}
+          <form action="/api/auth/deconnexion" method="post"><button type="submit">Se déconnecter</button></form>
           <a href={COMPTE.href} aria-current={actif === "" && chemin.startsWith(COMPTE.href) ? "page" : undefined}>{COMPTE.libelle}</a>
         </div>
         <main id="contenu" className="r-contenu" style={{ flex: 1, padding: v("espacement-32") }}>{children}</main>

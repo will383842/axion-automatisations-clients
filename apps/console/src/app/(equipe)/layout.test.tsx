@@ -27,6 +27,7 @@ describe("disposition de l'équipe", () => {
     expect(html).toContain("Sécurité et accès");
     expect(/<nav class="r-onglets".*?<\/nav>/s.exec(html)?.[0].match(/<a /g)).toHaveLength(5);
     expect(html).toContain("contenu");
+    expect(html).toMatch(/<form action="\/api\/auth\/deconnexion" method="post">.*Se déconnecter/s);
   });
 
   it("[A-104] le lien vers le back-office vient de la configuration, absent sans elle", async () => {

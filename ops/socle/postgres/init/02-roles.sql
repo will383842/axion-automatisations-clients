@@ -13,3 +13,10 @@ SELECT format('CREATE ROLE %1$I_migration LOGIN NOBYPASSRLS NOINHERIT PASSWORD %
        format('ALTER ROLE %1$I_equipe SET search_path = public', b)
 FROM unnest(ARRAY['console', 'moteur']) AS b
 \gexec
+
+-- Rôle de lecture seule de la console (A-188) : base console seulement, pas de moteur_lecture. Même empreinte par rôle que les autres.
+-- Sans héritage ni contournement de la RLS : C5 le traite comme console_app. En V1 il lit la base principale ; la réplique viendra plus tard.
+SELECT format('CREATE ROLE console_lecture LOGIN NOBYPASSRLS NOINHERIT PASSWORD %L', encode(sha256(convert_to(:'secret' || '/console_lecture', 'utf8')), 'hex')),
+       'GRANT CONNECT ON DATABASE console TO console_lecture',
+       'ALTER ROLE console_lecture SET search_path = public'
+\gexec

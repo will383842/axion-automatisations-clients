@@ -24,7 +24,7 @@ describe("route de remise base_lecture", () => {
     expect(r.type).toBe("base_lecture");
     expect(Object.keys(r).sort()).toEqual(["base", "expire", "hote", "motDePasse", "type", "valideJusqua"]);
     expect(r.base).toBe(`cli_${idA}`);
-    expect(JSON.stringify(r)).not.toMatch(/_lecture|_app|_proprietaire/);
+    expect(JSON.stringify(r)).not.toMatch(/cli_[0-9a-f]{12}_/);
   });
 
   it("[C-624] @isolation un champ genre, role ou chemin ajouté à la requête est refusé (demande_invalide), rien n'est lu", async () => {

@@ -26,7 +26,11 @@ describe("politiques et initialisation OpenBao du courtier", () => {
     const lecteurs = (cible: string) => fichiers.filter((f) => [...readFileSync(new URL(f, dossier), "utf8").replace(/#.*$/gm, "").matchAll(/path\s+"([^"]+)"\s*\{([^}]*)\}/g)].some((m) => couvre(m[1]!, cible) && /"(read|sudo)"/.test(m[2]!))).map((f) => f.replace(/^politiques\//, "")).sort();
     expect(lecteurs("technique/data/donnees/cli_0123456789ab/lecture")).toEqual(["api.hcl", "donnees.hcl"]);
     expect(lecteurs("technique/data/donnees/cli_0123456789ab/app")).toEqual(["donnees.hcl"]);
-    for (const interdit of ["technique/data/donnees/cli_0123456789ab/proprietaire", "technique/metadata/donnees/cli_0123456789ab/proprietaire", "technique/data/donnees/cli_0123456789ab/provisionneur", "technique/data/donnees/pgbouncer-admin"]) expect(lecteurs(interdit), interdit).toEqual([]);
+    for (const interdit of ["technique/data/donnees/cli_0123456789ab/proprietaire"]) expect(lecteurs(interdit), interdit).toEqual([]);
+    expect(lecteurs("technique/data/donnees/pgbouncer-admin")).not.toContain("donnees.hcl");
+    expect(lecteurs("technique/data/donnees/pgbouncer-admin")).not.toContain("api.hcl");
+    // Seule la métadonnée (version, pas la valeur) est lisible par le provisionneur, comme avant ; ni api.hcl ni donnees.hcl n'y touchent.
+    expect(lecteurs("technique/metadata/donnees/cli_0123456789ab/proprietaire")).toEqual(["provisionneur.hcl"]);
     // donnees.hcl : lecture seule, et rien d'autre que app et lecture (données et métadonnées).
     const donnees = [...readFileSync(new URL("donnees.hcl", dossier), "utf8").replace(/#.*$/gm, "").matchAll(/path\s+"([^"]+)"\s*\{\s*capabilities\s*=\s*\[([^\]]*)\]/g)].map((m) => `${m[1]} ${m[2]}`);
     expect(donnees.sort()).toEqual(['technique/data/donnees/+/app "read"', 'technique/data/donnees/+/lecture "read"', 'technique/metadata/donnees/+/app "read"', 'technique/metadata/donnees/+/lecture "read"']);

@@ -74,7 +74,9 @@ beforeAll(async () => {
 describe("remise de _lecture sur un vrai PostgreSQL", () => {
   it("[C-624] @isolation l'identifiant de lecture remis pour une tâche de A ne se connecte pas à cli_<B>", async () => {
     const r = nomsRoles(A).lecture;
-    expect((await (await ouvrir(S, r, MDP.A, nomBaseDe(A))).query("SELECT 1")).rowCount).toBe(1);
+    const c = await ouvrir(S, r, MDP.A, nomBaseDe(A));
+    expect((await c.query("SELECT 1")).rowCount).toBe(1);
+    await c.end(); // CONNECTION LIMIT 2 : une session laissée ouverte fausserait A-170
     await expect(ouvrir(S, r, MDP.A, nomBaseDe(B))).rejects.toThrow();
   });
 
@@ -82,6 +84,7 @@ describe("remise de _lecture sur un vrai PostgreSQL", () => {
     const c = await ouvrir(S, nomsRoles(A).lecture, MDP.A, nomBaseDe(A));
     expect((await c.query("SELECT texte FROM public.relances")).rowCount).toBe(1);
     for (const ordre of ["INSERT INTO public.relances VALUES (2, 'x')", "UPDATE public.relances SET texte = 'x'", "DELETE FROM public.relances"]) await expect(c.query(ordre), ordre).rejects.toThrow(/permission denied/i);
+    await c.end();
   });
 
   it("[A-417] les lectures pg_roles du courtier voient le statement_timeout, la CONNECTION LIMIT et le VALID UNTIL de _lecture", async () => {
@@ -93,6 +96,7 @@ describe("remise de _lecture sur un vrai PostgreSQL", () => {
 
   it("[A-170] une lecture de l'exécuteur et une lecture de la console du même client tiennent sous CONNECTION LIMIT 2", async () => {
     const r = nomsRoles(A).lecture;
+    await new Promise((ok) => setTimeout(ok, 500)); // le serveur libère les places des sessions fermées
     const executeur = await ouvrir(S, r, MDP.A, nomBaseDe(A));
     const console_ = await ouvrir(S, r, MDP.A, nomBaseDe(A));
     expect((await executeur.query("SELECT 1")).rowCount).toBe(1);

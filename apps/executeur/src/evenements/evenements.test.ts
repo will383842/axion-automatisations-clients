@@ -57,7 +57,7 @@ describe("événements d'exécution : envoi par paquets", () => {
     un.ajouter(debut(2));
     const deux = new TamponEvenements(d, { maxEvenements: 1000 });
     expect(deux.evenements().map((x) => (x as { executionId: string }).executionId)).toEqual(["exec-1", "exec-2"]);
-    deux.retirer(2);
+    deux.retirer([...deux.evenements()]);
     expect(new TamponEvenements(d, { maxEvenements: 1000 }).evenements()).toHaveLength(0);
   });
 

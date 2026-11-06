@@ -47,7 +47,12 @@ export async function rangerPaquet(depot: DepotExecutions, paquet: Paquet, cellu
 export function depotExecutionsPg(poolApp: Pool, cellule: string, signal: (cellule: string) => Promise<void>): DepotExecutions {
   const appelant = { acteur: `cellule:${cellule}` };
   const creer = (tenant: string, instance: string, id: string) =>
-    avecClient(poolApp, tenant, (c) => c.query("INSERT INTO executions (tenant_id, id, instance_id, auteur) SELECT $1, $2, $3, $4 WHERE NOT EXISTS (SELECT 1 FROM executions WHERE tenant_id = $1 AND id = $2)", [tenant, id, instance, appelant.acteur]), appelant);
+    avecClient(poolApp, tenant, async (c) => {
+      // Verrou consultatif de la transaction : deux rangements simultanés du même (instance, exécution) passent l'un après l'autre,
+      // le second voit la ligne du premier. `executions` n'a pas de clé unique sur (tenant_id, id) : la clé primaire contient `debut`.
+      await c.query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))", [`${tenant}/${id}`]);
+      return c.query("INSERT INTO executions (tenant_id, id, instance_id, auteur) SELECT $1, $2, $3, $4 WHERE NOT EXISTS (SELECT 1 FROM executions WHERE tenant_id = $1 AND id = $2)", [tenant, id, instance, appelant.acteur]);
+    }, appelant);
   return {
     debut: async (t, i, id) => void (await creer(t, i, id)),
     async fin(t, i, id, v) {

@@ -18,6 +18,13 @@ export function construireFin(v: { instanceId: string; executionId: string; dure
   return { ...reste, minutesGagnees };
 }
 
+const DEFINITIFS = new Set([400, 403, 413, 422]);
+class RefusDefinitif extends Error {
+  constructor(status: number) {
+    super(`console_refus_${status}`);
+  }
+}
+
 export interface OptionsEnvoi {
   tampon: TamponEvenements;
   url: string;
@@ -33,6 +40,7 @@ export interface OptionsEnvoi {
 
 export class EnvoiEvenements {
   #dernier: string | undefined;
+  #enCours: Promise<void> | undefined;
   constructor(private o: OptionsEnvoi) {}
   // Valide l'événement (schéma strict) puis le garde ; plein à 500, il part tout de suite.
   async envoyer(e: Evenement): Promise<void> {
@@ -44,12 +52,26 @@ export class EnvoiEvenements {
     for (const instanceId of this.o.instancesActives()) await this.envoyer({ type: "signal_de_vie", instanceId, celluleId: this.o.celluleId, a });
     await this.vider();
   }
-  // Paquets de 500 au plus ; un paquet n'est retiré du tampon que s'il est accepté. Un refus lève, le reste attend le tour suivant.
-  async vider(): Promise<void> {
+  // Un seul vidage à la fois : un appel pendant un vidage en cours rejoint ce vidage (qui reprend le tampon tant qu'il reste des événements).
+  vider(): Promise<void> {
+    this.#enCours ??= this.#vider().finally(() => (this.#enCours = undefined));
+    return this.#enCours;
+  }
+  // Paquets de 500 au plus ; un paquet n'est retiré du tampon que s'il est accepté, ou mis à part sur refus définitif (400, 403, 413, 422).
+  // 401, 429 et les autres refus lèvent : le lot reste en tête et sera rejoué au tour suivant.
+  async #vider(): Promise<void> {
     while (this.o.tampon.evenements().length > 0) {
       const lot = this.o.tampon.evenements().slice(0, PAQUET_MAX);
-      await this.#poster(Paquet.parse({ evenements: lot }), randomUUID());
-      this.o.tampon.retirer(lot.length);
+      try {
+        await this.#poster(Paquet.parse({ evenements: lot }), randomUUID());
+      } catch (erreur) {
+        if (erreur instanceof RefusDefinitif) {
+          this.o.tampon.mettreAPart(lot);
+          continue;
+        }
+        throw erreur;
+      }
+      this.o.tampon.retirer(lot);
     }
   }
   // Même Idempotency-Key à chaque essai, mais chaque essai est re-signé. 5xx et réseau sont rejoués ; un 4xx est définitif.
@@ -66,7 +88,7 @@ export class EnvoiEvenements {
         signal: AbortSignal.timeout(5000),
       }).catch(() => undefined);
       if (r?.ok) return;
-      if (r && r.status < 500) throw new Error(`console_refus_${r.status}`); // le corps d'un refus n'est jamais repris
+      if (r && r.status < 500) throw DEFINITIFS.has(r.status) ? new RefusDefinitif(r.status) : new Error(`console_refus_${r.status}`); // le corps d'un refus n'est jamais repris
       if (essai >= attentes.length) throw new Error("console_injoignable");
       await (this.o.dormir ?? ((ms) => new Promise<void>((fin) => setTimeout(fin, ms))))(attentes[essai]!);
     }

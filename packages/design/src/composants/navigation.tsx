@@ -1,6 +1,7 @@
 /** @jsxRuntime automatic @jsxImportSource react */
 import type { CSSProperties, ReactNode } from "react";
 import { PastilleInitiales } from "./base.tsx";
+import { LogoAxion } from "./Logo.tsx";
 
 // Navigation commune (C-597, C-586). Le menu latéral (ordinateur) et la barre d'onglets (téléphone) coexistent dans le DOM :
 // responsive.css masque l'un ou l'autre sous 720 px.
@@ -84,7 +85,7 @@ export function MenuLateral({ variante, actif, logoAxion, entrees = MENUS[varian
             <PastilleInitiales nom={client.nom} />
           )
         ) : (
-          <img src={logoAxion} alt="AXION IA" height={32} />
+          <LogoAxion src={logoAxion} hauteur={32} />
         )}
         {portail && client ? <span style={{ fontWeight: 800 }}>{client.nom}</span> : null}
       </div>
@@ -129,7 +130,7 @@ export function MenuLateral({ variante, actif, logoAxion, entrees = MENUS[varian
       {portail ? (
         <div style={{ marginTop: "auto", paddingTop: v("espacement-16"), borderTop: `1px solid ${v("couleur-menu-separateur")}`, color: v("couleur-menu-secondaire"), fontSize: v("taille-precision") }}>
           <div>Propulsé par</div>
-          <img src={logoAxion} alt="AXION IA" height={24} />
+          <LogoAxion src={logoAxion} hauteur={24} />
           <div>axion-ia.com</div>
         </div>
       ) : null}

@@ -70,7 +70,9 @@ test.describe("[C-597] galerie à 390 px", () => {
       const fautes = await page.evaluate(() => {
         const sorties: string[] = [];
         const courant = "main p, main li, main td, main label, main button, main input, main select, main textarea, main a, main dd";
-        const precision = (el: Element) => el.closest("small, [data-precision], caption, th, figcaption") !== null;
+        // Les précisions (jeton taille.precision, 13 px) sont voulues plus petites : tout le reste du texte courant est à 16 px.
+        const jeton = getComputedStyle(document.documentElement).getPropertyValue("--taille-precision").trim();
+        const precision = (el: Element) => getComputedStyle(el).fontSize === jeton;
         for (const el of document.querySelectorAll(courant)) {
           const r = el.getBoundingClientRect();
           const propre = [...el.childNodes].some((n) => n.nodeType === 3 && (n.textContent ?? "").trim() !== "");

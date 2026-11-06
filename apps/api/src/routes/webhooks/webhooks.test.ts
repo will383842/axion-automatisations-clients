@@ -23,7 +23,7 @@ function monter(o: { actif?: boolean; pause?: boolean } = {}) {
     secret: async (ref) => coffre.get(ref)!,
     instance: async (instanceId) => ({ cellule: instanceId === "instance-a" ? "cellule-un" : "cellule-deux", etat: o.pause ? "pause" : "active" }),
     memoire: { async set(cle: string) { if (vus.has(cle)) return null; vus.add(cle); return "OK"; } },
-    file: (nom) => ({ async add(type: string, donnees: unknown, opts?: { jobId?: string }) { travaux.push({ file: nom, nom: type, donnees: donnees as Record<string, unknown>, jobId: opts?.jobId ?? "" }); } }),
+    file: (nom) => ({ name: nom, async add(type: string, donnees: unknown, opts?: { jobId?: string }) { travaux.push({ file: nom, nom: type, donnees: donnees as Record<string, unknown>, jobId: opts?.jobId ?? "" }); } }),
     sceller: async (_tenant, corps) => `scelle:${corps.length}`,
     compter: (m) => compteurs.push(m),
     debit: { parWebhook: 100, global: 1000, fenetreMs: 60_000 },

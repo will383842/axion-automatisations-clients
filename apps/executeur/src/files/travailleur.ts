@@ -32,6 +32,8 @@ export interface Dependances {
   mettreEnPause?(instanceId: string): Promise<void>;
   // Une intention reste occupée après 3 fenêtres : le travail est rendu à l'équipe (« à trancher » au journal et à la console), jamais perdu en silence.
   escalader?(travail: Travail, etape: string, code: string): Promise<void>;
+  // État voulu lu avant chaque exécution (A-341) : tout état autre que « actif » remet le travail en attente, rien n'est perdu.
+  garde?: (instanceId: string) => Promise<{ etat: "actif" | "pause" | "arrete" }>;
   delaiRemiseMs?: number;
 }
 
@@ -60,6 +62,7 @@ export function executerEnBac(chargeur: (travail: Travail) => Promise<Artefact>,
 // Sans place : le travail est remis en attente avec délai, jamais perdu ni exécuté.
 export async function traiter(travail: Travail, d: Dependances): Promise<Resultat> {
   d.cellule.accepter(travail.instanceId);
+  if (d.garde && (await d.garde(travail.instanceId)).etat !== "actif") return { statut: "remis", delaiMs: d.delaiRemiseMs ?? 5_000 };
   const proprietaire = `${travail.instanceId}:${travail.id}`;
   if (!(await d.semaphore.acquerir(travail.clientId, travail.palier, proprietaire))) {
     return { statut: "remis", delaiMs: d.delaiRemiseMs ?? 5_000 };

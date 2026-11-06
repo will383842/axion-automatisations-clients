@@ -1,5 +1,7 @@
 import type { Queue } from "bullmq";
 import type { EtatVoulu } from "@axion-auto/contrats/src/c4/etat-voulu.ts";
+import type { AttenteEnPause } from "../console/pause-sure.ts";
+import type { LectureEtat } from "../console/etat-voulu.ts";
 import { versRepetition, type Declencheur, type Repetition } from "./declencheurs.ts";
 
 export type EtatVouluPlanifie = EtatVoulu & { declencheurs: Declencheur[] };
@@ -71,4 +73,33 @@ export class PlanificateursBullMQ implements Planificateurs {
   async retirer(id: string) {
     await this.file.removeJobScheduler(id);
   }
+}
+
+// Déclenchements reçus (B-437) : en pause, ils sont gardés dans l'ordre jusqu'à la limite configurée ; au-delà, refus compté et alerte.
+export interface Declenchement {
+  instanceId: string;
+  jobId: string;
+}
+export interface DepsDeclenchement {
+  garde: (instanceId: string) => Promise<LectureEtat>;
+  attente: AttenteEnPause<Declenchement>;
+  ajouter: (d: Declenchement) => Promise<void>;
+}
+
+// Remet en file dans l'ordre d'arrivée ; un élément n'est retiré qu'après sa remise (une panne ne perd rien).
+export async function reprendreDeclenchements(d: DepsDeclenchement, instanceId: string): Promise<number> {
+  let n = 0;
+  for (const item of [...d.attente.enAttente(instanceId)]) {
+    await d.ajouter(item);
+    d.attente.retirerPremier(instanceId);
+    n++;
+  }
+  return n;
+}
+
+export async function declencher(d: DepsDeclenchement, item: Declenchement): Promise<"envoye" | "garde" | "refuse"> {
+  if ((await d.garde(item.instanceId)).etat !== "actif") return d.attente.deposer(item.instanceId, item) ? "garde" : "refuse";
+  await reprendreDeclenchements(d, item.instanceId); // ceux arrivés pendant la pause passent d'abord
+  await d.ajouter(item);
+  return "envoye";
 }

@@ -1,0 +1,20 @@
+# 0116 · Tables de la supervision
+
+Date : 06/11/2026 · Statut : proposé (audit de sécurité en 2 tours à la PR T5-01a ; l'accord de l'architecte est requis pour l'ajout à `TABLES_COMMUNES` de T5-01b) · Contrat touché : C5 (liste fermée `TABLES_COMMUNES`, neuf entrées, **dans T5-01b seulement**) · Migrations : `0022_supervision_clients.sql` (T5-01a), `0023_supervision_communes.sql` (T5-01b, à venir)
+
+## Contexte
+- Les écrans de supervision du lot 5 (santé des instances, incidents, rapports, mesures des bases) ont besoin de tables que les lots précédents ne créent pas. La fiche T5-01 les livre en deux migrations additives, sous le verrou unique des migrations de `console` (décision D-B1), pour qu'aucune autre fiche du lot ne touche `apps/api/drizzle/**`.
+- Toutes les tables restent des métadonnées : aucun contenu d'e-mail, aucun texte de demande, aucun secret.
+
+## Décision
+1. **Rôle `console_lecture`** (A-188) : lecture seule pour les tableaux de bord et les rapports, créé par la PR T5-01-ops dans `ops/socle/postgres/init/02-roles.sql` pour la base `console` seulement (`LOGIN NOBYPASSRLS NOINHERIT`, mot de passe propre au rôle). En V1 il lit la base principale ; la vraie réplique viendra plus tard. C5 le traite comme `console_app` : la RLS s'applique (politique `isolation_lecture`, `SELECT` seul). `ROLES_EQUIPE` ne change pas.
+2. **0022 (T5-01a), cinq tables par client** posées par `tableClient()` (RLS activée et forcée, journal d'audit, aucun `DELETE` ni `TRUNCATE`) : `sante_instances`, `liens_retour`, `suspensions_abus`, `rapports_mensuels`, `mesures_bases`. `console_lecture` lit ces cinq tables et, déjà existantes, `alertes` et `agregats_quotidiens`. `executions` n'est pas ouverte à `console_lecture` (elle redéfinirait `executions_proteger_partitions`, ADR 0054).
+3. **`suspensions_abus` est écrite par `console_equipe` seul** (politiques `ajout_equipe` et `changement_equipe`, la levée est la seule modification), `console_app` en `SELECT`. Précédent exact : `alertes_plateforme` (0006). Le motif est une énumération, jamais un texte libre.
+4. **`mesures_bases`** : partitionnée par mois sur `debut` par `pg_partman`, quatre mois d'avance. `console_app` n'a aucun droit ; la tâche de relevé écrit sous `console_equipe`. `pg_partman` ne pose pas la RLS sur une partition neuve : la fonction `mesures_bases_proteger_partitions()` (copie de `executions_proteger_partitions`, non `SECURITY DEFINER`, `search_path` fixé, `EXECUTE` retiré à tous les rôles applicatifs, empreinte dans `scripts/garde-migrations-fonctions.json`) la pose sur chaque partition. La colonne `base` est de forme `cli_<id>` (identifiants seulement).
+5. **Aucun texte libre** : chaque colonne de texte est bornée par un `CHECK` (code, adresse `https` de forme fermée, référence d'objet sans remontée de chemin, acteur de 200 caractères au plus). Les listes de codes (`raisons`, `attributs_trouves`) sont bornées en nombre et en forme.
+6. **À venir (T5-01b, 0023)** : les neuf tables communes (`incidents`, `regles_alertes`, `disjoncteurs`, `reveils`, `mesures_capacite`, `modeles_messages`, `bilans_incident`, `fenetres_maintenance`, `avis_depreciation`) entrent dans `TABLES_COMMUNES`, `disjoncteurs` et `reveils` sans aucun droit pour `console_app` ; `incidents_instances` et `commentaires_alertes` restent par client ; quatre colonnes s'ajoutent à `alertes`. Cet ADR sera complété à cette occasion.
+
+## Conséquences
+- La migration 0022 ne contient ni `DROP`, `DELETE`, `TRUNCATE`, `RENAME` ni changement de type. La seule fonction est la protection des partitions.
+- **Retour arrière** (à la main, jamais par `DROP`) : `REVOKE` des droits ajoutés (`console_lecture`, `console_app`, `console_equipe` sur les cinq tables, `EXECUTE` de la fonction) ; les tables, types, index et contraintes restent, vides ou non utilisés. Un retrait réel passe par une migration de contraction décidée par l'architecte.
+- `liens_retour` et `rapports_mensuels` sont en lecture seule pour `console_app` dans 0022 (échec fermé) : l'ouverture de leurs écritures est décidée avant T5-01b.

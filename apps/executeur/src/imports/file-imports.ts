@@ -14,7 +14,9 @@ export const aiguiller = (f: { lignes: number; octets: number }): "imports" | "c
 export class ImportsParClient {
   readonly #en_cours = new Map<string, string>();
   readonly #attente = new Map<string, string[]>();
+  readonly #reserve = new Set<string>();
   demarrer(clientId: string, importId: string): "demarre" | "en_attente" {
+    if (this.#reserve.delete(`${clientId}|${importId}`)) return "demarre";
     if (this.#en_cours.has(clientId)) { this.#attente.set(clientId, [...(this.#attente.get(clientId) ?? []), importId]); return "en_attente"; }
     this.#en_cours.set(clientId, importId);
     return "demarre";
@@ -24,7 +26,8 @@ export class ImportsParClient {
     if (this.#en_cours.get(clientId) !== importId) return undefined;
     this.#en_cours.delete(clientId);
     const suite = this.#attente.get(clientId)?.shift();
-    if (suite !== undefined) this.#en_cours.set(clientId, suite);
+    // L'import rendu est réservé : aucun autre ne passe devant, et demarrer() le laisse partir.
+    if (suite !== undefined) { this.#en_cours.set(clientId, suite); this.#reserve.add(`${clientId}|${suite}`); }
     return suite;
   }
 }
@@ -47,7 +50,11 @@ export async function executerImport(d: DemandeImport, ports: PortsImport): Prom
     const rapport = await importerParBlocs({ instanceId: d.instanceId, executionId: d.executionId, lignes: d.lignes, journal: ports.journal, ecrivain: ports.ecrivainPour(d.tenantId), dedoublonneur: ports.dedoublonneurPour(d.tenantId), exclusions: ports.exclusions });
     return { statut: "termine", rapport, suivant: ports.verrou.terminer(d.tenantId, d.importId) };
   } catch (e) {
-    ports.verrou.terminer(d.tenantId, d.importId);
-    throw e;
+    const suivant = ports.verrou.terminer(d.tenantId, d.importId);
+    throw new ImportEchoue(e, suivant);
   }
+}
+// L'échec garde l'import suivant : l'appelant doit le lancer, sinon il resterait réservé pour toujours.
+export class ImportEchoue extends Error {
+  constructor(override readonly cause: unknown, readonly suivant: string | undefined) { super(cause instanceof Error ? cause.message : String(cause)); this.name = "ImportEchoue"; }
 }

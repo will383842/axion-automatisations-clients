@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { empreinteEmail } from "@axion-auto/contrats/src/c3/evenements-crm-vers-console.ts";
 import type { EntreeJournal, JournalEtapes } from "../noyau/ports.ts";
-import { aiguiller, executerImport, ImportsParClient, MAX_OCTETS, type Ecrivain } from "./file-imports.ts";
+import { aiguiller, executerImport, ImportsParClient, MAX_OCTETS, type Ecrivain, type PortsImport } from "./file-imports.ts";
 import { ErreurImport, lireLignes, limiterOctets, neutraliserPourExport } from "./lecteur.ts";
 import { importerParBlocs } from "./blocs.ts";
 import { Dedoublonneur, normaliserEmail } from "./dedoublonner.ts";
@@ -130,31 +130,46 @@ const portsImport = (base: BaseMemoire, verrou = new ImportsParClient()) => ({
 });
 
 describe("relais au second import et en-têtes (audit PR 205)", () => {
+  // Un import en cours : il s'arrête sur une porte, le temps que le second arrive.
+  const enCours = (ports: PortsImport, csvTexte: string) => {
+    let ouvrir: () => void = () => undefined;
+    const porte = new Promise<void>((r) => { ouvrir = r; });
+    async function* lignes() { await porte; yield* lireLignes(source([csvTexte])); }
+    const promesse = executerImport({ tenantId: "client-a", importId: "imp-1", ...ctx, lignes: lignes() }, ports);
+    return { ouvrir, promesse };
+  };
+
   it("[A-272] après la fin du premier import, executerImport lance le second rendu par terminer et le termine", async () => {
     const base = new BaseMemoire();
     const ports = portsImport(base);
-    ports.verrou.demarrer("client-a", "imp-1");
+    const p1 = enCours(ports, csv(2));
     expect(ports.verrou.demarrer("client-a", "imp-2")).toBe("en_attente");
-    const r1 = await executerImport({ tenantId: "client-a", importId: "imp-1", ...ctx, lignes: lireLignes(source([csv(2)])) }, ports);
-    expect(r1).toMatchObject({ statut: "termine", suivant: "imp-2" });
+    p1.ouvrir();
+    expect(await p1.promesse).toMatchObject({ statut: "termine", suivant: "imp-2" });
     const r2 = await executerImport({ tenantId: "client-a", importId: "imp-2", instanceId: "inst-2", executionId: "exec-2", lignes: lireLignes(source([csv(3)])) }, ports);
     expect(r2.statut).toBe("termine");
+    expect(base.lignes).toHaveLength(3); // mêmes adresses : dédoublonnées
     expect(ports.verrou.demarrer("client-a", "imp-3")).toBe("demarre");
   });
 
   it("[A-272] après l'échec du premier import, le second est rendu à l'appelant et la reprise du premier n'est pas bloquée", async () => {
     const base = new BaseMemoire();
     const ports = portsImport(base);
-    const coupe = { ...ports, ecrivainPour: () => ({ existe: (c: string) => base.existe(c), ecrireBloc: async () => { throw new Error("coupure"); } }) };
-    expect(ports.verrou.demarrer("client-a", "imp-1")).toBe("demarre");
+    let coupure = true;
+    const fragile = { ...ports, ecrivainPour: () => ({ existe: (c: string) => base.existe(c), ecrireBloc: async (n: number, l: Record<string, string>[]) => { if (coupure) throw new Error("coupure"); await base.ecrireBloc(n, l); } }) };
+    const p1 = enCours(fragile, csv(2));
     expect(ports.verrou.demarrer("client-a", "imp-2")).toBe("en_attente");
-    const echec = await executerImport({ tenantId: "client-a", importId: "imp-1", ...ctx, lignes: lireLignes(source([csv(2)])) }, coupe).catch((e: unknown) => e);
-    expect(echec).toMatchObject({ suivant: "imp-2" });
-    expect(ports.verrou.demarrer("client-a", "imp-1")).toBe("en_attente");
+    p1.ouvrir();
+    await expect(p1.promesse).rejects.toMatchObject({ suivant: "imp-2" });
+    coupure = false;
+    // La reprise du premier attend derrière le second, sans rester bloquée.
+    const reprise = await executerImport({ tenantId: "client-a", importId: "imp-1", ...ctx, lignes: lireLignes(source([csv(2)])) }, ports);
+    expect(reprise.statut).toBe("en_attente");
     const r2 = await executerImport({ tenantId: "client-a", importId: "imp-2", instanceId: "inst-2", executionId: "exec-2", lignes: lireLignes(source([csv(1)])) }, ports);
     expect(r2).toMatchObject({ statut: "termine", suivant: "imp-1" });
-    const reprise = await executerImport({ tenantId: "client-a", importId: "imp-1", ...ctx, lignes: lireLignes(source([csv(2)])) }, ports);
-    expect(reprise.statut).toBe("termine");
+    const r1 = await executerImport({ tenantId: "client-a", importId: "imp-1", ...ctx, lignes: lireLignes(source([csv(2)])) }, ports);
+    expect(r1.statut).toBe("termine");
+    expect(base.lignes).toHaveLength(2);
   });
 
   it.each(["Email", "E-mail", "e-mail", "Courriel", "COURRIEL", "É-mail"])("[C-633] une adresse de la liste de la plateforme n'entre pas quand l'en-tête est « %s »", async (entete) => {

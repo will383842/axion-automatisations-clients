@@ -84,6 +84,21 @@ const creerOrg = (id: string) => insererApp(id, "organisations", { id, console_c
 const creerTraitement = async () =>
   (await su.query("INSERT INTO registre_traitements (code, finalite, base_legale, categories_donnees, destinataires, duree_conservation, mesures_securite) VALUES ($1, 'f', 'contrat', 'c', 'd', 'e', 'm') RETURNING id", [`essai-${unique()}`])).rows[0]?.["id"] as string;
 const creerAutomatisation = async () => (await su.query("INSERT INTO automatisations (code, nom) VALUES ($1, 'Relance de devis') RETURNING id", [`ESS-${Math.floor(10_000 + Math.random() * 89_999)}`])).rows[0]?.["id"] as string;
+async function commeSu<T>(fn: (c: pg.PoolClient) => Promise<T>): Promise<T> {
+  const c = await su.connect();
+  try {
+    await c.query("BEGIN");
+    await c.query("SELECT set_config('app.acteur', $1, true)", [APPELANT.acteur]);
+    const r = await fn(c);
+    await c.query("COMMIT");
+    return r;
+  } catch (e) {
+    await c.query("ROLLBACK").catch(() => undefined);
+    throw e;
+  } finally {
+    c.release();
+  }
+}
 const registre = async (A: string, extra: Record<string, unknown> = {}) => insererApp(A, "registre_client", { organisation_id: A, traitement_id: await creerTraitement(), ...extra });
 const droits = (A: string, extra: Record<string, unknown> = {}) =>
   insererApp(A, "demandes_droits", { organisation_id: A, reference: `droits:${randomUUID()}`, nature: "acces", recue_le: new Date().toISOString(), echeance_le: JOUR(40), ...extra });
@@ -203,7 +218,8 @@ describe("migration 0021 : conformité, avec le socle", { timeout: 120_000 }, ()
 
   it("[LOT3-tables] historique_grilles_prix : une mise à jour est refusée, et un acteur vide refuse l'insertion", async () => {
     const auto = await creerAutomatisation();
-    const grille = (await su.query("INSERT INTO grilles_prix (automatisation_id, formules_actives, montant_installation_centimes, montant_mensuel_centimes, maintenance_incluse_mois, maintenance_ensuite_centimes, auteur) VALUES ($1, '[]', 0, 0, 0, 0, 'essai') RETURNING id", [auto])).rows[0]?.["id"] as string;
+    // Une grille porte de l'argent : le journal exige un acteur, même pour le superutilisateur qui pose la ligne d'essai.
+    const grille = (await commeSu((c) => c.query("INSERT INTO grilles_prix (automatisation_id, formules_actives, montant_installation_centimes, montant_mensuel_centimes, maintenance_incluse_mois, maintenance_ensuite_centimes, auteur) VALUES ($1, '[]', 0, 0, 0, 0, 'essai') RETURNING id", [auto]))).rows[0]?.["id"] as string;
     const ajouter = (acteur: string | null, auteur: string, nouvelle = 1000) =>
       commeEquipe(acteur, (c) => c.query("INSERT INTO historique_grilles_prix (grille_id, champ, ancienne_valeur_centimes, nouvelle_valeur_centimes, auteur, raison) VALUES ($1, 'mensuel', 900, $2, $3, 'Mise à jour de la grille') RETURNING id", [grille, nouvelle, auteur]));
     await expect(ajouter(null, "x")).rejects.toMatchObject({ code: "42501" });

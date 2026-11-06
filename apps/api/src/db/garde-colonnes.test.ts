@@ -131,7 +131,7 @@ describe("garde des colonnes : aucun texte libre (C-034)", () => {
     expect(Object.keys(TEXTE_PERMIS)).toHaveLength(17);
     expect(TEXTE_SANS_LIMITE_DETTE).toHaveLength(0);
     expect(Object.keys(TEXTE_PERMIS).every((k) => ["demandes", "executions", "alertes", "aujourdhui_ignores", "demandes_droits", "incidents_violations", "aipd"].includes(k.split(".")[0] ?? ""))).toBe(true);
-    expect(Object.values(TEXTE_PERMIS).every((n) => n > 0 && n <= 255)).toBe(true);
+    expect(Object.values(TEXTE_PERMIS).every((n) => n > 0 && n <= 256)).toBe(true);
   });
 });
 

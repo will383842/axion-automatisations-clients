@@ -5,6 +5,7 @@ export * from "./schema/bases-client.ts";
 export * from "./schema/canaux.ts";
 export * from "./schema/catalogue.ts";
 export * from "./schema/commercial.ts";
+export * from "./schema/conformite.ts";
 export * from "./schema/contrats.ts";
 export * from "./schema/durcissement.ts";
 export * from "./schema/equipe.ts";

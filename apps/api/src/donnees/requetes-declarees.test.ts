@@ -20,7 +20,7 @@ function monter(instances: Record<string, InstanceInstallee>, permis = true) {
     async base(tenantId) { vus.bases.push(tenantId); return { nomBase: tenantId === A ? "cli_aaaaaaaaaaaa" : "cli_bbbbbbbbbbbb", etat: "active" }; },
     async ouvrir(nomBase, role) {
       vus.ouvertures.push(`${nomBase}/${role}`);
-      return { async requete(texte, valeurs) { vus.textes.push(texte); vus.valeurs.push(valeurs); if (/current_setting\('transaction_read_only'\)/.test(texte)) return [{ ro: "on" }];
+      return { async requete(texte, valeurs) { vus.textes.push(texte); vus.valeurs.push(valeurs); if (texte === "SAVEPOINT axion_sonde") throw Object.assign(new Error("hors transaction"), { code: "25P01" }); if (/current_setting\('transaction_read_only'\)/.test(texte)) return [{ ro: "on" }];
         return /count/.test(texte) ? [{ total: 3 }] : Array.from({ length: 300 }, (_, i) => ({ id: `id${i}`, email: "x@exemple.fr", etablissement_id: ETAB_A })); }, async fermer() { vus.fermetures += 1; } };
     },
     async permissionAccordee() { return permis; },
@@ -90,10 +90,11 @@ describe("requêtes déclarées des versions installées (lecture seule)", () =>
   it("[A-170] la lecture est une transaction READ ONLY sous délai, sur la connexion de lecture, puis la connexion est fermée", async () => {
     const { service, vus } = monter({ [`${A}/${INST_A}`]: base() });
     await service.lire(session, INST_A, "compte", {});
-    expect(vus.textes[0]).toBe("BEGIN READ ONLY");
-    expect(vus.textes[1]).toMatch(/^SET LOCAL statement_timeout = \d+$/);
-    expect(vus.textes[2]).toBe("SELECT current_setting('transaction_read_only') AS ro");
-    expect(vus.textes[3]).toMatch(/^SELECT /); // la requête déclarée, après le contrôle
+    expect(vus.textes[0]).toBe("SAVEPOINT axion_sonde"); // sonde : aucune transaction n'est déjà ouverte
+    expect(vus.textes[1]).toBe("BEGIN READ ONLY");
+    expect(vus.textes[2]).toMatch(/^SET LOCAL statement_timeout = \d+$/);
+    expect(vus.textes[3]).toBe("SELECT current_setting('transaction_read_only') AS ro");
+    expect(vus.textes[4]).toMatch(/^SELECT /); // la requête déclarée, après le contrôle
     expect(vus.textes.at(-1)).toBe("COMMIT");
     expect(vus.ouvertures.every((o) => o.endsWith("/lecture"))).toBe(true);
     expect(vus.fermetures).toBe(1);

@@ -120,3 +120,64 @@ describe("imports de fichiers par blocs", () => {
     expect(neutraliserPourExport("Marceau")).toBe("Marceau");
   });
 });
+
+const portsImport = (base: BaseMemoire, verrou = new ImportsParClient()) => ({
+  verrou,
+  journal: new JournalMemoire(),
+  ecrivainPour: () => base,
+  dedoublonneurPour: () => new Dedoublonneur((c) => base.existe(c)),
+  exclusions: aucune,
+});
+
+describe("relais au second import et en-têtes (audit PR 205)", () => {
+  it("[A-272] après la fin du premier import, executerImport lance le second rendu par terminer et le termine", async () => {
+    const base = new BaseMemoire();
+    const ports = portsImport(base);
+    ports.verrou.demarrer("client-a", "imp-1");
+    expect(ports.verrou.demarrer("client-a", "imp-2")).toBe("en_attente");
+    const r1 = await executerImport({ tenantId: "client-a", importId: "imp-1", ...ctx, lignes: lireLignes(source([csv(2)])) }, ports);
+    expect(r1).toMatchObject({ statut: "termine", suivant: "imp-2" });
+    const r2 = await executerImport({ tenantId: "client-a", importId: "imp-2", instanceId: "inst-2", executionId: "exec-2", lignes: lireLignes(source([csv(3)])) }, ports);
+    expect(r2.statut).toBe("termine");
+    expect(ports.verrou.demarrer("client-a", "imp-3")).toBe("demarre");
+  });
+
+  it("[A-272] après l'échec du premier import, le second est rendu à l'appelant et la reprise du premier n'est pas bloquée", async () => {
+    const base = new BaseMemoire();
+    const ports = portsImport(base);
+    const coupe = { ...ports, ecrivainPour: () => ({ existe: (c: string) => base.existe(c), ecrireBloc: async () => { throw new Error("coupure"); } }) };
+    expect(ports.verrou.demarrer("client-a", "imp-1")).toBe("demarre");
+    expect(ports.verrou.demarrer("client-a", "imp-2")).toBe("en_attente");
+    const echec = await executerImport({ tenantId: "client-a", importId: "imp-1", ...ctx, lignes: lireLignes(source([csv(2)])) }, coupe).catch((e: unknown) => e);
+    expect(echec).toMatchObject({ suivant: "imp-2" });
+    expect(ports.verrou.demarrer("client-a", "imp-1")).toBe("en_attente");
+    const r2 = await executerImport({ tenantId: "client-a", importId: "imp-2", instanceId: "inst-2", executionId: "exec-2", lignes: lireLignes(source([csv(1)])) }, ports);
+    expect(r2).toMatchObject({ statut: "termine", suivant: "imp-1" });
+    const reprise = await executerImport({ tenantId: "client-a", importId: "imp-1", ...ctx, lignes: lireLignes(source([csv(2)])) }, ports);
+    expect(reprise.statut).toBe("termine");
+  });
+
+  it.each(["Email", "E-mail", "e-mail", "Courriel", "COURRIEL", "É-mail"])("[C-633] une adresse de la liste de la plateforme n'entre pas quand l'en-tête est « %s »", async (entete) => {
+    const exclusions: ListesExclusion = { client: async () => false, plateforme: async (e) => e === empreinteEmail("stop@exemple.fr") };
+    const base = new BaseMemoire();
+    const rapport = await importerParBlocs({ ...ctx, lignes: lireLignes(source([`${entete},nom\nstop@exemple.fr,X`])), journal: new JournalMemoire(), ecrivain: base, dedoublonneur: new Dedoublonneur((c) => base.existe(c)), exclusions });
+    expect(base.lignes).toHaveLength(0);
+    expect(rapport).toMatchObject({ importees: 0, exclues_plateforme: 1 });
+  });
+
+  it("[A-273] un fichier à point-virgule est lu, ou refusé avec un message clair, et n'est jamais importé sans contrôle d'exclusion", async () => {
+    const exclusions: ListesExclusion = { client: async (e) => e === empreinteEmail("stop@exemple.fr"), plateforme: async () => false };
+    const base = new BaseMemoire();
+    const rapport = await importerParBlocs({ ...ctx, lignes: lireLignes(source(["Email;nom\nstop@exemple.fr;X\nok@exemple.fr;Y"])), journal: new JournalMemoire(), ecrivain: base, dedoublonneur: new Dedoublonneur((c) => base.existe(c)), exclusions });
+    expect(base.lignes.map((l) => l["nom"])).toEqual(["Y"]);
+    expect(rapport).toMatchObject({ importees: 1, exclues_client: 1 });
+  });
+
+  it("[A-273] un fichier sans colonne d'adresse reconnaissable est refusé avec un message clair", async () => {
+    const base = new BaseMemoire();
+    const essai = importerParBlocs({ ...ctx, lignes: lireLignes(source(["contact,nom\nstop@exemple.fr,X"])), journal: new JournalMemoire(), ecrivain: base, dedoublonneur: new Dedoublonneur((c) => base.existe(c)), exclusions: aucune });
+    await expect(essai).rejects.toMatchObject({ code: "colonne_adresse_absente" });
+    expect(base.lignes).toHaveLength(0);
+    await expect(classerLigne({ contact: "x@exemple.fr" }, aucune)).rejects.toThrow("Aucune colonne d'adresse e-mail reconnue (Email, E-mail ou Courriel).");
+  });
+});

@@ -46,11 +46,10 @@ function monter(o: { actif?: boolean } = {}) {
   const serveur = Fastify({ genReqId: () => randomUUID() });
   brancherErreurs(serveur);
   routeExecuteur(serveur, deps);
-  let n = 0;
-  const poster = (corps: unknown, p: { cellule?: string; brut?: string; cleSecret?: Buffer; cle?: string; unique?: boolean } = {}) => {
+  const poster = (corps: unknown, p: { cellule?: string; brut?: string; cleSecret?: Buffer; cle?: string; decalage?: number } = {}) => {
     const cellule = p.cellule ?? "cellule-un";
     const texte = p.brut ?? JSON.stringify(corps);
-    const h = String(MAINTENANT + (p.unique === false ? 0 : n++ % 1)); // même horodatage : l'anti-rejeu porte sur la signature
+    const h = String(MAINTENANT + (p.decalage ?? 0));
     const headers: Record<string, string> = {
       "content-type": "application/json",
       "idempotency-key": p.cle ?? randomUUID(),
@@ -85,10 +84,11 @@ describe("réception des événements d'exécution", () => {
     const paquet = { evenements: [debut(X, "exec-3"), fin(X, "exec-3")] };
     const cle = randomUUID();
     const un = await m.poster(paquet, { cle });
-    const deux = await m.poster(paquet, { cle, unique: false, brut: JSON.stringify(paquet) }).catch(() => un);
+    const deux = await m.poster(paquet, { cle, decalage: 1 }); // nouvel essai re-signé
     expect(m.lignes.size).toBe(1);
-    expect(deux.statusCode === 202 || deux.statusCode === 401).toBe(true); // un rejeu de la signature est refusé, jamais compté deux fois
-    expect(un.statusCode).toBe(202);
+    expect([un.statusCode, deux.statusCode]).toEqual([202, 202]);
+    expect(deux.body).toBe(un.body);
+    expect((await m.poster(paquet, { cle, decalage: 1 })).statusCode).toBe(401); // même signature : rejeu refusé
   });
 
   it("[A-346] un événement avec un champ « objet » est refusé par la console", async () => {

@@ -156,7 +156,7 @@ describe("rotation des mots de passe", () => {
   it("[A-169] la rotation immédiate coupe les sessions ouvertes (PgBouncer puis base) après le changement de mot de passe ; la rotation planifiée ne les coupe pas", async () => {
     const m = monter();
     await creerRotation(m.p).immediate(T, "poste perdu", session(), m.file);
-    const i = m.evenements.findIndex((e) => e.startsWith("role:"));
+    const i = m.evenements.findLastIndex((e) => e.startsWith("role:"));
     expect(m.evenements[i + 1]).toBe(`couper:cli_${ID}:cli_${ID}_app`);
     expect(m.journal).toContainEqual(expect.objectContaining({ evenement: "sessions_coupees", tenantId: T }));
     const plan = monter();

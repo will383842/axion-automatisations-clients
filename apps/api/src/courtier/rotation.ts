@@ -4,7 +4,7 @@ import { nomBaseDe, nomsRoles, type Sql } from "../provisionnement/etapes-base.j
 import type { LigneBase, Verrou } from "../provisionnement/machine.js";
 import { ErreurCourtier, type Journal } from "./identifiants-base.js";
 
-// Rotation du mot de passe de cli_<id>_app (A-169). Choix de l'ADR 0046 (« Rotation ») : un seul rôle fixe, VALID UNTIL comme filet, jamais deux rôles alternés.
+// Rotation du mot de passe de cli_<id>_app puis de cli_<id>_lecture (A-169, A-209). Choix de l'ADR 0046 (« Rotation ») : un seul rôle fixe, VALID UNTIL comme filet, jamais deux rôles alternés.
 // Ordre : le coffre reçoit le nouveau mot de passe (nouvelle version KV), PUIS le rôle reçoit l'empreinte et la version notée. Le rôle n'est jamais recréé (A-417).
 export const PERIODE_DEFAUT_JOURS = 30;
 export const DELAI_GRACE_MS = 10 * 60_000;
@@ -59,7 +59,7 @@ export interface PortsRotation {
 export function adminRotationPg(sql: Pick<Sql, "requete">): AdminRotation {
   return {
     async changerMotDePasse(role, empreinte, version, validJusqua) {
-      if (!/^cli_[0-9a-f]{12}_app$/.test(role) || !EMPREINTE.test(empreinte) || !Number.isInteger(version) || version < 1 || version > 999999999 || Number.isNaN(validJusqua.getTime())) throw new Error("refusé");
+      if (!/^cli_[0-9a-f]{12}_(app|lecture)$/.test(role) || !EMPREINTE.test(empreinte) || !Number.isInteger(version) || version < 1 || version > 999999999 || Number.isNaN(validJusqua.getTime())) throw new Error("refusé");
       if ((await sql.requete("SELECT 1 FROM pg_roles WHERE rolname = $1", [role])).length === 0) throw new ErreurCourtier("role_absent");
       const q = (await sql.requete<{ q: string }>("SELECT quote_ident($1) AS q", [role]))[0]!.q;
       const lit = async (v: string) => (await sql.requete<{ lit: string }>("SELECT quote_literal($1) AS lit", [v]))[0]!.lit;
@@ -72,7 +72,7 @@ export function adminRotationPg(sql: Pick<Sql, "requete">): AdminRotation {
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const NOM_BASE = /^cli_[0-9a-f]{12}$/;
 // Connexion directe à la grappe (pg_terminate_backend) et console d'administration de PgBouncer (KILL puis RESUME). Noms validés avant tout ordre ; la base n'est jamais laissée en pause.
-// Sont coupés : le rôle _app et les rôles dynamiques (accès humain) rattachés à cli_<id>_lecture.
+// Sont coupés : le rôle _app, le rôle _lecture (donc aussi les lectures en cours de la console) et les rôles dynamiques (accès humain) rattachés à cli_<id>_lecture.
 export function sessionsPg(grappe: Pick<Sql, "requete">, bouncer: Pick<Sql, "requete">): SessionsBase {
   return {
     async couper(nomBase, role) {
@@ -80,7 +80,7 @@ export function sessionsPg(grappe: Pick<Sql, "requete">, bouncer: Pick<Sql, "req
       await bouncer.requete(`KILL ${nomBase}`);
       try {
         await grappe.requete(
-          "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE pid <> pg_backend_pid() AND (usename = $1 OR usename IN (SELECT m.rolname FROM pg_auth_members a JOIN pg_roles r ON r.oid = a.roleid JOIN pg_roles m ON m.oid = a.member WHERE r.rolname = $2))",
+          "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE pid <> pg_backend_pid() AND (usename = $1 OR usename = $2 OR usename IN (SELECT m.rolname FROM pg_auth_members a JOIN pg_roles r ON r.oid = a.roleid JOIN pg_roles m ON m.oid = a.member WHERE r.rolname = $2))",
           [role, `${nomBase}_lecture`],
         );
       } finally {
@@ -100,11 +100,17 @@ export function creerRotation(p: PortsRotation) {
     const rendre = await p.verrou.prendre(id);
     if (!rendre) return "occupe";
     try {
-      const motDePasse = p.motDePasse();
-      const version = await p.coffre.ranger(`technique/donnees/${nomBase}/app`, motDePasse).catch(() => { throw new ErreurCourtier("coffre_indisponible"); });
+      // Chaque rôle a son secret, sa version notée et son VALID UNTIL. Ordre : _app puis _lecture, sous le même verrou ; coffre d'abord, rôle ensuite.
       // Filet : sans nouvelle rotation, le mot de passe s'éteint seul au bout de deux périodes.
       const validJusqua = new Date(p.maintenant().getTime() + 2 * p.periodeJours * JOUR_MS);
-      await p.admin(ligne.grappe).changerMotDePasse(nomsRoles(id).app, p.empreinte(motDePasse), version, validJusqua).catch((e: unknown) => { throw new ErreurCourtier(e instanceof ErreurCourtier ? e.code : "role_echoue"); });
+      const roles = nomsRoles(id);
+      let version = 0;
+      for (const genre of ["app", "lecture"] as const) {
+        const motDePasse = p.motDePasse();
+        const v = await p.coffre.ranger(`technique/donnees/${nomBase}/${genre}`, motDePasse).catch(() => { throw new ErreurCourtier("coffre_indisponible"); });
+        await p.admin(ligne.grappe).changerMotDePasse(roles[genre], p.empreinte(motDePasse), v, validJusqua).catch((e: unknown) => { throw new ErreurCourtier(e instanceof ErreurCourtier ? e.code : "role_echoue"); });
+        if (genre === "app") version = v;
+      }
       // Grâce : les connexions déjà ouvertes durent 10 minutes, puis PgBouncer reconnecte la base (tâche différée, une par version).
       await file.add("reconnecter", { tenantId: id }, { jobId: `reconnect-${nomBase}-${version}`, delay: DELAI_GRACE_MS, removeOnComplete: true });
       p.journal.tracer({ evenement: "rotation_faite", tenantId: id, base: nomBase, version });

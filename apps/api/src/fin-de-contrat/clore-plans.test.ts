@@ -35,10 +35,12 @@ describe("clôture des plans du Hub", () => {
     expect(m.deposes).toEqual(["plan-1:2027-01-10"]);
   });
 
-  it("[C-609] pendant un gel la clôture est suspendue (rien n'est déposé)", async () => {
+  it("[C-609] @argent pendant un gel la clôture continue (rien n'est détruit) et l'équipe est avertie", async () => {
     const m = monter([{ idPlan: "plan-1", reponseRecue: false }], true);
-    await expect(m.etape.faire(T, D)).rejects.toMatchObject({ motif: "gel_pour_litige" });
-    expect(m.deposes).toEqual([]);
+    await m.etape.faire(T, D);
+    expect(m.deposes).toEqual(["plan-1:2027-01-10"]);
+    expect(m.alertes).toEqual([{ type: "clore_plans", clientId: T, code: "cloture_sous_gel" }]);
+    expect(m.etape.sousGel).toBe(false);
   });
 
   it("[A-250] un brouillon non émis signalé par le Hub déclenche une alerte et n'est jamais supprimé", async () => {

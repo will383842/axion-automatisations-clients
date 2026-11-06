@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ETAPES, echeance, type Dossier } from "./machine.js";
-import { etapeExporter, etapePreavis, etatPreuve } from "./preavis.js";
+import { demandeExportFin, etapeExporter, etapePreavis, etatPreuve } from "./preavis.js";
 
 const T = "11111111-1111-4111-8111-111111111111";
 const base = (): Dossier => ({ dateFin: "2027-01-10", exportReference: null, exportTelechargeLe: null, preavis: { 1: { envoyeLe: null, accuse: null }, 20: { envoyeLe: null, accuse: null }, 27: { envoyeLe: null, accuse: null } } });
@@ -9,7 +9,7 @@ function monter(o: { gel?: boolean; echecEnvoi?: boolean } = {}) {
   const dossier = base();
   const journal: string[] = [];
   const relances: string[] = [];
-  const maintenant = new Date("2027-02-06T23:00:00Z");
+  const maintenant = new Date("2027-02-05T23:00:00Z");
   const etape = (jour: 1 | 20 | 27) => etapePreavis(jour, {
     envoyer: async (_t, j) => { if (o.echecEnvoi) throw new Error("panne"); journal.push(`envoi:${j}`); },
     marquer: async (_t, j, quand) => { dossier.preavis[j].envoyeLe = dossier.preavis[j].envoyeLe ?? quand; },
@@ -29,7 +29,7 @@ describe("préavis écrits", () => {
       expect(e.echeance?.(m.dossier)).toEqual(echeance("2027-01-10", j));
       await e.faire(T, m.dossier);
       expect(await e.dejaFait(T, m.dossier)).toBe(true);
-      expect(m.dossier.preavis[j].envoyeLe).toEqual(new Date("2027-02-06T23:00:00Z"));
+      expect(m.dossier.preavis[j].envoyeLe).toEqual(new Date("2027-02-05T23:00:00Z"));
     }
     expect(m.journal).toEqual(["envoi:1", "envoi:20", "envoi:27"]);
   });
@@ -77,11 +77,15 @@ describe("préavis écrits", () => {
   it("[C-035] l'export complet est préparé une seule fois et sa référence et son expiration sont gardées", async () => {
     const d = base();
     const lances: string[] = [];
-    const e = etapeExporter({ lancer: async (t) => { lances.push(t); return { reference: "exports/e1.zip", expireLe: new Date("2027-02-09T00:00:00Z") }; }, enregistrer: async (_t, ref) => { d.exportReference = ref; }, gel: { gelActif: async () => false } });
+    const e = etapeExporter({ lancer: async (t, demande) => { lances.push(`${t}:${demande}`); return { reference: "exports/e1.zip", expireLe: new Date("2027-02-09T00:00:00Z") }; }, enregistrer: async (_t, ref) => { d.exportReference = ref; }, gel: { gelActif: async () => false } });
     expect(await e.dejaFait(T, d)).toBe(false);
     await e.faire(T, d);
     expect(await e.dejaFait(T, d)).toBe(true);
     expect(d.exportReference).toBe("exports/e1.zip");
-    expect(lances).toEqual([T]);
+    // Demande stable par client et date de fin : lancé deux fois, l'export est le même.
+    expect(lances).toEqual([`${T}:${demandeExportFin(T, "2027-01-10")}`]);
+    expect(demandeExportFin(T, "2027-01-10")).toBe(demandeExportFin(T, "2027-01-10"));
+    expect(demandeExportFin(T, "2027-01-10")).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    expect(demandeExportFin(T, "2027-01-11")).not.toBe(demandeExportFin(T, "2027-01-10"));
   });
 });

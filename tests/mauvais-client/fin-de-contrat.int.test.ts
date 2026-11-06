@@ -14,7 +14,8 @@ describe("mauvais client : fin de contrat", () => {
     brancherErreurs(app);
     const g = gestionnairesFinDeContrat({
       session: async () => ({ acteur: "equipe:u1", role: "administrateur", clientActifId: A, reauthentifie: true }),
-      lancer: async (x) => void appels.push(x.tenantId),
+      lancer: async (x) => { appels.push(x.tenantId); return "lancee" as const; },
+      maintenant: () => new Date("2026-11-06T09:00:00Z"),
       demanderEffacement: async (t) => void appels.push(t),
       confirmer: async () => false,
     });

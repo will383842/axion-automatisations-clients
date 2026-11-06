@@ -19,6 +19,7 @@ function monde(gel = false) {
     pauserInstances: async () => { ordre.push("pause"); actives = 0; },
     instancesActives: async () => actives,
     emettreResilie: async (_t, dateFin) => void ordre.push(`resilie:${dateFin}`),
+    alerter: async (a) => void ordre.push(`alerte:${a.code}`),
     gel: { gelActif: async () => gel },
   });
   return { base, etape, ordre };
@@ -52,9 +53,11 @@ describe("base gelée à la fin du contrat", () => {
     expect(m.ordre).toHaveLength(n);
   });
 
-  it("[C-609] pendant un gel pour litige, la base n'est pas gelée par cette étape", async () => {
+  it("[C-609] pendant un gel pour litige, la base est gelée quand même (aucune donnée n'est touchée) et l'équipe est avertie", async () => {
     const m = monde(true);
-    await expect(m.etape.faire(T, D)).rejects.toMatchObject({ motif: "gel_pour_litige" });
-    expect(m.ordre).toEqual([]);
+    await m.etape.faire(T, D);
+    expect(m.base.etat).toBe("gelee");
+    expect(m.ordre).toEqual(["alerte:base_gelee_sous_gel", "resilie:2027-01-10", "pause", "gel"]);
+    expect(m.etape.sousGel).toBe(false);
   });
 });

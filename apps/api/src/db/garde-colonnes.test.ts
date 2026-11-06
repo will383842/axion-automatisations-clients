@@ -282,3 +282,168 @@ describe("tables du lot 5 : supervision par client (T5-01a)", () => {
     expect(texte).toContain('PARTITION BY RANGE ("debut")');
   });
 });
+
+// Migration 0023 (T5-01b, ADR 0116) : tables communes de la supervision, deux tables par client, mesures_capacite partitionnée, quatre colonnes d'alertes.
+const COMMUNES_5B = ["incidents", "regles_alertes", "disjoncteurs", "reveils", "mesures_capacite", "modeles_messages", "bilans_incident", "fenetres_maintenance", "avis_depreciation"];
+const CLIENT_5B = ["incidents_instances", "commentaires_alertes"];
+// Liste fermée propre à la 0023 (TEXTE_PERMIS reçoit seulement les deux colonnes d'alertes) : chaque ajout se relit en 2 tours (zone sécurité).
+const TEXTE_SUPERVISION_5B: Readonly<Record<string, number>> = Object.freeze({
+  "incidents.cause": 64,
+  "regles_alertes.code": 64,
+  "disjoncteurs.motif_code": 64,
+  "disjoncteurs.pose_par": 200,
+  "disjoncteurs.leve_par": 200,
+  "reveils.cause": 64,
+  "reveils.justification": 500,
+  "reveils.auteur": 200,
+  "mesures_capacite.cible_code": 64,
+  "modeles_messages.cle": 64,
+  "modeles_messages.texte": 4000,
+  "modeles_messages.cree_par": 200,
+  "bilans_incident.reference_document": 255,
+  "bilans_incident.redige_par": 200,
+  "fenetres_maintenance.cible_code": 64,
+  "fenetres_maintenance.auteur": 200,
+  "avis_depreciation.fournisseur": 64,
+  "avis_depreciation.sujet": 64,
+  "commentaires_alertes.auteur": 200,
+  "commentaires_alertes.texte": 500,
+});
+// Colonnes text[] : bornées en nombre ET en forme (dette M3 de l'audit de la 0022). Une colonne text[] hors de cette garde est refusée.
+export function tableauxSansBorne(tables: PgTable[]): string[] {
+  return tables.flatMap((t) => {
+    const { name, columns, checks } = getTableConfig(t);
+    const verifs = checks.map(sqlDe);
+    return columns
+      .filter((c) => c.getSQLType() === "text[]")
+      .flatMap((c) => {
+        const cle = `${name}.${c.name}`;
+        const siennes = verifs.filter((v) => v.includes(`"${c.name}"`));
+        const nombre = siennes.some((v) => new RegExp(`cardinality\\((?:"[a-z_]+"\\.)?"${c.name}"\\) <= \\d+`).test(v));
+        const forme = siennes.some((v) => v.includes("array_to_string") && /\{\d+,\d+\}/.test(v));
+        return [...(nombre ? [] : [`${cle} : nombre d'éléments non borné`]), ...(forme ? [] : [`${cle} : forme des éléments non bornée`])];
+      });
+  });
+}
+
+describe("tables du lot 5 : supervision commune (T5-01b)", () => {
+  const dossier = new URL("../../drizzle/", import.meta.url);
+  const nomMigration = () => readdirSync(dossier).find((f) => f.startsWith("0023_") && f.endsWith(".sql")) ?? "0023_absente.sql";
+  const texte0023 = () => readFileSync(new URL(nomMigration(), dossier), "utf8");
+
+  it("[LOT5-tables] les 9 tables communes sont dans TABLES_COMMUNES et seulement elles", () => {
+    expect(tablesDuSchema().length).toBeGreaterThan(10);
+    for (const nom of COMMUNES_5B) {
+      expect(TABLES_COMMUNES, nom).toContain(`public.${nom}`);
+      expect(getTableConfig(tableNommee(nom)).columns.map((c) => c.name), nom).not.toContain("tenant_id");
+    }
+    for (const nom of CLIENT_5B) {
+      expect(TABLES_COMMUNES, nom).not.toContain(`public.${nom}`);
+      expect(TABLES_CLIENT.map((t) => t.nom), nom).toContain(nom);
+      expect(getTableConfig(tableNommee(nom)).columns.map((c) => c.name), nom).toContain("tenant_id");
+    }
+    // Les neuf, et aucune autre table de la supervision, entrent dans la liste fermée (elle compte 9 de plus qu'avant la 0023).
+    expect(TABLES_COMMUNES.filter((t) => COMMUNES_5B.includes(t.replace("public.", "")))).toHaveLength(9);
+    expect(TABLES_COMMUNES).toHaveLength(30);
+    expect(Object.isFrozen(TABLES_COMMUNES)).toBe(true);
+  });
+
+  it("[LOT5-tables] garde des colonnes 0023 : aucune colonne de texte sans limite, aucune colonne de secret, alertes comprise", () => {
+    const tables = [...COMMUNES_5B, ...CLIENT_5B].map(tableNommee);
+    expect(textesSansLimite(tables, TEXTE_SUPERVISION_5B)).toEqual([]);
+    expect(colonnesInterdites(tables)).toEqual([]);
+    expect(Object.keys(TEXTE_SUPERVISION_5B)).toHaveLength(20);
+    expect(textesSansLimite(["alertes"].map(tableNommee))).toEqual([]);
+    expect(TEXTE_PERMIS["alertes.cle_regroupement"]).toBe(128);
+    expect(TEXTE_PERMIS["alertes.cause"]).toBe(64);
+    expect(Object.keys(TEXTE_PERMIS)).toHaveLength(19);
+    const neuve = pgTable("incidents", { note: text("note") });
+    expect(textesSansLimite([neuve], TEXTE_SUPERVISION_5B)).toEqual(["incidents.note : hors de la liste fermée"]);
+  });
+
+  it("[LOT5-tables] garde des colonnes : chaque colonne text[] est bornée en nombre et en forme", () => {
+    expect(tableauxSansBorne(tablesDuSchema())).toEqual([]);
+    const libre = pgTable("liens_retour", { elements: text("elements").array() });
+    expect(tableauxSansBorne([libre])).toEqual(["liens_retour.elements : nombre d'éléments non borné", "liens_retour.elements : forme des éléments non bornée"]);
+    const nombreSeul = pgTable("liens_retour", { elements: text("elements").array() }, (t) => [check("e_nombre", sql`cardinality(${t.elements}) <= 8`)]);
+    expect(tableauxSansBorne([nombreSeul])).toEqual(["liens_retour.elements : forme des éléments non bornée"]);
+    // La migration 0023 pose la borne de forme de liens_retour.attributs_trouves en ajout seul (NOT VALID).
+    expect(texte0023()).toMatch(/ADD CONSTRAINT "liens_retour_attributs_codes" CHECK[^;]*NOT VALID/);
+  });
+
+  it("[LOT5-tables] garde-migrations : migration 0023 additive seulement, avec l'unique fonction de protection des partitions de mesures_capacite", () => {
+    const nom = nomMigration();
+    expect(nom).toBe("0023_supervision_communes.sql");
+    const texte = texte0023();
+    expect(analyserSql(nom, texte)).toEqual([]);
+    const code = texte.replace(/--[^\n]*/g, "");
+    expect(code).not.toMatch(/\b(DROP|TRUNCATE|RENAME)\b|\bDELETE\s+FROM\b/i);
+    expect(code).not.toMatch(/ALTER\s+(TABLE\s+\S+\s+ALTER\s+COLUMN|COLUMN)[^;]*\bTYPE\b/i);
+    expect(code).not.toMatch(/GRANT[^;]*\bDELETE\b|GRANT[^;]*\bTRUNCATE\b/i);
+    expect([...code.matchAll(/CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+(\S+)/gi)].map((m) => m[1])).toEqual(["public.mesures_capacite_proteger_partitions()"]);
+    expect(code).not.toMatch(/SECURITY\s+DEFINER/i);
+    expect(code).not.toMatch(/^\s*(DO|SET)\b|\bCONCURRENTLY\b/im);
+  });
+
+  it("[LOT5-tables] chaque table de la 0023 a RLS activée et forcée, PUBLIC sans droit ; disjoncteurs et reveils sans aucun droit pour console_app", () => {
+    const texte = texte0023();
+    for (const nom of [...COMMUNES_5B, ...CLIENT_5B]) {
+      expect(texte, nom).toContain(`ALTER TABLE "public"."${nom}" ENABLE ROW LEVEL SECURITY`);
+      expect(texte, nom).toContain(`ALTER TABLE "public"."${nom}" FORCE ROW LEVEL SECURITY`);
+      expect(texte, nom).toContain(`REVOKE ALL ON TABLE "public"."${nom}" FROM PUBLIC`);
+      expect(texte, nom).toContain(`FOR EACH ROW EXECUTE FUNCTION public.audit_ecrire`);
+    }
+    for (const nom of ["disjoncteurs", "reveils"]) {
+      expect(texte, nom).not.toMatch(new RegExp(`GRANT[^;]*ON TABLE "public"\\."${nom}" TO console_app`));
+      expect(texte, nom).not.toMatch(new RegExp(`CREATE POLICY \\w+ ON "public"\\."${nom}"[^;]*TO console_app`));
+    }
+    // Ajout seul : aucun UPDATE sur ces tables.
+    for (const nom of ["reveils", "modeles_messages", "bilans_incident", "commentaires_alertes"]) {
+      expect(texte, nom).not.toMatch(new RegExp(`GRANT UPDATE[^;]*ON TABLE "public"\\."${nom}"`));
+    }
+    // console_lecture : SELECT seul, et seulement sur les deux tables par client de la 0023.
+    expect(texte).not.toMatch(/GRANT[^;]*(INSERT|UPDATE)[^;]*TO console_lecture/);
+    expect([...texte.matchAll(/GRANT SELECT ON TABLE "public"\."(\w+)" TO console_lecture/g)].map((m) => m[1]).sort()).toEqual(["commentaires_alertes", "incidents_instances"]);
+    for (const nom of CLIENT_5B) expect(texte, nom).toContain(`CREATE POLICY isolation_lecture ON "public"."${nom}" FOR SELECT TO console_lecture`);
+    expect(texte).toMatch(/partman\.create_parent\(\s*p_parent_table => 'public\.mesures_capacite',\s*p_control => 'debut',\s*p_interval => '1 month',\s*p_premake => 4/);
+    expect(texte).toContain('PARTITION BY RANGE ("debut")');
+  });
+
+  it("[LOT5-tables] alertes reçoit quatre colonnes en ajout seul, sans toucher aux contraintes existantes", () => {
+    const code = texte0023().replace(/--[^\n]*/g, "");
+    for (const c of ["cle_regroupement", "cause", "incident_id", "derniere_relance"]) expect(code, c).toContain(`ALTER TABLE "alertes" ADD COLUMN "${c}"`);
+    expect(code).toContain('GRANT UPDATE ("cle_regroupement", "cause", "incident_id", "derniere_relance") ON TABLE "public"."alertes" TO console_app');
+    expect(code).not.toContain("alertes_assignee_borne");
+    expect(getTableConfig(tableNommee("alertes")).columns.map((c) => c.name)).toEqual(expect.arrayContaining(["cle_regroupement", "cause", "incident_id", "derniere_relance"]));
+  });
+
+  it("[LOT5-tables] journal et instantané : le tag 0023 suit 0022, quand croît, prevId de 0023 = id de 0022", () => {
+    const lire = (f: string) => JSON.parse(readFileSync(new URL(f, dossier), "utf8")) as Record<string, unknown>;
+    const journal = (lire("meta/_journal.json") as { entries: { idx: number; tag: string; when: number }[] }).entries;
+    const dernier = journal[journal.length - 1];
+    const avant = journal[journal.length - 2];
+    expect(dernier?.tag).toBe("0023_supervision_communes");
+    expect(avant?.tag).toBe("0022_supervision_clients");
+    expect(dernier?.idx).toBe((avant?.idx ?? 0) + 1);
+    expect(dernier?.when ?? 0).toBeGreaterThan(avant?.when ?? Infinity);
+    expect(lire("meta/0023_snapshot.json")["prevId"]).toBe(lire("meta/0022_snapshot.json")["id"]);
+    expect(readdirSync(dossier).filter((f) => /^00(18|19)_.*(supervision|communes)/.test(f))).toEqual([]);
+  });
+
+  it("[LOT5-tables] l'ADR 0116 documente le retour arrière de la 0023 et la dette d'appel de la protection des partitions", () => {
+    const adr = readFileSync(new URL("../../../../docs/adr/0116-tables-de-la-supervision.md", import.meta.url), "utf8");
+    expect(adr).toContain("0023_supervision_communes.sql");
+    expect(adr).toMatch(/Retour arrière de la 0023/);
+    expect(adr).toMatch(/mesures_capacite_proteger_partitions/);
+    expect(adr).toMatch(/partman\.run_maintenance/);
+    expect(adr).toMatch(/BYPASSRLS|créer le rôle/i);
+  });
+
+  it("[LOT5-tables] les dettes M1 à M5 et F1 à F6 de l'audit de la 0022 sont inscrites avec leur critère de test et leur fiche", () => {
+    const preuves = readFileSync(new URL("../../../../spec/preuves/lot-5-t5-01b.md", import.meta.url), "utf8");
+    for (const d of ["M1", "M2", "M5", "F1", "F2", "F3", "F4", "F6", "M4"]) expect(preuves, d).toMatch(new RegExp(`LOT5-dette-T5-01a-${d}\\b`));
+    expect(preuves).toMatch(/M3[^\n]*soldée/);
+    expect(preuves).toMatch(/F5[^\n]*soldée/);
+    for (const ligne of preuves.split("\n").filter((l) => l.includes("LOT5-dette-"))) expect(ligne, ligne.slice(0, 40)).toMatch(/critère de test : « \[(A-188|LOT5-tables)\]/);
+  });
+});

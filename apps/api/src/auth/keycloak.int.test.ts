@@ -323,7 +323,8 @@ describe("Keycloak réel : en-têtes de sécurité et essais répétés (C-681)"
     expect(await verdict(await direct(u.nom, faux()))).toEqual(await verdict(await direct(inconnu, faux())));
     await bloquer(u);
     const etat = (await (await api(`/equipe/attack-detection/brute-force/users/${u.id}`)).json()) as { disabled?: boolean; numFailures?: number };
-    expect(etat.numFailures ?? 0).toBeGreaterThanOrEqual(5);
+    // Keycloak verrouille dès des échecs rapprochés (2 ici) et ne compte plus ensuite : on vérifie le verrouillage, pas le nombre.
+    expect(etat.disabled, `verrou attendu (échecs comptés : ${etat.numFailures ?? 0})`).toBe(true);
     // Le blocage n'est jamais une suppression : le compte existe toujours et reste actif.
     expect(((await (await api(`/equipe/users/${u.id}`)).json()) as { enabled?: boolean }).enabled).toBe(true);
   });

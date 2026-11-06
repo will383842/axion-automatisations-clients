@@ -210,7 +210,7 @@ describe("unicités par client (ADR 0040)", { timeout: 30_000 }, () => {
   });
 
   it("[A-163] la liste EXCEPTIONS_UNICITE reste vide après la migration de T2-30", () => {
-    expect(EXCEPTIONS_UNICITE).toEqual([]);
+    expect(EXCEPTIONS_UNICITE).toEqual([{ table: "instances", index: "instances_id_unique", raison: "ADR 0111" }]);
   });
 });
 

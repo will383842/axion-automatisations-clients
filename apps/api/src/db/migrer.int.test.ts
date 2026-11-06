@@ -1,11 +1,11 @@
 import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { migrer, VERROU_MIGRATION } from "./migrer.js";
 
 // Tests contre le socle lancé par ops/socle/lancer.sh (job socle-integration), même méthode que roles.int.test.ts.
@@ -38,6 +38,11 @@ function dossierEssai(when = 1700000000000): string {
   );
   return dossier;
 }
+
+// Le rapport de la CI est un JSON hors du journal : un essai en échec est écrit par writeSync(2, …).
+afterEach((contexte) => {
+  if (contexte.task.result?.state === "fail") writeSync(2, `ECHEC ${contexte.task.name} : ${String(contexte.task.result.errors?.[0]?.message ?? "").slice(0, 400)}\n`);
+});
 
 describe("migrer, avec le socle", () => {
   it("[A-189] migrer applique une migration d'essai avec console_migration et refuse de tourner avec console_app", async () => {
@@ -176,10 +181,12 @@ describe("migrer, avec le socle", () => {
   // Échec fermé de 0019 (T2-52a) : base jetable migrée jusqu'à 0018, donnée fautive posée, puis 0019 doit échouer sans rien modifier.
   describe("échec fermé de la migration 0019", { timeout: 180_000 }, () => {
     const dossierComplet = fileURLToPath(new URL("../../drizzle", import.meta.url));
-    const urlBase = (base: string) => `postgres://console_migration:${motDePasseDe("console_migration")}@${DIRECT()}/${base}`;
+    const urlDe_ = (role: string, base: string) => `postgres://${role}:${motDePasseDe(role)}@${DIRECT()}/${base}`;
+    // Base jetable : créée et peuplée par le superutilisateur (seul à pouvoir créer une base et à écrire hors RLS), avec la même mise en place que
+    // ops/socle/postgres/init/03-console.sql ; migrée jusqu'à 0018 par console_migration ; la donnée fautive est posée hors RLS ; puis 0019 doit échouer.
     async function avecBaseJetable(poser: (c: pg.Client) => Promise<void>, verifier: (c: pg.Client) => Promise<void>): Promise<void> {
       const base = `essai_0019_${Math.random().toString(36).slice(2, 10)}`;
-      const admin = new pg.Client({ connectionString: urlBase("console") });
+      const admin = new pg.Client({ connectionString: urlDe_("postgres", "console") });
       await admin.connect();
       const copie = mkdtempSync(join(tmpdir(), "migrer-0019-"));
       cpSync(dossierComplet, copie, { recursive: true });
@@ -189,17 +196,21 @@ describe("migrer, avec le socle", () => {
       writeFileSync(join(copie, "meta/_journal.json"), JSON.stringify(journal));
       let c: pg.Client | undefined;
       try {
-        await admin.query(`CREATE DATABASE ${base}`);
-        await migrer({ url: urlBase(base), dossier: copie });
-        c = new pg.Client({ connectionString: urlBase(base) });
+        await admin.query(`CREATE DATABASE ${base} OWNER console_proprietaire`);
+        c = new pg.Client({ connectionString: urlDe_("postgres", base) });
         await c.connect();
+        await c.query(`ALTER SCHEMA public OWNER TO console_proprietaire; REVOKE ALL ON SCHEMA public FROM PUBLIC; GRANT USAGE ON SCHEMA public TO console_app, console_equipe;
+          CREATE SCHEMA partman AUTHORIZATION console_proprietaire; CREATE EXTENSION pg_partman SCHEMA partman;
+          GRANT ALL ON ALL TABLES IN SCHEMA partman TO console_proprietaire; GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA partman TO console_proprietaire; GRANT EXECUTE ON ALL PROCEDURES IN SCHEMA partman TO console_proprietaire;
+          ALTER DEFAULT PRIVILEGES FOR ROLE console_proprietaire REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC; ALTER DEFAULT PRIVILEGES FOR ROLE console_migration REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC`);
+        await migrer({ url: urlDe_("console_migration", base), dossier: copie });
         await poser(c);
         writeFileSync(join(copie, "meta/_journal.json"), complet);
-        await expect(migrer({ url: urlBase(base), dossier: copie })).rejects.toThrow();
+        await expect(migrer({ url: urlDe_("console_migration", base), dossier: copie })).rejects.toThrow();
         await verifier(c);
       } finally {
         await c?.end().catch(() => undefined);
-        await admin.query(`DROP DATABASE IF EXISTS ${base}`).catch(() => undefined);
+        await admin.query(`DROP DATABASE IF EXISTS ${base} WITH (FORCE)`).catch(() => undefined);
         await admin.end();
       }
     }
@@ -210,9 +221,12 @@ describe("migrer, avec le socle", () => {
       const [A, B, id] = [randomUUID(), randomUUID(), randomUUID()];
       await avecBaseJetable(
         async (c) => {
-          await c.query("SET session_replication_role = replica");
-          for (const t of [A, B]) await c.query(ORG, [t]);
-          for (const t of [A, B]) await c.query(INST, [id, t]);
+          await c.query("SELECT set_config('app.acteur', 'agent-essai', false)");
+          for (const t of [A, B]) {
+            await c.query("SELECT set_config('app.tenant_id', $1, false)", [t]);
+            await c.query(ORG, [t]);
+            await c.query(INST, [id, t]);
+          }
         },
         async (c) => {
           expect((await c.query("SELECT count(*)::int AS n FROM instances")).rows[0]?.["n"]).toBe(2);
@@ -226,6 +240,7 @@ describe("migrer, avec le socle", () => {
     it("[A-233] un code de cellule ab_cd existant fait échouer 0019", async () => {
       await avecBaseJetable(
         async (c) => {
+          await c.query("SELECT set_config('app.acteur', 'agent-essai', false)");
           await c.query("INSERT INTO cellules (code, adresse_interne, mode, capacite, nombre_instances, version_image, etat) VALUES ('ab_cd', 'ab-cd.interne.test', 'mutualise', 50, 0, '1.0.0', 'active')");
         },
         async (c) => {

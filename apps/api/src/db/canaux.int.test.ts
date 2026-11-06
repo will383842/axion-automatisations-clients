@@ -225,7 +225,7 @@ describe("tables des canaux, avec le socle", { timeout: 30_000 }, () => {
     expect(ecarts).toEqual([]);
     const { rows } = await migration.query("SELECT relname FROM pg_class WHERE relkind = 'r' AND relnamespace = 'public'::regnamespace AND relname = ANY($1) ORDER BY 1", [["boite_envoi", "faits_recus", "liens_crm", "a_trancher", "exclusions", "exclusions_plateforme", "reglage_global_fin_de_contrat", "conditions_par_defaut", "alertes_plateforme"]]);
     expect(rows).toHaveLength(9);
-    expect(EXCEPTIONS_UNICITE).toEqual([]);
+    expect(EXCEPTIONS_UNICITE).toEqual([{ table: "instances", index: "instances_id_unique", raison: "ADR 0111" }]);
   });
 });
 

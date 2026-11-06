@@ -54,7 +54,8 @@ async function ecrire<T>(...args: Parameters<typeof avecClient<T>>): Promise<T> 
   }
 }
 const inserer = (tenant: string, table: string, valeurs: Record<string, unknown>) => {
-  const v = { id: randomUUID(), tenant_id: tenant, ...valeurs };
+  // T2-52 : console_app ne fournit plus l'id d'une instance (tiré par la base, relu par RETURNING id).
+  const v = table === "instances" ? { tenant_id: tenant, ...valeurs } : { id: randomUUID(), tenant_id: tenant, ...valeurs };
   const cles = Object.keys(v);
   return ecrire(app, tenant, async (c) => (await c.query(`INSERT INTO ${table} (${cles.join(", ")}) VALUES (${cles.map((_, i) => `$${i + 1}`).join(", ")}) RETURNING ${table === "instances" ? "id" : "*"}`, Object.values(v))).rows[0] as Record<string, unknown>, APPELANT);
 };
@@ -569,6 +570,6 @@ describe("contrats, devis, factures et activation, avec le socle", { timeout: 30
   });
 
   it("[A-163] la liste EXCEPTIONS_UNICITE reste vide après la migration de T2-05", () => {
-    expect(EXCEPTIONS_UNICITE).toEqual([]);
+    expect(EXCEPTIONS_UNICITE).toEqual([{ table: "instances", index: "instances_id_unique", raison: "ADR 0111" }]);
   });
 });

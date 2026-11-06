@@ -282,6 +282,6 @@ describe("suivi, avec le socle", { timeout: 90_000 }, () => {
     expect(ecarts).toEqual([]);
     const { rows } = await migration.query("SELECT relname FROM pg_class WHERE relkind = 'r' AND relnamespace = 'public'::regnamespace AND relname = ANY($1) ORDER BY 1", [["audits_client", "besoins", "cellules", "demandes", "notes", "outils_client", "propositions", "propositions_automatisations", "registre_traitements", "themes_client"]]);
     expect(rows).toHaveLength(10);
-    expect(EXCEPTIONS_UNICITE).toEqual([]);
+    expect(EXCEPTIONS_UNICITE).toEqual([{ table: "instances", index: "instances_id_unique", raison: "ADR 0111" }]);
   });
 });

@@ -36,7 +36,8 @@ function pool(voie: { host: string; port: number }, user: string, max: number): 
 }
 const app = pool(PGBOUNCER, "console_app", 40);
 const equipe = pool(PGBOUNCER, "console_equipe", 5);
-const migration = pool(DIRECT, "console_migration", 5);
+// Superutilisateur du socle de test : seul à écrire hors RLS ce que console_app ne peut plus écrire (même méthode que contrats.int.test.ts).
+const su = pool(DIRECT, "postgres", 3);
 const APPELANT = { acteur: "agent-essai", ip: "192.0.2.17" };
 const unique = () => randomUUID().replaceAll("-", "").slice(0, 8);
 
@@ -66,12 +67,11 @@ async function commeEquipe<T>(tenant: string, fn: (c: pg.PoolClient) => Promise<
     c.release();
   }
 }
-// Propriétaire des tables (sans connexion directe) : la migration endosse son rôle le temps d'une transaction.
+// Écriture par la connexion de migration (hors RLS), pour poser des lignes que console_app ne peut plus écrire (id d'instance, SIREN, statut final, auteur trop long).
 async function commeProprietaire<T>(tenant: string, fn: (c: pg.PoolClient) => Promise<T>): Promise<T> {
-  const c = await migration.connect();
+  const c = await su.connect();
   try {
     await c.query("BEGIN");
-    await c.query("SET LOCAL ROLE console_proprietaire");
     await c.query("SELECT set_config('app.acteur', $1, true), set_config('app.tenant_id', $2, true)", [APPELANT.acteur, tenant]);
     const r = await fn(c);
     await c.query("COMMIT");
@@ -88,7 +88,18 @@ const creerOrg = (A: string) => ecrire(app, A, (c) => c.query("INSERT INTO organ
 const creerInstance = (A: string) =>
   ecrire(app, A, async (c) => (await c.query("INSERT INTO instances (tenant_id, organisation_id, code_automatisation, formule, environnement, etat) VALUES ($1, $1, 'relance-devis', 'abonnement', 'test', 'pause') RETURNING id", [A])).rows[0]?.["id"] as string, APPELANT);
 const cellule = async (code = `cellule-${unique()}`) => {
-  await commeEquipe(randomUUID(), (c) => c.query("INSERT INTO cellules (code, adresse_interne, mode, capacite, nombre_instances, version_image, etat) VALUES ($1, $2, 'mutualise', 50, 3, '1.0.0', 'active')", [code, `${code}.interne.test`]));
+  const c = await equipe.connect();
+  try {
+    await c.query("BEGIN");
+    await c.query("SELECT set_config('app.acteur', $1, true)", [APPELANT.acteur]);
+    await c.query("INSERT INTO cellules (code, adresse_interne, mode, capacite, nombre_instances, version_image, etat) VALUES ($1, $2, 'mutualise', 50, 3, '1.0.0', 'active')", [code, `${code.replaceAll("_", "-")}.interne.test`]);
+    await c.query("COMMIT");
+  } catch (e) {
+    await c.query("ROLLBACK").catch(() => undefined);
+    throw e;
+  } finally {
+    c.release();
+  }
   return code;
 };
 
@@ -140,8 +151,9 @@ describe("migration 0019 : durcissement du lot 2, avec le socle", { timeout: 120
   });
 
   it("[A-163] liste fermée des droits de console_app sur instances : ni id, ni cellule_code, ni DELETE", async () => {
-    const { rows } = await equipe.query("SELECT column_name, privilege_type FROM information_schema.column_privileges WHERE table_name = 'instances' AND grantee = 'console_app' AND privilege_type IN ('INSERT', 'UPDATE')");
-    const de = (p: string) => rows.filter((r) => r["privilege_type"] === p).map((r) => r["column_name"] as string);
+    const { rows } = await equipe.query("SELECT a.attname AS colonne, has_column_privilege('console_app', 'public.instances', a.attname, 'INSERT') AS ins, has_column_privilege('console_app', 'public.instances', a.attname, 'UPDATE') AS maj FROM pg_attribute a WHERE a.attrelid = 'public.instances'::regclass AND a.attnum > 0 AND NOT a.attisdropped");
+    const de = (p: string) => rows.filter((r) => r[p === "INSERT" ? "ins" : "maj"] === true).map((r) => r["colonne"] as string);
+    expect(await equipe.query("SELECT has_table_privilege('console_app', 'public.instances', 'DELETE') AS d").then((r) => r.rows[0]?.["d"])).toBe(false);
     for (const interdite of ["id", "cellule_code"]) expect(de("INSERT")).not.toContain(interdite);
     for (const interdite of ["id", "tenant_id", "cellule_code"]) expect(de("UPDATE")).not.toContain(interdite);
     expect(de("INSERT")).toContain("tenant_id");
@@ -213,9 +225,9 @@ describe("migration 0019 : durcissement du lot 2, avec le socle", { timeout: 120
   it("[T2-14] EXPLAIN de la lecture des lignes dues : Index Scan sur boite_envoi_dues_idx, aucun Seq Scan", async () => {
     const A = randomUUID();
     await creerOrg(A);
-    await ecrire(app, A, (c) => c.query("INSERT INTO boite_envoi (tenant_id, id, destination, route, methode, corps, cle_anti_doublon, empreinte_corps, etat) SELECT $1, gen_random_uuid(), 'hub', '/essai', 'POST', '{}'::jsonb, gen_random_uuid(), repeat('a', 64), CASE WHEN g % 50 = 0 THEN 'a_envoyer' ELSE 'envoye' END FROM generate_series(1, 5000) g", [A]), APPELANT);
-    await migration.query("ANALYZE boite_envoi");
-    const { rows } = await migration.query("EXPLAIN (FORMAT JSON) SELECT id FROM boite_envoi WHERE destination = 'hub' AND etat IN ('a_envoyer', 'en_cours') ORDER BY cree_le LIMIT 100");
+    await ecrire(app, A, (c) => c.query("INSERT INTO boite_envoi (tenant_id, id, destination, route, methode, corps, cle_anti_doublon, empreinte_corps, etat) SELECT $1, gen_random_uuid(), 'hub', '/essai', 'POST', '{}'::jsonb, gen_random_uuid(), repeat('a', 64), (CASE WHEN g % 50 = 0 THEN 'a_envoyer' ELSE 'envoye' END)::etat_envoi FROM generate_series(1, 5000) g", [A]), APPELANT);
+    await su.query("ANALYZE boite_envoi");
+    const { rows } = await su.query("EXPLAIN (FORMAT JSON) SELECT id FROM boite_envoi WHERE destination = 'hub' AND etat IN ('a_envoyer', 'en_cours') ORDER BY cree_le LIMIT 100");
     const plan = JSON.stringify(rows[0]);
     expect(plan).toContain("boite_envoi_dues_idx");
     expect(plan).not.toContain("Seq Scan");
@@ -225,8 +237,8 @@ describe("migration 0019 : durcissement du lot 2, avec le socle", { timeout: 120
     const A = randomUUID();
     await creerOrg(A);
     await ecrire(app, A, (c) => c.query("INSERT INTO alertes_c3 (tenant_id, id, event_id, type, reference, confirmee_le) SELECT $1, gen_random_uuid(), gen_random_uuid(), 'ecart_propose', 'ref-' || g, CASE WHEN g % 100 = 0 THEN NULL ELSE now() END FROM generate_series(1, 5000) g", [A]), APPELANT);
-    await migration.query("ANALYZE alertes_c3");
-    const { rows } = await migration.query("EXPLAIN (FORMAT JSON) SELECT id FROM alertes_c3 WHERE tenant_id = $1 AND confirmee_le IS NULL ORDER BY cree_le", [A]);
+    await su.query("ANALYZE alertes_c3");
+    const { rows } = await su.query("EXPLAIN (FORMAT JSON) SELECT id FROM alertes_c3 WHERE tenant_id = $1 AND confirmee_le IS NULL ORDER BY cree_le", [A]);
     expect(JSON.stringify(rows[0])).toContain("alertes_c3_non_confirmees_idx");
   });
 
@@ -269,7 +281,8 @@ describe("migration 0019 : durcissement du lot 2, avec le socle", { timeout: 120
     const A = randomUUID();
     await creerOrg(A);
     const id = await creerInstance(A);
-    const inserer = (auteur: string) => ecrire(app, A, (c) => c.query("INSERT INTO executions (tenant_id, id, instance_id, auteur) VALUES ($1, gen_random_uuid(), $2, $3)", [A, id, auteur]), APPELANT);
+    // auteur doit valoir app.acteur pour console_app (politique du lot 2) et l'acteur est borné à 128 : la borne de 200 se prouve par l'écriture hors RLS.
+    const inserer = (auteur: string) => commeProprietaire(A, (c) => c.query("INSERT INTO executions (tenant_id, id, instance_id, auteur) VALUES ($1, gen_random_uuid(), $2, $3)", [A, id, auteur]));
     await expect(inserer("a".repeat(201))).rejects.toMatchObject({ code: "23514" });
     await inserer("a".repeat(200));
     await expect(ecrire(app, A, (c) => c.query("INSERT INTO alertes (tenant_id, id, organisation_id, type, gravite, regle, assignee_a) VALUES ($1, gen_random_uuid(), $1, 'essai', 'info', 'essai', $2)", [A, "b".repeat(201)]), APPELANT)).rejects.toMatchObject({ code: "23514", constraint: "alertes_assignee_borne" });

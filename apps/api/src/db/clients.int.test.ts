@@ -115,7 +115,7 @@ describe("tables de client, avec le socle", { timeout: 30_000 }, () => {
     const { rows } = await migration.query(`
       SELECT i.indisprimary, (SELECT string_agg(a.attname, ',' ORDER BY k.ord) FROM unnest(i.indkey::int2[]) WITH ORDINALITY k(n, ord) JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = k.n) AS cols
       FROM pg_index i WHERE i.indrelid = 'public.instances'::regclass AND i.indisunique`);
-    expect(rows.map((r) => `${r.indisprimary}:${r.cols}`)).toEqual(["true:tenant_id,id"]);
+    expect(rows.map((r) => `${r.indisprimary}:${r.cols}`)).toEqual(["true:tenant_id,id", "false:id"]); // + instances_id_unique (ADR 0111, migration 0019)
     const fk = await migration.query("SELECT pg_get_constraintdef(oid) AS d FROM pg_constraint WHERE conname = 'instances_organisation_fk'");
     expect(fk.rows[0]?.d).toContain("REFERENCES organisations(tenant_id, id)");
     const A = randomUUID();
@@ -187,8 +187,10 @@ describe("tables de client, avec le socle", { timeout: 30_000 }, () => {
     await ecrire(app, A, async (c) => {
       for (const t of ["organisations", "contacts", "instances"]) {
         expect((await c.query(`SELECT count(*)::int AS n FROM ${t} WHERE tenant_id = $1`, [B])).rows[0]?.n, t).toBe(0);
-        expect((await c.query(`UPDATE ${t} SET tenant_id = tenant_id WHERE tenant_id = $1`, [B])).rowCount, t).toBe(0);
-        expect((await c.query(`DELETE FROM ${t} WHERE tenant_id = $1`, [B])).rowCount, t).toBe(0);
+        // T2-52 : console_app n'écrit plus tenant_id d'instances et n'y supprime plus rien (droits par colonne, 0019) ; la RLS reste prouvée par UPDATE etat.
+        const maj = t === "instances" ? "UPDATE instances SET etat = etat WHERE tenant_id = $1" : `UPDATE ${t} SET tenant_id = tenant_id WHERE tenant_id = $1`;
+        expect((await c.query(maj, [B])).rowCount, t).toBe(0);
+        if (t !== "instances") expect((await c.query(`DELETE FROM ${t} WHERE tenant_id = $1`, [B])).rowCount, t).toBe(0);
       }
       expect((await c.query("UPDATE instances SET etat = 'pause' WHERE id = $1", [instanceB])).rowCount).toBe(0);
     }, APPELANT);
@@ -211,18 +213,17 @@ describe("tables de client, avec le socle", { timeout: 30_000 }, () => {
     }
   });
 
-  it("[A-178] une insertion, une modification et une suppression d'instance écrivent chacune une ligne au journal avec ancienne et nouvelle valeur, acteur et IP", async () => {
+  it("[A-178] une insertion et une modification d'instance écrivent chacune une ligne au journal avec ancienne et nouvelle valeur, acteur et IP", async () => {
     const A = randomUUID();
     await creerOrg(A);
     const id = (await creerInstance(A)).rows[0]?.id as string;
     await ecrire(app, A, (c) => c.query("UPDATE instances SET etat = 'pause' WHERE id = $1", [id]), APPELANT);
-    await ecrire(app, A, (c) => c.query("DELETE FROM instances WHERE id = $1", [id]), APPELANT);
+    // La suppression d'une instance est refusée à console_app depuis 0019 (testée dans durcissement.int.test.ts) : le journal ne reçoit plus que l'insertion et la modification.
     const { rows } = await migration.query("SELECT action, acteur, host(ip) AS ip, ancienne, nouvelle FROM public.journal_audit WHERE tenant_id = $1 AND entite = 'instances' AND entite_id = $2 ORDER BY id", [A, id]);
-    expect(rows.map((r) => r.action)).toEqual(["insertion", "modification", "suppression"]);
+    expect(rows.map((r) => r.action)).toEqual(["insertion", "modification"]);
     expect(rows.every((r) => r.acteur === "agent-essai" && r.ip === "192.0.2.17")).toBe(true);
     expect(rows[0]).toMatchObject({ ancienne: null, nouvelle: { etat: "active" } });
     expect(rows[1]).toMatchObject({ ancienne: { etat: "active" }, nouvelle: { etat: "pause" } });
-    expect(rows[2]).toMatchObject({ ancienne: { etat: "pause" }, nouvelle: null });
     expect(await lignesCassees()).toBe(0);
   });
 

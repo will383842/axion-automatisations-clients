@@ -5,6 +5,10 @@ import type { Palier } from "../config.ts";
 import { PlacesValkey } from "./semaphore.ts";
 import { PlafondModule } from "./plafond-module.ts";
 import { Repartiteur, SousFilesValkey } from "./tour-de-role.ts";
+import { journalEchecs } from "../../../api/src/provisionnement/journal-echecs.ts";
+
+// Les échecs sont écrits par writeSync(2, …) : le rapport JSON de la CI n'est pas publié (règle des routines).
+journalEchecs(import.meta.url);
 
 // Contre le Valkey du socle (job socle-integration), comme files.int.test.ts.
 const docker = (...args: string[]) => execFileSync("docker", args, { encoding: "utf8" }).trim();

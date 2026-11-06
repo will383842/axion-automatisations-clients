@@ -2,6 +2,10 @@ import { writeSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { Palier } from "../../apps/executeur/src/config.ts";
 import { Repartiteur, SousFilesMemoire } from "../../apps/executeur/src/files/tour-de-role.ts";
+import { journalEchecs } from "../../apps/api/src/provisionnement/journal-echecs.ts";
+
+// Les échecs sont écrits par writeSync(2, …) : le rapport JSON de la CI n'est pas publié (règle des routines).
+journalEchecs(import.meta.url);
 
 // Test de charge du voisin bruyant (A-414) : 300 clients fictifs, 20 instances chacun, un client « bruyant » met 10 000 travaux en file.
 // Mesure en TOURS de répartiteur (un travail sort à chaque tirage), donc indépendante de la machine. Le seuil est [À DÉFINIR] au lot 8a :

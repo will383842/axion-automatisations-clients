@@ -141,6 +141,13 @@
       "when": 1793995830433,
       "tag": "0023_supervision_communes",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1793999202199,
+      "tag": "0024_modele_ia_et_cle_client",
+      "breakpoints": true
     }
   ]
 }

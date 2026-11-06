@@ -33,6 +33,8 @@ export const organisations = tableClient(
   {
     contraintes: (t) => [
       check("organisations_id_tenant", sql`${t["id"]} = ${t["tenantId"]}`),
+      // T4-34a (migration 0024, ADR 0117), ajout seul : forme du modèle d'IA par défaut du client (posée NOT VALID puis validée en base : échec fermé).
+      check("organisations_modele_ia_defaut_forme", sql`${t["modeleIaDefaut"]} IS NULL OR (${t["modeleIaDefaut"]} ~ '^[a-z0-9][a-z0-9._:/-]{0,127}$' AND ${t["modeleIaDefaut"]} !~ '\\.\\.')`),
       check("organisations_console_client_id_derive", sql`${t["consoleClientId"]} = ${t["tenantId"]}`),
       unique("organisations_tenant_id_console_client_id_unique").on(t["tenantId"] as never, t["consoleClientId"] as never),
       // Pas d'unicité sur le SIREN : plusieurs établissements, doublon tranché par la file « à trancher » (C-456, T2-15).
@@ -90,6 +92,8 @@ export const instances = tableClient(
     celluleCode: text("cellule_code"),
     arretEnvois: boolean("arret_envois").notNull().default(false),
     versionEtatVoulu: integer("version_etat_voulu").notNull().default(0),
+    // T4-34a (migration 0024, ADR 0117), ajout seul : modèle d'IA de l'instance (surcharge du défaut du client), un code de la liste d'AXION IA, jamais une clé étrangère.
+    modeleIa: text("modele_ia"),
   },
   {
     contraintes: (t) => [
@@ -98,6 +102,7 @@ export const instances = tableClient(
       // La table cellules est commune (suivi.ts) : clé étrangère simple sur son code, sans tenant_id.
       foreignKey({ name: "instances_cellule_fk", columns: [t["celluleCode"] as never], foreignColumns: [cellules.code] }).onDelete("no action"),
       check("instances_cellule_code_forme_c4", sql`${t["celluleCode"]} IS NULL OR (${t["celluleCode"]} ~ '^[a-z0-9]+(-[a-z0-9]+)*$' AND char_length(${t["celluleCode"]}) <= 64)`),
+      check("instances_modele_ia_forme", sql`${t["modeleIa"]} IS NULL OR (${t["modeleIa"]} ~ '^[a-z0-9][a-z0-9._:/-]{0,127}$' AND ${t["modeleIa"]} !~ '\\.\\.')`),
       check("instances_version_etat_voulu_positive", sql`${t["versionEtatVoulu"]} >= 0`),
       index("instances_id_cellule_idx").on(t["id"] as never, t["celluleCode"] as never),
       uniqueIndex("instances_id_unique").on(t["id"] as never),

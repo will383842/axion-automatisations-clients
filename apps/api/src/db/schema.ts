@@ -10,6 +10,7 @@ export * from "./schema/contrats.ts";
 export * from "./schema/durcissement.ts";
 export * from "./schema/equipe.ts";
 export * from "./schema/exploitation.ts";
+export * from "./schema/ia.ts";
 export * from "./schema/recepteur-c3.ts";
 export * from "./schema/suivi.ts";
 export * from "./schema/supervision.ts";

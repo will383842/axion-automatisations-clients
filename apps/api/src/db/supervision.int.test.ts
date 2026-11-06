@@ -190,7 +190,7 @@ describe("migration 0022 : supervision par client, avec le socle", { timeout: 12
   });
 });
 
-// Migration 0023 (T5-01b) : tables communes de la supervision, incidents_instances et commentaires_alertes par client, mesures_capacite partitionnée, colonnes d'alertes.
+// Migration 0023 (T5-01b) : tables communes de la supervision, incidents_instances et commentaires_alertes par client, colonnes d'alertes (mesures_capacite non partitionnée : ESCALADE C5).
 const poserIncident = (cause = "panne_essai") =>
   commeEquipe("agent-essai", async (c) => (await c.query("INSERT INTO incidents (cause, gravite, debut, detecte_le) VALUES ($1, 'mineure', now() - interval '1 hour', now()) RETURNING id", [cause])).rows[0]?.["id"] as string);
 const lierIncident = (A: string, incident: string, instance: string) =>
@@ -285,47 +285,28 @@ describe("migration 0023 : supervision commune, avec le socle", { timeout: 120_0
     for (const [role, pool_] of [["console_app", app], ["console_lecture", lecture]] as const) {
       expect((await lireSous(pool_, A, "SELECT tenant_id FROM commentaires_alertes")).rows, role).toEqual([{ tenant_id: A }]);
     }
-    // Colonnes d'alertes : console_app change le regroupement et la cause, jamais le type ni l'organisation.
-    expect((await ecrire(app, A, (c) => c.query("UPDATE alertes SET cle_regroupement = 'groupe:essai', cause = 'cause_essai' WHERE id = $1", [alerteA]), APPELANT)).rowCount).toBe(1);
-    await expect(ecrire(app, A, (c) => c.query("UPDATE alertes SET cause = 'Texte Libre' WHERE id = $1", [alerteA]), APPELANT)).rejects.toMatchObject({ code: "23514" });
-    await expect(ecrire(app, A, (c) => c.query("UPDATE alertes SET type = 'autre' WHERE id = $1", [alerteA]), APPELANT)).rejects.toMatchObject({ code: "42501" });
-    expect((await ecrire(app, A, (c) => c.query("UPDATE alertes SET cause = 'x' WHERE id = $1", [alerteB]), APPELANT)).rowCount).toBe(0);
+    // Colonnes d'alertes : à la création (INSERT) ou avec une transition vers « acquittee » ou « close » (politique transitions_alerte de la 0010, ESCALADE : une mise à jour qui garde l'état « ouverte » est refusée).
+    await expect(ecrire(app, A, (c) => c.query("UPDATE alertes SET cle_regroupement = 'groupe:essai' WHERE id = $1", [alerteA]), APPELANT)).rejects.toMatchObject({ code: "42501" });
+    await expect(ecrire(app, A, (c) => c.query("UPDATE alertes SET cause = 'Texte Libre', etat = 'acquittee' WHERE id = $1", [alerteA]), APPELANT)).rejects.toMatchObject({ code: "23514" });
+    await expect(ecrire(app, A, (c) => c.query("UPDATE alertes SET type = 'autre', etat = 'acquittee' WHERE id = $1", [alerteA]), APPELANT)).rejects.toMatchObject({ code: "42501" });
+    expect((await ecrire(app, A, (c) => c.query("UPDATE alertes SET cause = 'x', etat = 'acquittee' WHERE id = $1", [alerteB]), APPELANT)).rowCount).toBe(0);
+    expect((await ecrire(app, A, (c) => c.query("UPDATE alertes SET cle_regroupement = 'groupe:essai', cause = 'cause_essai', etat = 'acquittee' WHERE id = $1", [alerteA]), APPELANT)).rowCount).toBe(1);
   });
 
-  it("[LOT5-tables] une partition future de mesures_capacite a RLS et FORCE", async () => {
-    const c = await migration.connect();
-    try {
-      await c.query("BEGIN");
-      const liste = async () => (await c.query("SELECT c.relname FROM pg_inherits i JOIN pg_class c ON c.oid = i.inhrelid WHERE i.inhparent = 'public.mesures_capacite'::regclass")).rows.map((r) => r.relname as string);
-      const avant = new Set(await liste());
-      let cree = false;
-      for (let essai = 0; essai < 20 && !cree; essai++) {
-        const lointain = 15 + Math.floor(Math.random() * 300);
-        cree = (await c.query("SELECT partman.create_partition_time('public.mesures_capacite', ARRAY[date_trunc('month', now()) + make_interval(months => $1)]) AS cree", [lointain])).rows[0]?.cree === true;
-      }
-      expect(cree).toBe(true);
-      const nom = (await liste()).find((n) => !avant.has(n)) as string;
-      const etat = async () => (await c.query("SELECT relrowsecurity AS rls, relforcerowsecurity AS force, (SELECT count(*)::int FROM pg_policy WHERE polrelid = c.oid) AS politiques, has_table_privilege('console_lecture', c.oid, 'SELECT') AS lecture_lit, has_table_privilege('console_app', c.oid, 'SELECT') AS app_lit, has_table_privilege('console_equipe', c.oid, 'SELECT') AS equipe_lit FROM pg_class c WHERE c.relname = $1", [nom])).rows[0];
-      expect(await etat()).toMatchObject({ rls: false, lecture_lit: false, app_lit: false, equipe_lit: false });
-      await c.query("SELECT public.mesures_capacite_proteger_partitions()");
-      expect(await etat()).toMatchObject({ rls: true, force: true, politiques: 1, lecture_lit: false, app_lit: false, equipe_lit: false });
-      await c.query("COMMIT");
-    } catch (e) {
-      await c.query("ROLLBACK").catch(() => undefined);
-      throw e;
-    } finally {
-      c.release();
-    }
-    const { rows } = await migration.query("SELECT count(*)::int AS n FROM pg_inherits i JOIN pg_class c ON c.oid = i.inhrelid WHERE i.inhparent = 'public.mesures_capacite'::regclass AND NOT (c.relrowsecurity AND c.relforcerowsecurity)");
-    expect(rows[0]?.n).toBe(0);
-    for (const role of ["console_app", "console_equipe", "console_lecture"]) {
-      expect((await migration.query("SELECT has_function_privilege($1, 'public.mesures_capacite_proteger_partitions()', 'EXECUTE') AS ok", [role])).rows[0]?.ok, role).toBe(false);
-    }
-    // Écriture par l'équipe dans la table parente : refusée sans acteur, acceptée avec ; console_app n'écrit pas.
-    const releve = "INSERT INTO mesures_capacite (id, debut, cible_type, cible_code, cpu_bps, memoire_octets, disque_octets) VALUES ($1, now(), 'serveur', 'serveur_essai', 1200, 1000, 1000)";
-    await expect(commeEquipe(null, (c2) => c2.query(releve, [randomUUID()]))).rejects.toMatchObject({ code: "42501" });
-    await commeEquipe("agent-essai", (c2) => c2.query(releve, [randomUUID()]));
-    await expect(lireSous(app, randomUUID(), releve.replace("$1", `'${randomUUID()}'`))).rejects.toMatchObject({ code: "42501" });
+  it("[LOT5-tables] mesures_capacite : table commune non partitionnée, lue par console_app, écrite par l'équipe seule avec un acteur", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    expect((await migration.query("SELECT relkind FROM pg_class WHERE oid = 'public.mesures_capacite'::regclass")).rows[0]?.relkind).toBe("r");
+    expect((await migration.query("SELECT count(*)::int AS n FROM pg_inherits WHERE inhparent = 'public.mesures_capacite'::regclass")).rows[0]?.n).toBe(0);
+    const releve = "INSERT INTO mesures_capacite (debut, cible_type, cible_code, cpu_bps, memoire_octets, disque_octets) VALUES (now(), 'serveur', $1, $2, 1000, 1000)";
+    const cible = `serveur_${randomUUID().slice(0, 8)}`;
+    await expect(commeEquipe(null, (c) => c.query(releve, [cible, 1200]))).rejects.toMatchObject({ code: "42501" });
+    await expect(commeEquipe("agent-essai", (c) => c.query(releve, [cible, 10001]))).rejects.toMatchObject({ code: "23514" });
+    await commeEquipe("agent-essai", (c) => c.query(releve, [cible, 1200]));
+    expect((await lireSous(app, A, `SELECT cpu_bps FROM mesures_capacite WHERE cible_code = '${cible}'`)).rows).toEqual([{ cpu_bps: 1200 }]);
+    await expect(lireSous(app, A, `INSERT INTO mesures_capacite (debut, cible_type, cible_code, cpu_bps, memoire_octets, disque_octets) VALUES (now(), 'serveur', 'serveur_x', 1, 1, 1)`)).rejects.toMatchObject({ code: "42501" });
+    await expect(lireSous(lecture, A, "SELECT 1 FROM mesures_capacite")).rejects.toMatchObject({ code: "42501" });
+    await expect(commeEquipe("agent-essai", (c) => c.query("UPDATE mesures_capacite SET cpu_bps = 1"))).rejects.toMatchObject({ code: "42501" });
   });
 
   it("[LOT5-tables] invariants C5 sans écart après la migration 0023, alertes et agregats_quotidiens compris", async () => {

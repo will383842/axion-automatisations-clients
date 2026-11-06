@@ -69,6 +69,9 @@ export const TEXTE_PERMIS: Readonly<Record<string, number>> = Object.freeze({
   "incidents_violations.reference": 64,
   "incidents_violations.reference_dossier": 129,
   "aipd.reference_document": 256,
+  // T5-01b (migration 0023) : colonnes d'alertes, bornées par un motif (clé de regroupement 128, cause 64).
+  "alertes.cle_regroupement": 128,
+  "alertes.cause": 64,
 });
 // Dettes écrites (ADR 0055) : soldée par la migration 0019 (T2-52), qui borne executions.auteur, executions.termine_par et alertes.assignee_a. Liste fermée et vide : elle ne grandit pas.
 export const TEXTE_SANS_LIMITE_DETTE: readonly string[] = Object.freeze([]);
@@ -127,8 +130,8 @@ describe("garde des colonnes : aucun texte libre (C-034)", () => {
     expect(textesSansLimite([neuve])).toEqual(["demandes.note : hors de la liste fermée"]);
   });
 
-  it("[C-034] la liste des textes permis est fermée : dix-sept colonnes bornées et aucune dette, sur demandes, executions, alertes, aujourdhui_ignores et les trois tables de conformité", () => {
-    expect(Object.keys(TEXTE_PERMIS)).toHaveLength(17);
+  it("[C-034] la liste des textes permis est fermée : dix-neuf colonnes bornées et aucune dette, sur demandes, executions, alertes, aujourdhui_ignores et les trois tables de conformité", () => {
+    expect(Object.keys(TEXTE_PERMIS)).toHaveLength(19);
     expect(TEXTE_SANS_LIMITE_DETTE).toHaveLength(0);
     expect(Object.keys(TEXTE_PERMIS).every((k) => ["demandes", "executions", "alertes", "aujourdhui_ignores", "demandes_droits", "incidents_violations", "aipd"].includes(k.split(".")[0] ?? ""))).toBe(true);
     expect(Object.values(TEXTE_PERMIS).every((n) => n > 0 && n <= 256)).toBe(true);
@@ -283,7 +286,7 @@ describe("tables du lot 5 : supervision par client (T5-01a)", () => {
   });
 });
 
-// Migration 0023 (T5-01b, ADR 0116) : tables communes de la supervision, deux tables par client, mesures_capacite partitionnée, quatre colonnes d'alertes.
+// Migration 0023 (T5-01b, ADR 0116) : tables communes de la supervision, deux tables par client, mesures_capacite (non partitionnée, ESCALADE C5), quatre colonnes d'alertes.
 const COMMUNES_5B = ["incidents", "regles_alertes", "disjoncteurs", "reveils", "mesures_capacite", "modeles_messages", "bilans_incident", "fenetres_maintenance", "avis_depreciation"];
 const CLIENT_5B = ["incidents_instances", "commentaires_alertes"];
 // Liste fermée propre à la 0023 (TEXTE_PERMIS reçoit seulement les deux colonnes d'alertes) : chaque ajout se relit en 2 tours (zone sécurité).
@@ -371,7 +374,7 @@ describe("tables du lot 5 : supervision commune (T5-01b)", () => {
     expect(texte0023()).toMatch(/ADD CONSTRAINT "liens_retour_attributs_codes" CHECK[^;]*NOT VALID/);
   });
 
-  it("[LOT5-tables] garde-migrations : migration 0023 additive seulement, avec l'unique fonction de protection des partitions de mesures_capacite", () => {
+  it("[LOT5-tables] garde-migrations : migration 0023 additive seulement, sans fonction ni partition (mesures_capacite reste non partitionnée, ESCALADE C5)", () => {
     const nom = nomMigration();
     expect(nom).toBe("0023_supervision_communes.sql");
     const texte = texte0023();
@@ -380,9 +383,10 @@ describe("tables du lot 5 : supervision commune (T5-01b)", () => {
     expect(code).not.toMatch(/\b(DROP|TRUNCATE|RENAME)\b|\bDELETE\s+FROM\b/i);
     expect(code).not.toMatch(/ALTER\s+(TABLE\s+\S+\s+ALTER\s+COLUMN|COLUMN)[^;]*\bTYPE\b/i);
     expect(code).not.toMatch(/GRANT[^;]*\bDELETE\b|GRANT[^;]*\bTRUNCATE\b/i);
-    expect([...code.matchAll(/CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+(\S+)/gi)].map((m) => m[1])).toEqual(["public.mesures_capacite_proteger_partitions()"]);
+    expect([...code.matchAll(/CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+(\S+)/gi)].map((m) => m[1])).toEqual([]);
+    expect(code).not.toMatch(/PARTITION\s+BY|partman\./i);
     expect(code).not.toMatch(/SECURITY\s+DEFINER/i);
-    expect(code).not.toMatch(/^\s*(DO|SET)\b|\bCONCURRENTLY\b/im);
+    expect(code).not.toMatch(/^\s*DO\b|\bCONCURRENTLY\b/im);
   });
 
   it("[LOT5-tables] chaque table de la 0023 a RLS activée et forcée, PUBLIC sans droit ; disjoncteurs et reveils sans aucun droit pour console_app", () => {
@@ -405,8 +409,6 @@ describe("tables du lot 5 : supervision commune (T5-01b)", () => {
     expect(texte).not.toMatch(/GRANT[^;]*(INSERT|UPDATE)[^;]*TO console_lecture/);
     expect([...texte.matchAll(/GRANT SELECT ON TABLE "public"\."(\w+)" TO console_lecture/g)].map((m) => m[1]).sort()).toEqual(["commentaires_alertes", "incidents_instances"]);
     for (const nom of CLIENT_5B) expect(texte, nom).toContain(`CREATE POLICY isolation_lecture ON "public"."${nom}" FOR SELECT TO console_lecture`);
-    expect(texte).toMatch(/partman\.create_parent\(\s*p_parent_table => 'public\.mesures_capacite',\s*p_control => 'debut',\s*p_interval => '1 month',\s*p_premake => 4/);
-    expect(texte).toContain('PARTITION BY RANGE ("debut")');
   });
 
   it("[LOT5-tables] alertes reçoit quatre colonnes en ajout seul, sans toucher aux contraintes existantes", () => {
@@ -434,8 +436,9 @@ describe("tables du lot 5 : supervision commune (T5-01b)", () => {
     const adr = readFileSync(new URL("../../../../docs/adr/0116-tables-de-la-supervision.md", import.meta.url), "utf8");
     expect(adr).toContain("0023_supervision_communes.sql");
     expect(adr).toMatch(/Retour arrière de la 0023/);
-    expect(adr).toMatch(/mesures_capacite_proteger_partitions/);
+    expect(adr).toMatch(/mesures_bases_proteger_partitions/);
     expect(adr).toMatch(/partman\.run_maintenance/);
+    expect(adr).toMatch(/ESCALADE[^\n]*mesures_capacite|mesures_capacite[^\n]*ESCALADE/);
     expect(adr).toMatch(/BYPASSRLS|créer le rôle/i);
   });
 

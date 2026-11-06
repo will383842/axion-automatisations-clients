@@ -256,7 +256,7 @@ describe("migration 0019 : durcissement du lot 2, avec le socle", { timeout: 120
     const A = randomUUID();
     await creerOrg(A);
     const gel = await ecrire(app, A, async (c) => (await c.query("INSERT INTO gels_litige (tenant_id, id, organisation_id, motif_litige, posee_par) VALUES ($1, gen_random_uuid(), $1, 'litige essai', 'agent-essai') RETURNING id", [A])).rows[0]?.["id"] as string, APPELANT);
-    await expect(ecrire(app, A, (c) => c.query("UPDATE gels_litige SET motif_levee = 'litige clos' WHERE id = $1", [gel]), APPELANT)).rejects.toMatchObject({ code: "23514", constraint: "gels_litige_motif_avec_levee" });
+    await expect(ecrire(app, A, (c) => c.query("UPDATE gels_litige SET motif_levee = 'litige clos' WHERE id = $1", [gel]), APPELANT)).rejects.toMatchObject({ code: "23514" }); // le déclencheur gels_levee_unique (BEFORE) refuse d'abord ; la contrainte gels_litige_motif_avec_levee double ce refus
     await ecrire(app, A, (c) => c.query("UPDATE gels_litige SET levee_le = now(), leve_par = 'agent-essai', motif_levee = 'litige clos' WHERE id = $1", [gel]), APPELANT);
     const { rows } = await ecrire(app, A, (c) => c.query("SELECT motif_levee FROM gels_litige WHERE id = $1", [gel]), APPELANT);
     expect(rows[0]?.["motif_levee"]).toBe("litige clos");

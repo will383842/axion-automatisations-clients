@@ -66,9 +66,23 @@ export async function servirImap(client: Duplex, p: PortsMandataire): Promise<vo
     try {
       const accueil = await s.ligne(10_000);
       if (accueil === null || !accueil.startsWith("* OK")) throw new ErreurMandataire("indisponible");
-      serveur.write("m1 AUTHENTICATE PLAIN\r\n");
-      for (let ligne = await s.ligne(10_000); !ligne?.startsWith("+"); ligne = await s.ligne(10_000)) if (ligne === null || ligne.startsWith("m1 ")) throw new ErreurMandataire("identification");
-      serveur.write(`${reponsePlain(connexion.identifiant, motDePasse)}\r\n`);
+      // Capacités lues APRÈS l'établissement du TLS sortant (elles diffèrent parfois d'avant le TLS).
+      serveur.write("m0 CAPABILITY\r\n");
+      let capacites = "";
+      for (let ligne = await s.ligne(10_000); !ligne?.startsWith("m0 "); ligne = await s.ligne(10_000)) {
+        if (ligne === null) throw new ErreurMandataire("indisponible");
+        if (/^\* CAPABILITY /i.test(ligne)) capacites = ligne.toUpperCase();
+      }
+      if (capacites.includes("AUTH=PLAIN")) {
+        serveur.write("m1 AUTHENTICATE PLAIN\r\n");
+        for (let ligne = await s.ligne(10_000); !ligne?.startsWith("+"); ligne = await s.ligne(10_000)) if (ligne === null || ligne.startsWith("m1 ")) throw new ErreurMandataire("identification");
+        serveur.write(`${reponsePlain(connexion.identifiant, motDePasse)}\r\n`);
+      } else if (!capacites.includes("LOGINDISABLED")) {
+        // Repli LOGIN : chaînes entre guillemets, ASCII imprimable sans guillemet ni antislash, sinon refus (aucune injection possible).
+        const sur = (v: string) => /^[\x20-\x7e]+$/.test(v) && !/["\\]/.test(v);
+        if (!sur(connexion.identifiant) || !sur(motDePasse)) throw new ErreurMandataire("indisponible");
+        serveur.write(`m1 LOGIN "${connexion.identifiant}" "${motDePasse}"\r\n`);
+      } else throw new ErreurMandataire("identification");
       let fin = await s.ligne(10_000);
       while (fin !== null && !fin.startsWith("m1 ")) fin = await s.ligne(10_000);
       if (fin === null || !/^m1 OK\b/i.test(fin)) throw new ErreurMandataire("identification");

@@ -22,7 +22,7 @@ const fermer: (() => void)[] = [];
 afterEach(() => void fermer.splice(0).forEach((f) => f()));
 
 // Faux serveur « réel » (IMAP ou SMTP) en clair : l'essai ne prouve pas le TLS, il est prouvé à part sur les options.
-async function fauxServeur(protocole: "imap" | "smtp", mdp: string, identifiant: string) {
+async function fauxServeur(protocole: "imap" | "smtp", mdp: string, identifiant: string, sansPlain = false) {
   const recu: string[] = [];
   const octets: Buffer[] = [];
   const srv = createServer((s) => {
@@ -62,7 +62,8 @@ async function fauxServeur(protocole: "imap" | "smtp", mdp: string, identifiant:
             s.write(`* BYE\r\n${tag} OK\r\n`);
             s.end();
           }
-          else if (m[2] === "LOGIN") s.write(`${tag} OK login accepte\r\n`);
+          else if (m[2] === "CAPABILITY") s.write(`* CAPABILITY IMAP4rev1${sansPlain ? "" : " AUTH=PLAIN"}\r\n${tag} OK fait\r\n`);
+          else if (m[2] === "LOGIN") s.write(`${tag} ${l === `${tag} LOGIN "${identifiant}" "${mdp}"` ? "OK login accepte" : "NO refuse"}\r\n`);
           else s.write(`${tag} BAD commande inconnue, la session de ${identifiant} avec ${mdp} est refusee\r\n`);
         } else if (l.startsWith("EHLO")) s.write("250-reel\r\n250 AUTH PLAIN\r\n");
         else if (l.startsWith("AUTH PLAIN")) {
@@ -161,6 +162,16 @@ describe("mandataire IMAP/SMTP du courtier", () => {
     expect(tout).not.toContain(Buffer.from(MDP_A).toString("base64"));
     expect(tout).not.toContain(Buffer.from(`\0essai-a@exemple.fr\0${MDP_A}`).toString("base64"));
     expect(m.journal.join("\n")).not.toContain(MDP_A);
+  });
+
+  it("[A-335] serveur sans AUTH=PLAIN (capacités relues après le TLS) : repli LOGIN composé par le mandataire", async () => {
+    const reel = await fauxServeur("imap", MDP_A, "essai-a@exemple.fr", true);
+    const m = monter("imap", { "serveur-a.exemple.test": reel.port });
+    const c = await client(await m.ecouter());
+    c.envoyer(`a1 AUTHENTICATE PLAIN ${Buffer.from(`\0${INST_A}\0${m.jeton(INST_A, CONN_A, CLIENT_A)}`).toString("base64")}\r\n`);
+    await c.attendre(/a1 OK/);
+    expect(reel.recu.some((l) => l.includes("CAPABILITY"))).toBe(true);
+    expect(c.tout()).not.toContain(MDP_A);
   });
 
   it("[A-335] le mot de passe coupé entre deux paquets est masqué aussi", () => {

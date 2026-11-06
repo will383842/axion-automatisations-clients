@@ -19,3 +19,15 @@ describe("liste blanche : colonnes chiffrées", () => {
     expect(() => verifierListeBlanche(LISTE_BLANCHE)).not.toThrow();
   });
 });
+
+describe("accord des numéros $n et des valeurs, à la déclaration", () => {
+  it("[B-173] verifierListeBlanche refuse à la déclaration une requête dont les $n ne correspondent pas aux valeurs", () => {
+    expect(numerosCoherents({ texte: "SELECT 1 WHERE a = $1 AND b = $2", valeurs: [1, 2] })).toBe(true);
+    expect(numerosCoherents({ texte: "SELECT 1", valeurs: [] })).toBe(true);
+    expect(numerosCoherents({ texte: "SELECT 1 WHERE a = $1 AND b = $3", valeurs: [1, 2] })).toBe(false);
+    expect(numerosCoherents({ texte: "SELECT 1 WHERE a = $1", valeurs: [1, 2] })).toBe(false);
+    expect(numerosCoherents({ texte: "SELECT 1 WHERE a = $2", valeurs: [1] })).toBe(false);
+    expect(numerosCoherents({ texte: "SELECT 1 WHERE a = $0", valeurs: [1] })).toBe(false);
+    expect(() => verifierListeBlanche({})).not.toThrow();
+  });
+});

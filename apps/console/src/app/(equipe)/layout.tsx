@@ -1,7 +1,8 @@
 import { redirect } from "next/navigation.js";
 import { headers } from "next/headers.js";
 import type { ReactNode } from "react";
-import { BarreOnglets, EnTeteTelephone, LienEvitement, MenuLateral } from "@axion-auto/design/src/index.ts";
+import { LienEvitement } from "@axion-auto/design/src/composants/base.tsx";
+import { BarreOnglets, EnTeteTelephone, MenuLateral } from "@axion-auto/design/src/composants/navigation.tsx";
 import { valeur } from "@axion-auto/design/src/jetons.ts";
 import { adresseBackOffice } from "../../lib/configuration.ts";
 import { COMPTE, ONGLETS, actifDe, entreesPour, niveauDe } from "../../lib/navigation.ts";

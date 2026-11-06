@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server.js";
 
 // Barrière de confort seulement : elle voit si un cookie de session existe, pas s'il est valide (le magasin vit dans le processus Node,
 // pas dans le middleware). La vraie vérification est refaite dans la disposition de l'équipe et dans chaque gestionnaire de route.
-const PUBLIC = /^\/(?:connexion|entree|api\/auth|api\/sante)(?:\/|$)/;
+const PUBLIC = /^\/(?:connexion|entree|api\/auth|api\/sante|api\/console\/v1\/entree)(?:\/|$)/;
 const COOKIE = "__Host-session=";
 
 export function middleware(requete: NextRequest): NextResponse {

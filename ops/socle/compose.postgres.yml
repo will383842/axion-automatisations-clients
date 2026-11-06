@@ -29,7 +29,7 @@ services:
     # Variables courtes : « docker compose config » replie les lignes de plus de 80 colonnes, ce que la garde ne lit pas.
     # R : rôles admis · L : format d'une ligne de la liste (\042 = guillemet) · M : secret de test · K : mot de passe d'un rôle · G : génération de la liste · B : configuration sans extension
     environment:
-      R: console_app console_equipe moteur_app moteur_equipe
+      R: console_app console_equipe console_lecture moteur_app moteur_equipe
       L: '\042%s\042 \042%s\042\n'
       M: ${SOCLE_PG_MOT_DE_PASSE:?mot de passe de test absent}
       K: printf %s/%s $$M $$u|sha256sum|cut -c1-64

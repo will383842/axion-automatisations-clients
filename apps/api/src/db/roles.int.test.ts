@@ -246,6 +246,30 @@ describe("rôles", () => {
   });
 });
 
+describe("rôle de lecture (A-188)", () => {
+  it("[A-188] console_lecture se connecte, n'a ni BYPASSRLS ni SUPERUSER, et n'hérite d'aucun rôle", async () => {
+    const equipe = await client("direct", "console_equipe", "console");
+    const [a] = await lignes(equipe, "SELECT rolcanlogin, rolsuper, rolbypassrls, rolinherit, rolcreaterole, rolcreatedb, rolreplication FROM pg_roles WHERE rolname = 'console_lecture'");
+    expect(a).toEqual({ rolcanlogin: true, rolsuper: false, rolbypassrls: false, rolinherit: false, rolcreaterole: false, rolcreatedb: false, rolreplication: false });
+    const [membre] = await lignes(equipe, "SELECT count(*)::int AS n FROM pg_auth_members m JOIN pg_roles r ON r.oid = m.member WHERE r.rolname = 'console_lecture'");
+    expect(membre?.["n"]).toBe(0);
+    // Connexion directe et par PgBouncer sur la base console ; aucune autre base.
+    for (const voie of ["direct", "pgbouncer"] as const) {
+      const lecture = await client(voie, "console_lecture", "console");
+      expect((await lignes(lecture, "SELECT current_user AS u"))[0]?.["u"]).toBe("console_lecture");
+      for (const autre of ["moteur", "keycloak", "passerelle_ia", "postgres", "template1"]) {
+        expect(await connexionRefusee(voie, "console_lecture", autre), `${voie} → ${autre}`).toBe(true);
+      }
+    }
+    // Le rôle a son propre mot de passe : celui de console_app ne l'ouvre pas.
+    expect(await connexionRefusee("direct", "console_lecture", "console", "console_app")).toBe(true);
+    const lecture = await client("direct", "console_lecture", "console");
+    const droits = await lignes(lecture, "SELECT has_schema_privilege('console_lecture', 'public', 'USAGE') AS u, has_schema_privilege('console_lecture', 'public', 'CREATE') AS c, has_database_privilege('console_lecture', 'console', 'CREATE') AS d, has_database_privilege('console_lecture', 'console', 'TEMPORARY') AS t, has_database_privilege('console_lecture', 'moteur', 'CONNECT') AS m");
+    expect(droits[0]).toEqual({ u: true, c: false, d: false, t: false, m: false });
+    expect(await codeRefus(lecture, "SET ROLE console_equipe")).toBe("42501");
+  });
+});
+
 describe("secrets et propriétaire (audit B2, B3)", () => {
   it("[A-165] le mot de passe de console_app n'ouvre ni le superutilisateur ni la migration, en direct ; chaque rôle a son mot de passe", async () => {
     for (const b of BASES) {

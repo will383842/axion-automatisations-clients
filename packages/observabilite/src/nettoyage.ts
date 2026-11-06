@@ -16,7 +16,7 @@ export function masquer(texte: string): string {
   return MOTIFS.reduce((t, motif) => t.replace(motif, MASQUE), texte);
 }
 
-// Route sans paramètres : ni requête, ni identifiant (UUID, nombre, suite hexadécimale longue).
+// Route sans paramètres : ni requête, ni identifiant, ni jeton, ni adresse e-mail (chaque segment passe par masquer()).
 export function routeSansParametres(url: unknown): string | undefined {
   if (typeof url !== "string" || url === "") return undefined;
   let chemin = url;
@@ -25,10 +25,14 @@ export function routeSansParametres(url: unknown): string | undefined {
   } catch {
     chemin = url.split(/[?#]/)[0] ?? "";
   }
-  return chemin
-    .split("/")
-    .map((s) => (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s) || /^\d+$/.test(s) || /^[0-9a-f]{16,}$/i.test(s) ? ":id" : s))
-    .join("/");
+  return chemin.split("/").map(segmentSansParametre).join("/");
+}
+
+// Un segment est gardé s'il est lisible (sans chiffre, 24 caractères au plus) et sans secret ; la version d'API (v1, v2…) est gardée.
+function segmentSansParametre(segment: string): string {
+  if (/^v\d{1,2}$/.test(segment)) return segment;
+  if (/\d/.test(segment) || segment.length > 24) return ":id";
+  return masquer(segment) === segment ? segment : ":id";
 }
 
 export type Application = "api" | "executeur" | "console";

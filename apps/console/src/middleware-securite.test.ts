@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createElement } from "react";
@@ -103,7 +103,9 @@ describe("sécurité des écrans de la console", () => {
     const html = (d: string): string[] =>
       readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? html(`${d}/${e.name}`) : e.name.endsWith(".html") ? [`${d}/${e.name}`] : []));
     // Une page prérendue au build est figée : aucun nonce ne peut y être posé par réponse. Toute page servie doit donc être dynamique.
-    const figees = html(`${racine}.next/server/app`);
+    // Seule exception : _global-error.html, coque de repli de Next quand la page racine elle-même plante. Elle n'est pas une route, ne répond à aucune adresse, et aucun script utile n'y dépend de la page.
+    const figees = html(`${racine}.next/server/app`).filter((f) => !f.endsWith("/_global-error.html"));
+    rmSync(`${racine}.next`, { recursive: true, force: true }); // la sortie du build ne reste pas (le lint la parcourrait)
     for (const f of figees) {
       for (const balise of readFileSync(f, "utf8").match(/<script\b[^>]*>/g) ?? []) expect(balise, f).toMatch(/\snonce="[^"]+"/);
     }

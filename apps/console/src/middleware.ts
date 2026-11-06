@@ -10,6 +10,17 @@ const SANS_ORIGINE = /^\/(?:entree|api\/console\/v1\/entree)(?:\/|$)/;
 const SURES = new Set(["GET", "HEAD", "OPTIONS"]);
 const COOKIE = "__Host-session=";
 
+// Origine publique de la console (CONSOLE_ORIGINE, même variable que lib/configuration.ts), jamais l'adresse interne de Next (nextUrl.origin).
+// Absente ou invalide (pas du HTTPS sans chemin ni paramètre) : null, donc refus de tout geste.
+function originePublique(): string | null {
+  try {
+    const u = new URL(process.env["CONSOLE_ORIGINE"] ?? "");
+    return u.protocol === "https:" && u.pathname === "/" && !u.search && !u.hash ? u.origin : null;
+  } catch {
+    return null;
+  }
+}
+
 export function middleware(requete: NextRequest): NextResponse {
   const { pathname, search } = requete.nextUrl;
   // Un nonce neuf par réponse (C-681) ; la CSP part aussi vers la page, qui en tire le nonce de ses scripts. Toute réponse, refus et redirections compris, porte les en-têtes.
@@ -20,7 +31,8 @@ export function middleware(requete: NextRequest): NextResponse {
     return r;
   };
   // Geste qui change quelque chose : l'origine doit être celle de la console, avant toute page. Le jeton CSRF lié à la session est vérifié par les gestionnaires (csrf.ts).
-  if (!SURES.has(requete.method) && !SANS_ORIGINE.test(pathname) && requete.headers.get("origin") !== requete.nextUrl.origin) {
+  const attendue = originePublique();
+  if (!SURES.has(requete.method) && !SANS_ORIGINE.test(pathname) && (attendue === null || requete.headers.get("origin") !== attendue)) {
     return finir(NextResponse.json({ erreur: { code: "action_interdite", message: "Action non permise.", id_trace: crypto.randomUUID() } }, { status: 403 }));
   }
   const entetes = new Headers(requete.headers);

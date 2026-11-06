@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { connect as tlsConnect } from "node:tls";
@@ -30,6 +30,7 @@ const INSTANCE = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const CLIENT = "11111111-1111-4111-8111-111111111111";
 const CONNEXION = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const EXECUTION = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+const traces: string[] = [];
 const fermer: (() => void)[] = [];
 afterAll(() => void fermer.forEach((f) => f()));
 
@@ -41,7 +42,12 @@ function ports(hote: string, port: number, verifie: boolean): { p: PortsMandatai
     connexion: async (i, c) => (i === INSTANCE && c === CONNEXION ? { tenantId: CLIENT, instanceId: INSTANCE, connexionId: CONNEXION, hote, port, identifiant: COMPTE, referenceCoffre: `bao:clients/${CLIENT}/messagerie` } : undefined),
     // GreenMail : mot de passe = adresse du compte.
     lireMotDePasse: async () => COMPTE,
-    ouvrir: (cible) => (verifie ? ouvrirTlsVerifie(cible) : ouvrirTlsVerifie(cible, ((o: Record<string, unknown>) => tlsConnect({ ...o, rejectUnauthorized: false })) as never)),
+    ouvrir: async (cible) => {
+      const s = await (verifie ? ouvrirTlsVerifie(cible) : ouvrirTlsVerifie(cible, ((o: Record<string, unknown>) => tlsConnect({ ...o, rejectUnauthorized: false })) as never));
+      // Diagnostic de CI : ce que dit le serveur de test (GreenMail, mot de passe fictif), première ligne de chaque paquet.
+      s.on("data", (b: Buffer) => traces.push(`${cible.port} <- ${b.toString("latin1").split("\r\n")[0]!.slice(0, 160)}`));
+      return s;
+    },
     journaliser: (l) => void journal.push(l),
     maintenant: Date.now,
   };
@@ -69,19 +75,24 @@ describe("mandataire contre GreenMail", () => {
     const portImap = (srvImap.address() as { port: number }).port;
     const portSmtp = (srvSmtp.address() as { port: number }).port;
 
-    const config = verifierConfiguration({ hoteImap: "mandataire.test", hoteSmtp: "mandataire.test", utilisateur: INSTANCE, expediteur: COMPTE });
-    const jetonImap = creerJeton(imap.jeton, Date.now() + 60_000);
-    const jetonSmtp = creerJeton(smtp.jeton, Date.now() + 60_000);
-    const connecteur = await ouvrirConnecteur(config, jetonImap, {
-      tls: { rejectUnauthorized: false },
-      ouvrirImap: (o) => ouvrirSessionImap({ ...o, host: "127.0.0.1", port: portImap }),
-      envoyerSmtp: (o, m, e) => envoyerSmtp({ ...o, host: "127.0.0.1", port: portSmtp }, m, e),
-    });
-    await connecteur.envoyer(jetonSmtp, { messageId: "<essai-mandataire.int@exemple.fr>", destinataire: COMPTE, objet: "Bonjour par le mandataire", corps: "Texte d'essai" });
-    const page = await connecteur.listerNouveaux(jetonImap, null);
-    const lus = await Promise.all(page.ids.map((id) => connecteur.lire(jetonImap, id, ["objet", "corps"])));
-    expect(lus.map((m) => m.objet)).toContain("Bonjour par le mandataire");
-    expect(imap.journal.join("\n")).not.toContain(COMPTE);
+    try {
+      const config = verifierConfiguration({ hoteImap: "mandataire.test", hoteSmtp: "mandataire.test", utilisateur: INSTANCE, expediteur: COMPTE });
+      const jetonImap = creerJeton(imap.jeton, Date.now() + 60_000);
+      const jetonSmtp = creerJeton(smtp.jeton, Date.now() + 60_000);
+      const connecteur = await ouvrirConnecteur(config, jetonImap, {
+        tls: { rejectUnauthorized: false },
+        ouvrirImap: (o) => ouvrirSessionImap({ ...o, host: "127.0.0.1", port: portImap }),
+        envoyerSmtp: (o, m, e) => envoyerSmtp({ ...o, host: "127.0.0.1", port: portSmtp }, m, e),
+      });
+      await connecteur.envoyer(jetonSmtp, { messageId: "<essai-mandataire.int@exemple.fr>", destinataire: COMPTE, objet: "Bonjour par le mandataire", corps: "Texte d'essai" });
+      const page = await connecteur.listerNouveaux(jetonImap, null);
+      const lus = await Promise.all(page.ids.map((id) => connecteur.lire(jetonImap, id, ["objet", "corps"])));
+      expect(lus.map((m) => m.objet)).toContain("Bonjour par le mandataire");
+      expect(imap.journal.join("\n")).not.toContain(COMPTE);
+    } catch (e) {
+      writeSync(2, `DIAG mandataire ${[...traces, ...imap.journal, ...smtp.journal].join(" | ")}\n`);
+      throw e;
+    }
   }, 90_000);
 
   it("[A-389] certificat du serveur du client invalide : connexion refusée, classe identification", async () => {

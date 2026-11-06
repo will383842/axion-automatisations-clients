@@ -43,6 +43,7 @@ export function journalAnnoncesEnMemoire(): JournalAnnonces {
   return {
     annonce: (id) => annonces.get(id),
     enregistrer: (a) => {
+      // Garde de base : aucune annonce, d'où qu'elle vienne, ne court moins de 30 jours.
       if (a.dateEffet < ajouterJours(a.annonceLe, PREAVIS_JOURS)) throw new Error("la date d'effet doit rester à 30 jours au moins de l'annonce");
       annonces.set(a.id, a);
     },
@@ -53,7 +54,7 @@ export function journalAnnoncesEnMemoire(): JournalAnnonces {
 
 export interface DepsAnnonce {
   journal: JournalAnnonces;
-  // Date réelle d'envoi (horloge du serveur) : l'appelant ne peut pas antidater une annonce.
+  // Horloge du serveur (UTC, AAAA-MM-JJ) : seule source de la date d'annonce.
   aujourdhui(): string;
   clientsActifs(): Promise<string[]>;
   // Notification de service (table des envois C-557) ; la clé anti-doublon inclut le client et l'annonce.
@@ -62,8 +63,8 @@ export interface DepsAnnonce {
 
 // Idempotent : rappelée, elle rattrape les clients entrés pendant le préavis sans réécrire l'annonce ni renvoyer aux autres.
 export async function annoncer(deps: DepsAnnonce, st: SousTraitant): Promise<Annonce> {
+  const id = `annonce-${st.id}`;
   const annonceLe = deps.aujourdhui();
-  const id = `annonce-${st.id}-${annonceLe}`;
   const a = deps.journal.annonce(id) ?? { id, sousTraitant: st, annonceLe, dateEffet: ajouterJours(annonceLe, PREAVIS_JOURS) };
   deps.journal.enregistrer(a);
   for (const clientId of await deps.clientsActifs()) {

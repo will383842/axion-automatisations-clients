@@ -29,6 +29,7 @@
     {"fichier":"0010_exploitation.sql","nom":"executions_proteger_partitions","empreinte":"6e17336446f6a59937f21bb60314c593205455dbd1d88e37cd3e1bec58ddac9c","adr":"0054"},
     {"fichier":"0000_modele_base_client.sql","nom":"evenements_refuser","empreinte":"00e28a907b4018442f2d5accfd6cd2509ff14b4ce3d2799e49eb5ad74f06ff36","adr":"0046"},
     {"fichier":"0019_durcissement_lot_2.sql","nom":"attribuer_cellule","empreinte":"73b3165cad180af76a1973f489882c265bdf64f43724ab923aa39e5921784e9c","adr":"0114"},
-    {"fichier":"0019_durcissement_lot_2.sql","nom":"propositions_statut_final","empreinte":"4f9caee2915c12dd9715d502d86f04a6cd46b3fc82ef8078ba3497c83692564f","adr":"0114"}
+    {"fichier":"0019_durcissement_lot_2.sql","nom":"propositions_statut_final","empreinte":"4f9caee2915c12dd9715d502d86f04a6cd46b3fc82ef8078ba3497c83692564f","adr":"0114"},
+    {"fichier":"0022_supervision_clients.sql","nom":"mesures_bases_proteger_partitions","empreinte":"d72b2304ab2d27ef8e1c29b5eb96de1fb7db88075f9b602903b4917e3b3e0519","adr":"0116"}
   ]
 }

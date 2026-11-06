@@ -12,3 +12,4 @@ export * from "./schema/equipe.ts";
 export * from "./schema/exploitation.ts";
 export * from "./schema/recepteur-c3.ts";
 export * from "./schema/suivi.ts";
+export * from "./schema/supervision.ts";

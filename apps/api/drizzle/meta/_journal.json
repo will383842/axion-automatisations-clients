@@ -127,6 +127,13 @@
       "when": 1793982120004,
       "tag": "0021_tables_lot_3_conformite",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1793992057376,
+      "tag": "0022_supervision_clients",
+      "breakpoints": true
     }
   ]
 }

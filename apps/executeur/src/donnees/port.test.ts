@@ -10,7 +10,7 @@ const INST = "33333333-3333-4333-8333-333333333333";
 const COR = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const ETAB = "44444444-4444-4444-8444-444444444444";
 const MODELE = analyserModele('CREATE TABLE "commun"."factures_essai" (\n  "id" uuid PRIMARY KEY,\n  "etablissement_id" uuid NOT NULL,\n  "libelle" text\n);');
-const LIMITES = { delaiMs: 300, maxLignes: 2, hotes: ["pgbouncer-donnees.test"] };
+const LIMITES = { delaiMs: 300, delaiTotalMs: 5000, maxLignes: 2, hotes: ["pgbouncer-donnees.test"] };
 const requete = (extra: object = {}) => ({ nom: "liste-factures", mode: "lecture", parametres: { motif: { type: "texte", max: 20 } }, forme: { type: "simple", table: "commun.factures_essai", sortie: { lignes: [{ colonne: "libelle" }] }, filtres: [{ colonne: "libelle", operateur: "egal", parametre: "motif" }], limite: { fixe: 10 } }, ...extra });
 const instance = (donnees: unknown = { requetes: [requete()], actions: [] }, extra: Partial<InstanceInstallee> = {}): InstanceInstallee => ({ empreinte: "sha256:aaaa", installee: true, ecart: false, impaye: false, etat: "actif", donnees, ...extra });
 const nomBase = (tenant: string): string => `cli_${tenant.replaceAll("-", "").slice(0, 12)}`; // dérivé de l'UUID du client, comme le courtier

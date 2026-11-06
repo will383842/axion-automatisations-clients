@@ -1,13 +1,15 @@
 // Client du courtier côté exécuteur (ADR 0113) : demande la base en LECTURE. La demande ne porte que tenantId et idTache ;
 // le rôle n'est jamais envoyé ni lu dans la réponse : il se déduit de la base reçue (cli_<12 hex>) + "_lecture".
 // `hotes` : liste fermée des hôtes de la grappe (configuration de l'exécuteur) ; un hôte remis hors de la liste est refusé.
-export interface OptionsCourtier { url: string; jeton: string; hotes: readonly string[]; fetch?: typeof fetch }
+// `origines` : liste fermée des origines du courtier (https://hote, sans port, chemin ni identifiants) ; `url` doit en être exactement une.
+export interface OptionsCourtier { url: string; jeton: string; hotes: readonly string[]; origines: readonly string[]; fetch?: typeof fetch }
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ID_TACHE = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
 export interface BaseLecture { hote: string; base: string; role: string; motDePasse: string; expire: Date; valideJusqua: Date | null }
 
 export async function demanderBaseLecture(o: OptionsCourtier, tenantId: string, idTache: string): Promise<BaseLecture> {
   if (!UUID.test(tenantId) || !ID_TACHE.test(idTache)) throw new Error("demande_invalide"); // rien ne part sur le réseau
+  if (!o.origines.includes(o.url) || !/^https:\/\/[a-z0-9.-]+$/.test(o.url)) throw new Error("url_courtier_refusee"); // rien ne part sur le réseau
   const r = await (o.fetch ?? fetch)(`${o.url}/base-lecture`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${o.jeton}` },

@@ -111,9 +111,15 @@ describe("export complet du client", () => {
 
   it("[A-252] l'export reste disponible 30 jours et la tâche a un identifiant sans doublon", () => {
     expect(dateExpiration(MAINTENANT)).toEqual(new Date("2026-12-02T10:00:00Z"));
-    expect(idTacheExport(A, D1)).toBe(`export:${A}:${D1}`);
+    expect(idTacheExport(A, D1)).toBe(`export-${A}-${D1}`);
     expect(() => idTacheExport("pas-un-client", D1)).toThrow("identifiant_invalide");
     expect(() => idTacheExport(A, "x:y")).toThrow("identifiant_invalide");
+  });
+
+  it("[A-252] le jobId de l'export a une forme acceptée par BullMQ : ni deux-points, ni identifiant tout numérique", () => {
+    const id = idTacheExport(A, D1);
+    expect(id).not.toContain(":");
+    expect(id).toMatch(/^[A-Za-z][A-Za-z0-9_-]*$/);
   });
 
   it("[C-536] @isolation un export ne contient aucune ligne d'un autre client", async () => {

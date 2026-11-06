@@ -1,0 +1,9 @@
+{
+  "commentaire": "Règles à recopier chez l'hébergeur (pare-feu du projet de test) : lues par ops/pare-feu/analyser.ts. Aucune adresse ici.",
+  "entrant": [{ "protocole": "tcp", "port": "443", "source": "tout" }],
+  "sortant": { "politique": "refuser", "exceptions": "ajoutées à l'installation, jamais dans le dépôt" },
+  "reseau_prive": {
+    "plage": "RESEAU_PRIVE_PLAGE (choisie à la création du réseau, jamais écrite ici)",
+    "ports_prives": [5432, 6432, 6379, 8200, 9000]
+  }
+}

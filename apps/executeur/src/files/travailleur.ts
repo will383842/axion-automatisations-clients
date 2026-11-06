@@ -13,6 +13,7 @@ import { JournalPostgres } from "../noyau/postgres/journal-etapes.ts";
 import { decider, ErreurConnecteur, erreurSysteme } from "../noyau/politique-erreurs.ts";
 import { CoupureProcessus, type Connecteurs, type Console, type Horloge } from "../noyau/ports.ts";
 import type { Cellule } from "./cellule.ts";
+import type { PlafondModule } from "./plafond-module.ts";
 import type { Semaphore } from "./semaphore.ts";
 
 export interface Travail {
@@ -20,6 +21,8 @@ export interface Travail {
   instanceId: string;
   clientId: string;
   palier: Palier;
+  // Automatisation (module) de l'instance : sert au plafond de places par module (A-415).
+  moduleId?: string;
 }
 
 export type Resultat = { statut: "fait" } | { statut: "remis"; delaiMs: number };
@@ -27,11 +30,15 @@ export type Resultat = { statut: "fait" } | { statut: "remis"; delaiMs: number }
 export interface Dependances {
   cellule: Cellule;
   semaphore: Semaphore;
+  // Plafond de places par module (A-415) ; absent ou 0 = pas de plafond.
+  plafondModule?: PlafondModule;
   executer(travail: Travail): Promise<void>;
   // Erreur d'identification hors de la machine : la console met l'instance en pause (A-322).
   mettreEnPause?(instanceId: string): Promise<void>;
   // Une intention reste occupée après 3 fenêtres : le travail est rendu à l'équipe (« à trancher » au journal et à la console), jamais perdu en silence.
   escalader?(travail: Travail, etape: string, code: string): Promise<void>;
+  // État voulu lu avant chaque exécution (A-341) : tout état autre que « actif » remet le travail en attente, rien n'est perdu.
+  garde?: (instanceId: string) => Promise<{ etat: "actif" | "pause" | "arrete"; arretEnvois?: boolean }>;
   delaiRemiseMs?: number;
 }
 
@@ -60,13 +67,25 @@ export function executerEnBac(chargeur: (travail: Travail) => Promise<Artefact>,
 // Sans place : le travail est remis en attente avec délai, jamais perdu ni exécuté.
 export async function traiter(travail: Travail, d: Dependances): Promise<Resultat> {
   d.cellule.accepter(travail.instanceId);
+  if (d.garde) {
+    // Arrêt des envois (C-534) : relu avant chaque exécution, même si la poussée a été manquée ou si des réglages sont en cache.
+    const voulu = await d.garde(travail.instanceId);
+    if (voulu.etat !== "actif" || voulu.arretEnvois === true) return { statut: "remis", delaiMs: d.delaiRemiseMs ?? 5_000 };
+  }
   const proprietaire = `${travail.instanceId}:${travail.id}`;
   if (!(await d.semaphore.acquerir(travail.clientId, travail.palier, proprietaire))) {
+    return { statut: "remis", delaiMs: d.delaiRemiseMs ?? 5_000 };
+  }
+  // Plafond du module atteint : la place du client est rendue et le travail attend, sans perte.
+  const module = travail.moduleId;
+  if (d.plafondModule && module !== undefined && !(await d.plafondModule.acquerir(module, proprietaire))) {
+    await d.semaphore.liberer(travail.clientId, proprietaire);
     return { statut: "remis", delaiMs: d.delaiRemiseMs ?? 5_000 };
   }
   // Le bail est renouvelé tant que le travail tourne : sans cela, une place expirerait en plein travail.
   const renouveler = setInterval(() => {
     d.semaphore.prolonger(travail.clientId, proprietaire).catch(() => undefined);
+    if (module !== undefined) d.plafondModule?.prolonger(module, proprietaire).catch(() => undefined);
   }, Math.max(1, Math.floor(d.semaphore.bailMs / 3)));
   try {
     await d.executer(travail);
@@ -74,6 +93,7 @@ export async function traiter(travail: Travail, d: Dependances): Promise<Resulta
   } finally {
     clearInterval(renouveler);
     await d.semaphore.liberer(travail.clientId, proprietaire);
+    if (module !== undefined) await d.plafondModule?.liberer(module, proprietaire);
   }
 }
 

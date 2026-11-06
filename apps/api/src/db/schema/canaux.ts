@@ -1,4 +1,4 @@
-import { bigint, check, date, foreignKey, integer, jsonb, pgEnum, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
+import { bigint, check, date, foreignKey, index, integer, jsonb, pgEnum, pgTable, text, timestamp, unique, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { tableClient } from "./aides.ts";
 import { organisations } from "./clients.ts";
@@ -11,7 +11,7 @@ export const etatEnvoi = pgEnum("etat_envoi", ["a_envoyer", "en_cours", "envoye"
 export const sourceCanal = pgEnum("source_canal", ["hub", "crm"]);
 export const resultatFait = pgEnum("resultat_fait", ["traite", "ignore", "a_trancher", "erreur"]);
 export const etatLienCrm = pgEnum("etat_lien_crm", ["actif", "absorbe"]);
-export const motifATrancher = pgEnum("motif_a_trancher", ["siren_absent_ressemblance", "ressaisie_manuelle", "email_change", "fiche_absorbee", "incoherence_nuit"]);
+export const motifATrancher = pgEnum("motif_a_trancher", ["siren_absent_ressemblance", "ressaisie_manuelle", "email_change", "fiche_absorbee", "incoherence_nuit", "lien_crm_different", "identifiant_crm_incoherent"]);
 export const etatATrancher = pgEnum("etat_a_trancher", ["ouvert", "tranche"]);
 export const porteeExclusion = pgEnum("portee_exclusion", ["client", "plateforme"]);
 export const motifExclusion = pgEnum("motif_exclusion", ["rebond", "plainte", "desabonnement", "demande_client"]);
@@ -48,6 +48,8 @@ export const boiteEnvoi = tableClient(
     contraintes: (t) => [
       // Par client : une unicité globale serait un oracle d'existence entre clients (règle unicite_sans_tenant).
       unique("boite_envoi_tenant_id_cle_anti_doublon_unique").on(t["tenantId"] as never, t["cleAntiDoublon"] as never),
+      // T2-52 : balayage des lignes dues sans parcours séquentiel.
+      index("boite_envoi_dues_idx").on(t["destination"] as never, t["creeLe"] as never).where(sql`${t["etat"]} IN ('a_envoyer', 'en_cours')`),
       check("boite_envoi_empreinte_format", sql`${t["empreinteCorps"]} ~ '${sql.raw(HEX64)}'`),
       check("boite_envoi_essais_positifs", sql`${t["nombreEssais"]} >= 0`),
       check("boite_envoi_derniere_erreur_code", sql`${t["derniereErreur"]} ~ '^[a-z0-9_.-]{1,64}$'`),
@@ -67,12 +69,17 @@ export const faitsRecus = tableClient(
     recuLe: timestamp("recu_le", { withTimezone: true }).notNull().defaultNow(),
     traiteLe: timestamp("traite_le", { withTimezone: true }),
     resultat: resultatFait("resultat"),
+    // Contenu allégé du fait (liste autorisée de champs, jamais de lien ni de PII) : la base est la source, la file n'en est qu'une copie (T2-16b).
+    payload: jsonb("payload"),
   },
   {
     audit: false,
     contraintes: (t) => [
       unique("faits_recus_tenant_id_source_event_id_unique").on(t["tenantId"] as never, t["source"] as never, t["eventId"] as never),
       check("faits_recus_traitement_complet", sql`(${t["traiteLe"]} IS NULL) = (${t["resultat"]} IS NULL)`),
+      // Ordre par sujet et balayage des faits non traités (T2-16b) : toujours bornés par le client.
+      index("faits_recus_sujet_idx").on(t["tenantId"] as never, t["sujet"] as never, t["sequence"] as never),
+      index("faits_recus_non_traites_idx").on(t["tenantId"] as never, t["recuLe"] as never).where(sql`${t["traiteLe"]} IS NULL`),
     ],
   },
 );
@@ -112,6 +119,9 @@ export const aTrancher = tableClient(
   {
     contraintes: (t) => [
       foreignKey({ name: "a_trancher_organisation_fk", columns: [t["tenantId"] as never, t["organisationId"] as never], foreignColumns: [organisations.tenantId, organisations.id] }),
+      // T2-52 : anti-doublon par client de la cohérence de nuit (T2-20) et des demandes du Hub (T2-15).
+      uniqueIndex("a_trancher_incoherence_nuit_ouverte_unique").on(t["tenantId"] as never, sql`(${t["donneesComparaison"]}->>'cle')`).where(sql`${t["etat"]} = 'ouvert' AND ${t["motif"]} = 'incoherence_nuit'`),
+      uniqueIndex("a_trancher_demande_hub_ouverte_unique").on(t["tenantId"] as never, sql`(${t["donneesComparaison"]}->>'idDemande')`).where(sql`${t["etat"]} = 'ouvert' AND ${t["source"]} = 'hub' AND ${t["donneesComparaison"]} ? 'idDemande'`),
       check(
         "a_trancher_cloture",
         sql`(${t["etat"]} = 'ouvert' AND ${t["decision"]} IS NULL AND ${t["tranchePar"]} IS NULL) OR (${t["etat"]} = 'tranche' AND coalesce(length(btrim(${t["decision"]})), 0) > 0 AND coalesce(length(btrim(${t["tranchePar"]})), 0) > 0)`,

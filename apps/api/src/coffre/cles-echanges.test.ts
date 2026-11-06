@@ -123,6 +123,15 @@ describe("clés HMAC des échanges (C-015)", () => {
     await refus(echanges().cleActive("c4-lemoine", "emission"), "introuvable");
     await refus(echanges().cleActive("c1", "reception"), "introuvable");
   });
+  it("[C-017] le canal ji (jetons d'instance) a ses propres clés, distinctes de c4-<cellule>, lues par la politique echanges seulement", async () => {
+    const ji = await echanges().tourner("ji", "emission");
+    const c4 = await echanges().tourner("c4-lemoine", "emission");
+    expect(ji.secret.equals(c4.secret)).toBe(false);
+    expect([...bao.etat.kv.keys()].sort()).toEqual([`echanges/c4-lemoine/${c4.kid}`, `echanges/ji/${ji.kid}`].sort());
+    expect((await echanges().cleActive("ji", "emission")).kid).toBe(ji.kid);
+    for (const role of ["courtier", "equipe", "api"]) await refus(echanges(role).cleActive("ji", "emission"), "refuse");
+    for (const piege of ["ji-", "JI", "ji/x", "ji2", "jis"]) await refus(echanges().cleActive(piege, "emission"));
+  });
   it.each(["", "C1", "c5", "c1/../clients/x", "c1/", "c4-", "c4-A", "c4-a/b", "*", "..", "c1\n", "c1?x=1", "c1%2f", "c4--a"])(
     "[C-015] @isolation canal piégé %j refusé sans appel réseau",
     async (canal) => {
@@ -233,8 +242,12 @@ describe("politiques OpenBao de la fiche T1A-07", () => {
   it("[C-015] @isolation aucune politique ne donne sudo, suppression, export ni chemin large ; courtier, equipe et api ne touchent pas technique/", () => {
     for (const role of ["signature", "echanges", "secours", "courtier", "equipe"]) expect(interdits(politique(role), role), role).toEqual([]);
     // L'API garde seulement la destruction d'une clé client (T1A-06) : jamais sudo, jamais sys/, jamais le chemin racine.
-    expect(interdits(politique("api")).filter((d) => d.capacites.includes("sudo") || !d.chemin.startsWith("transit/keys/cli-"))).toEqual([]);
-    for (const role of ["courtier", "equipe", "api"]) expect(politique(role).filter((d) => d.chemin.startsWith("technique") || d.chemin.includes("modules-signature")), role).toEqual([]);
+    // Seule exception nommée : la signature du manifeste d'export (T2-42b), en « update » sur transit/sign/exports-signature.
+    expect(interdits(politique("api")).filter((d) => d.chemin !== "transit/sign/exports-signature").filter((d) => d.capacites.includes("sudo") || !d.chemin.startsWith("transit/keys/cli-"))).toEqual([]);
+    expect(politique("api").filter((d) => d.chemin.includes("export"))).toEqual([{ chemin: "transit/sign/exports-signature", capacites: ["update"] }]);
+    for (const role of ["courtier", "equipe"]) expect(politique(role).filter((d) => d.chemin.startsWith("technique") || d.chemin.includes("modules-signature")), role).toEqual([]);
+    // L'API lit seulement le mot de passe lecture des bases clients (T2-37c) ; aucune clé d'échange, aucune clé de signature.
+    expect(politique("api").filter((d) => d.chemin.startsWith("technique") && !/^technique\/data\/donnees\/\+\/lecture$/.test(d.chemin) || d.chemin.includes("modules-signature") || d.chemin.includes("echanges"))).toEqual([]);
   });
   it("[A-193] initialiser.sh : monte technique/ (KV v2), crée la clé ed25519 non exportable sans copie transit, écrit les trois politiques et leurs jetons", () => {
     const s = lire("ops/socle/openbao/initialiser.sh");

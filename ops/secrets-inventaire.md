@@ -23,13 +23,24 @@ Les secrets de l'équipe vivent dans Bitwarden ou sous `technique/` d'OpenBao, J
 | `MIGRATION_DATABASE_URL` | production | environnement cloud, le temps d'une migration (le mot de passe du rôle qui modifie le schéma vient d'OpenBao) | à chaque départ d'un administrateur |
 | `APP_VERSION` | aucun | environnement de construction | sans objet |
 | `HUB_URL` | aucun | environnement cloud | sans objet |
+| `WEBHOOKS_OUVERTS` | aucun | environnement cloud (interrupteur, fermé par défaut) | sans objet |
 | `GMAIL_URL` | aucun | environnement cloud | sans objet |
 | `CONNECTEUR_GMAIL_OUVERT` | aucun | environnement cloud | sans objet |
 | `CONNECTEURS_MESSAGERIE_OUVERT` | aucun | environnement cloud | sans objet |
 | `CRM_URL` | aucun | environnement cloud | sans objet |
 | `CONSOLE_HUB_ACTIF` | aucun | environnement cloud (interrupteur du canal Hub, fermé par défaut) | sans objet |
 | `CONSOLE_CRM_ACTIF` | aucun | environnement cloud (interrupteur du canal CRM, fermé par défaut) | sans objet |
+| `EXECUTEUR_API_OUVERTE` | aucun | environnement cloud (interrupteur des routes de l'exécuteur, configuration et état voulu ; fermé par défaut) | sans objet |
+| `EXECUTEUR_DONNEES_HOTES` | aucun | environnement cloud (liste fermée des hôtes de la grappe de bases que le courtier peut remettre au port données ; obligatoire) | sans objet |
 | `EQUIPE_ADRESSE_WILL` | aucun | environnement cloud (adresse de l'équipe pour les e-mails de service ; une adresse, pas un secret) | sans objet |
+| `RETENTION_PURGE_ACTIVE` | aucun | environnement cloud (interrupteur du retrait des exécutions anciennes et de la proposition de suppression des notes à Will, fermé par défaut ; aucune note n'est effacée automatiquement) | sans objet |
+| `SAUVEGARDES_RETRAIT_ACTIF` | aucun | environnement cloud (interrupteur du retrait des anciens dumps de client sur la cible de sauvegarde, fermé par défaut ; suspendu par un gel pour litige) | sans objet |
+| `EXPORTS_RETRAIT_ACTIF` | aucun | environnement cloud (interrupteur du retrait de la copie d'export au bout de 30 jours ; ne touche jamais la donnée d'origine ; fermé par défaut, suspendu par un gel pour litige) | sans objet |
+| `RETENTION_OUVERTE_PAR` | aucun | environnement cloud (date d'ouverture du retrait, posée par Will ; exigée en production si l'interrupteur est ouvert) | sans objet |
+| `EFFACEMENT_ACTIF` | aucun | environnement cloud (interrupteur de l'effacement exceptionnel d'un client, au clic tracé de Will seulement ; fermé par défaut, jamais ouvert par une routine ; suspendu par un gel pour litige) | sans objet |
+| `EFFACEMENT_OUVERT_PAR` | aucun | environnement cloud (date d'ouverture de l'effacement, posée par Will ; exigée en production si l'interrupteur est ouvert) | sans objet |
+| `CONTRACTER_OUVERT` | aucun | environnement cloud (interrupteur des migrations « contracter » des bases des clients, fermé par défaut, y compris en production ; ouvert par Will seul, lot 8a) | sans objet |
+| `VERSION_STRUCTURE_CODE` | aucun | environnement cloud (version de structure des bases attendue par le code déployé ; absente = inconnue, contracter refusé) | sans objet |
 | `PLAFOND_CLE_CLIENT_MICROCENTIMES` | aucun | environnement cloud | sans objet |
 | `PLAFOND_PASSERELLE_JOUR_MICROCENTIMES` | aucun | environnement cloud | sans objet |
 | `SEUIL_RYTHME_ANORMAL` | aucun | environnement cloud | sans objet |
@@ -62,6 +73,11 @@ Les secrets de l'équipe vivent dans Bitwarden ou sous `technique/` d'OpenBao, J
 | Nom | Catégorie | Lieu | Rotation |
 |---|---|---|---|
 | `clients/<client>/...` | client | OpenBao `clients/` | à la demande du client |
+| `technique/donnees/cli_<id>/<rôle>` | equipe | OpenBao `technique/` (mots de passe de la base d'un client, générés par le provisionnement, écrits sans relecture par le rôle OpenBao provisionneur) | à la demande, par le courtier (T2-36) |
+| `technique/donnees/cli_<id>/app` | equipe | OpenBao `technique/` (mot de passe de l'exécuteur, renouvelé par la rotation du courtier, lu par le courtier seul) | 30 jours (période configurable), aussitôt en cas d'incident |
+| `DONNEES_GESTION_MOT_DE_PASSE` | equipe | compte de gestion du moteur database d'OpenBao sur la grappe données (secret `technique/`, lu à l'initialisation seulement) | à chaque départ d'un détenteur |
+| `DONNEES` | equipe | jeton OpenBao du courtier des bases (politique `donnees` : secret app d'un client, pour l'exécuteur seulement) | période de 768 h, à recréer avant l'échéance |
+| `HUMAINS` | equipe | jeton OpenBao de l'accès humain tracé (politique `humains` : identifiants dynamiques de lecture et révocation des baux, jamais le secret de l'exécuteur) | période de 768 h, à recréer avant l'échéance |
 | `technique/echanges/<canal>/<kid>` | equipe | OpenBao `technique/` | deux clés actives, chevauchement de 24 h |
 | `modules-signature` | equipe | OpenBao transit (clé non exportable) | sur décision de l'architecte |
 | `PART` | equipe | collection « parts » du gestionnaire de mots de passe (2 parts), responsable du produit, personne de confiance, copie hors ligne : un lieu par part (voir la procédure) | au changement d'un détenteur |

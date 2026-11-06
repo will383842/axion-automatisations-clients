@@ -349,4 +349,60 @@ describe("fonctions permises : durcissement", () => {
       expect(erreurs.join("\n"), nomCas).not.toContain("CREATE FUNCTION");
     }
   });
+
+  it("[A-233] garde-migrations lit aussi drizzle-cli et refuse un DROP", () => {
+    const racine = mkdtempSync(join(tmpdir(), "garde-cli-"));
+    const dossier = join(racine, "apps/api/drizzle-cli");
+    mkdirSync(join(dossier, "meta"), { recursive: true });
+    writeFileSync(join(dossier, "meta/_journal.json"), JSON.stringify({ version: "7", dialect: "postgresql", entries: [{ idx: 0, version: "7", when: 1, tag: "0000_x", breakpoints: true }] }));
+    writeFileSync(join(dossier, "0000_x.sql"), "DROP TABLE commun.personnes;");
+    expect(gardeMigrations(racine, [])).toEqual(["apps/api/drizzle-cli/0000_x.sql:1: instruction interdite : DROP"]);
+  });
+});
+
+describe("garde des migrations : phase contracter (T2-38)", () => {
+  const DROP = "ALTER TABLE a DROP COLUMN x;\nDROP TABLE b;";
+  const racineAvec = (dossier: string, sql: string) => {
+    const racine = mkdtempSync(join(tmpdir(), "garde-ct-"));
+    mkdirSync(join(racine, "apps/api", dossier, "meta"), { recursive: true });
+    writeFileSync(join(racine, "apps/api", dossier, "0000_x.sql"), sql);
+    writeFileSync(join(racine, "apps/api", dossier, "meta/_journal.json"), JSON.stringify({ entries: [{ idx: 0, version: "7", when: 1, tag: "0000_x", breakpoints: true }] }));
+    return racine;
+  };
+  it("[A-226] une migration qui supprime une colonne hors phase contracter est refusée", () => {
+    expect(gardeMigrations(racineAvec("drizzle-cli", DROP), [])).toEqual(["apps/api/drizzle-cli/0000_x.sql:1: instruction interdite : DROP", "apps/api/drizzle-cli/0000_x.sql:2: instruction interdite : DROP"]);
+    // Le marqueur ailleurs qu'en première ligne, ou dans un commentaire de fin, n'exempte rien.
+    expect(gardeMigrations(racineAvec("drizzle-cli", `${DROP}\n-- phase: contracter`), []).length).toBe(2);
+    expect(gardeMigrations(racineAvec("drizzle-cli", `SELECT '-- phase: contracter';\n${DROP}`), []).length).toBe(2);
+  });
+  it("[A-226] un fichier « -- phase: contracter » de drizzle-cli/ est la seule exception à la règle « pas de DROP »", () => {
+    expect(gardeMigrations(racineAvec("drizzle-cli", `-- phase: contracter\n${DROP}`), [])).toEqual([]);
+    // Hors de drizzle-cli/ (console, moteur) : le marqueur n'exempte rien.
+    expect(gardeMigrations(racineAvec("drizzle", `-- phase: contracter\n${DROP}`), []).length).toBe(2);
+  });
+  it("[A-226] un fichier contracter admet DROP TABLE, DROP COLUMN et DROP INDEX sans CASCADE", () => {
+    for (const sql of ["DROP TABLE b;", "DROP INDEX i;", "ALTER TABLE a DROP COLUMN x;", "DROP TABLE IF EXISTS b;"]) {
+      expect(gardeMigrations(racineAvec("drizzle-cli", `-- phase: contracter\n${sql}`), []), sql).toEqual([]);
+    }
+  });
+  it("[A-226] un fichier contracter ne permet que DROP de table, colonne ou index : RENAME, TRUNCATE, rôle, base, fonction restent refusés", () => {
+    for (const sql of ["ALTER TABLE a RENAME COLUMN x TO y;", "TRUNCATE a;", "DROP ROLE r;", "DROP DATABASE d;", "DROP OWNED BY r;", "ALTER TABLE a ALTER COLUMN x TYPE text;", "CREATE FUNCTION f() RETURNS int LANGUAGE sql AS $$ SELECT 1 $$;", "DO $$ BEGIN DROP TABLE a; END $$;", "SET ROLE r;",
+      "DROP POLICY p ON a;", "DROP SCHEMA s;", "DROP FUNCTION f();", "DROP TRIGGER t ON a;", "DROP VIEW v;", "DROP TABLE b CASCADE;", "DROP INDEX i CASCADE;", "ALTER TABLE a DROP COLUMN x CASCADE;", "ALTER TABLE a DROP CONSTRAINT c;", "DROP TABLE b; DROP POLICY p ON a;"]) {
+      expect(gardeMigrations(racineAvec("drizzle-cli", `-- phase: contracter\n${sql}`), []).length, sql).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe("migration 0019 de durcissement du lot 2 (T2-52a)", () => {
+  const racine = fileURLToPath(new URL("..", import.meta.url));
+  const dossier = join(racine, "apps/api/drizzle");
+  it("[A-233] 0019 passe la garde ; ses deux fonctions sont dans la liste fermée", () => {
+    expect(gardeMigrations(racine)).toEqual([]);
+    const liste = JSON.parse(readFileSync(new URL("./garde-migrations-fonctions.json", import.meta.url), "utf8")) as { fonctions: { fichier: string; nom: string }[] };
+    const de0019 = liste.fonctions.filter((f) => f.fichier === "0019_durcissement_lot_2.sql").map((f) => f.nom).sort();
+    expect(de0019).toEqual(["attribuer_cellule", "propositions_statut_final"]);
+    const sql = readFileSync(join(dossier, "0019_durcissement_lot_2.sql"), "utf8");
+    expect(sql).not.toMatch(/^\s*(DROP|TRUNCATE|DELETE)\b/im);
+    expect(sql).not.toMatch(/ALTER COLUMN[^;]*\bTYPE\b/i);
+  });
 });

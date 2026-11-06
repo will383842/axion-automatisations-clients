@@ -3,7 +3,7 @@
 \set ON_ERROR_STOP on
 ALTER SCHEMA public OWNER TO console_proprietaire;
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
-GRANT USAGE ON SCHEMA public TO console_app, console_equipe;
+GRANT USAGE ON SCHEMA public TO console_app, console_equipe, console_lecture;
 CREATE SCHEMA partman AUTHORIZATION console_proprietaire;
 CREATE EXTENSION pg_partman SCHEMA partman;
 GRANT ALL ON ALL TABLES IN SCHEMA partman TO console_proprietaire;

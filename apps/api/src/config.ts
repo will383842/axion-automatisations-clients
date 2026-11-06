@@ -18,6 +18,19 @@ export interface Config {
   crmActif?: boolean;
   // Adresses de l'équipe pour les e-mails de service (A-116) : le seul endroit où une adresse de destinataire est lue.
   adressesEquipe?: { will?: string };
+  // Rétention (A-180, C-041) : le retrait des exécutions anciennes et la proposition de suppression des notes restent fermés tant que l'interrupteur n'est pas ouvert.
+  retentionPurgeActive?: boolean;
+  retentionOuvertePar?: string;
+  // Migrations « contracter » (T2-38) : fermé par défaut, y compris en production, tant que Will ne l'a pas ouvert (lot 8a). Version de structure du code déployé : lue ici, absente = inconnue.
+  contracterOuvert?: boolean;
+  versionStructureCode?: number;
+  // Retrait des anciens dumps de client sur la cible de sauvegarde (T2-39, C-047) : fermé par défaut.
+  sauvegardesRetraitActif?: boolean;
+  // Retrait des exports de 30 jours (A-252) : ne touche que la copie d'export ; fermé par défaut, suspendu par un gel pour litige.
+  exportsRetraitActif?: boolean;
+  // Effacement exceptionnel d'un client (T2-45, C-623, C-715) : fermé par défaut ; en production, jamais ouvert sans la date posée par Will.
+  effacementActif?: boolean;
+  effacementOuvertPar?: string;
 }
 
 // Les clés des fournisseurs d'IA et de la passerelle vivent dans OpenBao seulement (C-391, C-598 d).
@@ -62,6 +75,14 @@ const Schema = z.object({
   CRM_URL: urlHttp,
   CONSOLE_HUB_ACTIF: interrupteur,
   CONSOLE_CRM_ACTIF: interrupteur,
+  RETENTION_PURGE_ACTIVE: interrupteur,
+  CONTRACTER_OUVERT: interrupteur,
+  VERSION_STRUCTURE_CODE: z.preprocess((v) => (v === "" ? undefined : v), z.coerce.number().int().min(0).optional()),
+  SAUVEGARDES_RETRAIT_ACTIF: interrupteur,
+  EXPORTS_RETRAIT_ACTIF: interrupteur,
+  EFFACEMENT_ACTIF: interrupteur,
+  EFFACEMENT_OUVERT_PAR: z.preprocess((v) => (v === "" ? undefined : v), z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((d) => !Number.isNaN(Date.parse(d))).optional()),
+  RETENTION_OUVERTE_PAR: z.preprocess((v) => (v === "" ? undefined : v), z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((d) => !Number.isNaN(Date.parse(d))).optional()),
   EQUIPE_ADRESSE_WILL: z.preprocess((v) => (v === "" ? undefined : v), adresseUnique),
 });
 
@@ -76,9 +97,12 @@ export function chargerConfig(env: NodeJS.ProcessEnv, dossierApi = fileURLToPath
     if (readdirSync(dossierApi).some((n) => n.toLowerCase() === ".env" || n.toLowerCase().startsWith(".env."))) {
       throw new ConfigInvalide("fichier .env interdit en production : les secrets viennent d'OpenBao");
     }
+    // Le retrait définitif ne s'ouvre en production que si une date d'ouverture, posée par Will, est présente.
+    if (v.RETENTION_PURGE_ACTIVE && !v.RETENTION_OUVERTE_PAR) throw new ConfigInvalide("configuration invalide : RETENTION_OUVERTE_PAR");
+    if (v.EFFACEMENT_ACTIF && !v.EFFACEMENT_OUVERT_PAR) throw new ConfigInvalide("configuration invalide : EFFACEMENT_OUVERT_PAR");
     if (!v.APP_DATABASE_URL) throw new ConfigInvalide("configuration invalide : APP_DATABASE_URL");
   }
   const { APP_DATABASE_URL: base, HUB_URL: hub, CRM_URL: crm, EQUIPE_ADRESSE_WILL: will } = v;
-  const actifs = { hubActif: v.CONSOLE_HUB_ACTIF, crmActif: v.CONSOLE_CRM_ACTIF };
+  const actifs = { hubActif: v.CONSOLE_HUB_ACTIF, crmActif: v.CONSOLE_CRM_ACTIF, retentionPurgeActive: v.RETENTION_PURGE_ACTIVE, sauvegardesRetraitActif: v.SAUVEGARDES_RETRAIT_ACTIF, exportsRetraitActif: v.EXPORTS_RETRAIT_ACTIF, effacementActif: v.EFFACEMENT_ACTIF, ...(v.EFFACEMENT_OUVERT_PAR ? { effacementOuvertPar: v.EFFACEMENT_OUVERT_PAR } : {}), contracterOuvert: v.CONTRACTER_OUVERT, ...(v.VERSION_STRUCTURE_CODE !== undefined ? { versionStructureCode: v.VERSION_STRUCTURE_CODE } : {}), ...(v.RETENTION_OUVERTE_PAR ? { retentionOuvertePar: v.RETENTION_OUVERTE_PAR } : {}) };
   return { env: v.NODE_ENV, port: v.PORT, ...actifs, ...(base ? { appDatabaseUrl: base } : {}), ...(hub ? { hubUrl: hub } : {}), ...(crm ? { crmUrl: crm } : {}), ...(will ? { adressesEquipe: { will } } : {}) };
 }

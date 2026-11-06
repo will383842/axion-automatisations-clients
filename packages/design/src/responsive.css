@@ -34,6 +34,11 @@
 }
 
 @media (max-width: 720px) {
+  /* Texte courant à 16 px sur téléphone (B-251) : les composants lisent --taille-texte. */
+  :root {
+    --taille-texte: var(--taille-texteMobile);
+  }
+
   select,
   input,
   textarea {

@@ -1,0 +1,10 @@
+{
+  "name": "@axion-auto/securite-web",
+  "version": "0.0.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json --allowImportingTsExtensions"
+  }
+}

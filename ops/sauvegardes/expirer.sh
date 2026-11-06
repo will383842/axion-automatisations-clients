@@ -5,7 +5,10 @@
 # Tourne sur l'HÔTE (il faut Node 22.18 ou plus et docker), après sauvegarder-nuit.sh. pgBackRest n'a aucune rétention automatique (9999 complètes) :
 # tant que ce script n'a pas tourné, rien n'est jamais effacé.
 # Variables : SAUVEGARDE_PROJET (défaut socle) · EXPIRER_AUJOURDHUI (AAAA-MM-JJ UTC, pour les essais ; défaut : date du jour UTC).
-# Sur une cible en AJOUT SEUL, « pgbackrest expire » échoue : le script sort alors en erreur (voir README, lot 1-B).
+# C'est l'UNIQUE tâche d'effacement du système console (T1B-05, S-5) : la sauvegarde de nuit coupe l'expiration automatique (--no-expire-auto),
+# et aucune règle d'effacement du fournisseur de stockage n'existe. Sur une cible en AJOUT SEUL, « pgbackrest expire » échoue : il faut donc le lancer
+# depuis un compte DISTINCT de celui de la sauvegarde (configuration pgBackRest et clé propres, voir README et planification.modele).
+# Une ligne de journal par passage réel (journaliser.sh), réussi ou non, même quand il n'y a rien à effacer : c'est elle que le contrôle de fraîcheur lit.
 set -euo pipefail
 
 simuler=0
@@ -29,10 +32,29 @@ if [ "$majeur" -lt 22 ] || { [ "$majeur" -eq 22 ] && [ "$mineur" -lt 18 ]; }; th
   exit 1
 fi
 
+dossier="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=journaliser.sh
+source "$dossier/journaliser.sh"
+debut="$(date +%s)"
+resultat=echec
+effaces=()
+journaliser() {
+  local code=$?
+  trap - EXIT
+  local identifiant=aucun empreinte="-"
+  if [ "${#effaces[@]}" -gt 0 ]; then
+    identifiant="$(IFS=,; printf '%s' "${effaces[*]}")"
+    empreinte="$(empreinte_de "commun/effacement/$identifiant")"
+  fi
+  journal_ecrire effacement quotidienne effacement 0 "$empreinte" "$resultat" "$(( $(date +%s) - debut ))" "$identifiant" || { [ "$code" -ne 0 ] || code=1; }
+  exit "$code"
+}
+# Une simulation n'efface rien : elle ne s'écrit pas au journal.
+if [ "$simuler" = "0" ]; then trap journaliser EXIT; fi
+
 projet="${SAUVEGARDE_PROJET:-socle}"
 ctr="$(docker ps -q --filter "label=com.docker.compose.project=$projet" --filter "label=com.docker.compose.service=postgres")"
 [ -n "$ctr" ] || { echo "service postgres du projet $projet introuvable" >&2; exit 1; }
-dossier="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 aujourdhui="${EXPIRER_AUJOURDHUI:-$(date -u +%Y-%m-%d)}"
 
 # La phrase est lue dans le conteneur, par le même script que la sauvegarde : elle ne passe jamais par l'hôte.
@@ -44,6 +66,7 @@ a_expirer="$(printf '%s' "$info" | node "$dossier/retention.ts" "$aujourdhui")" 
 
 if [ -z "$a_expirer" ]; then
   echo "rien à expirer" >&2
+  resultat=ok
   exit 0
 fi
 while IFS= read -r id; do
@@ -51,6 +74,8 @@ while IFS= read -r id; do
     echo "$id"
   else
     dans pgbackrest --stanza=commun "--set=$id" expire || { echo "échec de l'expiration de $id : arrêt, les ensembles suivants ne sont pas expirés" >&2; exit 1; }
+    effaces+=("$id")
     echo "expiré : $id" >&2
   fi
 done <<<"$a_expirer"
+resultat=ok

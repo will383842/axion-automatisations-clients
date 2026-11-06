@@ -1,8 +1,14 @@
+import { writeSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import pg from "pg";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { controlerInvariants, type Requete } from "../../../../packages/contrats/src/c5/invariants.js";
+
+// Le rapport de la CI est un JSON hors du journal : un essai en échec est écrit par writeSync(2, …), lisible dans le journal du job.
+afterEach((contexte) => {
+  if (contexte.task.result?.state === "fail") writeSync(2, `ECHEC ${contexte.task.name} : ${String(contexte.task.result.errors?.[0]?.message ?? "").slice(0, 400)}\n`);
+});
 
 // Tests contre le socle lancé par ops/socle/lancer.sh (job socle-integration).
 // Les services ne publient aucun port : on joint leur adresse sur le réseau interne (docker inspect), jamais écrite dans un fichier.
@@ -181,8 +187,8 @@ describe("rôles", () => {
       for (const r of ["console_app", "console_equipe", "moteur_app"]) {
         const joignables = await lignes(migration, `SELECT p.oid::regprocedure::text AS f FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
           WHERE p.prosecdef AND n.nspname NOT IN ('pg_catalog', 'information_schema') AND has_schema_privilege($1, n.oid, 'USAGE') AND has_function_privilege($1, p.oid, 'EXECUTE')`, [r]);
-        // Seule exception, relue en 2 tours (ADR 0042) : audit_ajouter, ouverte à console_app seulement.
-        expect(joignables.map((j) => String(j["f"]).replace(/[(].*$/, "").replace(/^public[.]/, "")), r).toEqual(r === "console_app" ? ["audit_ajouter"] : []);
+        // Exceptions nominatives : audit_ajouter, ouverte à console_app seulement (ADR 0042) ; attribuer_cellule, ouverte à console_equipe seulement (ADR 0111 point 4, migration 0019).
+        expect(joignables.map((j) => String(j["f"]).replace(/[(].*$/, "").replace(/^public[.]/, "")), r).toEqual(r === "console_app" ? ["audit_ajouter"] : r === "console_equipe" ? ["attribuer_cellule"] : []);
       }
       const app = pool("direct", "console_app", "console", 1);
       expect(await codeRefus(app, "SELECT essai_roles.f()")).toBe("42501");
@@ -237,6 +243,30 @@ describe("rôles", () => {
     for (const user of ["postgres", "console_proprietaire", "console_migration", "moteur_migration"]) {
       expect(await connexionRefusee("pgbouncer", user, user.startsWith("moteur") ? "moteur" : "console"), user).toBe(true);
     }
+  });
+});
+
+describe("rôle de lecture (A-188)", () => {
+  it("[A-188] console_lecture se connecte, n'a ni BYPASSRLS ni SUPERUSER, et n'hérite d'aucun rôle", async () => {
+    const equipe = await client("direct", "console_equipe", "console");
+    const [a] = await lignes(equipe, "SELECT rolcanlogin, rolsuper, rolbypassrls, rolinherit, rolcreaterole, rolcreatedb, rolreplication FROM pg_roles WHERE rolname = 'console_lecture'");
+    expect(a).toEqual({ rolcanlogin: true, rolsuper: false, rolbypassrls: false, rolinherit: false, rolcreaterole: false, rolcreatedb: false, rolreplication: false });
+    const [membre] = await lignes(equipe, "SELECT count(*)::int AS n FROM pg_auth_members m JOIN pg_roles r ON r.oid = m.member WHERE r.rolname = 'console_lecture'");
+    expect(membre?.["n"]).toBe(0);
+    // Connexion directe et par PgBouncer sur la base console ; aucune autre base.
+    for (const voie of ["direct", "pgbouncer"] as const) {
+      const lecture = await client(voie, "console_lecture", "console");
+      expect((await lignes(lecture, "SELECT current_user AS u"))[0]?.["u"]).toBe("console_lecture");
+      for (const autre of ["moteur", "keycloak", "passerelle_ia", "postgres", "template1"]) {
+        expect(await connexionRefusee(voie, "console_lecture", autre), `${voie} → ${autre}`).toBe(true);
+      }
+    }
+    // Le rôle a son propre mot de passe : celui de console_app ne l'ouvre pas.
+    expect(await connexionRefusee("direct", "console_lecture", "console", "console_app")).toBe(true);
+    const lecture = await client("direct", "console_lecture", "console");
+    const droits = await lignes(lecture, "SELECT has_schema_privilege('console_lecture', 'public', 'USAGE') AS u, has_schema_privilege('console_lecture', 'public', 'CREATE') AS c, has_database_privilege('console_lecture', 'console', 'CREATE') AS d, has_database_privilege('console_lecture', 'console', 'TEMPORARY') AS t, has_database_privilege('console_lecture', 'moteur', 'CONNECT') AS m");
+    expect(droits[0]).toEqual({ u: true, c: false, d: false, t: false, m: false });
+    expect(await codeRefus(lecture, "SET ROLE console_equipe")).toBe("42501");
   });
 });
 

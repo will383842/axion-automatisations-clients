@@ -37,6 +37,8 @@ export default defineConfig({
       { test: { name: "tests/docs", root: "./tests/docs", retry, exclude: excludeDefaut } },
       // Porte du lot 2 (T2-21) ; ses essais .int.test.ts passent par le projet integration.
       { test: { name: "tests/audit-2", root: "./tests/audit-2", retry, exclude: excludeDefaut } },
+      // Tests « mauvais client » (C-536) : ports en mémoire, sans Docker ; ils tournent dans le job « tests ».
+      { test: { name: "tests/mauvais-client", root: "./tests/mauvais-client", retry, exclude: excludeDefaut } },
       { test: { name: "tests/comportement", root: "./tests/comportement", retry, exclude: excludeDefaut, passWithNoTests: true } },
       // Vide sans SOCLE_INTEGRATION=1, pour que « vitest run » ne lance jamais ces tests faute de services.
       { test: { name: "integration", root: ".", retry, exclude, include: integration ? ["**/*.int.test.ts"] : [] } },

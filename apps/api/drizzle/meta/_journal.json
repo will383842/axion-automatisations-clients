@@ -85,6 +85,69 @@
       "when": 1793587472905,
       "tag": "0011_suivi",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1793624334604,
+      "tag": "0012_faits_recus_contenu",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1793624568975,
+      "tag": "0013_recepteur_c3",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1793652688679,
+      "tag": "0018_executeur_instances",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1793956908224,
+      "tag": "0019_durcissement_lot_2",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1793972071701,
+      "tag": "0020_tables_lot_3_equipe",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1793982120004,
+      "tag": "0021_tables_lot_3_conformite",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1793992057376,
+      "tag": "0022_supervision_clients",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1793995830433,
+      "tag": "0023_supervision_communes",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1793999202199,
+      "tag": "0024_modele_ia_et_cle_client",
+      "breakpoints": true
     }
   ]
 }

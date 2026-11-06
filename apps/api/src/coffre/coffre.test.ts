@@ -73,6 +73,7 @@ export function lireDroits(texte: string): Droits {
     return { chemin: b.etiquettes[0] as string, capacites: c };
   });
 }
+export const MOTS_DE_PASSE_BASES = ["technique/data/donnees/+/lecture"];
 export const politique = (role: string) => lireDroits(lireFichier(`ops/socle/openbao/politiques/${role}.hcl`));
 
 // `+` = un segment ; `*` en fin = tout le reste (règles d'OpenBao).
@@ -480,14 +481,39 @@ describe("infrastructure OpenBao", () => {
       for (const d of politique(r)) {
         expect(d.capacites).not.toContain("sudo");
         expect(d.chemin).not.toMatch(/^(sys|auth|\*|\+)/);
-        expect(d.chemin.startsWith("clients/") || d.chemin.startsWith("transit/")).toBe(true);
+        // Seule exception, nommée : les mots de passe app et lecture des bases clients, lus par l'API (T2-37c).
+        expect(d.chemin.startsWith("clients/") || d.chemin.startsWith("transit/") || (r === "api" && MOTS_DE_PASSE_BASES.includes(d.chemin))).toBe(true);
       }
     }
     const api = politique("api");
-    expect(api.filter((d) => d.chemin.startsWith("transit/")).every((d) => /\/cli-\*$/.test(d.chemin))).toBe(true);
+    // Seule exception nommée : signer le manifeste d'export (T2-42b).
+    expect(api.filter((d) => d.chemin.startsWith("transit/") && d.chemin !== "transit/sign/exports-signature").every((d) => /\/cli-\*$/.test(d.chemin))).toBe(true);
     expect(api.some((d) => d.chemin.startsWith("transit/export") || d.chemin.startsWith("transit/backup"))).toBe(false);
     expect(api.some((d) => d.chemin === "transit/keys/cli-*" && d.capacites.includes("read"))).toBe(false);
     expect(api.some((d) => chemin_correspond(d.chemin, "transit/keys/autre") )).toBe(false);
+  });
+  it("[C-012] @isolation l'api lit, et seulement lit, technique/donnees/<base>/lecture : ni app, ni propriétaire, ni provisionneur, ni administration de PgBouncer, ni écriture", () => {
+    // Moindre privilège : le service ne sert que des requêtes en lecture (rôle « lecture ») ; le mot de passe « app » n'est donc PAS lisible par l'API.
+    const api = politique("api").filter((d) => d.chemin.startsWith("technique"));
+    expect(api).toEqual([{ chemin: "technique/data/donnees/+/lecture", capacites: ["read"] }]);
+    const peut = (chemin: string) => api.some((d) => chemin_correspond(d.chemin, chemin));
+    expect(peut("technique/data/donnees/cli_0123456789ab/lecture")).toBe(true);
+    for (const interdit of ["technique/data/donnees/cli_0123456789ab/app", "technique/data/donnees/cli_0123456789ab/proprietaire", "technique/data/donnees/provisionneur", "technique/data/donnees/pgbouncer-admin", "technique/data/echanges/c1/k1", "technique/metadata/donnees/cli_0123456789ab/lecture", "technique/data/donnees/cli_0123456789ab/lecture/x"]) expect(peut(interdit), interdit).toBe(false);
+    // Le joker * n'est valable qu'en dernier caractère : le segment du client est un « + ».
+    for (const d of api) expect(d.chemin).not.toMatch(/\*(?!$)/);
+  });
+  it("[C-012] @isolation la politique api est une liste fermée : tout droit ajouté ou élargi (chemin, joker, capacité) fait échouer l'essai", () => {
+    expect(politique("api")).toEqual([
+      { chemin: "clients/data/*", capacites: ["create", "update"] },
+      { chemin: "clients/metadata/*", capacites: ["create", "update", "read"] },
+      { chemin: "transit/keys/cli-*", capacites: ["create", "update", "delete"] },
+      { chemin: "transit/datakey/plaintext/cli-*", capacites: ["update"] },
+      { chemin: "transit/decrypt/cli-*", capacites: ["update"] },
+      { chemin: "transit/rewrap/cli-*", capacites: ["update"] },
+      { chemin: "transit/hmac/cli-*", capacites: ["update"] },
+      { chemin: "technique/data/donnees/+/lecture", capacites: ["read"] },
+      { chemin: "transit/sign/exports-signature", capacites: ["update"] },
+    ]);
   });
   it("[A-005] initialiser.sh : syntaxe valide, pas de trace, masque avant usage, fichier privé effacé, jeton racine révoqué", () => {
     const l = script();

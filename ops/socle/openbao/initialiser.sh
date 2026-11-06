@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Initialise l'OpenBao du socle (POUR LE TEST) : Shamir 5 parts / seuil 3, montages clients/ (KV v2) et transit/,
-# clé de signature des modules, politiques, jetons des rôles api, courtier, equipe, signature, echanges et secours, puis révocation du jeton racine.
+# clé de signature des modules, politiques, jetons des rôles api, courtier, equipe, signature, echanges, secours et provisionneur, puis révocation du jeton racine.
 #   initialiser.sh <fichier-de-sortie>   le fichier reçoit les parts et les jetons des rôles (droits 600), jamais la sortie standard
 # Les parts et les jetons restent dans des variables : masqués avant tout usage, jamais affichés, jamais versionnés.
 set -euo pipefail
@@ -34,6 +34,11 @@ bao secrets enable transit >/dev/null
 bao secrets enable -path=technique -version=2 kv >/dev/null
 # Clé de signature des modules (A-193) : jamais exportable, pas de copie transit ; le secours (A-303) se fait par instantané raft (ADR 0017).
 bao write -f transit/keys/modules-signature type=ed25519 exportable=false >/dev/null
+# Clé de signature des exports des clients (B-374) : même réglage, jamais exportable ; la clé publique se lit, la privée ne sort pas.
+bao write -f transit/keys/exports-signature type=ed25519 exportable=false >/dev/null
+# Clés de la recette et de la production (T4-26) : séparées, jamais exportables ; seule modules-publication signe au passage à « publiée ».
+bao write -f transit/keys/modules-recette type=ed25519 exportable=false >/dev/null
+bao write -f transit/keys/modules-publication type=ed25519 exportable=false >/dev/null
 for role in api courtier equipe signature echanges secours; do
   bao policy write "$role" - <"$dossier/politiques/$role.hcl" >/dev/null
   jeton="$(bao token create -policy="$role" -no-default-policy -orphan -period=768h -format=json | jq -r '.auth.client_token')"
@@ -41,5 +46,47 @@ for role in api courtier equipe signature echanges secours; do
   printf '%s=%s\n' "$(printf '%s' "$role" | tr '[:lower:]' '[:upper:]')" "$jeton" >>"$fichier"
   unset jeton
 done
+
+# Publication des modules (T4-26) : politique et jeton à part, limités à transit/sign/modules-publication.
+bao policy write publication - <"$dossier/politiques/publication.hcl" >/dev/null
+jeton="$(bao token create -policy=publication -no-default-policy -orphan -period=768h -format=json | jq -r '.auth.client_token')"
+masquer "$jeton"
+printf 'PUBLICATION=%s\n' "$jeton" >>"$fichier"
+unset jeton
+
+# Provisionnement des bases des clients (T2-34) : politique et jeton à part, lus par le seul dossier apps/api/src/provisionnement.
+bao policy write provisionneur - <"$dossier/politiques/provisionneur.hcl" >/dev/null
+jeton="$(bao token create -policy=provisionneur -no-default-policy -orphan -period=768h -format=json | jq -r '.auth.client_token')"
+masquer "$jeton"
+printf 'PROVISIONNEUR=%s\n' "$jeton" >>"$fichier"
+unset jeton
+
+# Courtier des bases (T2-36, A-209) : politique et jeton à part (DONNEES) pour les secrets de l'exécuteur, lus par le seul dossier apps/api/src/courtier. Le moteur database/ reste FERMÉ tant que le compte de gestion
+# de la grappe « données » n'est pas fourni (secret technique/, jamais rangé sous clients/). Le mot de passe passe par l'entrée standard, jamais par un argument.
+bao policy write donnees - <"$dossier/donnees.hcl" >/dev/null
+jeton="$(bao token create -policy=donnees -no-default-policy -orphan -period=768h -format=json | jq -r '.auth.client_token')"
+masquer "$jeton"
+printf 'DONNEES=%s\n' "$jeton" >>"$fichier"
+unset jeton
+# Accès humain (T2-36b, A-211) : politique et jeton SÉPARÉS (HUMAINS). Lecture des identifiants dynamiques et révocation des baux des seuls rôles humain-lecture-cli_<id> ;
+# le joker * n'est valable qu'en dernier caractère d'un chemin. Aucun droit sur technique/, clients/ ni sur la configuration du moteur (les rôles se déclarent à la création du client).
+bao policy write humains - <<'POLITIQUE' >/dev/null
+path "database/creds/humain-lecture-cli_*" {
+  capabilities = ["read"]
+}
+path "sys/leases/revoke/database/creds/humain-lecture-cli_*" {
+  capabilities = ["update"]
+}
+POLITIQUE
+jeton="$(bao token create -policy=humains -no-default-policy -orphan -period=768h -format=json | jq -r '.auth.client_token')"
+masquer "$jeton"
+printf 'HUMAINS=%s\n' "$jeton" >>"$fichier"
+unset jeton
+if [ -n "${DONNEES_GESTION_UTILISATEUR:-}" ] && [ -n "${DONNEES_GESTION_MOT_DE_PASSE:-}" ] && [ -n "${DONNEES_HOTE:-}" ]; then
+  bao secrets enable database >/dev/null
+  jq -n '{plugin_name: "postgresql-database-plugin", allowed_roles: "humain-lecture-cli_*", connection_url: ("postgresql://{{username}}:{{password}}@" + env.DONNEES_HOTE + ":5432/postgres?sslmode=verify-full"), username: env.DONNEES_GESTION_UTILISATEUR, password: env.DONNEES_GESTION_MOT_DE_PASSE}' | bao write database/config/donnees-1 - >/dev/null
+  # Un rôle dynamique PAR CLIENT (humain-lecture-cli_<id>, definitionRoleHumain) est déclaré par la création du client, jamais ici : aucun rôle sans droit, aucun rôle commun.
+fi
+unset DONNEES_GESTION_MOT_DE_PASSE
 
 bao token revoke -self >/dev/null

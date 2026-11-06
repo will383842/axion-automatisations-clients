@@ -11,4 +11,4 @@ Statut : lot 0 (fondations) en cours.
 
 ## Contribuer
 
-**Règle unique : fusionner `main` dans sa branche avant d'ouvrir la PR et avant de demander la relecture.** `spec/preuves.md`, où chaque PR ajoute une ligne, se fusionne alors sans conflit grâce à `.gitattributes` ; `ops/secrets-inventaire.md` et `docs/localisation-des-donnees.md` se fusionnent à la main ; l'index des ADR est généré (voir `docs/adr/README.md`). Jamais de rebase ni de force-push.
+**Règle unique : fusionner `main` dans sa branche avant d'ouvrir la PR et avant de demander la relecture.** Une preuve ou une dette nouvelle va dans un fichier neuf `spec/preuves/<branche-assainie>.md`, jamais dans `spec/preuves.md` (historique figé, voir `spec/preuves/README.md` et l'ADR 0029) ; `ops/secrets-inventaire.md` et `docs/localisation-des-donnees.md` se fusionnent à la main ; l'index des ADR est généré (voir `docs/adr/README.md`). Jamais de rebase ni de force-push.

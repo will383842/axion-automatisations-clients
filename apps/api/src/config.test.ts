@@ -121,4 +121,58 @@ describe("interrupteurs des canaux", () => {
     expect(chargerConfig({ NODE_ENV: "test", CONSOLE_CRM_ACTIF: "true" }, dossier())).toMatchObject({ hubActif: false, crmActif: true });
     expect(refus({ NODE_ENV: "test", CONSOLE_HUB_ACTIF: "oui" })).toContain("CONSOLE_HUB_ACTIF");
   });
+
+  it("[A-252] le retrait des exports à 30 jours est fermé par défaut ; seules les valeurs 1 et true l'ouvrent", () => {
+    expect(chargerConfig(prod(), dossier()).exportsRetraitActif).toBe(false);
+    expect(chargerConfig({ NODE_ENV: "development", EXPORTS_RETRAIT_ACTIF: "" }, dossier()).exportsRetraitActif).toBe(false);
+    expect(chargerConfig({ NODE_ENV: "test", EXPORTS_RETRAIT_ACTIF: "true" }, dossier()).exportsRetraitActif).toBe(true);
+    expect(refus({ NODE_ENV: "test", EXPORTS_RETRAIT_ACTIF: "oui" })).toContain("EXPORTS_RETRAIT_ACTIF");
+  });
+
+  it("[A-180] la purge de rétention est fermée par défaut", () => {
+    expect(chargerConfig(prod(), dossier()).retentionPurgeActive).toBe(false);
+    expect(chargerConfig({ NODE_ENV: "development", RETENTION_PURGE_ACTIVE: "" }, dossier()).retentionPurgeActive).toBe(false);
+  });
+
+  it("[A-180] en production, RETENTION_PURGE_ACTIVE=true sans date d'ouverture empêche le démarrage", () => {
+    expect(refus(prod({ RETENTION_PURGE_ACTIVE: "true" }))).toContain("RETENTION_OUVERTE_PAR");
+    expect(refus(prod({ RETENTION_PURGE_ACTIVE: "1", RETENTION_OUVERTE_PAR: "pas une date" }))).toContain("RETENTION_OUVERTE_PAR");
+    expect(chargerConfig(prod({ RETENTION_PURGE_ACTIVE: "true", RETENTION_OUVERTE_PAR: "2027-01-15" }), dossier()).retentionPurgeActive).toBe(true);
+  });
+
+  it("[A-180] hors production, l'interrupteur s'ouvre sans date, et une valeur inconnue est refusée", () => {
+    expect(chargerConfig({ NODE_ENV: "test", RETENTION_PURGE_ACTIVE: "true" }, dossier()).retentionPurgeActive).toBe(true);
+    refus({ NODE_ENV: "test", RETENTION_PURGE_ACTIVE: "oui" });
+  });
+
+  it("[A-226] CONTRACTER_OUVERT est fermé par défaut, même en production, et ne s'ouvre que par true ou 1", () => {
+    expect(chargerConfig({ NODE_ENV: "development" }, dossier()).contracterOuvert).toBe(false);
+    expect(chargerConfig(prod(), dossier()).contracterOuvert).toBe(false);
+    expect(chargerConfig(prod({ CONTRACTER_OUVERT: "" }), dossier()).contracterOuvert).toBe(false);
+    expect(chargerConfig(prod({ CONTRACTER_OUVERT: "true" }), dossier()).contracterOuvert).toBe(true);
+    expect(refus(prod({ CONTRACTER_OUVERT: "oui" }))).toContain("CONTRACTER_OUVERT");
+  });
+
+  it("[A-230] la version de structure du code déployé est lue dans la configuration, absente par défaut", () => {
+    expect(chargerConfig({ NODE_ENV: "development" }, dossier()).versionStructureCode).toBeUndefined();
+    expect(chargerConfig(prod({ VERSION_STRUCTURE_CODE: "5" }), dossier()).versionStructureCode).toBe(5);
+    expect(refus(prod({ VERSION_STRUCTURE_CODE: "cinq" }))).toContain("VERSION_STRUCTURE_CODE");
+  });
+
+  it("[C-047] le retrait des anciens dumps est fermé par défaut ; seules 1 et true l'ouvrent ; toute autre valeur est refusée", () => {
+    expect(chargerConfig({ NODE_ENV: "test" }, dossier()).sauvegardesRetraitActif).toBe(false);
+    expect(chargerConfig({ NODE_ENV: "test", SAUVEGARDES_RETRAIT_ACTIF: "" }, dossier()).sauvegardesRetraitActif).toBe(false);
+    expect(chargerConfig({ NODE_ENV: "test", SAUVEGARDES_RETRAIT_ACTIF: "true" }, dossier()).sauvegardesRetraitActif).toBe(true);
+    expect(refus({ NODE_ENV: "test", SAUVEGARDES_RETRAIT_ACTIF: "oui" })).toContain("SAUVEGARDES_RETRAIT_ACTIF");
+  });
+
+  it("[A-257] l'effacement est fermé par défaut ; en production, EFFACEMENT_ACTIF sans EFFACEMENT_OUVERT_PAR daté empêche le démarrage", () => {
+    expect(chargerConfig(prod(), dossier()).effacementActif).toBe(false);
+    expect(chargerConfig({ NODE_ENV: "development", EFFACEMENT_ACTIF: "" }, dossier()).effacementActif).toBe(false);
+    expect(refus(prod({ EFFACEMENT_ACTIF: "true" }))).toContain("EFFACEMENT_OUVERT_PAR");
+    expect(refus(prod({ EFFACEMENT_ACTIF: "1", EFFACEMENT_OUVERT_PAR: "pas une date" }))).toContain("EFFACEMENT_OUVERT_PAR");
+    expect(chargerConfig(prod({ EFFACEMENT_ACTIF: "true", EFFACEMENT_OUVERT_PAR: "2029-01-15" }), dossier()).effacementActif).toBe(true);
+    expect(chargerConfig({ NODE_ENV: "test", EFFACEMENT_ACTIF: "true" }, dossier()).effacementActif).toBe(true);
+    refus({ NODE_ENV: "test", EFFACEMENT_ACTIF: "oui" });
+  });
 });

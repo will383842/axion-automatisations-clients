@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { lireYaml } from "../../scripts/garde-compose.ts";
+import { reserverGrappe } from "../../apps/api/src/provisionnement/verrou-grappe.ts";
 
 // T2-31 : grappe PostgreSQL « données », son PgBouncer, une base par client (ADR 0046). Tests contre le socle lancé par ops/socle/lancer.sh (job socle-integration).
 // Tout se passe dans des conteneurs jetables. Mots de passe : générés ici, préfixe TEST-NE-PAS-UTILISER-, jamais écrits dans un fichier.
@@ -372,14 +373,19 @@ describe("PgBouncer de la grappe données (A-234, A-235, A-236, A-210)", () => {
     }, 120_000);
 
     it("[A-236] la grappe refuse au-delà de 250 connexions serveur sans priver une base existante", async () => {
+      // Verrou EXCLUSIF de la grappe (verrou-grappe.ts) : la saturation ne tombe plus sur un autre fichier .int.test.ts en cours (53300 du rôle _mod_ de migrer-module).
+      const verrou = await reserverGrappe(`postgresql://provisionneur:${mdpGrappe("provisionneur")}@localhost/postgres?host=%2Ftmp%2Fsocle-donnees-socket`).catch((e: unknown) => {
+        writeSync(2, `A-236 verrou de la grappe non pris : ${(e as { code?: string }).code ?? "sans code"}\n`);
+        throw e;
+      });
       const h = adresse("pgbouncer-donnees");
       const existante = clientPg(h, 6432, role(A, "app"), `cli_${A}`, mdpDe(role(A, "app")));
-      await existante.connect();
-      await existante.query("begin; select 1");
       const clients = ids.flatMap((id) => [0, 1].map(() => clientPg(h, 6432, role(id, "app"), `cli_${id}`, motDePasse(role(id, "app")))));
       // Refus propre = saturation seulement (SQLSTATE 53300, attente dépassée, plafond de PgBouncer). Un échec d'authentification, une base absente ou une coupure ne comptent pas.
       const saturation = /too many clients|remaining connection slots|query_wait_timeout|query_timeout|no more connections allowed|max_client_conn|cannot connect to server|server login has been failing/i;
       try {
+        await existante.connect();
+        await existante.query("begin; select 1");
         const issues = await Promise.all(
           clients.map((c) => c.connect().then(() => c.query("begin; select 1")).then(() => "ouverte", (e: Error & { code?: string }) => (e.code === "53300" || saturation.test(e.message) ? "refus propre" : `autre : ${e.message}`))),
         );
@@ -395,8 +401,9 @@ describe("PgBouncer de la grappe données (A-234, A-235, A-236, A-210)", () => {
         await Promise.allSettled([existante.end(), ...clients.map((c) => c.end())]);
         // PgBouncer garde ses connexions serveur 30 s : on attend qu'elles retombent avant les essais suivants, même si une vérification a échoué.
         await attendre(() => toutesLesConnexions() === 0, 80);
+        await verrou.liberer();
       }
-    }, 300_000);
+    }, 900_000);
   });
 });
 

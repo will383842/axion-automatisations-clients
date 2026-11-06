@@ -20,6 +20,14 @@ describe("garde des canaux", () => {
     for (const n of ["signer", "verifier-entrant", "journal-canal"]) expect(verifierCanaux([f(`apps/api/src/canaux/${n}.ts`, route)])).toEqual([]);
   });
 
+  it("[C-510] seul apps/api/src/routes/executeur/index.ts échappe à enregistrerCanal ; tout autre fichier /api/executeur/ reste refusé", () => {
+    const route = 'serveur.register(r, { prefix: PREFIXE_C4 }); s.get("/api/executeur/v1/x", h);';
+    expect(verifierCanaux([f("apps/api/src/routes/executeur/index.ts", route)])).toEqual([]);
+    for (const chemin of ["apps/api/src/routes/executeur/autre.ts", "apps/api/src/routes/executeur/index.ts.copie.ts", "apps/api/src/routes/index.ts", "apps/api/src/executeur/index.ts"]) {
+      expect(verifierCanaux([f(chemin, route)]), chemin).toHaveLength(1);
+    }
+  });
+
   it("[C-510] la garde voit une route déclarée par le préfixe exporté des contrats", () => {
     expect(verifierCanaux([f("apps/api/src/routes/c4.ts", "serveur.register(routes, { prefix: PREFIXE_C4 });")])).toHaveLength(1);
     expect(verifierCanaux([f("apps/api/src/routes/c4.ts", "enregistrerCanal(serveur, 'x', deps, (s) => s.register(r, { prefix: PREFIXE_C4 }));")])).toEqual([]);

@@ -7,11 +7,10 @@ export interface PasserelleIa {
   completer(demande: { modele: string; entree: string }): Promise<{ texte: string; jetons: number; coutIaMicroCentimes: number }>;
 }
 
-// Port de données (C4 0.4.0) : seules les requêtes et actions déclarées par le module (`donnees` du manifeste) répondent ;
-// un autre nom est refusé. Aucune autre ouverture vers une base ; le SQL et l'historique restent du côté du port.
+// Port de données (C4 0.5.0, ADR 0109) : lecture seule. Seules les requêtes déclarées par le module (`donnees` du manifeste) répondent ;
+// un autre nom est refusé. Aucune écriture (retirée) ni autre ouverture vers une base ; le SQL est produit du côté du port.
 export interface PortDonnees {
   lire(nom: string, parametres?: Readonly<Record<string, unknown>>): Promise<readonly Record<string, unknown>[]>;
-  ecrire(nom: string, parametres?: Readonly<Record<string, unknown>>): Promise<void>;
 }
 
 export interface ContexteEtape {
@@ -23,6 +22,6 @@ export interface ContexteEtape {
   readonly ia: PasserelleIa;
   // Motif de l'IA pour la file de validation (C-561) : texte court, jamais écrit dans le journal.
   noterMotif(texte: string): void;
-  // Facultatif, et hors de CLES_CONTEXTE, tant que l'exécuteur ne le fournit pas (T4-50) ; absent = le module n'a rien déclaré.
+  // Facultatif, et hors de CLES_CONTEXTE, tant que l'exécuteur ne le fournit pas (T4-50d) ; absent = le module n'a rien déclaré.
   readonly donnees?: PortDonnees;
 }

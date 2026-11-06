@@ -19,6 +19,13 @@ export function routesGraph(app: FastifyInstance, etat: EtatGraph, mailpit: Clie
     if (etat.mode === "panne_generale") return rep.code(503).send({ error: { code: "ServiceUnavailable" } });
     const corps = (req.body ?? {}) as Record<string, string>;
     const client = corps["client_id"] ?? "inconnu@exemple.fr";
+    // Jeton de renouvellement tournant : un usage en rend un nouveau, la réutilisation révoque la lignée.
+    if (corps["grant_type"] === "refresh_token") {
+      if (etat.mode === "quota") return rep.code(429).send({ error: { code: "TooManyRequests" } });
+      const r = etat.tournant.echanger(corps["refresh_token"] ?? "");
+      if (r === "invalid_grant") return rep.code(400).send({ error: "invalid_grant", error_description: "AADSTS70000: jeton de renouvellement invalide ou révoqué." });
+      return { token_type: "Bearer", expires_in: 3599, access_token: `faux.${client}`, refresh_token: r.refresh_token };
+    }
     // Azure ignore la casse du locataire.
     const locataire = (req.params.tenant ?? "common").toLowerCase();
     // « Mauvais compte Microsoft » : mode de pilotage, le vrai connecteur n'envoie aucun paramètre de test.
@@ -33,6 +40,16 @@ export function routesGraph(app: FastifyInstance, etat: EtatGraph, mailpit: Clie
   };
   app.post("/oauth2/v2.0/token", jeton);
   app.post("/:tenant/oauth2/v2.0/token", jeton);
+
+  // Pilotage du jeton tournant (tests seulement) : émettre un jeton de départ, lire le compteur d'appels.
+  app.post("/__tournant/emettre", async (req, rep) => {
+    if (process.env["NODE_ENV"] !== "test") return rep.code(403).send({ error: "controle_refuse" });
+    return { refresh_token: etat.tournant.emettre(((req.body ?? {}) as Record<string, string>)["client_id"] ?? "inconnu@exemple.fr") };
+  });
+  app.get("/__tournant/etat", async (_req, rep) => {
+    if (process.env["NODE_ENV"] !== "test") return rep.code(403).send({ error: "controle_refuse" });
+    return { appels: etat.tournant.appels, revoque: etat.tournant.revoquees.size > 0 };
+  });
 
   // Simulation de l'accord de l'administrateur du client.
   app.get("/adminconsent", async (req, rep) => {

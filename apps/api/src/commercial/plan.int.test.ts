@@ -56,9 +56,10 @@ afterEach((contexte) => {
 
 const APPELANT = { acteur: "agent-essai", ip: "192.0.2.17" };
 const ins = (tenant: string, table: string, valeurs: Record<string, unknown>) => {
-  const v = { id: randomUUID(), tenant_id: tenant, ...valeurs };
+  // T2-52 : l'id d'une instance est tiré par la base (console_app ne le fournit plus), relu par RETURNING id.
+  const v: Record<string, unknown> = table === "instances" ? { tenant_id: tenant, ...valeurs } : { id: randomUUID(), tenant_id: tenant, ...valeurs };
   const cles = Object.keys(v);
-  return avecClient(app, tenant, (c) => c.query(`INSERT INTO ${table} (${cles.join(", ")}) VALUES (${cles.map((_, i) => `$${i + 1}`).join(", ")})`, Object.values(v)), APPELANT).then(() => v.id);
+  return avecClient(app, tenant, (c) => c.query(`INSERT INTO ${table} (${cles.join(", ")}) VALUES (${cles.map((_, i) => `$${i + 1}`).join(", ")})${table === "instances" ? " RETURNING id" : ""}`, Object.values(v)), APPELANT).then((r) => (table === "instances" ? r.rows[0]?.["id"] : v["id"]));
 };
 // Un client complet : organisation, une instance à l'état pause (aucun contrat de sous-traitance requis) et des conditions qui fournissent toutes les valeurs.
 async function client(engagement: number, formule = "abonnement") {

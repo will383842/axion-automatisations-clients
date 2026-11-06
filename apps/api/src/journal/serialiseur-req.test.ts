@@ -6,6 +6,10 @@ import { cheminSansRequete, retirerRequetes } from "./serialiseur-req.js";
 
 const jetonDeTest = () => `TEST-NE-PAS-UTILISER-jeton-${randomBytes(8).toString("hex")}`;
 
+// Le reqId est un UUID aléatoire : ses chiffres peuvent, rarement, ressembler à un numéro de téléphone pour le détecteur.
+// On le masque avant le scan (le détecteur reste inchangé) ; le reste de la ligne est scanné tel quel.
+const sansIdentifiantAleatoire = (sortie: string) => sortie.replace(/("reqId":")[0-9a-f-]{36}(")/g, "$1ID$2");
+
 function serveurAvecLignes() {
   const lignes: string[] = [];
   const serveur = construireServeur({ journal: { write: (l) => void lignes.push(l) } });
@@ -22,7 +26,7 @@ describe("journal de l'API : l'adresse sans paramètres", () => {
     const sortie = lignes.join("");
     expect(sortie, "témoin : la requête est journalisée").toContain('"url":"/x"');
     expect(sortie.includes(jeton) || sortie.includes("SECRET-FICTIF") || sortie.includes("code=")).toBe(false);
-    expect(scannerTexte("journal", sortie)).toEqual([]);
+    expect(scannerTexte("journal", sansIdentifiantAleatoire(sortie))).toEqual([]);
   });
 
   it("[A-346] le chemin, la méthode et le code de réponse restent dans le journal", async () => {
@@ -64,7 +68,7 @@ describe("journal de l'API : l'adresse sans paramètres", () => {
     const sortie = lignes.join("");
     expect(sortie, "témoin : l'erreur est journalisée").toContain("erreur interne");
     expect(sortie.includes(jeton)).toBe(false);
-    expect(scannerTexte("journal", sortie)).toEqual([]);
+    expect(scannerTexte("journal", sansIdentifiantAleatoire(sortie))).toEqual([]);
   });
 
   it("[C-531] une redirection dont Location porte ?code= et une requête avec Referer ne mettent pas le jeton au journal", async () => {

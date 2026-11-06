@@ -1,15 +1,21 @@
+import { writeSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { demarrerBouchonHub } from "../../../../tests/bouchons/hub/serveur.ts";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { avecClient } from "../db/client-actif.js";
 import { migrer } from "../db/migrer.js";
 import { deposer, transactionOuverte } from "./boite-envoi.js";
 import { creerExpediteur } from "./expediteur.js";
 import { magasinPg } from "./relais.js";
 import { creerSigneur } from "./signer.js";
+
+// Le rapport de la CI est un JSON hors du journal : un essai en échec est écrit par writeSync(2, …), lisible dans le journal du job.
+afterEach((contexte) => {
+  if (contexte.task.result?.state === "fail") writeSync(2, `ECHEC ${contexte.task.name} : ${String(contexte.task.result.errors?.[0]?.message ?? "").slice(0, 400)}\n`);
+});
 
 // Boîte d'envoi (T2-14) sur la vraie base. Socle lancé par ops/socle/lancer.sh (job socle-integration).
 // Les essais tournent en parallèle sur une base partagée : identifiants de client tirés au hasard.

@@ -51,10 +51,13 @@ export const TEXTE_PERMIS: Readonly<Record<string, number>> = Object.freeze({
   "executions.code_erreur": 65,
   "alertes.type": 64,
   "alertes.regle": 64,
+  // Soldées par la migration 0019 (T2-52, bornes validées en base).
+  "executions.auteur": 200,
+  "executions.termine_par": 200,
+  "alertes.assignee_a": 200,
 });
-// Dettes écrites (ADR 0055) : trois colonnes de T2-06 sans longueur maximale, hors des fichiers autorisés de T2-07. Liste fermée : elle ne grandit pas, et elle doit
-// être vidée (colonne bornée, puis retrait ici) dès que le schéma d'exploitation est repris.
-export const TEXTE_SANS_LIMITE_DETTE: readonly string[] = Object.freeze(["alertes.assignee_a", "executions.auteur", "executions.termine_par"]);
+// Dettes écrites (ADR 0055) : soldée par la migration 0019 (T2-52), qui borne executions.auteur, executions.termine_par et alertes.assignee_a. Liste fermée et vide : elle ne grandit pas.
+export const TEXTE_SANS_LIMITE_DETTE: readonly string[] = Object.freeze([]);
 const sqlDe = (c: { value: Parameters<PgDialect["sqlToQuery"]>[0] }) => new PgDialect().sqlToQuery(c.value).sql;
 const borne = (verifs: string[], colonne: string): number | null => {
   let max: number | null = null;
@@ -105,15 +108,21 @@ describe("garde des colonnes : aucun texte libre (C-034)", () => {
 
   it("[C-034] une colonne de la dette qui devient bornée doit en sortir ; une colonne neuve hors liste n'entre jamais dans la dette", () => {
     const bornee = pgTable("executions", { auteur: text("auteur") }, (t) => [check("a_longueur", sql`char_length(${t.auteur}) <= 200`)]);
-    expect(textesSansLimite([bornee])).toEqual(["executions.auteur : désormais bornée, la retirer de la dette"]);
+    expect(textesSansLimite([bornee], undefined, ["executions.auteur"])).toEqual(["executions.auteur : désormais bornée, la retirer de la dette"]);
     const neuve = pgTable("demandes", { note: text("note") });
     expect(textesSansLimite([neuve])).toEqual(["demandes.note : hors de la liste fermée"]);
   });
 
-  it("[C-034] la liste des textes permis est fermée : six colonnes bornées et trois dettes écrites, toutes sur demandes, executions, alertes", () => {
-    expect(Object.keys(TEXTE_PERMIS)).toHaveLength(6);
-    expect(TEXTE_SANS_LIMITE_DETTE).toHaveLength(3);
+  it("[C-034] la liste des textes permis est fermée : neuf colonnes bornées et aucune dette, toutes sur demandes, executions, alertes", () => {
+    expect(Object.keys(TEXTE_PERMIS)).toHaveLength(9);
+    expect(TEXTE_SANS_LIMITE_DETTE).toHaveLength(0);
     expect(Object.keys(TEXTE_PERMIS).every((k) => ["demandes", "executions", "alertes"].includes(k.split(".")[0] ?? ""))).toBe(true);
     expect(Object.values(TEXTE_PERMIS).every((n) => n > 0 && n <= 255)).toBe(true);
+  });
+});
+
+describe("dette des textes sans limite soldée (migration 0019)", () => {
+  it("[T2-07] TEXTE_SANS_LIMITE_DETTE est vide", () => {
+    expect(TEXTE_SANS_LIMITE_DETTE).toEqual([]);
   });
 });

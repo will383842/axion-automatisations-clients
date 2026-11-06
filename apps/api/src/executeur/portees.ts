@@ -1,5 +1,5 @@
 import type { Pool } from "pg";
-import { avecClient, avecEquipe, type Appelant } from "../db/client-actif.js";
+import { avecEquipe, avecEquipeEcriture, type Appelant } from "../db/client-actif.js";
 
 // Portées d'une instance pour l'API de l'exécuteur (C-017). Le tenant_id vient TOUJOURS de la base, jamais de la requête.
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -23,9 +23,16 @@ export async function resoudreInstance(poolEquipe: Pool, instanceId: string): Pr
   return { tenantId: ligne.tenant_id, celluleCode: ligne.cellule_code, etat: ligne.etat as EtatConsole, arretEnvois: ligne.arret_envois, version: ligne.version_etat_voulu };
 }
 
-// Attribution (ou retrait, avec null) d'une cellule : sous le client de l'instance, journalisée par l'acteur. Rend vrai si une ligne a changé.
+// Attribution (ou retrait, avec null) d'une cellule par la fonction réservée à l'équipe (migration 0019) : console_app n'écrit plus cellule_code.
+// Même erreur (P0002) que la cellule ou l'instance existe ou non. `pool` est celui de l'équipe. Rend vrai quand l'attribution a réussi.
 export async function attribuerCellule(pool: Pool, cible: { tenantId: string; instanceId: string; cellule: string | null }, appelant: Appelant): Promise<boolean> {
   if (!UUID.test(cible.instanceId)) throw new Error("identifiant d'instance invalide");
   if (cible.cellule !== null && (cible.cellule.length > 64 || !CELLULE.test(cible.cellule))) throw new Error("code de cellule invalide");
-  return avecClient(pool, cible.tenantId, async (c) => (await c.query("UPDATE instances SET cellule_code = $3 WHERE tenant_id = $1 AND id = $2", [cible.tenantId, cible.instanceId, cible.cellule])).rowCount === 1, appelant);
+  try {
+    await avecEquipeEcriture(pool, cible.tenantId, (c) => c.query("SELECT public.attribuer_cellule($1, $2)", [cible.instanceId, cible.cellule]), appelant);
+    return true;
+  } catch (erreur) {
+    if ((erreur as { code?: string }).code === "P0002") return false;
+    throw erreur;
+  }
 }

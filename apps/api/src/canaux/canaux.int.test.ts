@@ -1,12 +1,18 @@
+import { writeSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
 import Fastify, { type FastifyInstance } from "fastify";
 import { Redis } from "ioredis";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { EN_TETES, signer } from "../../../../packages/contrats/src/commun/signature.js";
 import { ouvrirConnexion, type Connexion } from "../files/connexion.js";
 import { brancherErreurs } from "../plugins/erreurs.js";
 import { enregistrerCanal } from "./verifier-entrant.js";
+
+// Le rapport de la CI est un JSON hors du journal : un essai en échec est écrit par writeSync(2, …), lisible dans le journal du job.
+afterEach((contexte) => {
+  if (contexte.task.result?.state === "fail") writeSync(2, `ECHEC ${contexte.task.name} : ${String(contexte.task.result.errors?.[0]?.message ?? "").slice(0, 400)}\n`);
+});
 
 // Valkey du socle lancé par ops/socle/lancer.sh (job socle-integration), comme files/valkey.int.test.ts.
 const docker = (...args: string[]) => execFileSync("docker", args, { encoding: "utf8" }).trim();

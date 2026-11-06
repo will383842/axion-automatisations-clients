@@ -98,6 +98,8 @@ export const cellules = tableCommune(
   (t) => [
     unique("cellules_code_unique").on(t["code"] as never),
     check("cellules_code_format", sql`${t["code"]} ~ '^[a-z][a-z0-9_-]{0,62}$'`),
+    // T2-52 : forme C4 du code (pas de _), en plus de la contrainte ci-dessus qui reste en place.
+    check("cellules_code_forme_c4", sql`${t["code"]} ~ '^[a-z0-9]+(-[a-z0-9]+)*$' AND char_length(${t["code"]}) <= 64`),
     check("cellules_adresse_format", sql`${t["adresseInterne"]} ~ '^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$'`),
     check("cellules_capacite_bornee", plage(t["capacite"], 1, 100000)),
     check("cellules_instances_bornees", plage(t["nombreInstances"], 0, 100000)),

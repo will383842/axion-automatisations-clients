@@ -79,3 +79,20 @@ export async function avecEquipe<T>(poolEquipe: Pool, fn: (client: PoolClient) =
     fn,
   );
 }
+
+// Écriture de l'équipe pour un client donné (T2-52, ADR 0111) : transaction en lecture-écriture du pool console_equipe, avec app.tenant_id et app.acteur
+// (portée de la transaction). Sert uniquement à appeler une fonction SQL réservée à l'équipe (attribuer_cellule), jamais à écrire directement dans une table.
+export async function avecEquipeEcriture<T>(poolEquipe: Pool, tenantId: string, fn: (client: PoolClient) => Promise<T>, appelant: Appelant): Promise<T> {
+  if (!UUID.test(tenantId)) throw new Error("identifiant de client invalide");
+  verifierAppelant(appelant);
+  return enTransaction(
+    poolEquipe,
+    async (client) => {
+      await client.query("BEGIN");
+      await client.query(DELAIS);
+      await client.query("SELECT set_config('app.tenant_id', $1, true)", [tenantId]);
+      await client.query("SELECT set_config('app.acteur', $1, true), set_config('app.ip', $2, true)", [appelant.acteur, appelant.ip ?? ""]);
+    },
+    fn,
+  );
+}

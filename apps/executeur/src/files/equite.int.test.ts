@@ -4,7 +4,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import type { Palier } from "../config.ts";
 import { PlacesValkey } from "./semaphore.ts";
 import { PlafondModule } from "./plafond-module.ts";
-import { Repartiteur, SousFilesValkey } from "./tour-de-role.ts";
+import { pomper, Repartiteur, SousFilesValkey } from "./tour-de-role.ts";
 import { journalEchecs } from "../../../api/src/provisionnement/journal-echecs.ts";
 
 // Les échecs sont écrits par writeSync(2, …) : le rapport JSON de la CI n'est pas publié (règle des routines).

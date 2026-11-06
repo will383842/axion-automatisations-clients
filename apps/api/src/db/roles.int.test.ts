@@ -1,8 +1,14 @@
+import { writeSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import pg from "pg";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { controlerInvariants, type Requete } from "../../../../packages/contrats/src/c5/invariants.js";
+
+// Le rapport de la CI est un JSON hors du journal : un essai en échec est écrit par writeSync(2, …), lisible dans le journal du job.
+afterEach((contexte) => {
+  if (contexte.task.result?.state === "fail") writeSync(2, `ECHEC ${contexte.task.name} : ${String(contexte.task.result.errors?.[0]?.message ?? "").slice(0, 400)}\n`);
+});
 
 // Tests contre le socle lancé par ops/socle/lancer.sh (job socle-integration).
 // Les services ne publient aucun port : on joint leur adresse sur le réseau interne (docker inspect), jamais écrite dans un fichier.

@@ -82,7 +82,7 @@ describe("requêtes déclarées des versions installées (lecture seule)", () =>
   it("[A-170] le filtre d'établissement est imposé quand la requête le déclare (établissements de la session, en $1)", async () => {
     const { service, vus } = monter({ [`${A}/${INST_A}`]: base() });
     await service.lire(session, INST_A, "compte", {});
-    expect(vus.valeurs.at(-1)![0]).toEqual([ETAB_A]);
+    expect(vus.valeurs.find((v) => v.length > 0)![0]).toEqual([ETAB_A]);
     expect(vus.textes.some((t) => t.includes('"etablissement_id" = ANY($1::uuid[])'))).toBe(true);
   });
 
@@ -103,9 +103,10 @@ describe("requêtes déclarées des versions installées (lecture seule)", () =>
   });
 
   it("[C-624] seules les colonnes déclarées sont rendues et le nombre de lignes est borné", async () => {
-    const { service } = monter({ [`${A}/${INST_A}`]: base() });
+    const { service, vus } = monter({ [`${A}/${INST_A}`]: base() });
     const lignes = await service.lire(session, INST_A, "personnes-recentes", { n: 3 });
-    expect(lignes).toHaveLength(50);
+    expect(vus.valeurs.find((v) => v.length > 0)).toContain(3); // la limite du module est liée au SQL
+    expect(lignes).toHaveLength(200); // la base répond 300 lignes : filet de sortie à 200
     expect(Object.keys(lignes[0]!)).toEqual(["id"]);
   });
 

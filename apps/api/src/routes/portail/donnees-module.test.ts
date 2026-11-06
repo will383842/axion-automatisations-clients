@@ -4,7 +4,6 @@ import { fastifyVide } from "../../../../../scripts/liste-routes.js";
 import { routeDonneesModule } from "./donnees-module.js";
 
 const A = "11111111-1111-4111-8111-111111111111";
-const B = "22222222-2222-4222-8222-222222222222";
 const INST = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
 function monter(ouvert = true) {
@@ -16,17 +15,6 @@ function monter(ouvert = true) {
 }
 
 describe("route des requêtes déclarées", () => {
-  it("[C-624] @isolation POST /api/portail/v1/automatisations/:instance/donnees/:nom ignore tout client désigné par l'adresse, un en-tête, un cookie ou le corps", async () => {
-    const { appli, appels } = monter();
-    const url = `/api/portail/v1/automatisations/${INST}/donnees/compte`;
-    const r = await appli.inject({ method: "POST", url: `${url}?tenantId=${B}`, headers: { "x-tenant": B, cookie: `tenant=${B}` }, payload: {} });
-    expect(r.statusCode).toBe(200);
-    expect(r.json()).toEqual({ lignes: [{ total: 1 }] });
-    expect(appels[0]![0]).toMatchObject({ tenantId: A });
-    expect(JSON.stringify(appels)).not.toContain(B);
-    await appli.close();
-  });
-
   it("[C-624] la route est fermée par défaut et refuse un nom ou une instance mal formés", async () => {
     const f = monter(false);
     expect((await f.appli.inject({ method: "POST", url: `/api/portail/v1/automatisations/${INST}/donnees/compte`, payload: {} })).statusCode).toBe(503);

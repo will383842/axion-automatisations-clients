@@ -51,7 +51,7 @@ function ports(hote: string, port: number, verifie: boolean): { p: PortsMandatai
     journaliser: (l) => void journal.push(l),
     maintenant: Date.now,
   };
-  const { jeton } = jetons.emettre({ tenantId: CLIENT, instanceId: INSTANCE, connexionId: CONNEXION, executionId: EXECUTION, portees: ["messagerie"] }, 60_000);
+  const { jeton } = jetons.emettre({ tenantId: CLIENT, instanceId: INSTANCE, connexionId: CONNEXION, executionId: EXECUTION, portees: ["messagerie.lecture", "messagerie.envoi"] }, 60_000);
   return { p, jeton, journal };
 }
 

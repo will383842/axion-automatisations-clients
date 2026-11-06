@@ -46,7 +46,7 @@ export async function servirSmtp(client: Duplex, p: PortsMandataire): Promise<vo
           rep = (await l.ligne()) ?? "";
         }
         const id = meca?.toUpperCase() === "PLAIN" && rep !== undefined ? decoderPlain(rep) : null;
-        portee = id ? authentifier(p, id.utilisateur, id.jeton) : null;
+        portee = id ? authentifier(p, id.utilisateur, id.jeton, "messagerie.envoi") : null;
         if (!portee) return void (code = "refuse", dire(`${ECHEC}\r\n`));
       } else dire("530 5.7.0 Authentification requise\r\n");
     }

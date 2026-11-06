@@ -39,10 +39,12 @@ export function decoderPlain(b64: string): { utilisateur: string; jeton: string 
   return autorisation === "" || autorisation === utilisateur ? { utilisateur, jeton } : null;
 }
 
-export function authentifier(p: PortsMandataire, utilisateur: string, jeton: string): PorteeJeton | null {
+// `exigee` : la portée que le protocole demande (SMTP = envoi, IMAP = lecture). Une portée absente donne le même refus qu'un jeton inconnu.
+export type PorteeMessagerie = "messagerie.lecture" | "messagerie.envoi";
+export function authentifier(p: PortsMandataire, utilisateur: string, jeton: string, exigee: PorteeMessagerie): PorteeJeton | null {
   if (!UUID.test(utilisateur)) return null;
   const portee = p.jetons.lire(jeton);
-  return portee && portee.instanceId === utilisateur ? portee : null;
+  return portee && portee.instanceId === utilisateur && portee.portees.includes(exigee) ? portee : null;
 }
 
 // Rend la connexion DU jeton et son mot de passe, ou lève un refus : client de la base différent du client du jeton = refus.
@@ -60,5 +62,5 @@ export async function ouvrirDepuisJeton(p: PortsMandataire, portee: PorteeJeton)
   return { connexion, motDePasse };
 }
 
-export const secretsDe = (identifiant: string, motDePasse: string): string[] => [motDePasse, Buffer.from(motDePasse).toString("base64"), Buffer.from(`\0${identifiant}\0${motDePasse}`).toString("base64")];
+export const secretsDe = (identifiant: string, motDePasse: string): string[] => [motDePasse, Buffer.from(motDePasse, "utf8").toString("latin1"), Buffer.from(motDePasse).toString("base64"), Buffer.from(`\0${identifiant}\0${motDePasse}`).toString("base64")];
 export const reponsePlain = (identifiant: string, motDePasse: string): string => Buffer.from(`\0${identifiant}\0${motDePasse}`).toString("base64");

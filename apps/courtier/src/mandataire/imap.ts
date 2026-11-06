@@ -51,7 +51,7 @@ export async function servirImap(client: Duplex, p: PortsMandataire): Promise<vo
           const a = /^(?:"([^"\\\r\n]*)"|([^\s"{}\\]+)) (?:"([^"\\\r\n]*)"|([^\s"{}\\]+))$/.exec(reste);
           id = a ? { utilisateur: a[1] ?? a[2] ?? "", jeton: a[3] ?? a[4] ?? "" } : null;
         }
-        portee = id ? authentifier(p, id.utilisateur, id.jeton) : null;
+        portee = id ? authentifier(p, id.utilisateur, id.jeton, "messagerie.lecture") : null;
         if (!portee) return void (code = "refuse", dire(`${tag} ${ECHEC}\r\n`));
       } else dire(`${tag} BAD authentification requise\r\n`);
     }

@@ -255,7 +255,7 @@ describe("mandataire IMAP/SMTP du courtier", () => {
 
   it("[A-335] le filtre suit les littéraux : une donnée qui ressemble à LOGIN passe, une commande LOGIN est refusée", () => {
     const f = new FiltreCommandes("imap");
-    expect(f.pousser(Buffer.from("a3 APPEND INBOX {16}\r\na4 LOGIN x y\r\n\r\na5 NOOP\r\n")).refus).toBeUndefined();
+    expect(f.pousser(Buffer.from("a3 SEARCH TEXT {16}\r\na4 LOGIN x y\r\n\r\na5 NOOP\r\n")).refus).toBeUndefined();
     expect(new FiltreCommandes("imap").pousser(Buffer.from("a4 login x y\r\n")).refus).toBeDefined();
     expect(new FiltreCommandes("imap").pousser(Buffer.from("a4 AUTHENTICATE PLAIN\r\n")).refus).toBeDefined();
     expect(new FiltreCommandes("imap").pousser(Buffer.from("a4 STARTTLS\r\n")).refus).toBeDefined();

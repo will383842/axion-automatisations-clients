@@ -92,6 +92,8 @@ export class Lecteur {
 
 const MAX_LIGNE = 65_536;
 const IMAP_REFUSEES = new Set(["LOGIN", "AUTHENTICATE", "STARTTLS"]);
+// Aucune portée d'écriture IMAP n'existe : la lecture est seule. Ces commandes modifient ou vident la boîte (UID <commande> compris), elles sont refusées.
+const IMAP_ECRITURE = new Set(["STORE", "EXPUNGE", "MOVE", "COPY", "APPEND", "CREATE", "DELETE", "RENAME", "SETACL", "DELETEACL", "SUBSCRIBE", "UNSUBSCRIBE", "SETQUOTA", "SETMETADATA", "SETANNOTATION"]);
 const SMTP_REFUSEES = new Set(["AUTH", "STARTTLS"]);
 // Filtre des commandes de l'exécuteur après l'authentification. Il suit les littéraux IMAP ({n}), les données SMTP (DATA … « . ») et BDAT :
 // des octets de données qui ressemblent à LOGIN passent, une vraie commande LOGIN, AUTHENTICATE, AUTH ou STARTTLS est refusée, quelle que soit la casse.
@@ -137,8 +139,9 @@ export class FiltreCommandes {
     return this.protocole === "imap" ? `${/^[A-Za-z0-9.]{1,32}$/.test(tag) ? tag : "*"} BAD commande refusee\r\n` : "503 5.5.1 commande refusee\r\n";
   }
   #imap(texte: string): { refus?: string } {
-    const m = /^(\S+)\s+([A-Za-z]+)/.exec(texte);
+    const m = /^(\S+)\s+([A-Za-z]+)(?:\s+([A-Za-z]+))?/.exec(texte);
     if (m && IMAP_REFUSEES.has(m[2]!.toUpperCase())) return { refus: this.#refus(m[1]!) };
+    if (m && (IMAP_ECRITURE.has(m[2]!.toUpperCase()) || (m[2]!.toUpperCase() === "UID" && IMAP_ECRITURE.has(m[3]?.toUpperCase() ?? "")))) return { refus: this.#refus(m[1]!) };
     const l = /\{(\d{1,9})\+?\}$/.exec(texte);
     if (l) this.#litteral = Number(l[1]);
     return {};

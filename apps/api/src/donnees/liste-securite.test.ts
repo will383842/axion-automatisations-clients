@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { COLONNES_CHIFFREES, LISTE_BLANCHE, verifierListeBlanche } from "./requetes/liste.js";
+import { COLONNES_CHIFFREES, LISTE_BLANCHE, numerosCoherents, verifierListeBlanche } from "./requetes/liste.js";
 
 // Colonnes chiffrées lues dans le MODÈLE (T2-37c). Les attaques sur le texte SQL des tours 1 à 5 sont remplacées par requetes/structure-securite.test.ts : plus aucun texte SQL n'entre.
 describe("liste blanche : colonnes chiffrées", () => {

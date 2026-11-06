@@ -58,9 +58,9 @@ describe("vue « comme le client »", () => {
   it("[A-005] la vue s'arrête à la fin de l'intervention si elle tombe avant les 60 minutes", async () => {
     const fin = new Date(T0.getTime() + 600_000);
     const { d } = deps(true);
-    const s = await ouvrirVueClient({ ...d, finIntervention: async () => fin }, equipe, A, "assistance");
+    const s = await ouvrirVueClient({ ...d, finIntervention: async () => fin }, equipe, A, "assistance", "administrateur");
     expect(s.vue!.expireLe).toEqual(fin);
     const loin = new Date(T0.getTime() + 7_200_000);
-    expect((await ouvrirVueClient({ ...d, finIntervention: async () => loin }, equipe, A, "assistance")).vue!.expireLe).toEqual(new Date(T0.getTime() + 3_600_000));
+    expect((await ouvrirVueClient({ ...d, finIntervention: async () => loin }, equipe, A, "assistance", "administrateur")).vue!.expireLe).toEqual(new Date(T0.getTime() + 3_600_000));
   });
 });

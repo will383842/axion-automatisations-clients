@@ -44,7 +44,7 @@ const equipe = (extra: Partial<SessionDonnees> = {}): SessionDonnees => ({ tenan
 const code = async (p: Promise<unknown>) => ((await p.catch((e: unknown) => e)) as ErreurApi).code;
 
 // Motif des importations de pilote de base interdites dans les applications console et portail (A-170).
-const MOTIF_PILOTE_INTERDIT = /from\s+["'](pg|postgres|drizzle-orm[^"']*|@neondatabase[^"']*)["']|require\(\s*["']pg["']|import\(\s*["'](pg|postgres)["']|postgres(ql)?:\/\/|cli_[0-9a-f]{12}_app/;
+const MOTIF_PILOTE_INTERDIT = /(?:from|import|require)\s*\(?\s*["'](?:pg|postgres|pg-[a-z-]+|(?:pg|postgres)\/[^"']*|drizzle-orm[^"']*|@neondatabase[^"']*)["']|\)\(\s*["'](?:pg|postgres)["']\s*\)|postgres(?:ql)?:\/\/|cli_[0-9a-f]{12}_app/;
 
 describe("service des données client", () => {
   it("[A-170] le motif de pilote interdit reconnaît require, import dynamique, sous-chemins, postgres:// et drizzle", () => {

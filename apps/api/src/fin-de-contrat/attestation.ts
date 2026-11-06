@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
+import { exigerAucunGel } from "../gel/garde.js";
+import type { GelLitige } from "../retention/purger.js";
 import { echeance, type Dossier, type EtapeFin } from "./machine.js";
-import { composerContenu, OBJETS_GARDES, texteDe, type ContenuAttestation, type NatureAttestation, type ObjetCompteRendu, type PieceGardee } from "./attestation-contenu.js";
+import { composerContenu, OBJETS_GARDES, texteDe, type ContenuAttestation, type NatureAttestation, type ObjetCompteRendu, type PieceGardee } from "../pdf/attestation-contenu.js";
 
 export { texteDe, type ContenuAttestation, type NatureAttestation };
 
@@ -21,6 +23,7 @@ export interface Rangement { tenantId: string; finDeContratId: string; nature: N
 export interface MessageAttestation { tenantId: string; finDeContratId: string; nature: NatureAttestation; pdfReference: string; empreinteSha256: string; cle: string }
 
 export interface PortsAttestation {
+  gel: Pick<GelLitige, "gelActif">;
   maintenant(): Date;
   fin(tenantId: string, finDeContratId: string): Promise<FinDeContrat | undefined>;
   compteRendu(tenantId: string, finDeContratId: string, nature: NatureAttestation): Promise<CompteRendu | undefined>;
@@ -35,6 +38,8 @@ export interface PortsAttestation {
 }
 
 export async function produireAttestation(p: PortsAttestation, tenantId: string, finDeContratId: string, nature: NatureAttestation): Promise<{ reference: string; empreinteSha256: string }> {
+  // Un gel pour litige suspend aussi l'envoi (C-609) ; relu ici, juste avant de produire.
+  await exigerAucunGel(p.gel, tenantId, "preavis");
   const fin = await p.fin(tenantId, finDeContratId);
   if (!fin) throw new AttestationRefusee("fin_de_contrat_inconnue");
   const maintenant = p.maintenant();

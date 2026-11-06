@@ -13,12 +13,13 @@ const GARDES = ["base", "compartiment", "sauvegardes", "cle_client", "identifian
 const EFFACES = [...GARDES, "coffre", "roles"] as const;
 const objet = (type: string, i: number) => ({ type, date: new Date(`2027-02-0${(i % 8) + 1}T08:00:00Z`), empreinte: `empreinte-${type}` });
 
-function monter(o: { maintenant?: Date; exportDepuis?: Date | null; effacementDecide?: "demande" | "proposition" | "aucune"; avis?: Date | null; sansCleIa?: boolean; effacementFait?: boolean } = {}) {
+function monter(o: { gel?: boolean; maintenant?: Date; exportDepuis?: Date | null; effacementDecide?: "demande" | "proposition" | "aucune"; avis?: Date | null; sansCleIa?: boolean; effacementFait?: boolean } = {}) {
   const contenus: ContenuAttestation[] = [];
   const rangees: { nature: NatureAttestation; octets: Uint8Array; empreinte: string; titreContrat: string }[] = [];
   const envois: { nature: NatureAttestation; cle: string }[] = [];
   const decision = o.effacementDecide ?? "aucune";
   const p: PortsAttestation = {
+    gel: { gelActif: async () => o.gel ?? false },
     maintenant: () => o.maintenant ?? new Date(J30.getTime() + JOUR),
     fin: async (t, id) => (t === A && id === FIN ? { identifiantConsole: "client-0001", raisonSociale: "Boulangerie Rivoire", dateFin: "2027-01-10", exportDisponibleDepuis: o.exportDepuis === undefined ? DEBUT_EXPORT : o.exportDepuis, delaiPropositionMois: 24 } : undefined),
     compteRendu: async (_t, _id, nature) => {
@@ -82,6 +83,12 @@ describe("attestation de mise à l'écart", () => {
     await produireAttestation(reglage, A, FIN, "mise_a_l_ecart");
     expect(texteDe(m.contenus[0]!)).toMatch(/18 mois/);
   });
+  it("[C-475] une attestation de mise à l'écart est émise à la fin de contrat ; elle liste ce qui est gardé, clé comprise", async () => {
+    const { p, contenus, rangees } = monter();
+    await produireAttestation(p, A, FIN, "mise_a_l_ecart");
+    expect(rangees).toHaveLength(1);
+    expect(contenus[0]!.objets.map((o) => o.libelle).join("\n")).toMatch(/Clé de chiffrement du client \(conservée\)/);
+  });
   it("[B-168] l'attestation mentionne la clé d'IA du client désactivée et conservée", async () => {
     const { p, contenus } = monter();
     await produireAttestation(p, A, FIN, "mise_a_l_ecart");
@@ -105,6 +112,11 @@ describe("attestation de mise à l'écart", () => {
     const ok = monter({ maintenant: J30 });
     await produireAttestation(ok.p, A, FIN, "mise_a_l_ecart");
     expect(ok.rangees).toHaveLength(1);
+  });
+  it("[C-609] un gel pour litige suspend l'attestation : rien n'est rangé ni envoyé", async () => {
+    const { p, rangees, envois } = monter({ gel: true });
+    await expect(produireAttestation(p, A, FIN, "mise_a_l_ecart")).rejects.toThrow();
+    expect(rangees.length + envois.length).toBe(0);
   });
   it("[A-258] un autre client ou une fin de contrat inconnue est refusé", async () => {
     const { p } = monter();
@@ -165,5 +177,16 @@ describe("étape d'attestation dans la machine", () => {
     expect(journal).toEqual(["mise_a_l_ecart", "attestation"]);
     await machine.executer(A);
     expect(journal).toEqual(["mise_a_l_ecart", "attestation"]);
+  });
+});
+
+describe("couleurs de l'attestation", () => {
+  it("[A-258] l'attestation n'utilise aucune couleur hors jetons (contrôle du gabarit)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { analyserFichier } = await import("../../../../scripts/garde-couleurs.ts");
+    const sources = ["apps/api/src/fin-de-contrat/attestation.ts", "apps/api/src/pdf/attestation-contenu.ts", "packages/design/src/pdf/Gabarit.tsx", "packages/design/src/pdf/EnTete.tsx", "packages/design/src/pdf/Pied.tsx"];
+    for (const f of sources) expect(analyserFichier(f, readFileSync(new URL(`../../../../${f}`, import.meta.url), "utf8")), f).toEqual([]);
+    // Le gabarit ne prend ses couleurs que des jetons.
+    expect(readFileSync(new URL("../../../../packages/design/src/pdf/Gabarit.tsx", import.meta.url), "utf8")).toContain('valeur("couleur.');
   });
 });

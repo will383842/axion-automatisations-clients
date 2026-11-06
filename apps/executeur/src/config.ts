@@ -8,6 +8,10 @@ export interface ConfigExecuteur {
   // Places simultanées par client selon son palier : lues ici, jamais en dur dans le travailleur.
   placesParPalier: Record<Palier, number>;
   bailPlaceMs: number;
+  // Équité entre clients (T4-53), tout à 0 = fermé : plafond de places par module, fenêtre d'étalement des heures fixes (minutes), tour de rôle.
+  placesParModule: number;
+  etalementMin: number;
+  tourDeRole: boolean;
   delaiRemiseMs: number;
   // Travaux traités en même temps par la cellule : plus grand que le plus grand palier, pour servir plusieurs clients.
   concurrence: number;
@@ -25,6 +29,15 @@ function entier(env: Record<string, string | undefined>, cle: string, defaut: nu
   return n;
 }
 
+// Entier positif ou nul (0 = fonction fermée).
+function entierOuZero(env: Record<string, string | undefined>, cle: string): number {
+  const brut = env[cle];
+  if (brut === undefined) return 0;
+  const n = Number(brut);
+  if (brut.trim() === "" || !Number.isInteger(n) || n < 0) throw new Error(`${cle} doit être un entier positif ou nul (reçu « ${brut} »)`);
+  return n;
+}
+
 export function chargerConfig(env: Record<string, string | undefined>, listes: ListesEpinglees = EPINGLEES): ConfigExecuteur {
   const hote = env.VALKEY_HOTE;
   if (!hote) throw new Error("VALKEY_HOTE est obligatoire");
@@ -36,6 +49,9 @@ export function chargerConfig(env: Record<string, string | undefined>, listes: L
     cellule: env.EXECUTEUR_CELLULE ?? "auto-run-1",
     valkey: { host: hote, port: entier(env, "VALKEY_PORT", 6379) },
     placesParPalier: { essentiel: 2, pro: 4, etendu: 8 },
+    placesParModule: entierOuZero(env, "EXECUTEUR_PLACES_PAR_MODULE"),
+    etalementMin: entierOuZero(env, "EXECUTEUR_ETALEMENT_MIN"),
+    tourDeRole: env.EXECUTEUR_TOUR_DE_ROLE === "1",
     bailPlaceMs: entier(env, "EXECUTEUR_BAIL_PLACE_MS", 300_000),
     delaiRemiseMs: entier(env, "EXECUTEUR_DELAI_REMISE_MS", 5_000),
     concurrence: entier(env, "EXECUTEUR_CONCURRENCE", 16),

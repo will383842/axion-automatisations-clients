@@ -225,21 +225,30 @@ describe("migration 0019 : durcissement du lot 2, avec le socle", { timeout: 120
   it("[T2-14] EXPLAIN de la lecture des lignes dues : Index Scan sur boite_envoi_dues_idx, aucun Seq Scan", async () => {
     const A = randomUUID();
     await creerOrg(A);
-    await ecrire(app, A, (c) => c.query("INSERT INTO boite_envoi (tenant_id, id, destination, route, methode, corps, cle_anti_doublon, empreinte_corps, etat) SELECT $1, gen_random_uuid(), 'hub', '/essai', 'POST', '{}'::jsonb, gen_random_uuid(), repeat('a', 64), (CASE WHEN g % 50 = 0 THEN 'a_envoyer' ELSE 'envoye' END)::etat_envoi FROM generate_series(1, 5000) g", [A]), APPELANT);
-    await su.query("ANALYZE boite_envoi");
-    const { rows } = await su.query("EXPLAIN (FORMAT JSON) SELECT id FROM boite_envoi WHERE destination = 'hub' AND etat IN ('a_envoyer', 'en_cours') ORDER BY cree_le LIMIT 100");
-    const plan = JSON.stringify(rows[0]);
-    expect(plan).toContain("boite_envoi_dues_idx");
-    expect(plan).not.toContain("Seq Scan");
+    try {
+      // Les lignes ont un prochain essai dans un jour : le balayage des autres essais (dues, tous clients confondus) ne les voit pas.
+      await ecrire(app, A, (c) => c.query("INSERT INTO boite_envoi (tenant_id, id, destination, route, methode, corps, cle_anti_doublon, empreinte_corps, etat, prochain_essai) SELECT $1, gen_random_uuid(), 'hub', '/essai', 'POST', '{}'::jsonb, gen_random_uuid(), repeat('a', 64), (CASE WHEN g % 50 = 0 THEN 'a_envoyer' ELSE 'envoye' END)::etat_envoi, now() + interval '1 day' FROM generate_series(1, 5000) g", [A]), APPELANT);
+      await su.query("ANALYZE boite_envoi");
+      const { rows } = await su.query("EXPLAIN (FORMAT JSON) SELECT id FROM boite_envoi WHERE destination = 'hub' AND etat IN ('a_envoyer', 'en_cours') ORDER BY cree_le LIMIT 100");
+      const plan = JSON.stringify(rows[0]);
+      expect(plan).toContain("boite_envoi_dues_idx");
+      expect(plan).not.toContain("Seq Scan");
+    } finally {
+      await su.query("DELETE FROM boite_envoi WHERE tenant_id = $1", [A]).catch(() => undefined);
+    }
   });
 
   it("[T2-17b] EXPLAIN des alertes non confirmées sur l'index partiel", async () => {
     const A = randomUUID();
     await creerOrg(A);
-    await ecrire(app, A, (c) => c.query("INSERT INTO alertes_c3 (tenant_id, id, event_id, type, reference, confirmee_le) SELECT $1, gen_random_uuid(), gen_random_uuid(), 'ecart_propose', 'ref-' || g, CASE WHEN g % 100 = 0 THEN NULL ELSE now() END FROM generate_series(1, 5000) g", [A]), APPELANT);
-    await su.query("ANALYZE alertes_c3");
-    const { rows } = await su.query("EXPLAIN (FORMAT JSON) SELECT id FROM alertes_c3 WHERE tenant_id = $1 AND confirmee_le IS NULL ORDER BY cree_le", [A]);
-    expect(JSON.stringify(rows[0])).toContain("alertes_c3_non_confirmees_idx");
+    try {
+      await ecrire(app, A, (c) => c.query("INSERT INTO alertes_c3 (tenant_id, id, event_id, type, reference, confirmee_le) SELECT $1, gen_random_uuid(), gen_random_uuid(), 'ecart_propose', 'ref-' || g, CASE WHEN g % 100 = 0 THEN NULL ELSE now() END FROM generate_series(1, 5000) g", [A]), APPELANT);
+      await su.query("ANALYZE alertes_c3");
+      const { rows } = await su.query("EXPLAIN (FORMAT JSON) SELECT id FROM alertes_c3 WHERE tenant_id = $1 AND confirmee_le IS NULL ORDER BY cree_le", [A]);
+      expect(JSON.stringify(rows[0])).toContain("alertes_c3_non_confirmees_idx");
+    } finally {
+      await su.query("DELETE FROM alertes_c3 WHERE tenant_id = $1", [A]).catch(() => undefined);
+    }
   });
 
   // ---- M10

@@ -7,12 +7,12 @@ import lexique from "../../../../scripts/lexique-interdit.json" with { type: "js
 const CAS = ECRANS.flatMap((e) => e.etats.map((etat) => ({ e, etat })));
 
 describe("recette des écrans inscrits, dans chaque état déclaré", () => {
-  it("[C-594] chaque écran inscrit passe les contrôles structurels dans chaque état (axe-core et formats : Playwright)", async () => {
+  it("[C-594] [B-230] chaque écran inscrit passe les contrôles structurels dans chaque état (axe-core et formats : Playwright)", async () => {
     expect(CAS.length).toBeGreaterThan(0);
     for (const { e, etat } of CAS) expect(controlesStructurels(await rendreEcran(e, etat)), `${e.route} ${etat}`).toEqual([]);
   });
 
-  it("[B-201] un seul bouton principal par écran", async () => {
+  it("[B-201] [B-290] un seul bouton principal par écran", async () => {
     for (const { e, etat } of CAS) expect(boutonsPrincipaux(await rendreEcran(e, etat)), `${e.route} ${etat}`).toBeLessThanOrEqual(1);
   });
 
@@ -44,5 +44,5 @@ describe("recette des écrans inscrits, dans chaque état déclaré", () => {
     for (const { e, etat } of CAS) await expect(rendreEcran(e, etat), `${e.route} ${etat}`).resolves.toEqual(expect.any(String));
   });
 
-  it.todo("[C-594] aucun défilement horizontal à 360 px (Playwright, workflow ecrans-console)");
+  // Reste à faire avec le workflow ecrans-console (Playwright) : « [C-594] aucun défilement horizontal à 360 px » et axe-core aux quatre formats. Fiche : T3-04.
 });

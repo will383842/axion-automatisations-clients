@@ -6,7 +6,7 @@ import { boutonsPrincipaux, controlesStructurels, etatChargementValide, etatErre
 const lexique = JSON.parse(readFileSync(new URL("../../../../scripts/lexique-interdit.json", import.meta.url), "utf8")) as { mots: string[] };
 
 describe("règles de recette des écrans", () => {
-  it("[B-201] un seul bouton principal par écran", () => {
+  it("[B-201] [B-290] un seul bouton principal par écran", () => {
     expect(boutonsPrincipaux('<button data-variante="principal">A</button>')).toBe(1);
     expect(boutonsPrincipaux('<button data-variante="principal">A</button><button data-variante="principal">B</button>')).toBe(2);
     expect(boutonsPrincipaux('<button data-variante="secondaire">A</button>')).toBe(0);

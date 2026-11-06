@@ -1,15 +1,15 @@
 import Fastify from "fastify";
 import { describe, expect, it } from "vitest";
 import { brancherErreurs } from "../plugins/erreurs.js";
-import { exigerDroit, type DepsDroits, type MembreDroits } from "./exiger-droit.js";
+import { exigerDroit, type DepsDroits, type MembreDroits, type TraceRefus } from "./exiger-droit.js";
 import { dansPortee, filtrerParPortee } from "./portee.js";
 
 const A = "11111111-1111-4111-8111-111111111111";
 const B = "22222222-2222-4222-8222-222222222222";
 const limite = (role: MembreDroits["role"] = "second_administrateur", clients: string[] = [A]): MembreDroits => ({ sujet: "m1", role, actif: true, portee: { clients, automatisations: [] } });
 
-function appli(etat: { membre?: MembreDroits; absence?: boolean }) {
-  const traces: Record<string, unknown>[] = [];
+function appli(etat: { membre?: MembreDroits | undefined; absence?: boolean }) {
+  const traces: TraceRefus[] = [];
   const d: DepsDroits = {
     membre: async () => etat.membre,
     absenceOuverte: async () => etat.absence === true,
@@ -59,7 +59,7 @@ describe("exigerDroit", () => {
   });
 
   it("[C-617] les droits suivent l'absence à chaque requête, sans cache", async () => {
-    const etat: { membre?: MembreDroits; absence?: boolean } = { membre: limite(), absence: true };
+    const etat: { membre?: MembreDroits | undefined; absence?: boolean } = { membre: limite(), absence: true };
     const { s } = appli(etat);
     expect((await s.inject({ method: "POST", url: "/violation" })).statusCode).toBe(200);
     etat.absence = false;

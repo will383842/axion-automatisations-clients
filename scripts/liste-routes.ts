@@ -6,6 +6,7 @@ import { routeCanaux } from "../apps/api/src/routes/canaux.js";
 import { routeImportCatalogue } from "../apps/api/src/routes/catalogue/import.js";
 import { routeCrm } from "../apps/api/src/routes/crm.js";
 import { routeDonnees } from "../apps/api/src/routes/donnees.js";
+import { routeDonneesModule } from "../apps/api/src/routes/portail/donnees-module.js";
 import { routeExecuteur } from "../apps/api/src/routes/executeur/index.js";
 import { routeEntree } from "../apps/api/src/routes/entree.js";
 import { routeGel } from "../apps/api/src/routes/gel.js";
@@ -95,6 +96,7 @@ export async function listerRoutes(): Promise<RouteListee[]> {
   brancherErreurs(appli);
   routeSante(appli);
   routeDonnees(appli, rien);
+  routeDonneesModule(appli, rien);
   routeGel(appli, { exigerEquipe: garde, exigerReauthentification: garde, session: rien, gel: rien });
   routeATrancher(appli, { exigerEquipe: garde, appelant: rien, reauthentifie: rien, appliquer: rien, ecarter: rien });
   routeCanaux(appli, { exigerEquipe: garde, magasin: rien });

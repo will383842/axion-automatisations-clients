@@ -1,4 +1,4 @@
-import Fastify from "fastify";
+import { fastifyVide as Fastify } from "../../scripts/liste-routes.js";
 import { describe, expect, it } from "vitest";
 import { brancherErreurs } from "../../apps/api/src/plugins/erreurs.js";
 import { CHEMIN_CONSOLE, CHEMIN_EFFACEMENT, gestionnairesFinDeContrat } from "../../apps/api/src/routes/fin-de-contrat.js";

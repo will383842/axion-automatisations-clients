@@ -9,12 +9,13 @@ const BASE = `cli_${ID}`;
 const MDP = ["premier-mot-de-passe", "second-mot-de-passe", "troisieme-mot-de-passe"];
 const session = (o: Partial<SessionEquipe> = {}): SessionEquipe => ({ acteur: "equipe-1", role: "administrateur", clientActifId: T, reauthentifie: true, ...o });
 
-function monter(o: { etat?: string; rolePresent?: boolean; echecRole?: boolean; echecCoupure?: boolean; echecAlerte?: boolean } = {}) {
+function monter(o: { etat?: string; rolePresent?: boolean; echecRole?: boolean; echecCoupure?: boolean; echecAlerte?: boolean; echecLecture?: boolean } = {}) {
   let maintenant = Date.parse("2027-01-10T10:00:00Z");
   let n = 0;
   const coffre = new Map<string, string>();
   const versions = new Map<string, number>();
   const role = { empreinte: "", version: 0, validJusqua: undefined as Date | undefined };
+  const roles = new Map<string, { version: number; validJusqua: Date }>();
   const evenements: string[] = [];
   const journal: Record<string, unknown>[] = [];
   const taches: { nom: string; donnees: unknown; options: Record<string, unknown> }[] = [];
@@ -26,8 +27,9 @@ function monter(o: { etat?: string; rolePresent?: boolean; echecRole?: boolean; 
     base: async () => ({ etat: (o.etat ?? "active") as "active", grappe: "donnees-1", nomBase: `cli_${T.replaceAll("-", "")}` }),
     admin: () => ({
       async changerMotDePasse(r, empreinte, version, validJusqua) {
-        if (o.echecRole) throw new Error(`échec avec ${empreinte}`);
+        if (o.echecRole || (o.echecLecture && r.endsWith("_lecture"))) throw new Error(`échec avec ${empreinte}`);
         evenements.push(`role:${r}`);
+        roles.set(r, { version, validJusqua });
         Object.assign(role, { empreinte, version, validJusqua });
       },
     }),
@@ -43,7 +45,7 @@ function monter(o: { etat?: string; rolePresent?: boolean; echecRole?: boolean; 
     periodeJours: PERIODE_DEFAUT_JOURS,
   };
   const file = { async add(nom: string, donnees: unknown, options: Record<string, unknown>) { taches.push({ nom, donnees, options }); } };
-  return { p, file, coffre, role, alertes, evenements, journal, taches, avancer: (ms: number) => { maintenant += ms; }, bloquer: () => { pris = true; } };
+  return { p, file, coffre, role, roles, versions, alertes, evenements, journal, taches, avancer: (ms: number) => { maintenant += ms; }, bloquer: () => { pris = true; } };
 }
 
 describe("rotation des mots de passe", () => {
@@ -52,9 +54,10 @@ describe("rotation des mots de passe", () => {
     const rot = creerRotation(m.p);
     await rot.pourBase(T, m.file);
     expect(m.coffre.get(`technique/donnees/${BASE}/app`)).toBe(MDP[0]);
-    expect(m.role).toMatchObject({ empreinte: `SCRAM-SHA-256$4096:sel$${MDP[0]}:cle`, version: 1 });
+    expect(m.role).toMatchObject({ empreinte: `SCRAM-SHA-256$4096:sel$${MDP[1]}:cle`, version: 1 });
+    expect(m.coffre.get(`technique/donnees/${BASE}/lecture`)).toBe(MDP[1]);
     // Le coffre est mis à jour AVANT le rôle (jamais un rôle dont le mot de passe serait inconnu).
-    expect(m.evenements).toEqual(["coffre", `role:cli_${ID}_app`]);
+    expect(m.evenements).toEqual(["coffre", `role:cli_${ID}_app`, "coffre", `role:cli_${ID}_lecture`]);
     // La grâce de 10 minutes se règle par une tâche différée de reconnexion PgBouncer.
     expect(DELAI_GRACE_MS).toBe(600_000);
     expect(m.taches).toHaveLength(1);
@@ -63,8 +66,8 @@ describe("rotation des mots de passe", () => {
     expect(m.evenements.at(-1)).toBe(`reconnecter:${BASE}`);
     // Seconde rotation : l'ancien mot de passe n'est plus celui du rôle.
     await rot.pourBase(T, m.file);
-    expect(m.role.empreinte).toContain(MDP[1]!);
-    expect(m.role.empreinte).not.toContain(MDP[0]!);
+    expect(m.role.empreinte).toContain(MDP[0]!);
+    expect(m.role.empreinte).not.toContain(MDP[1]!);
   });
 
   it("[A-169] période de 30 jours par défaut, jobId = base + période, deux rotations simultanées d'une base ne passent pas ensemble", async () => {
@@ -202,6 +205,7 @@ describe("rotation des mots de passe", () => {
     const terminer = ordres.find((o) => o.texte.startsWith("SELECT pg_terminate_backend"))!;
     expect(terminer.texte).toMatch(/pg_stat_activity/);
     expect(terminer.texte).toMatch(/usename = \$1/);
+    expect(terminer.texte).toMatch(/usename = \$2/);
     expect(terminer.texte).toMatch(/pg_auth_members/);
     expect(terminer.valeurs).toEqual([`cli_${ID}_app`, `cli_${ID}_lecture`]);
     // Même si la base ne répond pas, PgBouncer reprend (RESUME) : la base n'est jamais laissée en pause.
@@ -233,5 +237,39 @@ describe("rotation des mots de passe", () => {
     const sans = monter({ echecAlerte: true });
     await expect(creerRotation(sans.p).surEchec(tache(5), erreur)).rejects.toMatchObject({ code: "alerte_non_envoyee" });
     expect(sans.journal).toContainEqual(expect.objectContaining({ evenement: "alerte_non_envoyee", tenantId: T }));
+  });
+
+  it("[A-169] la rotation de _lecture pose VALID UNTIL ; entre coffre et rôle le courtier refuse secret_incoherent", async () => {
+    const m = monter();
+    await creerRotation(m.p).pourBase(T, m.file);
+    const lecture = m.roles.get(`cli_${ID}_lecture`);
+    expect(lecture?.version).toBe(m.versions.get(`technique/donnees/${BASE}/lecture`));
+    expect(lecture!.validJusqua.getTime()).toBe(Date.parse("2027-01-10T10:00:00Z") + 2 * PERIODE_DEFAUT_JOURS * 86_400_000);
+    // Le coffre reçoit le secret de _lecture avant le rôle ; si le rôle échoue, la version du coffre dépasse celle du rôle (le courtier lit cet écart comme secret_incoherent).
+    const panne = monter({ echecLecture: true });
+    await expect(creerRotation(panne.p).pourBase(T, panne.file)).rejects.toMatchObject({ code: "role_echoue" });
+    expect(panne.versions.get(`technique/donnees/${BASE}/lecture`)).toBe(1);
+    expect(panne.roles.has(`cli_${ID}_lecture`)).toBe(false);
+    expect(panne.roles.get(`cli_${ID}_app`)?.version).toBe(1);
+  });
+
+  it("[A-209] aucun nom hors cli_<id>_(app|lecture) n'est modifié par la rotation (_proprietaire refusé)", async () => {
+    const ordres: string[] = [];
+    const sql = {
+      requete: async (texte: string, valeurs?: unknown[]) => {
+        ordres.push(texte);
+        if (texte.startsWith("SELECT quote_ident")) return [{ q: `"${String(valeurs?.[0])}"` }] as never;
+        if (texte.startsWith("SELECT quote_literal")) return [{ lit: `'${String(valeurs?.[0])}'` }] as never;
+        if (texte.startsWith("SELECT 1 FROM pg_roles")) return [{ "?column?": 1 }] as never;
+        return [] as never;
+      },
+    };
+    const admin = adminRotationPg(sql);
+    const emp = "SCRAM-SHA-256$4096:sel$abc=:def=";
+    await admin.changerMotDePasse(`cli_${ID}_lecture`, emp, 3, new Date("2027-03-01T00:00:00Z"));
+    expect(ordres.filter((o) => o.startsWith("ALTER ROLE"))).toEqual([`ALTER ROLE "cli_${ID}_lecture" PASSWORD '${emp}' VALID UNTIL '2027-03-01T00:00:00.000Z'`]);
+    const avant = ordres.length;
+    for (const r of [`cli_${ID}_proprietaire`, `cli_${ID}_lecture2`, `xcli_${ID}_lecture`, "provisionneur"]) await expect(admin.changerMotDePasse(r, emp, 1, new Date())).rejects.toThrow();
+    expect(ordres).toHaveLength(avant);
   });
 });

@@ -156,4 +156,16 @@ describe("accès humain et coupure des sessions sur un vrai PostgreSQL", () => {
     expect(await refuse(S, r.app, MDP_APP, nomBaseDe(A))).toMatch(/password authentication failed/i);
     expect((await (await ouvrir(S, r.app, nouveau, nomBaseDe(A))).query("SELECT 1")).rowCount).toBe(1);
   });
+
+  it("[C-035] le gel coupe aussi les sessions de cli_<id>_lecture", async () => {
+    const r = nomsRoles(A);
+    const mdpLecture = `essai-${randomBytes(8).toString("hex")}`;
+    await admin.query(`ALTER ROLE "${r.lecture}" PASSWORD ${lit(mdpLecture)}`);
+    const lecture = await ouvrir(S, r.lecture, mdpLecture, nomBaseDe(A));
+    await lecture.query("SELECT 1");
+    const autre = await ouvrir(S, nomsRoles(B).app, MDP_APP, nomBaseDe(B));
+    await sessionsPg({ requete: async (t, v) => (await admin.query(t, v)).rows as never }, { requete: async () => [] as never }).couper(nomBaseDe(A), r.app);
+    await expect(lecture.query("SELECT 1")).rejects.toThrow();
+    expect((await autre.query("SELECT 1")).rowCount).toBe(1);
+  });
 });

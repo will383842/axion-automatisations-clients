@@ -134,6 +134,13 @@
       "when": 1793992057376,
       "tag": "0022_supervision_clients",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1793995830433,
+      "tag": "0023_supervision_communes",
+      "breakpoints": true
     }
   ]
 }

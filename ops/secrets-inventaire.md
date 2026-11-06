@@ -30,6 +30,7 @@ Les secrets de l'équipe vivent dans Bitwarden ou sous `technique/` d'OpenBao, J
 | `CONSOLE_HUB_ACTIF` | aucun | environnement cloud (interrupteur du canal Hub, fermé par défaut) | sans objet |
 | `CONSOLE_CRM_ACTIF` | aucun | environnement cloud (interrupteur du canal CRM, fermé par défaut) | sans objet |
 | `EXECUTEUR_API_OUVERTE` | aucun | environnement cloud (interrupteur des routes de l'exécuteur, configuration et état voulu ; fermé par défaut) | sans objet |
+| `EXECUTEUR_DONNEES_HOTES` | aucun | environnement cloud (liste fermée des hôtes de la grappe de bases que le courtier peut remettre au port données ; obligatoire) | sans objet |
 | `EQUIPE_ADRESSE_WILL` | aucun | environnement cloud (adresse de l'équipe pour les e-mails de service ; une adresse, pas un secret) | sans objet |
 | `RETENTION_PURGE_ACTIVE` | aucun | environnement cloud (interrupteur du retrait des exécutions anciennes et de la proposition de suppression des notes à Will, fermé par défaut ; aucune note n'est effacée automatiquement) | sans objet |
 | `SAUVEGARDES_RETRAIT_ACTIF` | aucun | environnement cloud (interrupteur du retrait des anciens dumps de client sur la cible de sauvegarde, fermé par défaut ; suspendu par un gel pour litige) | sans objet |

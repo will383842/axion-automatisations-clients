@@ -69,7 +69,7 @@ describe("port données de l'exécuteur", () => {
   it("[C-624] un paramètre non déclaré, dont un identifiant de client ou de base forgé, est refusé sans ouvrir de connexion", async () => {
     for (const forge of [{ tenantId: B }, { base: "cli_bbbbbbbbbbbb" }, { hote: "autre.test" }, { motif: "x", etablissement_id: ETAB }, { ["__proto__"]: 1 }, { motif: 12 }, { motif: "x".repeat(21) }]) {
       const { lire, e } = port();
-      await expect(lire("liste-factures", JSON.parse(JSON.stringify(forge)) as object), JSON.stringify(forge)).rejects.toMatchObject({ code: "schema_invalide" });
+      await expect(lire("liste-factures", JSON.parse(JSON.stringify(forge)) as Record<string, unknown>), JSON.stringify(forge)).rejects.toMatchObject({ code: "schema_invalide" });
       expect(e.ouvertures).toEqual([]);
     }
   });
@@ -151,5 +151,30 @@ describe("port données de l'exécuteur", () => {
   it("[C-631] un contexte d'exécution illisible (client, instance, tâche ou corrélation) est refusé à la création", () => {
     const f = creerFabriquePort(ports().p, LIMITES, MODELE);
     for (const c of [{ ...ctx(), tenantId: "x" }, { ...ctx(), instanceId: "x" }, { ...ctx(), idTache: "a b" }, { ...ctx(), correlation: "x" }]) expect(() => f(c)).toThrow();
+  });
+
+  it("[A-170] deux lectures simultanées d'un même client n'ouvrent jamais plus d'une connexion à la fois (CONNECTION LIMIT partagée avec la console)", async () => {
+    const x = ports();
+    let actives = 0;
+    let max = 0;
+    const ouvrir = x.p.ouvrir;
+    x.p.ouvrir = async (b) => {
+      const c = await ouvrir(b);
+      actives += 1; max = Math.max(max, actives);
+      const q = c.query;
+      return { query: async (t, v) => { await new Promise((ok) => setTimeout(ok, 5)); return q(t, v); }, liberer: (err) => { actives -= 1; c.liberer(err); } };
+    };
+    const lire = creerFabriquePort(x.p, LIMITES, MODELE)(ctx()).lire;
+    await Promise.all([lire("liste-factures", { motif: "a" }), lire("liste-factures", { motif: "b" }), lire("liste-factures", { motif: "c" })]);
+    expect(max).toBe(1);
+    expect(x.e.ouvertures).toHaveLength(3);
+  });
+
+  it("[C-624] un manifeste modifié sous la même empreinte n'est pas servi depuis le cache", async () => {
+    const x = ports();
+    const lire = creerFabriquePort(x.p, LIMITES, MODELE)(ctx()).lire;
+    await lire("liste-factures", { motif: "x" });
+    x.p.instance = async () => instance({ requetes: [], actions: [] }); // même empreinte, contenu différent
+    await expect(lire("liste-factures", { motif: "x" })).rejects.toMatchObject({ code: "introuvable" });
   });
 });

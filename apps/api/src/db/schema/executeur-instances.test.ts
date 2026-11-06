@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
-import { getTableConfig } from "drizzle-orm/pg-core";
+import type { SQL } from "drizzle-orm";
+import { getTableConfig, PgDialect } from "drizzle-orm/pg-core";
 import { describe, expect, it } from "vitest";
 import { instances } from "./clients.ts";
 
@@ -37,7 +38,7 @@ describe("instances → cellule et version de l'état voulu (migration 0018)", (
 
 describe("instances.id unique (migration 0019, ADR 0111)", () => {
   it("[A-163] instances.id a un défaut gen_random_uuid et l'index unique instances_id_unique", () => {
-    expect(String(colonne("id")?.default ?? "")).toMatch(/gen_random_uuid/);
+    expect(new PgDialect().sqlToQuery(colonne("id")?.default as SQL).sql).toMatch(/gen_random_uuid/);
     const unique = config.indexes.find((i) => i.config.name === "instances_id_unique");
     expect(unique?.config.unique).toBe(true);
     expect(unique?.config.columns).toHaveLength(1);

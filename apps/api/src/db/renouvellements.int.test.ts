@@ -44,9 +44,9 @@ const creerOrg = (A: string) => avecClient(app, A, (c) => c.query("INSERT INTO o
 // Instance de l'organisation, avec un plan commercial « arret » ou « reconduction » (valeurs fictives, jamais un prix réel).
 async function creerInstanceAvecPlan(A: string, suite: "arret" | "reconduction"): Promise<void> {
   await avecClient(app, A, async (c) => {
-    const instance = randomUUID();
     const planId = randomUUID();
-    await c.query("INSERT INTO instances (id, tenant_id, organisation_id, code_automatisation, formule, environnement, etat) VALUES ($1, $2, $2, 'relance-devis', 'abonnement', 'test', 'pause')", [instance, A]);
+    // T2-52 : l'id de l'instance est tiré par la base (console_app ne le fournit plus).
+    const instance = (await c.query("INSERT INTO instances (tenant_id, organisation_id, code_automatisation, formule, environnement, etat) VALUES ($1, $1, 'relance-devis', 'abonnement', 'test', 'pause') RETURNING id", [A])).rows[0]?.["id"] as string;
     const colonnes = { id: planId, tenant_id: A, instance_id: instance, frais_mise_en_place_ht_centimes: 100, prix_recurrent_mensuel_ht_centimes: 200, periode_facturation_mois: 1, mode_avance: "aucune", maintenance_incluse_mois: 0, suite_maintenance: suite, engagement_mois: 0, ...SOURCES, auteur: APPELANT.acteur };
     await c.query(`INSERT INTO plans_commerciaux (${Object.keys(colonnes).join(", ")}) VALUES (${Object.keys(colonnes).map((_, i) => `$${i + 1}`).join(", ")})`, Object.values(colonnes));
     await c.query("UPDATE instances SET plan_commercial = $2 WHERE tenant_id = $1 AND id = $3", [A, planId, instance]);

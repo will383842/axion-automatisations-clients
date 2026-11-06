@@ -80,9 +80,9 @@ const signerSousTraitance = (tenant: string) => {
   if (!sousTraitance.has(tenant)) sousTraitance.set(tenant, ecrire(app, tenant, (c) => c.query(`INSERT INTO contrats (${cles.join(", ")}) VALUES (${cles.map((_, i) => `$${i + 1}`).join(", ")})`, Object.values(v)), APPELANT));
   return sousTraitance.get(tenant);
 };
-const creerInstance = async (tenant: string, id = randomUUID(), extra: Record<string, unknown> = {}) => {
+const creerInstance = async (tenant: string, extra: Record<string, unknown> = {}) => {
   if ((extra["etat"] ?? "active") === "active") await signerSousTraitance(tenant);
-  const v = { id, tenant_id: tenant, organisation_id: tenant, code_automatisation: "relance-devis", formule: "abonnement", environnement: "production", ...extra };
+  const v = { tenant_id: tenant, organisation_id: tenant, code_automatisation: "relance-devis", formule: "abonnement", environnement: "production", ...extra };
   const cles = Object.keys(v);
   return ecrire(app, tenant, (c) => c.query(`INSERT INTO instances (${cles.join(", ")}) VALUES (${cles.map((_, i) => `$${i + 1}`).join(", ")}) RETURNING id`, Object.values(v)), APPELANT);
 };
@@ -173,8 +173,8 @@ describe("tables de client, avec le socle", { timeout: 30_000 }, () => {
   it("[A-126] une instance refuse un état hors active, pause, erreur, livree", async () => {
     const A = randomUUID();
     await creerOrg(A);
-    for (const etat of ["active", "pause", "erreur", "livree"]) await creerInstance(A, randomUUID(), { etat });
-    await expect(creerInstance(A, randomUUID(), { etat: "supprimee" })).rejects.toMatchObject({ code: "22P02" });
+    for (const etat of ["active", "pause", "erreur", "livree"]) await creerInstance(A, { etat });
+    await expect(creerInstance(A, { etat: "supprimee" })).rejects.toMatchObject({ code: "22P02" });
   });
 
   it("[A-119] @isolation avec le client A, console_app ne lit ni n'écrit aucune ligne de B dans organisations, contacts, instances", async () => {
@@ -193,7 +193,7 @@ describe("tables de client, avec le socle", { timeout: 30_000 }, () => {
       expect((await c.query("UPDATE instances SET etat = 'pause' WHERE id = $1", [instanceB])).rowCount).toBe(0);
     }, APPELANT);
     // Écrire une ligne au nom de B depuis A : refus par WITH CHECK.
-    await expect(ecrire(app, A, (c) => c.query("INSERT INTO instances (id, tenant_id, organisation_id, code_automatisation, formule, environnement, etat) VALUES ($1, $2, $2, 'x', 'abonnement', 'test', 'pause')", [randomUUID(), B]))).rejects.toMatchObject({ code: "42501" });
+    await expect(ecrire(app, A, (c) => c.query("INSERT INTO instances (tenant_id, organisation_id, code_automatisation, formule, environnement, etat) VALUES ($1, $1, 'x', 'abonnement', 'test', 'pause')", [B]))).rejects.toMatchObject({ code: "42501" });
     // Sans client actif : aucune ligne ; chaîne, identifiant ou injection dans app.tenant_id : refusés ou vides.
     for (const t of ["organisations", "contacts", "instances"]) expect((await app.query(`SELECT count(*)::int AS n FROM ${t}`)).rows[0]?.n, t).toBe(0);
     for (const mauvais of ["", "pas-un-uuid", `${A}' OR '1'='1`]) {
@@ -284,12 +284,12 @@ describe("réserves de l'audit de la PR 95, avec le socle", { timeout: 60_000 },
     }).catch((e: unknown) => e);
     await dormir(300);
     const t1 = avecClient(app, A, async (c) => {
-      await c.query("INSERT INTO instances (id, tenant_id, organisation_id, code_automatisation, formule, environnement, etat) VALUES ($1, $2, $2, 'x', 'abonnement', 'test', 'pause')", [randomUUID(), A]);
+      await c.query("INSERT INTO instances (tenant_id, organisation_id, code_automatisation, formule, environnement, etat) VALUES ($1, $1, 'x', 'abonnement', 'test', 'pause')", [A]);
       await c.query("UPDATE instances SET etat = 'pause' WHERE id = $1", [X]);
     }).catch((e: unknown) => e);
     await dormir(1000);
     const debut = Date.now();
-    await avecClient(app, tiers, (c) => c.query("INSERT INTO instances (id, tenant_id, organisation_id, code_automatisation, formule, environnement, etat) VALUES ($1, $2, $2, 'x', 'abonnement', 'test', 'pause')", [randomUUID(), tiers]), APPELANT);
+    await avecClient(app, tiers, (c) => c.query("INSERT INTO instances (tenant_id, organisation_id, code_automatisation, formule, environnement, etat) VALUES ($1, $1, 'x', 'abonnement', 'test', 'pause')", [tiers]), APPELANT);
     // La borne de la fiche est 10 s ; derrière PgBouncer (4 connexions serveur par rôle) l'attente d'une connexion s'y ajoute : 30 s, l'échec réel est une erreur 55P03.
     expect(Date.now() - debut).toBeLessThan(30_000);
     await Promise.all([t0, t1]);

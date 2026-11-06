@@ -394,9 +394,10 @@ describe("garde des migrations : phase contracter (T2-38)", () => {
 });
 
 describe("migration 0019 de durcissement du lot 2 (T2-52a)", () => {
-  const dossier = fileURLToPath(new URL("../apps/api/drizzle", import.meta.url));
+  const racine = fileURLToPath(new URL("..", import.meta.url));
+  const dossier = join(racine, "apps/api/drizzle");
   it("[A-233] 0019 passe la garde ; ses deux fonctions sont dans la liste fermée", () => {
-    expect(gardeMigrations(dossier)).toEqual([]);
+    expect(gardeMigrations(racine)).toEqual([]);
     const liste = JSON.parse(readFileSync(new URL("./garde-migrations-fonctions.json", import.meta.url), "utf8")) as { fonctions: { fichier: string; nom: string }[] };
     const de0019 = liste.fonctions.filter((f) => f.fichier === "0019_durcissement_lot_2.sql").map((f) => f.nom).sort();
     expect(de0019).toEqual(["attribuer_cellule", "propositions_statut_final"]);

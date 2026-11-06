@@ -135,7 +135,7 @@ describe("règles C5 d'unicité et de clés étrangères sur le vrai PostgreSQL"
     const options = { rolesApplication: /^(console|moteur)_(app|equipe)$/ };
     const sur = (await controlerInvariants(requete, BASE, options)).filter((e) => e.objet.startsWith("public.") && e.regle !== "role_contourne_rls");
     expect(sur).toEqual([]);
-    expect(EXCEPTIONS_UNICITE).toEqual([{ table: "public.instances", index: "instances_id_unique", raison: "ADR 0111" }]);
+    expect(EXCEPTIONS_UNICITE).toEqual([{ table: "instances", index: "instances_id_unique", raison: "ADR 0111" }]);
     const index = await migration.query("SELECT indexdef FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'instances_id_unique'");
     expect(index.rows[0]?.["indexdef"]).toMatch(/UNIQUE INDEX instances_id_unique ON public\.instances USING btree \(id\)/);
   });

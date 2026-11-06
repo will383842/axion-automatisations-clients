@@ -71,9 +71,9 @@ export const TABLES_COMMUNES: readonly string[] = Object.freeze([
   "public.cellules",
   "public.registre_traitements",
 ]);
-// Unicités permises sans tenant_id : liste fermée et vide. Une entrée ne s'ajoute qu'avec sa raison, relue en 2 tours (ADR 0040).
+// Unicités permises sans tenant_id : liste fermée, une seule entrée nominative (instances_id_unique, ADR 0111). Une entrée ne s'ajoute qu'avec sa raison, relue en 2 tours (ADR 0040).
 // Aucune option d'appel ne l'étend.
-export const EXCEPTIONS_UNICITE: readonly { table: string; index: string; raison: string }[] = Object.freeze([]);
+export const EXCEPTIONS_UNICITE: readonly { table: string; index: string; raison: string }[] = Object.freeze([{ table: "instances", index: "instances_id_unique", raison: "ADR 0111" }]);
 
 // Les 8 invariants de l'annexe A : contrôlés ici dès la version 0, ou à brancher au lot 2 (README.md).
 export const INVARIANTS_C5 = [

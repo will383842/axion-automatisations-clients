@@ -128,10 +128,14 @@ export const gelsLitige = tableClient(
     poseePar: text("posee_par").notNull(),
     leveeLe: instant("levee_le"),
     levePar: text("leve_par"),
+    // T2-52 : motif de la levée, relu sur le gel levé. Jamais effacé (aucun DELETE).
+    motifLevee: text("motif_levee"),
   },
   {
     contraintes: (t) => [
       lien("gels_litige_organisation_fk", t, "organisationId", organisations),
+      check("gels_litige_motif_levee_borne", sql`${t["motifLevee"]} IS NULL OR (length(btrim(${t["motifLevee"]})) > 0 AND char_length(${t["motifLevee"]}) <= 500)`),
+      check("gels_litige_levee_avec_motif", sql`(${t["leveeLe"]} IS NULL) = (${t["motifLevee"]} IS NULL)`),
       check("gels_litige_motif_non_vide", sql`length(btrim(${t["motifLitige"]})) > 0`),
       check("gels_litige_levee_complete", sql`(${t["leveeLe"]} IS NULL) = (${t["levePar"]} IS NULL) AND (${t["leveeLe"]} IS NULL OR ${t["leveeLe"]} >= ${t["poseeLe"]})`),
     ],

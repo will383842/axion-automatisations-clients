@@ -1,4 +1,4 @@
-import { boolean, check, foreignKey, index, integer, pgEnum, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
+import { boolean, check, foreignKey, index, integer, pgEnum, text, timestamp, unique, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { tableClient } from "./aides.ts";
 import { automatisations, prereglagesMetier, versionsAutomatisation } from "./catalogue.ts";
@@ -67,7 +67,8 @@ export const contacts = tableClient(
 export const instances = tableClient(
   "instances",
   {
-    id: uuid("id").notNull(),
+    // T2-52 (ADR 0111) : l'id est tiré par la base (jamais fourni par console_app) et unique seul, exception nominative à « toute unicité commence par tenant_id ».
+    id: uuid("id").notNull().defaultRandom(),
     organisationId: uuid("organisation_id").notNull(),
     codeAutomatisation: text("code_automatisation").notNull(),
     formule: formuleInstance("formule").notNull(),
@@ -99,6 +100,7 @@ export const instances = tableClient(
       check("instances_cellule_code_forme_c4", sql`${t["celluleCode"]} IS NULL OR (${t["celluleCode"]} ~ '^[a-z0-9]+(-[a-z0-9]+)*$' AND char_length(${t["celluleCode"]}) <= 64)`),
       check("instances_version_etat_voulu_positive", sql`${t["versionEtatVoulu"]} >= 0`),
       index("instances_id_cellule_idx").on(t["id"] as never, t["celluleCode"] as never),
+      uniqueIndex("instances_id_unique").on(t["id"] as never),
     ],
   },
 );

@@ -64,7 +64,7 @@ const inserer = (tenant: string, table: string, valeurs: Record<string, unknown>
 const creerOrg = (id: string) => inserer(id, "organisations", { id, console_client_id: id, raison_sociale: "Atelier Bertin" });
 // À l'état pause : l'activation exige un contrat de sous-traitance (T2-05). Seul l'identifiant revient (colonnes lisibles d'instances, C-676).
 const creerInstance = (A: string) =>
-  ecrire(app, A, async (c) => (await c.query("INSERT INTO instances (id, tenant_id, organisation_id, code_automatisation, formule, environnement, etat) VALUES ($1, $2, $2, 'relance-devis', 'abonnement', 'test', 'pause') RETURNING id", [randomUUID(), A])).rows[0] as Record<string, unknown>, APPELANT);
+  ecrire(app, A, async (c) => (await c.query("INSERT INTO instances (tenant_id, organisation_id, code_automatisation, formule, environnement, etat) VALUES ($1, $1, 'relance-devis', 'abonnement', 'test', 'pause') RETURNING id", [A])).rows[0] as Record<string, unknown>, APPELANT);
 const REF = () => `demande:${randomUUID()}`;
 const note = (A: string, extra: Record<string, unknown> = {}, appelant: typeof APPELANT | null = APPELANT) =>
   inserer(A, "notes", { organisation_id: A, auteur: "agent-essai", texte: "Appel de suivi, rappeler jeudi.", type: "appel", ...extra }, appelant);

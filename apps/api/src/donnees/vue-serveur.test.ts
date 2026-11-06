@@ -35,20 +35,20 @@ function monde(o: { accord?: () => Promise<boolean>; fin?: Date | undefined | "p
 
 describe("vue « comme le client » côté serveur", () => {
   it("[A-005] la fin de l'intervention est exigée : sans elle, ou si sa lecture échoue, la vue ne s'ouvre pas", async () => {
-    expect(await code(ouvrirVueClient(monde({ fin: undefined }).deps, equipe, A, "assistance"))).toBe("action_interdite");
-    expect(await code(ouvrirVueClient(monde({ fin: "panne" }).deps, equipe, A, "assistance"))).toBe("action_interdite");
+    expect(await code(ouvrirVueClient(monde({ fin: undefined }).deps, equipe, A, "assistance", "administrateur"))).toBe("action_interdite");
+    expect(await code(ouvrirVueClient(monde({ fin: "panne" }).deps, equipe, A, "assistance", "administrateur"))).toBe("action_interdite");
   });
 
   it("[A-005] expireLe = le plus court de +60 minutes et de la fin de l'intervention", async () => {
     const court = new Date(T0.getTime() + 600_000);
-    expect((await ouvrirVueClient(monde({ fin: court }).deps, equipe, A, "assistance")).vue!.expireLe).toEqual(court);
-    expect((await ouvrirVueClient(monde({ fin: new Date(T0.getTime() + 9_000_000) }).deps, equipe, A, "assistance")).vue!.expireLe).toEqual(new Date(T0.getTime() + 3_600_000));
+    expect((await ouvrirVueClient(monde({ fin: court }).deps, equipe, A, "assistance", "administrateur")).vue!.expireLe).toEqual(court);
+    expect((await ouvrirVueClient(monde({ fin: new Date(T0.getTime() + 9_000_000) }).deps, equipe, A, "assistance", "administrateur")).vue!.expireLe).toEqual(new Date(T0.getTime() + 3_600_000));
   });
 
   it("[C-006] @isolation l'accord est revérifié à chaque appel : retiré en cours de vue, la lecture est refusée", async () => {
     let accorde = true;
     const m = monde({ accord: async () => accorde, fin: new Date(T0.getTime() + 3_600_000) });
-    const s = await ouvrirVueClient(m.deps, equipe, A, "assistance");
+    const s = await ouvrirVueClient(m.deps, equipe, A, "assistance", "administrateur");
     expect((await m.service.executer(s, "listerListesProspects", {})).length).toBe(1);
     m.accords.length = 0;
     await m.service.executer(s, "listerListesProspects", {});
@@ -60,7 +60,7 @@ describe("vue « comme le client » côté serveur", () => {
   it("[C-006] @isolation un accord illisible vaut pas d'accord", async () => {
     let panne = false;
     const m = monde({ accord: async () => { if (panne) throw new Error("base"); return true; }, fin: new Date(T0.getTime() + 3_600_000) });
-    const s = await ouvrirVueClient(m.deps, equipe, A, "assistance");
+    const s = await ouvrirVueClient(m.deps, equipe, A, "assistance", "administrateur");
     panne = true;
     expect(await code(m.service.executer(s, "listerListesProspects", {}))).toBe("action_interdite");
   });
@@ -75,12 +75,12 @@ describe("vue « comme le client » côté serveur", () => {
   it("[C-006] @isolation une vue allongée dans la session ne dépasse pas celle rangée ; une vue d'un autre acteur ou d'un autre client ne sert pas", async () => {
     const fin = new Date(T0.getTime() + 600_000);
     const m = monde({ fin });
-    const s = await ouvrirVueClient(m.deps, equipe, A, "assistance");
+    const s = await ouvrirVueClient(m.deps, equipe, A, "assistance", "administrateur");
     m.avancer(700_000);
     const allongee: SessionDonnees = { ...s, vue: { tenantId: A, expireLe: new Date(T0.getTime() + 99_000_000) } };
     expect(await code(m.service.executer(allongee, "listerListesProspects", {}))).toBe("action_interdite");
     const m2 = monde({ fin: new Date(T0.getTime() + 3_600_000) });
-    const s2 = await ouvrirVueClient(m2.deps, equipe, A, "assistance");
+    const s2 = await ouvrirVueClient(m2.deps, equipe, A, "assistance", "administrateur");
     expect(await code(m2.service.executer({ ...s2, acteur: "e2" }, "listerListesProspects", {}))).toBe("action_interdite");
     expect(await code(m2.service.executer({ ...s2, tenantId: B, vue: { tenantId: B, expireLe: s2.vue!.expireLe } }, "listerListesProspects", {}))).toBe("action_interdite");
   });

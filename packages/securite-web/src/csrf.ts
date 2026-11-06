@@ -5,7 +5,7 @@ const FORME = /^[A-Za-z0-9_-]{43}$/;
 const encodeur = new TextEncoder();
 const base64url = (o: Uint8Array) => btoa(String.fromCharCode(...o)).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
 
-async function cle(secret: string, usage: "sign" | "verify"): Promise<CryptoKey> {
+async function cle(secret: string, usage: "sign" | "verify"): Promise<Awaited<ReturnType<typeof crypto.subtle.importKey>>> {
   if (secret.length < 32) throw new Error("secret CSRF trop court");
   return crypto.subtle.importKey("raw", encodeur.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, [usage]);
 }

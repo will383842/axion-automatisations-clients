@@ -9,7 +9,7 @@ const TENANT_A = randomUUID();
 const TENANT_B = randomUUID();
 const CORPS = JSON.stringify({ objet: "demande de devis" });
 
-function monter(o: { actif?: boolean; pause?: boolean } = {}) {
+function monter(o: { actif?: boolean; pause?: boolean; debit?: Partial<DepsWebhooks["debit"]>; echecDepot?: { reste: number } } = {}) {
   const coffre = new Map<string, string>();
   const base = new Map<string, WebhookConnu>();
   const travaux: { file: string; nom: string; donnees: Record<string, unknown>; jobId: string }[] = [];
@@ -22,11 +22,11 @@ function monter(o: { actif?: boolean; pause?: boolean } = {}) {
     depot,
     secret: async (ref) => coffre.get(ref)!,
     instance: async (instanceId) => ({ cellule: instanceId === "instance-a" ? "cellule-un" : "cellule-deux", etat: o.pause ? "pause" : "active" }),
-    memoire: { async set(cle: string) { if (vus.has(cle)) return null; vus.add(cle); return "OK"; } },
-    file: (nom) => ({ name: nom, async add(type: string, donnees: unknown, opts?: { jobId?: string }) { travaux.push({ file: nom, nom: type, donnees: donnees as Record<string, unknown>, jobId: opts?.jobId ?? "" }); } }),
+    memoire: { async set(cle: string) { if (vus.has(cle)) return null; vus.add(cle); return "OK"; }, async del(cle: string) { vus.delete(cle); } },
+    file: (nom) => ({ name: nom, async add(type: string, donnees: unknown, opts?: { jobId?: string }) { if (o.echecDepot && o.echecDepot.reste-- > 0) throw new Error("valkey indisponible"); travaux.push({ file: nom, nom: type, donnees: donnees as Record<string, unknown>, jobId: opts?.jobId ?? "" }); } }),
     sceller: async (_tenant, corps) => `scelle:${corps.length}`,
     compter: (m) => compteurs.push(m),
-    debit: { parWebhook: 100, global: 1000, fenetreMs: 60_000 },
+    debit: { parWebhook: 100, global: 1000, fenetreMs: 60_000, ...o.debit },
   };
   const serveur = Fastify();
   routeWebhooks(serveur, deps);
@@ -60,9 +60,10 @@ describe("webhook entrant (T4-24)", () => {
     expect((await appeler(m, w.id, entetes)).statusCode).toBe(202);
     expect(m.travaux).toHaveLength(1);
     // sans identifiant d'événement : empreinte du corps
-    const sans = { "x-signature": signe(w.secret) };
-    await appeler(m, w.id, sans);
-    await appeler(m, w.id, sans);
+    const autre = JSON.stringify({ objet: "autre demande" });
+    const sans = { "x-signature": signe(w.secret, autre) };
+    await appeler(m, w.id, sans, autre);
+    await appeler(m, w.id, sans, autre);
     expect(m.travaux).toHaveLength(2);
   });
 
@@ -102,6 +103,68 @@ describe("webhook entrant (T4-24)", () => {
     expect(mauvaise.statusCode).toBe(404);
     expect(m.travaux).toHaveLength(0);
     expect([...m.compteurs].sort()).toEqual(["inconnu", "revoque", "signature"]);
+  });
+
+  it("[A-292] un appel signé rejoué avec un autre x-event-id ne crée pas de second travail", async () => {
+    const m = monter();
+    const w = await creer(m, TENANT_A, "instance-a");
+    const signature = signe(w.secret);
+    expect((await appeler(m, w.id, { "x-signature": signature, "x-event-id": "x1" })).statusCode).toBe(202);
+    for (const id of ["x2", "x3", "x4"]) expect((await appeler(m, w.id, { "x-signature": signature, "x-event-id": id })).statusCode).toBe(202);
+    expect((await appeler(m, w.id, { "x-signature": signature })).statusCode).toBe(202);
+    expect(m.travaux).toHaveLength(1);
+  });
+
+  it("[A-292] des appels non authentifiés en masse ne bloquent pas le webhook signé d'un autre client", async () => {
+    const m = monter({ debit: { global: 3, parWebhook: 3, refusParSource: 5 } });
+    const a = await creer(m, TENANT_A, "instance-a");
+    const b = await creer(m, TENANT_B, "instance-b");
+    for (let i = 0; i < 30; i++) await appeler(m, "AAAAAAAAAAAAAAAAAAAAAA", { "x-signature": "sha256=00" });
+    for (let i = 0; i < 30; i++) await appeler(m, a.id, { "x-signature": "sha256=00" });
+    expect((await appeler(m, b.id, { "x-signature": signe(b.secret), "x-event-id": "b1" })).statusCode).toBe(202);
+    // le webhook de A, qui a seulement reçu des appels refusés, accepte encore son émetteur légitime
+    expect((await appeler(m, a.id, { "x-signature": signe(a.secret), "x-event-id": "a1" })).statusCode).toBe(202);
+    expect(m.travaux).toHaveLength(2);
+  });
+
+  it("[A-292] au-delà du débit par webhook : 429, et un autre webhook passe encore", async () => {
+    const m = monter({ debit: { parWebhook: 2 } });
+    const a = await creer(m, TENANT_A, "instance-a");
+    const b = await creer(m, TENANT_B, "instance-b");
+    const statuts: number[] = [];
+    for (const e of ["e1", "e2", "e3", "e4"]) statuts.push((await appeler(m, a.id, { "x-signature": signe(a.secret, e), "x-event-id": e }, e)).statusCode);
+    expect(statuts).toEqual([202, 202, 429, 429]);
+    expect((await appeler(m, b.id, { "x-signature": signe(b.secret), "x-event-id": "b1" })).statusCode).toBe(202);
+  });
+
+  it("[A-292] instance en pause : travail déposé, rien n'est exécuté", async () => {
+    const m = monter({ pause: true });
+    const w = await creer(m, TENANT_A, "instance-a");
+    expect((await appeler(m, w.id, { "x-signature": signe(w.secret), "x-event-id": "p1" })).statusCode).toBe(202);
+    expect(m.travaux).toHaveLength(1);
+    expect(m.travaux[0]!.file).toBe("executions-cellule-un");
+  });
+
+  it("[A-292] après un échec du dépôt, le renvoi de l'émetteur crée le travail", async () => {
+    const m = monter({ echecDepot: { reste: 1 } });
+    const w = await creer(m, TENANT_A, "instance-a");
+    const entetes = { "x-signature": signe(w.secret), "x-event-id": "r1" };
+    expect((await appeler(m, w.id, entetes)).statusCode).toBe(503);
+    expect(m.travaux).toHaveLength(0);
+    expect((await appeler(m, w.id, entetes)).statusCode).toBe(202);
+    expect(m.travaux).toHaveLength(1);
+  });
+
+  it("[A-292] webhook révoqué dont le secret est effacé du coffre répond 404 comme un inconnu", async () => {
+    const m = monter();
+    const r = await creer(m, TENANT_A, "instance-a");
+    await m.depot.inserer({ ...(await m.depot.lire(r.id))!, revoque: true });
+    m.deps.secret = async () => { throw new Error("secret effacé"); };
+    const revoque = await appeler(m, r.id, { "x-signature": signe(r.secret) });
+    const inconnu = await appeler(m, "AAAAAAAAAAAAAAAAAAAAAA", { "x-signature": signe(r.secret) });
+    expect(revoque.statusCode).toBe(404);
+    expect(revoque.statusCode).toBe(inconnu.statusCode);
+    expect(revoque.body).toBe(inconnu.body);
   });
 
   it("[A-292] corps de plus de 1 Mo refusé avant lecture complète", async () => {

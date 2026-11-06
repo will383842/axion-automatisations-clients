@@ -93,7 +93,14 @@ const cellule = async (code = `cellule-${unique()}`) => {
 };
 
 beforeAll(async () => {
-  await migrer({ url: `postgres://console_migration:${motDePasseDe("console_migration")}@${DIRECT.host}:${DIRECT.port}/console`, dossier: fileURLToPath(new URL("../../drizzle", import.meta.url)) });
+  try {
+    await migrer({ url: `postgres://console_migration:${motDePasseDe("console_migration")}@${DIRECT.host}:${DIRECT.port}/console`, dossier: fileURLToPath(new URL("../../drizzle", import.meta.url)) });
+  } catch (e) {
+    // Le message de drizzle ne porte que la requête : l'erreur PostgreSQL (code, message, détail) est dans `cause`.
+    const c = ((e as { cause?: unknown }).cause ?? e) as { code?: string; message?: string; detail?: string; constraint?: string; table?: string };
+    writeSync(2, `ECHEC-MIGRATION 0019 : code=${c.code ?? "?"} message=${String(c.message ?? "").slice(0, 300)} detail=${String(c.detail ?? "").slice(0, 200)} contrainte=${c.constraint ?? ""} table=${c.table ?? ""}\n`);
+    throw e;
+  }
 }, 120_000);
 afterAll(async () => {
   await Promise.all(ouverts.map((o) => o.end().catch(() => undefined)));

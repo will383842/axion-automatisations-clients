@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, writeSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -191,8 +191,13 @@ describe("migrer, avec le socle", () => {
       const copie = mkdtempSync(join(tmpdir(), "migrer-0019-"));
       cpSync(dossierComplet, copie, { recursive: true });
       const journal = JSON.parse(readFileSync(join(copie, "meta/_journal.json"), "utf8")) as { entries: { tag: string }[] };
+      // Les migrations postérieures à 0019 (0020 de T3-05a, etc.) sont hors de cet essai : retirées de la copie, journal compris.
+      const apres = (nom: string) => /^\d{4}_/.test(nom) && nom.slice(0, 4) > "0019";
+      journal.entries = journal.entries.filter((e) => !apres(e.tag));
       const complet = JSON.stringify(journal);
       journal.entries = journal.entries.filter((e) => e.tag < "0019");
+      for (const f of readdirSync(copie).filter(apres)) rmSync(join(copie, f));
+      for (const f of readdirSync(join(copie, "meta")).filter(apres)) rmSync(join(copie, "meta", f));
       writeFileSync(join(copie, "meta/_journal.json"), JSON.stringify(journal));
       // migrer() refuse un fichier SQL absent du journal : pendant la première étape, 0019 et son instantané sont retirés de la copie.
       rmSync(join(copie, "0019_durcissement_lot_2.sql"));

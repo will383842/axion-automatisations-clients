@@ -70,6 +70,10 @@ export const TABLES_COMMUNES: readonly string[] = Object.freeze([
   // T2-07 (ADR 0055) : cellules d'hébergement (adresse interne) et registre des traitements : lus et écrits par l'équipe seule.
   "public.cellules",
   "public.registre_traitements",
+  // T3-05a (ADR 0115) : équipe, absences et vues enregistrées, lues et écrites par l'équipe seule.
+  "public.membres_equipe",
+  "public.absences",
+  "public.vues_enregistrees",
 ]);
 // Unicités permises sans tenant_id : liste fermée, une seule entrée nominative (instances_id_unique, ADR 0111). Une entrée ne s'ajoute qu'avec sa raison, relue en 2 tours (ADR 0040).
 // Aucune option d'appel ne l'étend.

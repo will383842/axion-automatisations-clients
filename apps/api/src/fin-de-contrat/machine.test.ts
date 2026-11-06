@@ -180,7 +180,8 @@ describe("machine de fin de contrat", () => {
 
   it("[C-715] aucune étape ne contient d'accès à l'effacement ni de suppression, et machine.ts s'arrête à l'attente de mise à l'écart", () => {
     const dossier = fileURLToPath(new URL(".", import.meta.url));
-    const sources = readdirSync(dossier).filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"));
+    // Les fichiers lancés par une date ou un clic de mise à l'écart ; effacer.ts, decision-proposition.ts et demande-effacement.ts sont couverts par scripts/garde-effacement.ts (T2-45).
+    const sources = readdirSync(dossier).filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts") && !["effacer.ts", "decision-proposition.ts", "demande-effacement.ts"].includes(f));
     expect(sources.length).toBeGreaterThanOrEqual(5);
     for (const f of sources) {
       const code = readFileSync(dossier + f, "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
@@ -201,5 +202,20 @@ describe("machine de fin de contrat", () => {
     expect(JSON.stringify(dossier)).toBe(avant);
     expect(echeance(DATE_FIN, 27).toISOString()).toBe("2027-02-05T23:00:00.000Z");
     await expect(recevoirDemandeEffacement({ creer: async () => ({ id: "x" }), alerter: async () => undefined }, T, "  ")).rejects.toBeInstanceOf(ErreurApi);
+  });
+
+  it("[A-255] à l'état à jour, un préavis envoyé sans accusé alerte (envoyé sans accusé n'est pas prouvé) ; trois accusés, aucune alerte", async () => {
+    const quand = new Date("2027-02-20T00:00:00Z");
+    const exec = async (preavis: Dossier["preavis"]) => {
+      const alertes: AlerteFin[] = [];
+      const r = await creerMachineFin({ etapes: [], dossier: async () => ({ ...dossierVide(), preavis }), gel: { gelActif: async () => false }, alerter: async (a) => void alertes.push(a), maintenant: () => quand }).executer(T);
+      return { r, alertes };
+    };
+    const envoye = { envoyeLe: new Date("2027-01-11T00:00:00Z"), accuse: null };
+    const prouve = { envoyeLe: new Date("2027-01-11T00:00:00Z"), accuse: "recu:2027-01-12T08:00:00.000Z" };
+    const sans = await exec({ 1: prouve, 20: envoye, 27: { envoyeLe: null, accuse: null } });
+    expect(sans.r.etat).toBe("a_jour");
+    expect(sans.alertes.map((a) => a.code)).toEqual(["preavis_j20_sans_accuse", "preavis_j27_sans_accuse"]);
+    expect((await exec({ 1: prouve, 20: prouve, 27: prouve })).alertes).toEqual([]);
   });
 });

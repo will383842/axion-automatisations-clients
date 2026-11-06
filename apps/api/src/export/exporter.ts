@@ -31,7 +31,8 @@ export interface ResultatExport { cle: string; expireLe: Date; octets: number; s
 
 const refus = (code: "introuvable" | "isolation_violee" | "nom_invalide" | "export_trop_gros") => new Error(code);
 const verifierIds = (tenantId: string, demande: string) => { if (!UUID.test(tenantId) || !UUID.test(demande)) throw new Error("identifiant_invalide"); };
-export const idTacheExport = (tenantId: string, demande: string): string => { verifierIds(tenantId, demande); return `export:${tenantId}:${demande}`; };
+// BullMQ refuse « : » dans un jobId : tirets seulement, préfixe lettre (dette LOT2-dette-T2-44-jobid-export).
+export const idTacheExport = (tenantId: string, demande: string): string => { verifierIds(tenantId, demande); return `export-${tenantId}-${demande}`; };
 export const dateExpiration = (depuis: Date): Date => new Date(depuis.getTime() + DUREE_EXPORT_JOURS * 86_400_000);
 
 const nom = (n: unknown): string => { if (typeof n !== "string" || !NOM_SQL.test(n)) throw refus("nom_invalide"); return n; };

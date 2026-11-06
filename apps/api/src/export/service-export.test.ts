@@ -46,7 +46,7 @@ describe("service d'export : demande, lien signé, retrait", () => {
     const m = monde();
     const r = await m.s.demander({ tenantId: A, acteur: "client" });
     expect(r.demande).toBe(D2);
-    expect(m.jobs).toEqual([{ id: `export:${A}:${D2}`, donnees: { tenantId: A, demande: D2, acteur: "client" } }]);
+    expect(m.jobs).toEqual([{ id: `export-${A}-${D2}`, donnees: { tenantId: A, demande: D2, acteur: "client" } }]);
     // une seconde demande, tout de suite après, est acceptée aussi
     await expect(m.s.demander({ tenantId: A, acteur: "client" })).resolves.toBeDefined();
     expect(m.traces.some((t) => t["type"] === "export_demande" && t["tenantId"] === A)).toBe(true);

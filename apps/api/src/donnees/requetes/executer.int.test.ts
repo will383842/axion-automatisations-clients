@@ -36,15 +36,16 @@ afterAll(async () => {
 describe("executerLecture sur un vrai PostgreSQL", () => {
   it("[A-170] executerLecture ouvre une transaction READ ONLY avec statement_timeout", async () => {
     const client = await pool.connect();
+    let casse: Error | undefined;
     try {
-      const vu = await executerLecture(client, { texte: "SELECT current_setting('transaction_read_only') AS ro, current_setting('statement_timeout') AS delai", valeurs: [] }, { delaiMs: 1500 });
-      expect(vu).toEqual([{ ro: "on", delai: "1500ms" }]);
+      const vu = await executerLecture(client, { texte: "SELECT current_setting('transaction_read_only') AS ro, current_setting('statement_timeout') AS delai, $1::int AS n", valeurs: [1] }, { delaiMs: 1500 });
+      expect(vu).toEqual([{ ro: "on", delai: "1500ms", n: 1 }]);
       // Une écriture est refusée par la base (transaction en lecture seule) et le délai coupe une requête lente.
-      await expect(executerLecture(client, { texte: "CREATE TEMP TABLE essai (a int)", valeurs: [] }, { delaiMs: 1500 })).rejects.toMatchObject({ code: "25006" });
-      await expect(executerLecture(client, { texte: "SELECT pg_sleep(5)", valeurs: [] }, { delaiMs: 200 })).rejects.toMatchObject({ code: "57014" });
+      await expect(executerLecture(client, { texte: "CREATE TEMP TABLE essai AS SELECT $1::int AS a", valeurs: [1] }, { delaiMs: 1500 })).rejects.toMatchObject({ code: "25006" });
+      await expect(executerLecture(client, { texte: "SELECT pg_sleep(5), $1::int", valeurs: [1] }, { delaiMs: 200 })).rejects.toMatchObject({ code: "57014" });
       // La connexion reste saine et ne garde ni le délai ni la lecture seule.
       const apres = await client.query("SELECT current_setting('transaction_read_only') AS ro, current_setting('statement_timeout') AS delai");
       expect(apres.rows).toEqual([{ ro: "off", delai: "0" }]);
-    } finally { client.release(); }
+    } catch (e) { if ((e as { connexionPerdue?: boolean }).connexionPerdue) casse = e as Error; throw e; } finally { client.release(casse); }
   }, 30_000);
 });

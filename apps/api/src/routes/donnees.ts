@@ -11,7 +11,7 @@ export interface DepsRoutesDonnees {
   executer(session: SessionDonnees, nom: string, parametres: unknown): Promise<unknown[]>;
 }
 // Liste FERMÉE des rôles d'équipe admis (RM-05 : par défaut, refus). Un rôle inconnu, vide ou d'une autre casse est refusé ; lecteur et qualifieur n'y sont pas (comme A-224).
-const ROLES_EQUIPE_ADMIS: ReadonlySet<string> = new Set(["administrateur"]);
+export const ROLES_EQUIPE_ADMIS: ReadonlySet<string> = new Set(["administrateur"]);
 const NOM = /^[a-z][A-Za-z0-9]{0,63}$/;
 
 export function routeDonnees(serveur: FastifyInstance, d: DepsRoutesDonnees): void {

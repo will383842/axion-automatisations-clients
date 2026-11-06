@@ -13,6 +13,15 @@ describe("lecture des secrets des bases clients", () => {
     await expect(l.lecteur.lire("donnees/cli_0123456789ab/app")).resolves.toHaveLength(32);
     expect(l.urls[0]).toBe("http://bao.test/v1/technique/data/donnees/cli_0123456789ab/app");
   });
+  it("[A-216] le secret donnees/cli_<12 hex>/lecture se lit par creerLecteurSecretsOpenBao et un nom proche reste refusé", async () => {
+    const l = lecteur();
+    await expect(l.lecteur.lire("donnees/cli_0123456789ab/lecture")).resolves.toHaveLength(32);
+    expect(l.urls[0]).toBe("http://bao.test/v1/technique/data/donnees/cli_0123456789ab/lecture");
+    for (const n of ["donnees/cli_0123456789ab/Lecture", "donnees/cli_0123/lecture", "donnees/cli_0123456789ab/lecture-x", "donnees/cli_0123456789ab/lecture/"]) {
+      await expect(l.lecteur.lire(n), n).rejects.toMatchObject({ code: "requete_refusee" });
+    }
+    expect(l.urls).toHaveLength(1);
+  });
   it("[A-216] un trait bas ailleurs que dans cli_<12 hex> reste refusé", async () => {
     const l = lecteur();
     for (const n of ["donnees/cli_0123/app", "donnees/cli_0123456789AB/app", "donnees/autre_nom/app", "donnees/cli_0123456789ab_x/app"]) {
@@ -20,9 +29,9 @@ describe("lecture des secrets des bases clients", () => {
     }
     expect(l.urls).toEqual([]);
   });
-  it("[A-216] @isolation le trait bas de cli_<12 hex> n'est admis que pour donnees/cli_<12 hex>/app, pas pour proprietaire, lecture ni ailleurs", async () => {
+  it("[A-216] @isolation le trait bas de cli_<12 hex> n'est admis que pour donnees/cli_<12 hex>/app, pas pour proprietaire, un nom proche de lecture ni ailleurs", async () => {
     const l = lecteur();
-    for (const n of ["donnees/cli_0123456789ab/proprietaire", "donnees/cli_0123456789ab/lecture", "donnees/cli_0123456789ab", "autre/cli_0123456789ab/app", "cli_0123456789ab/app", "donnees/cli_0123456789ab/app/x"]) {
+    for (const n of ["donnees/cli_0123456789ab/proprietaire", "donnees/cli_0123456789ab/pgbouncer-admin", "donnees/cli_0123456789ab/lectures", "donnees/cli_0123456789ab/lecture/x", "donnees/cli_0123456789ab", "autre/cli_0123456789ab/app", "cli_0123456789ab/app", "donnees/cli_0123456789ab/app/x"]) {
       await expect(l.lecteur.lire(n), n).rejects.toMatchObject({ code: "requete_refusee" });
     }
     expect(l.urls).toEqual([]);

@@ -106,6 +106,27 @@
       "when": 1793652688679,
       "tag": "0018_executeur_instances",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1793956908224,
+      "tag": "0019_durcissement_lot_2",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1793972071701,
+      "tag": "0020_tables_lot_3_equipe",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1793982120004,
+      "tag": "0021_tables_lot_3_conformite",
+      "breakpoints": true
     }
   ]
 }

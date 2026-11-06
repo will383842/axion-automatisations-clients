@@ -4,7 +4,7 @@ import { writeSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { avecClient } from "./client-actif.js";
+import { avecClient, avecEquipeEcriture } from "./client-actif.js";
 import { migrer } from "./migrer.js";
 
 // Tables de suivi (T2-07) : notes, demandes (métadonnées), cellules, thèmes, outils, audits, besoins, propositions, registre des traitements. Socle lancé par ops/socle/lancer.sh (job socle-integration).
@@ -92,9 +92,11 @@ afterEach((contexte) => {
 const creerOrg = (id: string) => ecrire(app, id, (c) => c.query("INSERT INTO organisations (id, tenant_id, console_client_id, raison_sociale) VALUES ($1, $1, $1, 'Atelier Bertin')", [id]), APPELANT);
 // À l'état pause : l'activation exige un contrat de sous-traitance (T2-05). Colonnes explicites : console_app ne lit pas toutes les colonnes d'instances.
 const creerInstance = (A: string, colonnes = "", valeurs: unknown[] = []) =>
-  ecrire(app, A, async (c) => (await c.query(`INSERT INTO instances (id, tenant_id, organisation_id, code_automatisation, formule, environnement, etat${colonnes}) VALUES ($1, $2, $2, 'relance-devis', 'abonnement', 'test', 'pause'${valeurs.map((_, i) => `, $${i + 3}`).join("")}) RETURNING id`, [randomUUID(), A, ...valeurs])).rows[0]?.["id"] as string, APPELANT);
+  ecrire(app, A, async (c) => (await c.query(`INSERT INTO instances (tenant_id, organisation_id, code_automatisation, formule, environnement, etat${colonnes}) VALUES ($1, $1, 'relance-devis', 'abonnement', 'test', 'pause'${valeurs.map((_, i) => `, $${i + 2}`).join("")}) RETURNING id`, [A, ...valeurs])).rows[0]?.["id"] as string, APPELANT);
 const lire = (A: string, id: string) =>
   ecrire(app, A, async (c) => (await c.query("SELECT cellule_code, arret_envois, version_etat_voulu FROM instances WHERE id = $1", [id])).rows[0] as { cellule_code: string | null; arret_envois: boolean; version_etat_voulu: number }, APPELANT);
+// T2-52 : console_app n'écrit plus cellule_code ; l'équipe attribue (ou retire, avec null) par la fonction attribuer_cellule (migration 0019).
+const attribuer = (A: string, id: string, code: string | null) => avecEquipeEcriture(equipe, A, (c) => c.query("SELECT public.attribuer_cellule($1, $2)", [id, code]), APPELANT);
 const maj = (A: string, id: string, ensemble: string, valeurs: unknown[] = []) => ecrire(app, A, (c) => c.query(`UPDATE instances SET ${ensemble} WHERE id = $1`, [id, ...valeurs]), APPELANT);
 
 describe("liens instance → cellule et version de l'état voulu, avec le socle", { timeout: 90_000 }, () => {
@@ -115,13 +117,14 @@ describe("liens instance → cellule et version de l'état voulu, avec le socle"
     expect((await lire(A, id)).version_etat_voulu).toBe(1);
     await maj(A, id, "arret_envois = true");
     expect((await lire(A, id)).version_etat_voulu).toBe(2);
-    await maj(A, id, "cellule_code = $2", [code]);
+    await attribuer(A, id, code);
     expect(await lire(A, id)).toEqual({ cellule_code: code, arret_envois: true, version_etat_voulu: 3 });
     // Rien qui concerne l'état voulu : la version ne bouge pas (même valeur réécrite, autre colonne).
-    await maj(A, id, "etat = 'erreur', arret_envois = true, cellule_code = $2", [code]);
+    await maj(A, id, "etat = 'erreur', arret_envois = true");
+    await attribuer(A, id, code);
     await maj(A, id, "code_automatisation = 'autre-code'");
     expect((await lire(A, id)).version_etat_voulu).toBe(3);
-    await maj(A, id, "cellule_code = NULL");
+    await attribuer(A, id, null);
     expect((await lire(A, id)).version_etat_voulu).toBe(4);
   });
 
@@ -155,22 +158,21 @@ describe("liens instance → cellule et version de l'état voulu, avec le socle"
     expect(await lire(A, id)).toMatchObject({ arret_envois: true, version_etat_voulu: 1 });
   });
 
-  it("[C-017] un code de cellule avec _ ou de forme inconnue est refusé par la contrainte de forme C4", async () => {
+  it("[C-017] un code de cellule avec _ ou de forme inconnue ne peut ni exister ni être attribué (forme C4, même erreur P0002)", async () => {
     const A = randomUUID();
     await creerOrg(A);
     const id = await creerInstance(A);
-    // cellules.code accepte _ (dette T2-52) : la cellule existe, mais l'instance ne peut pas la porter.
-    const { rows } = await cellule({ code: `ab_${unique()}` });
-    await expect(maj(A, id, "cellule_code = $2", [rows[0]?.["code"]])).rejects.toMatchObject({ code: "23514", constraint: "instances_cellule_code_forme_c4" });
-    for (const mauvais of ["A", "-a", "a--b", "a b", "a".repeat(65)]) await expect(maj(A, id, "cellule_code = $2", [mauvais]), mauvais).rejects.toMatchObject({ code: "23514" });
+    // Depuis 0019, cellules.code refuse le _ (cellules_code_forme_c4) : la cellule ne peut pas exister, l'attribution répond comme pour un code inconnu.
+    await expect(cellule({ code: `ab_${unique()}` })).rejects.toMatchObject({ code: "23514", constraint: "cellules_code_forme_c4" });
+    for (const mauvais of ["A", "-a", "a--b", "a b", "a".repeat(65)]) await expect(attribuer(A, id, mauvais), mauvais).rejects.toMatchObject({ code: "P0002" });
   });
 
-  it("[C-017] une cellule qui n'existe pas est refusée par la clé étrangère", async () => {
+  it("[C-017] une cellule qui n'existe pas est refusée par la fonction (P0002), et console_app ne peut plus écrire cellule_code (42501)", async () => {
     const A = randomUUID();
     await creerOrg(A);
     const id = await creerInstance(A);
-    await expect(maj(A, id, "cellule_code = $2", [`absente-${unique()}`])).rejects.toMatchObject({ code: "23503", constraint: "instances_cellule_fk" });
-    await expect(creerInstance(A, ", cellule_code", [`absente-${unique()}`])).rejects.toMatchObject({ code: "23503" });
+    await expect(attribuer(A, id, `absente-${unique()}`)).rejects.toMatchObject({ code: "P0002" });
+    await expect(creerInstance(A, ", cellule_code", [`absente-${unique()}`])).rejects.toMatchObject({ code: "42501" });
   });
 
   it("[C-017] @isolation console_app lit les trois nouvelles colonnes mais ne lit pas la table cellules", async () => {
@@ -178,7 +180,8 @@ describe("liens instance → cellule et version de l'état voulu, avec le socle"
     await creerOrg(A);
     await expect(ecrire(app, A, (c) => c.query("SELECT code FROM cellules LIMIT 1"), APPELANT)).rejects.toMatchObject({ code: "42501" });
     const { rows } = await cellule();
-    const id = await creerInstance(A, ", cellule_code", [rows[0]?.["code"]]);
+    const id = await creerInstance(A);
+    await attribuer(A, id, rows[0]?.["code"] as string);
     expect((await lire(A, id)).cellule_code).toBe(rows[0]?.["code"]);
   });
 

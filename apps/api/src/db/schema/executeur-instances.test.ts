@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
-import { getTableConfig } from "drizzle-orm/pg-core";
+import type { SQL } from "drizzle-orm";
+import { getTableConfig, PgDialect } from "drizzle-orm/pg-core";
 import { describe, expect, it } from "vitest";
 import { instances } from "./clients.ts";
 
@@ -32,5 +33,17 @@ describe("instances → cellule et version de l'état voulu (migration 0018)", (
     expect(migration).toMatch(/CREATE TRIGGER instances_etat_voulu_version BEFORE INSERT OR UPDATE ON "public"\."instances"/);
     expect(migration).toMatch(/GRANT SELECT \("cellule_code", "arret_envois", "version_etat_voulu"\) ON TABLE "public"\."instances" TO console_app/);
     expect(migration).toMatch(/CREATE INDEX "instances_id_cellule_idx" ON "public"\."instances" USING btree \("id","cellule_code"\)/);
+  });
+});
+
+describe("instances.id unique (migration 0019, ADR 0111)", () => {
+  it("[A-163] instances.id a un défaut gen_random_uuid et l'index unique instances_id_unique", () => {
+    expect(new PgDialect().sqlToQuery(colonne("id")?.default as SQL).sql).toMatch(/gen_random_uuid/);
+    const unique = config.indexes.find((i) => i.config.name === "instances_id_unique");
+    expect(unique?.config.unique).toBe(true);
+    expect(unique?.config.columns).toHaveLength(1);
+    const sql = readFileSync(new URL("../../../drizzle/0019_durcissement_lot_2.sql", import.meta.url), "utf8");
+    expect(sql).toMatch(/ALTER COLUMN "id" SET DEFAULT gen_random_uuid\(\)/);
+    expect(sql).toMatch(/CREATE UNIQUE INDEX "instances_id_unique" ON "instances" USING btree \("id"\)/);
   });
 });

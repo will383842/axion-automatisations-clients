@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { boolean, check, date, foreignKey, integer, pgEnum, text, timestamp, unique, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { boolean, check, date, foreignKey, index, integer, pgEnum, smallint, text, timestamp, unique, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { tableClient, tableCommune } from "./aides.ts";
 import { automatisations, familleConnecteur } from "./catalogue.ts";
 import { organisations } from "./clients.ts";
@@ -11,6 +11,8 @@ export const typeNote = pgEnum("type_note", ["appel", "demande", "incident"]);
 export const canalDemande = pgEnum("canal_demande", ["courriel", "telephone", "portail", "rendez_vous", "autre"]);
 export const niveauPriorite = pgEnum("niveau_priorite", ["basse", "normale", "haute", "urgente"]);
 export const statutDemande = pgEnum("statut_demande", ["nouvelle", "en_cours", "en_attente", "resolue", "close"]);
+// T3-05a (ADR 0115) : qualification d'une demande (ajout seul).
+export const qualificationDemande = pgEnum("qualification_demande", ["aucune", "incident", "violation", "droits"]);
 export const modeCellule = pgEnum("mode_cellule", ["mutualise", "dedie"]);
 export const etatCellule = pgEnum("etat_cellule", ["active", "saturee", "hors_ligne", "maintenance"]);
 export const tonTheme = pgEnum("ton_theme", ["formel", "chaleureux", "neutre"]);
@@ -39,6 +41,8 @@ export const notes = tableClient(
     auteur: text("auteur").notNull(),
     texte: text("texte").notNull(),
     type: typeNote("type").notNull(),
+    // T3-05a (ADR 0115) : seule colonne modifiable d'une note par l'application.
+    epinglee: boolean("epinglee").notNull().default(false),
     creeLe: timestamp("cree_le", { withTimezone: true }).notNull().defaultNow(),
   },
   {
@@ -66,10 +70,18 @@ export const demandes = tableClient(
     responsable: text("responsable"),
     referenceTexte: text("reference_texte").notNull(),
     creeLe: timestamp("cree_le", { withTimezone: true }).notNull().defaultNow(),
+    // T3-05a (ADR 0115) : échéance de prise en charge, qualification, satisfaction (1 à 5, nulle permise), date de clôture. Aucun texte.
+    echeancePriseEnCharge: timestamp("echeance_prise_en_charge", { withTimezone: true }),
+    qualification: qualificationDemande("qualification").notNull().default("aucune"),
+    satisfaction: smallint("satisfaction"),
+    closeLe: timestamp("close_le", { withTimezone: true }),
   },
   {
     contraintes: (t) => [
       organisationFk("demandes")(t),
+      check("demandes_satisfaction_intervalle", sql`${t["satisfaction"]} IS NULL OR ${plage(t["satisfaction"], 1, 5)}`),
+      check("demandes_close_le_statut", sql`${t["closeLe"]} IS NULL OR ${t["statut"]} IN ('resolue', 'close')`),
+      index("demandes_echeance_idx").on(t["tenantId"] as never, t["echeancePriseEnCharge"] as never).where(sql`${t["closeLe"]} IS NULL`),
       unique("demandes_tenant_id_reference_texte_unique").on(t["tenantId"] as never, t["referenceTexte"] as never),
       check("demandes_reference_texte_format", sql`${t["referenceTexte"]} ~ '^demande:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'`),
       check("demandes_reference_texte_longueur", borne(t["referenceTexte"], 64)),
@@ -98,6 +110,8 @@ export const cellules = tableCommune(
   (t) => [
     unique("cellules_code_unique").on(t["code"] as never),
     check("cellules_code_format", sql`${t["code"]} ~ '^[a-z][a-z0-9_-]{0,62}$'`),
+    // T2-52 : forme C4 du code (pas de _), en plus de la contrainte ci-dessus qui reste en place.
+    check("cellules_code_forme_c4", sql`${t["code"]} ~ '^[a-z0-9]+(-[a-z0-9]+)*$' AND char_length(${t["code"]}) <= 64`),
     check("cellules_adresse_format", sql`${t["adresseInterne"]} ~ '^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$'`),
     check("cellules_capacite_bornee", plage(t["capacite"], 1, 100000)),
     check("cellules_instances_bornees", plage(t["nombreInstances"], 0, 100000)),

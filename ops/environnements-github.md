@@ -17,3 +17,9 @@ La seule route vers un serveur : `images.yml` construit et publie sur GHCR depui
 - Le déploiement APPELLE Coolify depuis un exécuteur hébergé par GitHub ; il ne tourne jamais sur un serveur d'AXION IA (C-528).
 - Il ne déploie qu'une image déjà publiée par `images.yml`, désignée par son empreinte `sha256:` ; jamais de code construit à la volée.
 - `scripts/garde-workflows.ts` refuse : `COOLIFY` ou un environnement `production`/`recette` hors `deploiement.yml`, un autre déclencheur que `workflow_dispatch` pour `deploiement.yml`, `packages: write` hors du job `publier` de `images.yml`.
+
+## Contrôles exigés de `main` : geste du chef d'orchestre (T1B-01, C-389)
+À appliquer par le chef d'orchestre seul (droits d'administration), jamais par une routine, après T1B-08 et la fusion de la PR de recette intégrée du socle. Réglages → Branches → règle de `main` → « Require status checks » :
+1. Garder les 13 contrôles déjà exigés.
+2. Ajouter, avec ces noms exacts (ce sont les noms des jobs ; un nom faux bloque tout `main`) : `socle-integration`, `garde-briques`, `garde-migrations`, `garde-donnees`, `squelettes-web`. `compter-tests` y est déjà.
+3. Relancer `ops/verifier-reglages-depot.sh` jusqu'à ce que tout soit OK, puis ajouter la ligne datée de C-389 (et de la partie « environnement production » de C-391) dans un fichier `spec/preuves/<branche>.md`. Tant que le script n'est pas tout OK : ne pas cocher C-389 ni C-391.

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Vérifie les réglages du dépôt (C-529, C-530, C-554). Lecture seule : ne modifie rien.
+# Vérifie les réglages du dépôt (C-389, C-529, C-530, C-554). Lecture seule : ne modifie rien.
 # Lancé par le chef d'orchestre (droits d'administration). Usage : ops/verifier-reglages-depot.sh [proprietaire/depot] [dossier-workflows]
 set -u
 command -v gh >/dev/null 2>&1 || { echo "À CORRIGER gh introuvable : rien n'a pu être vérifié"; exit 1; }
@@ -7,6 +7,7 @@ DEPOT="${1:-will383842/axion-automatisations-clients}"
 FICHE_CONTROLES=(
   "Aucun secret dans le dépôt (Gitleaks)" types lint tests garde-workflows compter-tests licences
   couverture-req garde-fusion garde-couleurs harnais contrats-pg visuel-design
+  socle-integration garde-briques garde-migrations garde-donnees squelettes-web
 )
 mauvais=0
 verdict() { # $1 = libellé, $2 = 0 si OK

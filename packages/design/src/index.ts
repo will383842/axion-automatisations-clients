@@ -12,3 +12,4 @@ export { FileValidation } from "./composants/FileValidation.tsx";
 export { Formulaire } from "./composants/Formulaire.tsx";
 export { ImportFichier, controlerFichier } from "./composants/ImportFichier.tsx";
 export { Assistant } from "./composants/Assistant.tsx";
+export { LogoAxion } from "./composants/Logo.tsx";

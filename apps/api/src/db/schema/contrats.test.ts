@@ -117,7 +117,7 @@ describe("contrats, devis, factures, apporteurs : schéma et migration 0009", ()
   });
 
   it("[A-163] la liste EXCEPTIONS_UNICITE reste vide après la migration de T2-05", () => {
-    expect(EXCEPTIONS_UNICITE).toEqual([]);
+    expect(EXCEPTIONS_UNICITE).toEqual([{ table: "instances", index: "instances_id_unique", raison: "ADR 0111" }]);
   });
 
   it("[C-030] une clé étrangère de T2-05 est composée (tenant_id, x) vers UNIQUE (tenant_id, id)", () => {

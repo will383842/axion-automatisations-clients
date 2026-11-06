@@ -117,6 +117,9 @@ importers:
       '@axion-auto/contrats':
         specifier: workspace:*
         version: link:../../packages/contrats
+      '@axion-auto/donnees-module':
+        specifier: workspace:*
+        version: link:../../packages/donnees-module
       '@axion-auto/sdk-module':
         specifier: workspace:*
         version: link:../../packages/sdk-module

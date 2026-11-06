@@ -85,7 +85,7 @@ describe("attestation de mise à l'écart", () => {
   it("[B-168] l'attestation mentionne la clé d'IA du client désactivée et conservée", async () => {
     const { p, contenus } = monter();
     await produireAttestation(p, A, FIN, "mise_a_l_ecart");
-    expect(texteDe(contenus[0]!)).toMatch(/clé d'IA.*désactivée.*conservée/s);
+    expect(texteDe(contenus[0]!)).toMatch(/clé d'IA.*désactivée.*conservée/is);
     const m = monter({ sansCleIa: true });
     await expect(produireAttestation(m.p, A, FIN, "mise_a_l_ecart")).rejects.toThrow(/compte_rendu_incomplet/);
     expect(m.rangees).toEqual([]);

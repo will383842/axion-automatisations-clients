@@ -35,7 +35,6 @@ function monter(o: { actif?: boolean } = {}) {
   const deps: DepsExecuteur = {
     actif: () => o.actif ?? true,
     cles: {
-      async cleActive(canal: string) { return { kid: "k1", secret: secrets.get(canal)! } as CleEchange; },
       async clesAcceptees(canal: string) { return [{ kid: "k1", secret: secrets.get(canal)! } as CleEchange]; },
     },
     memoire: { async set(k) { if (vus.has(k)) return null; vus.add(k); return "OK"; } },
@@ -123,7 +122,7 @@ describe("réception des événements d'exécution", () => {
   it("[A-346] corps de plus de 1 Mo refusé avant toute analyse, plus de 500 événements refusés", async () => {
     const m = monter();
     const gros = await m.poster(null, { brut: JSON.stringify({ evenements: [], bourrage: "x".repeat(1_100_000) }) });
-    expect(gros.statusCode).toBe(400);
+    expect(gros.statusCode).toBe(413);
     const trop = await m.poster({ evenements: Array.from({ length: 501 }, (_, i) => debut(X, `e${i}`)) });
     expect(trop.statusCode).toBe(400);
     expect(m.lignes.size).toBe(0);

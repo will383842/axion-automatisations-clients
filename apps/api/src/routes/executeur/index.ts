@@ -7,6 +7,7 @@ import { resoudreInstance, type InstanceResolue } from "../../executeur/portees.
 import { ErreurApi } from "../../plugins/erreurs.js";
 import { routeConfiguration } from "./configuration.js";
 import { routeEtatVoulu } from "./etat-voulu.js";
+import { routeEvenements, type DepsEvenements } from "./evenements.js";
 
 // API de l'exécuteur (C4) : GET configuration et GET etat-voulu. Interrupteur EXECUTEUR_API_OUVERTE, fermé par défaut (seules les valeurs 1 et true ouvrent).
 // Le câblage réel (pools, coffre, Valkey) dans demarrer() reste à faire : la route n'existe que si l'appelant fournit ces dépendances.
@@ -21,6 +22,8 @@ export interface DepotExecuteur {
 export interface DepsExecuteur extends DepsCellules {
   actif: () => boolean;
   depot: DepotExecuteur;
+  // Réception des événements (T4-23) : la route n'existe que si ces dépendances sont fournies.
+  evenements?: DepsEvenements;
 }
 export interface Contexte {
   deps: DepsExecuteur;
@@ -50,6 +53,7 @@ export function routeExecuteur(serveur: FastifyInstance, deps: DepsExecuteur): v
     });
     routeConfiguration(s, contexte);
     routeEtatVoulu(s, contexte);
+    if (deps.evenements) routeEvenements(s, contexte, deps.evenements);
   }, { prefix: PREFIXE_C4 });
 }
 

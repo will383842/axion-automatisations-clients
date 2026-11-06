@@ -12,8 +12,10 @@ export const CHEMIN_ACCUSE = "/api/portail/v1/fin-de-contrat/accuse/:tenantId/:j
 export interface SessionFin { acteur: string; role: string; clientActifId: string; reauthentifie: boolean }
 export interface DepsFin {
   session(requete: FastifyRequest): Promise<SessionFin>;
-  // Crée la ligne fins_de_contrat et planifie les tâches (planifierTaches) ; rien d'autre.
-  lancer(d: { tenantId: string; dateFin: string; acteur: string }): Promise<void>;
+  // Crée la ligne fins_de_contrat et planifie les tâches (planifierTaches) ; rien d'autre. UNE seule fin par client (contrainte d'unicité sur le client, INSERT … ON CONFLICT DO NOTHING) :
+  // « deja_lancee » si la ligne existe avec la même date (rien n'est replanifié), « autre_date » si elle existe avec une autre date (rien n'est modifié).
+  lancer(d: { tenantId: string; dateFin: string; acteur: string }): Promise<"lancee" | "deja_lancee" | "autre_date">;
+  maintenant(): Date;
   demanderEffacement(tenantId: string, ecritReference: string): Promise<void>;
   confirmer(tenantId: string, jour: JourPreavis, jeton: string): Promise<boolean>;
 }
@@ -21,6 +23,14 @@ const Params = z.strictObject({ id: z.uuid() });
 const CorpsLancer = z.strictObject({ dateFin: z.string().refine((v) => { try { ajouterJours(v, 0); return true; } catch { return false; } }) });
 const CorpsEffacement = z.strictObject({ ecritReference: z.string().trim().min(1).max(500) });
 const ParamsAccuse = z.strictObject({ tenantId: z.uuid(), jour: z.enum(["1", "20", "27"]), jeton: z.string().min(1).max(200) });
+// Fenêtre écrite de la date de fin : d'aujourd'hui (Europe/Paris) à un an. Une date passée ferait partir les trois préavis d'un coup ; une date lointaine n'a pas de sens.
+export const FENETRE_FIN_JOURS = 366;
+const aujourdhuiParis = (t: Date): string => new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Paris" }).format(t);
+// Les dates AAAA-MM-JJ se comparent comme du texte.
+export function dateFinDansLaFenetre(dateFin: string, maintenant: Date): boolean {
+  const jour = aujourdhuiParis(maintenant);
+  return dateFin >= jour && dateFin <= ajouterJours(jour, FENETRE_FIN_JOURS);
+}
 const invalide = () => new ErreurApi("schema_invalide", "Requête invalide.");
 
 // Administrateur, réauthentifié, acteur identifié, et le client de l'URL est le client actif de la session (attaque 5).
@@ -41,9 +51,11 @@ export function gestionnairesFinDeContrat(d: DepsFin) {
       const acteur = exigerDroit(await d.session(requete), p.data.id);
       const c = CorpsLancer.safeParse(requete.body);
       if (!c.success) throw invalide();
-      await d.lancer({ tenantId: p.data.id, dateFin: c.data.dateFin, acteur });
+      if (!dateFinDansLaFenetre(c.data.dateFin, d.maintenant())) throw new ErreurApi("regle_metier", "La date de fin doit être comprise entre aujourd'hui et dans un an.");
+      const etat = await d.lancer({ tenantId: p.data.id, dateFin: c.data.dateFin, acteur });
+      if (etat === "autre_date") throw new ErreurApi("regle_metier", "Une fin de contrat est déjà lancée pour ce client avec une autre date.");
       reponse.status(202);
-      return { etat: "lancee" };
+      return { etat };
     },
     demandeEffacement: async (requete: FastifyRequest, reponse: { status(n: number): unknown }) => {
       const p = Params.safeParse(requete.params);

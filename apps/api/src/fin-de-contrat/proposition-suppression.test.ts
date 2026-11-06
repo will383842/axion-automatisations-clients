@@ -22,7 +22,7 @@ function monter(o: { delai?: number; maintenant?: string; gel?: boolean } = {}) 
       lignes.push({ id: `p${lignes.length}`, ...n, avisEnvoyeLe: null });
       return { id: `p${lignes.length - 1}`, cree: true, avisEnvoyeLe: null };
     },
-    envoyerAvis: async (_t: string, _id: string) => undefined,
+    envoyerAvis: async () => undefined,
     marquerAvis: async (id: string, quand: Date) => { const l = lignes.find((x) => x.id === id); if (l) l.avisEnvoyeLe ??= quand; },
     enAttente: async () => lignes.map((l) => ({ id: l.id, tenantId: l.tenantId, avisEnvoyeLe: l.avisEnvoyeLe })),
     gel: { gelActif: async () => o.gel ?? false },

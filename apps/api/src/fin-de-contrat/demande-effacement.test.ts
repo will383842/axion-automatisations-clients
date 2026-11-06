@@ -23,7 +23,7 @@ function monter(o: { gelsActifs?: string[]; gel?: boolean } = {}) {
     gelActifId: async (_t: string, g: string) => (o.gelsActifs ?? []).includes(g),
     maintenant: () => NOW,
     alerter: async (a: AlerteFin) => void alertes.push(a),
-    creer: async (_t: string, _r: string) => ({ id: D1 }),
+    creer: async () => ({ id: D1 }),
     demande: async (t: string, id: string) => (t === A && id === D1 ? { id, tenantId: t, etat } : undefined),
     informerClient: async (_t: string, motif: string) => void motifsClient.push(motif),
     transaction: async <T>(_id: string, fn: (tx: unknown) => Promise<T>): Promise<T> => fn({

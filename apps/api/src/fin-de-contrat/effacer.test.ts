@@ -8,7 +8,7 @@ const P1 = "55555555-5555-4555-8555-555555555555";
 const D1 = "99999999-9999-4999-8999-999999999999";
 const T0 = new Date("2029-03-01T10:00:00Z");
 const val = (o: Partial<Validation> = {}): Validation => ({ tenantId: A, acteur: "will", role: "will", a: T0, reauthLe: new Date(T0.getTime() - 60_000), jetonId: `j${Math.random()}`, ...o });
-const deux = (): Validation[] => [val(), val({ a: new Date(T0.getTime() + 24 * 3_600_000), acteur: "second", role: "second_administrateur" })];
+const deux = (): Validation[] => [val(), val({ a: new Date(T0.getTime() + 24 * 3_600_000), reauthLe: new Date(T0.getTime() + 24 * 3_600_000 - 60_000), acteur: "second", role: "second_administrateur" })];
 const source = (o: Partial<Source> = {}): Source => ({ genre: "proposition", id: P1, tenantId: A, etat: "acceptee", validations: deux(), exportRemis: true, ...o });
 
 function monter(o: { source?: Source | undefined; actif?: boolean; base?: string; gel?: boolean; gelEntreTemps?: boolean; echec?: string } = {}) {

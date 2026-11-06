@@ -35,6 +35,8 @@ Les secrets de l'équipe vivent dans Bitwarden ou sous `technique/` d'OpenBao, J
 | `SAUVEGARDES_RETRAIT_ACTIF` | aucun | environnement cloud (interrupteur du retrait des anciens dumps de client sur la cible de sauvegarde, fermé par défaut ; suspendu par un gel pour litige) | sans objet |
 | `EXPORTS_RETRAIT_ACTIF` | aucun | environnement cloud (interrupteur du retrait de la copie d'export au bout de 30 jours ; ne touche jamais la donnée d'origine ; fermé par défaut, suspendu par un gel pour litige) | sans objet |
 | `RETENTION_OUVERTE_PAR` | aucun | environnement cloud (date d'ouverture du retrait, posée par Will ; exigée en production si l'interrupteur est ouvert) | sans objet |
+| `EFFACEMENT_ACTIF` | aucun | environnement cloud (interrupteur de l'effacement exceptionnel d'un client, au clic tracé de Will seulement ; fermé par défaut, jamais ouvert par une routine ; suspendu par un gel pour litige) | sans objet |
+| `EFFACEMENT_OUVERT_PAR` | aucun | environnement cloud (date d'ouverture de l'effacement, posée par Will ; exigée en production si l'interrupteur est ouvert) | sans objet |
 | `CONTRACTER_OUVERT` | aucun | environnement cloud (interrupteur des migrations « contracter » des bases des clients, fermé par défaut, y compris en production ; ouvert par Will seul, lot 8a) | sans objet |
 | `VERSION_STRUCTURE_CODE` | aucun | environnement cloud (version de structure des bases attendue par le code déployé ; absente = inconnue, contracter refusé) | sans objet |
 | `PLAFOND_CLE_CLIENT_MICROCENTIMES` | aucun | environnement cloud | sans objet |

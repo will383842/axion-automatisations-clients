@@ -28,6 +28,9 @@ export interface Config {
   sauvegardesRetraitActif?: boolean;
   // Retrait des exports de 30 jours (A-252) : ne touche que la copie d'export ; fermé par défaut, suspendu par un gel pour litige.
   exportsRetraitActif?: boolean;
+  // Effacement exceptionnel d'un client (T2-45, C-623, C-715) : fermé par défaut ; en production, jamais ouvert sans la date posée par Will.
+  effacementActif?: boolean;
+  effacementOuvertPar?: string;
 }
 
 // Les clés des fournisseurs d'IA et de la passerelle vivent dans OpenBao seulement (C-391, C-598 d).
@@ -77,6 +80,8 @@ const Schema = z.object({
   VERSION_STRUCTURE_CODE: z.preprocess((v) => (v === "" ? undefined : v), z.coerce.number().int().min(0).optional()),
   SAUVEGARDES_RETRAIT_ACTIF: interrupteur,
   EXPORTS_RETRAIT_ACTIF: interrupteur,
+  EFFACEMENT_ACTIF: interrupteur,
+  EFFACEMENT_OUVERT_PAR: z.preprocess((v) => (v === "" ? undefined : v), z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((d) => !Number.isNaN(Date.parse(d))).optional()),
   RETENTION_OUVERTE_PAR: z.preprocess((v) => (v === "" ? undefined : v), z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((d) => !Number.isNaN(Date.parse(d))).optional()),
   EQUIPE_ADRESSE_WILL: z.preprocess((v) => (v === "" ? undefined : v), adresseUnique),
 });
@@ -94,9 +99,10 @@ export function chargerConfig(env: NodeJS.ProcessEnv, dossierApi = fileURLToPath
     }
     // Le retrait définitif ne s'ouvre en production que si une date d'ouverture, posée par Will, est présente.
     if (v.RETENTION_PURGE_ACTIVE && !v.RETENTION_OUVERTE_PAR) throw new ConfigInvalide("configuration invalide : RETENTION_OUVERTE_PAR");
+    if (v.EFFACEMENT_ACTIF && !v.EFFACEMENT_OUVERT_PAR) throw new ConfigInvalide("configuration invalide : EFFACEMENT_OUVERT_PAR");
     if (!v.APP_DATABASE_URL) throw new ConfigInvalide("configuration invalide : APP_DATABASE_URL");
   }
   const { APP_DATABASE_URL: base, HUB_URL: hub, CRM_URL: crm, EQUIPE_ADRESSE_WILL: will } = v;
-  const actifs = { hubActif: v.CONSOLE_HUB_ACTIF, crmActif: v.CONSOLE_CRM_ACTIF, retentionPurgeActive: v.RETENTION_PURGE_ACTIVE, sauvegardesRetraitActif: v.SAUVEGARDES_RETRAIT_ACTIF, exportsRetraitActif: v.EXPORTS_RETRAIT_ACTIF, contracterOuvert: v.CONTRACTER_OUVERT, ...(v.VERSION_STRUCTURE_CODE !== undefined ? { versionStructureCode: v.VERSION_STRUCTURE_CODE } : {}), ...(v.RETENTION_OUVERTE_PAR ? { retentionOuvertePar: v.RETENTION_OUVERTE_PAR } : {}) };
+  const actifs = { hubActif: v.CONSOLE_HUB_ACTIF, crmActif: v.CONSOLE_CRM_ACTIF, retentionPurgeActive: v.RETENTION_PURGE_ACTIVE, sauvegardesRetraitActif: v.SAUVEGARDES_RETRAIT_ACTIF, exportsRetraitActif: v.EXPORTS_RETRAIT_ACTIF, effacementActif: v.EFFACEMENT_ACTIF, ...(v.EFFACEMENT_OUVERT_PAR ? { effacementOuvertPar: v.EFFACEMENT_OUVERT_PAR } : {}), contracterOuvert: v.CONTRACTER_OUVERT, ...(v.VERSION_STRUCTURE_CODE !== undefined ? { versionStructureCode: v.VERSION_STRUCTURE_CODE } : {}), ...(v.RETENTION_OUVERTE_PAR ? { retentionOuvertePar: v.RETENTION_OUVERTE_PAR } : {}) };
   return { env: v.NODE_ENV, port: v.PORT, ...actifs, ...(base ? { appDatabaseUrl: base } : {}), ...(hub ? { hubUrl: hub } : {}), ...(crm ? { crmUrl: crm } : {}), ...(will ? { adressesEquipe: { will } } : {}) };
 }

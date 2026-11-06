@@ -64,6 +64,24 @@ describe("rangement des événements sur la vraie base (T4-23)", () => {
     expect(l[0]).toMatchObject({ id, statut: "reussie", elements_traites: 4, auteur: "cellule:cellule-essai" });
   });
 
+  it("[A-343] deux rangements simultanés du même debut ne créent qu'une ligne executions", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    const inst = await creerInstance(A);
+    const depot = depotExecutionsPg(app, "cellule-essai", async () => undefined);
+    const id = idExecution(inst, "exec-concurrent");
+    const n = 10;
+    await Promise.all(Array.from({ length: n }, async () => {
+      await depot.debut(A, inst, id);
+      await depot.fin(A, inst, id, { dureeMs: 1200, elements: 4, jetons: 300, coutIaMicroCentimes: 15 });
+    }));
+    const l = await lignes(A);
+    expect(l).toHaveLength(1);
+    expect(l[0]).toMatchObject({ id, statut: "reussie", elements_traites: 4 });
+    const cout = await avecClient(app, A, async (c) => (await c.query("SELECT SUM(cout_micro_centimes)::text AS total FROM executions")).rows[0]?.["total"] as string, APPELANT);
+    expect(cout).toBe("15"); // coût non doublé
+  });
+
   it("[A-343] debut puis erreur range un échec avec son code", async () => {
     const A = randomUUID();
     await creerOrg(A);

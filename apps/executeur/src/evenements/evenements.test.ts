@@ -80,11 +80,69 @@ describe("événements d'exécution : envoi par paquets", () => {
     expect(tampon.evenements()).toHaveLength(0);
   });
 
-  it("[A-343] un refus définitif (400) garde les événements dans le tampon, sans les perdre", async () => {
-    const { e, tampon } = envoi(dossier(), { statuts: [400] });
+  it("[A-344] un paquet refusé en 403 ne bloque pas les événements suivants de la cellule", async () => {
+    const { e, paquets, tampon } = envoi(dossier(), { statuts: [403] });
     await e.envoyer(debut(1));
-    await expect(e.vider()).rejects.toThrow();
-    expect(tampon.evenements()).toHaveLength(1);
+    await e.vider(); // ne lève pas : le lot refusé est mis à part
+    expect(tampon.evenements()).toHaveLength(0);
+    expect(tampon.quarantaine).toBe(1);
+    await e.envoyer(debut(2));
+    await e.vider();
+    expect(paquets).toHaveLength(2);
+    expect((JSON.parse(paquets[1]!.corps) as Paquet).evenements.map((x) => (x as { executionId: string }).executionId)).toEqual(["exec-2"]);
+    expect(tampon.evenements()).toHaveLength(0);
+  });
+
+  it("[A-344] 400, 413 et 422 sont définitifs : le lot part en quarantaine, comptée", async () => {
+    for (const statut of [400, 413, 422]) {
+      const { e, tampon } = envoi(dossier(), { statuts: [statut] });
+      await e.envoyer(debut(1));
+      await e.vider();
+      expect(tampon.evenements()).toHaveLength(0);
+      expect(tampon.quarantaine).toBe(1);
+    }
+  });
+
+  it("[A-344] la quarantaine est bornée : au-delà, les plus anciens sont comptés puis écartés", async () => {
+    const { tampon } = envoi(dossier());
+    for (let i = 0; i < 5; i++) tampon.mettreAPart([debut(i)], 3);
+    expect(tampon.quarantaine).toBe(5);
+    expect(tampon.enQuarantaine()).toHaveLength(3);
+  });
+
+  it("[A-344] 401 et 429 restent rejouables : le lot reste dans le tampon", async () => {
+    for (const statut of [401, 429]) {
+      const { e, tampon } = envoi(dossier(), { statuts: [statut] });
+      await e.envoyer(debut(1));
+      await expect(e.vider()).rejects.toThrow();
+      expect(tampon.evenements()).toHaveLength(1);
+      expect(tampon.quarantaine).toBe(0);
+    }
+  });
+
+  it("[A-344] deux vidages simultanés n'envoient chaque événement qu'une fois et n'en perdent aucun", async () => {
+    const d = dossier();
+    const paquets: string[] = [];
+    let liberer!: () => void;
+    const porte = new Promise<void>((r) => (liberer = r));
+    let appels = 0;
+    const faux = (async (_u: string, init: RequestInit) => {
+      paquets.push(init.body as string);
+      if (appels++ === 0) await porte; // la console est lente pour le premier envoi
+      return new Response("", { status: 202 });
+    }) as unknown as typeof fetch;
+    const tampon = new TamponEvenements(d, { maxEvenements: 1000 });
+    const e = new EnvoiEvenements({ tampon, url: "http://console.test", cle: "c4:auto-run-1:1", secret: () => "secret-de-test", fetch: faux, maintenant: () => 1_700_000_000, dormir: async () => undefined, celluleId: "auto-run-1", instancesActives: () => ["inst-1"] });
+    for (let i = 1; i <= 3; i++) tampon.ajouter(debut(i));
+    const v1 = e.vider();
+    const v2 = e.vider();
+    tampon.ajouter(debut(4)); // arrive pendant l'attente
+    liberer();
+    await Promise.all([v1, v2]);
+    await e.vider();
+    const ids = paquets.flatMap((p) => (JSON.parse(p) as Paquet).evenements.map((x) => (x as { executionId: string }).executionId));
+    expect([...ids].sort()).toEqual(["exec-1", "exec-2", "exec-3", "exec-4"]);
+    expect(tampon.evenements()).toHaveLength(0);
   });
 
   it("[A-344] le signal de vie nomme la cellule et ses instances actives, sans texte libre", async () => {

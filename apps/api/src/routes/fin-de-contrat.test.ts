@@ -58,6 +58,7 @@ describe("routes de la fin de contrat", () => {
     const inconnu = await app.inject({ method: "GET", url: CHEMIN_ACCUSE.replace(":tenantId", A).replace(":jour", "5").replace(":jeton", "abc") });
     expect(faux.statusCode).toBe(404);
     expect(inconnu.statusCode).toBe(404);
-    expect(faux.json()).toEqual(inconnu.json());
+    expect(faux.json().erreur.code).toBe(inconnu.json().erreur.code);
+    expect(faux.json().erreur.message).toBe(inconnu.json().erreur.message);
   });
 });

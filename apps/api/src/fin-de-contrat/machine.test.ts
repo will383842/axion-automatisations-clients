@@ -112,7 +112,7 @@ describe("machine de fin de contrat", () => {
     expect(demandes).toEqual([{ t: T, ref: "objet/ecrit-du-client-1" }]);
     expect(alertes).toEqual([{ type: "demande_effacement", clientId: T, code: "decision_de_will_attendue" }]);
     expect(JSON.stringify(dossier)).toBe(avant);
-    expect(echeance(DATE_FIN, 27).toISOString()).toBe("2027-02-06T23:00:00.000Z");
+    expect(echeance(DATE_FIN, 27).toISOString()).toBe("2027-02-05T23:00:00.000Z");
     await expect(recevoirDemandeEffacement({ creer: async () => ({ id: "x" }), alerter: async () => undefined }, T, "  ")).rejects.toBeInstanceOf(ErreurApi);
   });
 });

@@ -253,6 +253,31 @@ describe("rotation des mots de passe", () => {
     expect(panne.roles.get(`cli_${ID}_app`)?.version).toBe(1);
   });
 
+  it("[A-169] rotation immédiate : si _lecture échoue après _app, les sessions sont quand même coupées et l'échec reste visible", async () => {
+    const m = monter({ echecLecture: true });
+    const e = await creerRotation(m.p).immediate(T, "poste perdu", session(), m.file).catch((x: unknown) => x as Error);
+    expect(e).toMatchObject({ code: "role_echoue" });
+    expect(m.evenements).toContain(`couper:cli_${ID}:cli_${ID}_app`);
+    expect(m.journal).toContainEqual(expect.objectContaining({ evenement: "sessions_coupees", tenantId: T }));
+    expect(m.taches.map((x) => x.nom)).toEqual(["reconnecter"]);
+    expect(`${(e as Error).message}${JSON.stringify(m.journal)}${JSON.stringify(m.alertes)}`).not.toContain(MDP[0]!);
+    // Rien n'a changé côté rôle (coffre en panne dès _app) : aucune coupure inutile.
+    const rien = monter({ echecRole: true });
+    await expect(creerRotation(rien.p).immediate(T, "poste perdu", session(), rien.file)).rejects.toMatchObject({ code: "role_echoue" });
+    // _app a échoué sur l'ordre lui-même : le doute profite à la sécurité, on coupe.
+    expect(rien.evenements.some((x) => x.startsWith("couper:"))).toBe(true);
+    // La coupure elle-même échoue : l'échec d'origine remonte, trace + alerte sessions_non_coupees, jamais de pause.
+    const double = monter({ echecLecture: true, echecCoupure: true });
+    await expect(creerRotation(double.p).immediate(T, "poste perdu", session(), double.file)).rejects.toMatchObject({ code: "role_echoue" });
+    expect(double.journal).toContainEqual(expect.objectContaining({ evenement: "sessions_non_coupees", tenantId: T }));
+    expect(double.journal.some((x) => x.evenement === "sessions_coupees")).toBe(false);
+    expect(double.alertes).toContainEqual(expect.objectContaining({ evenement: "sessions_non_coupees", code: "coupure_echouee" }));
+    // La rotation planifiée ne coupe jamais, même en échec partiel.
+    const plan = monter({ echecLecture: true });
+    await expect(creerRotation(plan.p).pourBase(T, plan.file)).rejects.toMatchObject({ code: "role_echoue" });
+    expect(plan.evenements.some((x) => x.startsWith("couper:"))).toBe(false);
+  });
+
   it("[A-209] aucun nom hors cli_<id>_(app|lecture) n'est modifié par la rotation (_proprietaire refusé)", async () => {
     const ordres: string[] = [];
     const sql = {

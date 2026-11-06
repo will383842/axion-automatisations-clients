@@ -91,7 +91,24 @@ export function sessionsPg(grappe: Pick<Sql, "requete">, bouncer: Pick<Sql, "req
 }
 
 export function creerRotation(p: PortsRotation) {
-  async function pivoter(tenantId: string, file: Pick<FileRotation, "add">): Promise<"faite" | "occupe"> {
+  // Coupe les sessions (_app et _lecture, même coupure) ; trace le résultat, jamais de mot de passe. Renvoie vrai si la coupure a réussi.
+  async function couper(id: string, grappe: string, acteur: string): Promise<boolean> {
+    try {
+      await p.sessions(grappe).couper(nomBaseDe(id), nomsRoles(id).app);
+    } catch {
+      p.journal.tracer({ evenement: "sessions_non_coupees", tenantId: id, acteur });
+      try {
+        await p.alerte.envoyer({ evenement: "sessions_non_coupees", tenantId: id, base: nomBaseDe(id), essais: 0, code: "coupure_echouee" });
+      } catch {
+        p.journal.tracer({ evenement: "alerte_non_envoyee", tenantId: id });
+      }
+      return false;
+    }
+    p.journal.tracer({ evenement: "sessions_coupees", tenantId: id, acteur });
+    return true;
+  }
+  // `incident` : rotation immédiate. Si un rôle échoue après que _app a été touché, les sessions ouvertes sont coupées quand même, sous le verrou, puis l'échec d'origine remonte.
+  async function pivoter(tenantId: string, file: Pick<FileRotation, "add">, incident?: { acteur: string }): Promise<"faite" | "occupe"> {
     const id = tenantId.toLowerCase();
     const nomBase = nomBaseDe(id);
     const ligne = await p.base(id);
@@ -105,11 +122,26 @@ export function creerRotation(p: PortsRotation) {
       const validJusqua = new Date(p.maintenant().getTime() + 2 * p.periodeJours * JOUR_MS);
       const roles = nomsRoles(id);
       let version = 0;
-      for (const genre of ["app", "lecture"] as const) {
-        const motDePasse = p.motDePasse();
-        const v = await p.coffre.ranger(`technique/donnees/${nomBase}/${genre}`, motDePasse).catch(() => { throw new ErreurCourtier("coffre_indisponible"); });
-        await p.admin(ligne.grappe).changerMotDePasse(roles[genre], p.empreinte(motDePasse), v, validJusqua).catch((e: unknown) => { throw new ErreurCourtier(e instanceof ErreurCourtier ? e.code : "role_echoue"); });
-        if (genre === "app") version = v;
+      let appTouche = false;
+      try {
+        for (const genre of ["app", "lecture"] as const) {
+          const motDePasse = p.motDePasse();
+          const v = await p.coffre.ranger(`technique/donnees/${nomBase}/${genre}`, motDePasse).catch(() => { throw new ErreurCourtier("coffre_indisponible"); });
+          if (genre === "app") version = v;
+          // Dès l'ordre envoyé pour _app, l'ancien identifiant peut ne plus valoir : on le suppose changé.
+          if (genre === "app") appTouche = true;
+          await p.admin(ligne.grappe).changerMotDePasse(roles[genre], p.empreinte(motDePasse), v, validJusqua).catch((e: unknown) => {
+            if (genre === "app" && e instanceof ErreurCourtier && e.code === "role_absent") appTouche = false;
+            throw new ErreurCourtier(e instanceof ErreurCourtier ? e.code : "role_echoue");
+          });
+        }
+      } catch (e) {
+        if (incident && appTouche) {
+          // Échec partiel : les sessions portent peut-être l'ancien identifiant. Coupure et reconnexion en file, puis l'échec d'origine remonte (la base n'est jamais laissée en pause).
+          await couper(id, ligne.grappe, incident.acteur);
+          await file.add("reconnecter", { tenantId: id }, { jobId: `reconnect-${nomBase}-${version}`, delay: DELAI_GRACE_MS, removeOnComplete: true }).catch(() => undefined);
+        }
+        throw e;
       }
       // Grâce : les connexions déjà ouvertes durent 10 minutes, puis PgBouncer reconnecte la base (tâche différée, une par version).
       await file.add("reconnecter", { tenantId: id }, { jobId: `reconnect-${nomBase}-${version}`, delay: DELAI_GRACE_MS, removeOnComplete: true });
@@ -136,7 +168,7 @@ export function creerRotation(p: PortsRotation) {
       const m = typeof motif === "string" ? motif.trim() : "";
       if (m === "" || m.length > 500) throw new ErreurApi("schema_invalide", "Requête invalide.");
       p.journal.tracer({ evenement: "rotation_immediate", tenantId: tenantId.toLowerCase(), acteur, motif: m });
-      const r = await pivoter(tenantId, file);
+      const r = await pivoter(tenantId, file, { acteur });
       if (r === "occupe") {
         // Une rotation planifiée tient le verrou : rien n'a changé, donc couper maintenant ne servirait à rien (l'ancien mot de passe reste valable). La demande échoue de façon visible : trace, alerte, code.
         const id = tenantId.toLowerCase();
@@ -151,13 +183,7 @@ export function creerRotation(p: PortsRotation) {
       // Les sessions ouvertes avant le changement portent encore l'ancien mot de passe : on les coupe (échec visible, jamais silencieux).
       const id = tenantId.toLowerCase();
       const ligne = await p.base(id);
-      try {
-        await p.sessions(ligne!.grappe).couper(nomBaseDe(id), nomsRoles(id).app);
-      } catch {
-        p.journal.tracer({ evenement: "sessions_non_coupees", tenantId: id, acteur });
-        throw new ErreurCourtier("coupure_echouee");
-      }
-      p.journal.tracer({ evenement: "sessions_coupees", tenantId: id, acteur });
+      if (!(await couper(id, ligne!.grappe, acteur))) throw new ErreurCourtier("coupure_echouee");
       return r;
     },
     // Écouteur « failed » de la file : après le dernier essai, une alerte part (code seul). Une alerte qui échoue est tracée et lève : la panne reste visible.

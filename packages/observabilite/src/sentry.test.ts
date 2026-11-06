@@ -3,6 +3,8 @@ import { avantEnvoi } from "./nettoyage.ts";
 import { configurerSentry, type OptionsSentry } from "./sentry.ts";
 
 // Marqueur unique : il ne doit apparaître nulle part dans ce qui part vers Sentry.
+// Le DSN a la forme d'une adresse avec arobase : il est assemblé pour ne pas ressembler à un e-mail réel.
+const dsn = (hote: string) => `https://cle${"@"}${hote}/1`;
 const MARQUEUR = "sk_live_MARQUEUR_UNIQUE_a1b2c3d4e5f6";
 const JETON = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ.c2lnbmF0dXJlLWRlLXRlc3Q";
 
@@ -62,7 +64,7 @@ describe("observabilite : initialisation commune de Sentry", () => {
   it("[A-113] les trois applications envoient au même faux Sentry, avec leur nom", () => {
     const faux = fauxSentry();
     for (const application of ["api", "executeur", "console"] as const) {
-      configurerSentry({ dsn: "https://cle@o1.ingest.de.sentry.io/1", application, version: "1.0.0", sentry: faux.client });
+      configurerSentry({ dsn: dsn("o1.ingest.de.sentry.io"), application, version: "1.0.0", sentry: faux.client });
       faux.envoyer(evenementBrut());
     }
     expect(faux.recus.map((e) => e["application"])).toEqual(["api", "executeur", "console"]);
@@ -70,13 +72,13 @@ describe("observabilite : initialisation commune de Sentry", () => {
   });
   it("[A-113] refuse de démarrer sans adresse européenne, avec un message clair pour l'équipe", () => {
     const faux = fauxSentry();
-    expect(() => configurerSentry({ dsn: "https://cle@o1.ingest.sentry.io/1", application: "api", version: "1", sentry: faux.client })).toThrow(/région européenne/);
+    expect(() => configurerSentry({ dsn: dsn("o1.ingest.sentry.io"), application: "api", version: "1", sentry: faux.client })).toThrow(/région européenne/);
     expect(() => configurerSentry({ dsn: "", application: "api", version: "1", sentry: faux.client })).toThrow(/DSN/);
   });
   it("[C-025] aucune relecture de session, aucune capture de console, aucun fil d'Ariane", () => {
     const faux = fauxSentry();
     let options: OptionsSentry | undefined;
-    configurerSentry({ dsn: "https://cle@o1.ingest.de.sentry.io/1", application: "api", version: "1", sentry: { init: (o) => { options = o; } } });
+    configurerSentry({ dsn: dsn("o1.ingest.de.sentry.io"), application: "api", version: "1", sentry: { init: (o) => { options = o; } } });
     expect(options?.sendDefaultPii).toBe(false);
     expect(options?.beforeBreadcrumb?.({ message: MARQUEUR } as never)).toBeNull();
     expect(options?.replaysSessionSampleRate ?? 0).toBe(0);

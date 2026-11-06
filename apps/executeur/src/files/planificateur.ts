@@ -1,5 +1,6 @@
 import type { Queue } from "bullmq";
 import type { EtatVoulu } from "@axion-auto/contrats/src/c4/etat-voulu.ts";
+import { etaler } from "./etalement.ts";
 import type { AttenteEnPause } from "../console/pause-sure.ts";
 import type { LectureEtat } from "../console/etat-voulu.ts";
 import { versRepetition, type Declencheur, type Repetition } from "./declencheurs.ts";
@@ -22,13 +23,13 @@ export interface Planificateurs {
 const signature = (p: Planification) => JSON.stringify([p.repetition, p.gabarit]);
 
 // Idempotent : on ne réécrit que ce qui diffère, on retire ce qui n'est plus voulu (pause, arrêt, déclencheur supprimé).
-export async function synchroniser(port: Planificateurs, voulus: EtatVouluPlanifie[]): Promise<void> {
+export async function synchroniser(port: Planificateurs, voulus: EtatVouluPlanifie[], fenetreEtalementMin = 0): Promise<void> {
   const cible = new Map<string, Planification>();
   for (const e of voulus) {
     if (e.etat !== "actif") continue;
     for (const d of e.declencheurs) {
       const id = `${e.instanceId}:${d.id}`;
-      cible.set(id, { id, repetition: versRepetition(d), gabarit: { instanceId: e.instanceId } });
+      cible.set(id, { id, repetition: etaler(versRepetition(d), e.instanceId, fenetreEtalementMin), gabarit: { instanceId: e.instanceId } });
     }
   }
   const existants = new Map((await port.lister()).map((p) => [p.id, p]));

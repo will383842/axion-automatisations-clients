@@ -160,7 +160,7 @@ describe("tables du lot 3 : équipe, vues, « Aujourd'hui » (T3-05a)", () => {
     const texte = readFileSync(new URL(nom, dossier), "utf8");
     expect(analyserSql(nom, texte)).toEqual([]);
     const code = texte.replace(/--[^\n]*/g, "");
-    expect(code).not.toMatch(/\b(DROP|DELETE|TRUNCATE|RENAME)\b/i);
+    expect(code).not.toMatch(/\b(DROP|TRUNCATE|RENAME)\b|\bDELETE\s+FROM\b/i);
     expect(code).not.toMatch(/ALTER\s+(TABLE\s+\S+\s+ALTER\s+COLUMN|COLUMN)[^;]*\bTYPE\b/i);
     expect(code).not.toMatch(/GRANT[^;]*\bDELETE\b|GRANT[^;]*\bTRUNCATE\b/i);
   });

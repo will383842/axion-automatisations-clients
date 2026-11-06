@@ -58,4 +58,20 @@ describe("clé d'IA propre du client (T4-34a)", () => {
     expect(String((e as Error).message)).not.toContain(marqueur);
     expect(String((e as Error).stack)).not.toContain(marqueur);
   });
+
+  it("[A-020] la clé propre du client A n'est rangée et enregistrée que sous A, jamais sous B", async () => {
+    const A = randomUUID(), B = randomUUID();
+    const coffre = fauxCoffre();
+    const vues: { tenantId: string; reference: string }[] = [];
+    const deps = { coffre, enregistrer: async (e: { tenantId: string; reference: string }) => (vues.push(e), { id: randomUUID() }) };
+    await rangerCleClient(deps, { tenantId: A, organisationId: A, fournisseur: "mistral", valeur: `essai-cle-${randomUUID()}`, acteur: "agent-essai" });
+    expect(coffre.appels.map((a) => a.tenantId)).toEqual([A]);
+    expect(vues.map((v) => v.tenantId)).toEqual([A]);
+    expect(vues[0]?.reference.startsWith(`bao:clients/${A}/`)).toBe(true);
+    // Un coffre qui rendrait la référence de A pour B est refusé : la clé de A ne peut pas servir à B.
+    const referenceDeA = vues[0]?.reference ?? "";
+    const detourne = { async rangerIdentifiant() { return referenceDeA; } };
+    await expect(rangerCleClient({ coffre: detourne, enregistrer: deps.enregistrer }, { tenantId: B, organisationId: B, fournisseur: "mistral", valeur: `essai-cle-${randomUUID()}`, acteur: "agent-essai" })).rejects.toThrowError(/reference_etrangere/);
+    expect(vues).toHaveLength(1);
+  });
 });

@@ -30,4 +30,18 @@ describe("choix du modèle d'IA (T4-34a)", () => {
     expect(() => choisirModele({ ...base, surcharge: DANS_UE, modelesDuModule: [MODELE_DEFAUT] })).toThrowError(/hors_manifeste/);
     expect(choisirModele({ ...base, surcharge: DANS_UE, modelesDuModule: [MODELE_DEFAUT, DANS_UE] })).toBe(DANS_UE);
   });
+
+  it("[B-084] le modèle se choisit sur la fiche du client, puis automatisation par automatisation", () => {
+    // Fiche du client : son défaut s'applique à toutes ses automatisations ; une instance qui a sa propre valeur la garde.
+    expect(choisirModele({ ...base, defautClient: DANS_UE })).toBe(DANS_UE);
+    expect(choisirModele({ ...base, defautClient: DANS_UE, surcharge: MODELE_DEFAUT })).toBe(MODELE_DEFAUT);
+    expect(choisirModele({ ...base, defautClient: DANS_UE, surcharge: null })).toBe(DANS_UE);
+  });
+
+  it("[C-506] un client qui refuse tout transfert hors UE n'a jamais un modèle hors UE, quel que soit le réglage", () => {
+    for (const reglage of [{ defautClient: HORS_UE }, { surcharge: HORS_UE }, { reglageModule: HORS_UE }, { defautClient: DANS_UE, surcharge: HORS_UE }]) {
+      expect(() => choisirModele({ ...base, refusHorsUe: true, ...reglage }), JSON.stringify(reglage)).toThrowError(ErreurModele);
+    }
+    expect(choisirModele({ ...base, refusHorsUe: true, defautClient: DANS_UE })).toBe(DANS_UE);
+  });
 });

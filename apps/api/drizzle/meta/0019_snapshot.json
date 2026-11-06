@@ -1638,9 +1638,9 @@
           "name": "gels_litige_motif_levee_borne",
           "value": "\"gels_litige\".\"motif_levee\" IS NULL OR (length(btrim(\"gels_litige\".\"motif_levee\")) > 0 AND char_length(\"gels_litige\".\"motif_levee\") <= 500)"
         },
-        "gels_litige_levee_avec_motif": {
-          "name": "gels_litige_levee_avec_motif",
-          "value": "(\"gels_litige\".\"levee_le\" IS NULL) = (\"gels_litige\".\"motif_levee\" IS NULL)"
+        "gels_litige_motif_avec_levee": {
+          "name": "gels_litige_motif_avec_levee",
+          "value": "\"gels_litige\".\"motif_levee\" IS NULL OR \"gels_litige\".\"levee_le\" IS NOT NULL"
         },
         "gels_litige_motif_non_vide": {
           "name": "gels_litige_motif_non_vide",

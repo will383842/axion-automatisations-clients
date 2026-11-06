@@ -20,8 +20,8 @@ CREATE INDEX "alertes_c3_non_confirmees_idx" ON "alertes_c3" USING btree ("tenan
 -- M10 : motif de levée du gel pour litige
 ALTER TABLE "gels_litige" ADD COLUMN "motif_levee" text;--> statement-breakpoint
 ALTER TABLE "gels_litige" ADD CONSTRAINT "gels_litige_motif_levee_borne" CHECK ("gels_litige"."motif_levee" IS NULL OR (length(btrim("gels_litige"."motif_levee")) > 0 AND char_length("gels_litige"."motif_levee") <= 500));--> statement-breakpoint
--- NOT VALID et jamais validée : les levées anciennes n'ont pas de motif et ne se réécrivent pas (gels_levee_unique) ; la contrainte vaut pour toute écriture nouvelle.
-ALTER TABLE "gels_litige" ADD CONSTRAINT "gels_litige_levee_avec_motif" CHECK (("gels_litige"."levee_le" IS NULL) = ("gels_litige"."motif_levee" IS NULL)) NOT VALID;--> statement-breakpoint
+-- Un motif de levée n'existe que sur un gel levé. L'inverse (levée sans motif) n'est PAS exigé ici : le code actuel de leverGel (T2-52b) n'écrit pas encore le motif et casserait ; les levées anciennes n'en ont pas non plus.
+ALTER TABLE "gels_litige" ADD CONSTRAINT "gels_litige_motif_avec_levee" CHECK ("gels_litige"."motif_levee" IS NULL OR "gels_litige"."levee_le" IS NOT NULL);--> statement-breakpoint
 
 -- M11 : clé de Luhn du SIREN des apporteurs (CASE : la conversion n'a lieu que sur 9 chiffres)
 ALTER TABLE "apporteurs_clients" ADD CONSTRAINT "apporteurs_clients_siren_luhn" CHECK ("apporteurs_clients"."siren" IS NULL OR CASE WHEN "apporteurs_clients"."siren" ~ '^[0-9]{9}$' THEN (

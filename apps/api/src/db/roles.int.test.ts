@@ -187,8 +187,8 @@ describe("rôles", () => {
       for (const r of ["console_app", "console_equipe", "moteur_app"]) {
         const joignables = await lignes(migration, `SELECT p.oid::regprocedure::text AS f FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
           WHERE p.prosecdef AND n.nspname NOT IN ('pg_catalog', 'information_schema') AND has_schema_privilege($1, n.oid, 'USAGE') AND has_function_privilege($1, p.oid, 'EXECUTE')`, [r]);
-        // Seule exception, relue en 2 tours (ADR 0042) : audit_ajouter, ouverte à console_app seulement.
-        expect(joignables.map((j) => String(j["f"]).replace(/[(].*$/, "").replace(/^public[.]/, "")), r).toEqual(r === "console_app" ? ["audit_ajouter"] : []);
+        // Exceptions nominatives : audit_ajouter, ouverte à console_app seulement (ADR 0042) ; attribuer_cellule, ouverte à console_equipe seulement (ADR 0111 point 4, migration 0019).
+        expect(joignables.map((j) => String(j["f"]).replace(/[(].*$/, "").replace(/^public[.]/, "")), r).toEqual(r === "console_app" ? ["audit_ajouter"] : r === "console_equipe" ? ["attribuer_cellule"] : []);
       }
       const app = pool("direct", "console_app", "console", 1);
       expect(await codeRefus(app, "SELECT essai_roles.f()")).toBe("42501");

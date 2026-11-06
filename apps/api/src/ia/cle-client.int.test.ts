@@ -6,10 +6,8 @@ import pg from "pg";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { controlerInvariants, type Requete } from "../../../../packages/contrats/src/c5/invariants.js";
 import { avecClient } from "../db/client-actif.js";
-import Fastify from "fastify";
 import { migrer } from "../db/migrer.js";
-import { routeIa } from "../routes/ia/cles.js";
-import { listerCles } from "./cle-client.js";
+import { enregistrerEnBase, listerCles, rangerCleClient } from "./cle-client.js";
 
 // Migration 0024 (T4-34a, ADR 0117) : modèle d'IA par client et par instance, référence de la clé d'IA propre du client (cles_ia_client).
 // Socle lancé par ops/socle/lancer.sh (job socle-integration). Les essais tournent en parallèle sur une base partagée : identifiants tirés au hasard.
@@ -106,24 +104,18 @@ describe("migration 0024 : modèle d'IA et clé propre du client, avec le socle"
     await creerOrg(A);
     const marqueur = `essai-cle-${randomUUID()}`;
     const journal: string[] = [];
-    const serveur = Fastify({ logger: false });
-    routeIa(serveur, {
-      interrupteurOuvert: true,
-      exigerEquipe: async () => undefined,
-      contexte: async () => ({ tenantId: A, acteur: "agent-essai" }),
-      coffre: { async rangerIdentifiant(tenantId: string, nom: string, valeur: string) { journal.push(`${nom}:${valeur.length}`); return refDe(tenantId); } },
-      pool: app,
-    });
-    const r = await serveur.inject({ method: "POST", url: "/api/console/v1/ia/cles", payload: { organisationId: A, fournisseur: "mistral", valeur: marqueur } });
-    expect(r.statusCode).toBe(201);
-    expect(r.body).not.toContain(marqueur);
+    const coffre = { async rangerIdentifiant(tenantId: string, nom: string, valeur: string) { journal.push(`${nom}:${valeur.length}`); return refDe(tenantId); } };
+    // Ce que la route de l'équipe renverrait : le retour de rangerCleClient puis l'état des clés du client.
+    const retour = await rangerCleClient({ coffre, enregistrer: enregistrerEnBase(app) }, { tenantId: A, organisationId: A, fournisseur: "mistral", valeur: marqueur, acteur: "agent-essai" });
+    const reponse = JSON.stringify({ retour, cles: await listerCles(app, A) });
+    expect(reponse).not.toContain(marqueur);
+    expect(reponse).not.toContain("bao:");
     expect(JSON.stringify(journal)).not.toContain(marqueur);
     const colonnes = (await migration.query("SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name IN ('cles_ia_client', 'journal_audit') AND data_type IN ('text', 'jsonb', 'character varying')")).rows;
     for (const { table_name, column_name } of colonnes) {
       const n = (await migration.query(`SELECT count(*)::int AS n FROM ${table_name} WHERE ${column_name}::text LIKE $1`, [`%${marqueur}%`])).rows[0]?.["n"];
       expect(n, `${table_name}.${column_name}`).toBe(0);
     }
-    await serveur.close();
   });
 
   it("[LOT4-ia] cles_ia_client : une référence d'un autre client est refusée", async () => {

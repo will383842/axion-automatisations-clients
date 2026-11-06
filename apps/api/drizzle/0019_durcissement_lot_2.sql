@@ -54,7 +54,6 @@ CREATE TABLE "reservations_alertes_quota" (
 	CONSTRAINT "reservations_alertes_quota_periode" CHECK ("periode" ~ '^[0-9]{4}-[0-9]{2}$'),
 	CONSTRAINT "reservations_alertes_quota_envoi_reserve" CHECK ("envoye_le" IS NULL OR "reserve_le" IS NOT NULL)
 );--> statement-breakpoint
-ALTER TABLE "reservations_alertes_quota" ADD CONSTRAINT "reservations_alertes_quota_organisation_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."bases_client"("tenant_id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "reservations_alertes_quota_tenant_id_idx" ON "reservations_alertes_quota" USING btree ("tenant_id");--> statement-breakpoint
 
 -- ===== Partie écrite à la main (drizzle-kit ne génère ni droits, ni RLS, ni fonctions, ni déclencheurs) =====

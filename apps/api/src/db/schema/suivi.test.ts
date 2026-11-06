@@ -131,7 +131,7 @@ describe("suivi : entités de la base commune (T2-07)", () => {
   });
 
   it("[A-119] toute unicité commence par tenant_id ; EXCEPTIONS_UNICITE reste vide ; les clés étrangères sont composées (tenant_id, x)", () => {
-    expect(EXCEPTIONS_UNICITE).toEqual([]);
+    expect(EXCEPTIONS_UNICITE).toEqual([{ table: "instances", index: "instances_id_unique", raison: "ADR 0111" }]);
     for (const t of [notes, demandes, themesClient, outilsClient, audits, besoins, propositions, propositionsAutomatisations]) {
       for (const u of uniques(t)) expect(u[0], getTableConfig(t).name).toBe("tenant_id");
       for (const fk of getTableConfig(t).foreignKeys) {

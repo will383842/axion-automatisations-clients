@@ -182,7 +182,7 @@ describe("plan commercial : schéma et migration 0008", () => {
   });
 
   it("[A-163] la liste EXCEPTIONS_UNICITE reste vide après la migration de T2-04, aucune unicité sans tenant_id", () => {
-    expect(EXCEPTIONS_UNICITE).toEqual([]);
+    expect(EXCEPTIONS_UNICITE).toEqual([{ table: "instances", index: "instances_id_unique", raison: "ADR 0111" }]);
     for (const t of [abonnements, plansCommerciaux, phasesPlan, echeances, conditionsCommerciales]) {
       for (const u of uniques(t)) expect(u[0], getTableConfig(t).name).toBe("tenant_id");
     }

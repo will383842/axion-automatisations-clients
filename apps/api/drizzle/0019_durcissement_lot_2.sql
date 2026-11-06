@@ -33,8 +33,8 @@ ALTER TABLE "apporteurs_clients" ADD CONSTRAINT "apporteurs_clients_siren_luhn" 
 ALTER TABLE "apporteurs_clients" VALIDATE CONSTRAINT "apporteurs_clients_siren_luhn";--> statement-breakpoint
 
 -- M12 : longueur maximale des textes (executions est partitionnée : contrainte validée tout de suite, contrôlée sur chaque partition)
-ALTER TABLE "executions" ADD CONSTRAINT "executions_auteur_borne" CHECK (char_length("executions"."auteur") <= 200);--> statement-breakpoint
-ALTER TABLE "executions" ADD CONSTRAINT "executions_termine_par_borne" CHECK ("executions"."termine_par" IS NULL OR char_length("executions"."termine_par") <= 200);--> statement-breakpoint
+ALTER TABLE "executions" ADD CONSTRAINT "executions_auteur_borne" CHECK (char_length("auteur") <= 200);--> statement-breakpoint
+ALTER TABLE "executions" ADD CONSTRAINT "executions_termine_par_borne" CHECK ("termine_par" IS NULL OR char_length("termine_par") <= 200);--> statement-breakpoint
 ALTER TABLE "alertes" ADD CONSTRAINT "alertes_assignee_borne" CHECK ("alertes"."assignee_a" IS NULL OR char_length("alertes"."assignee_a") <= 200) NOT VALID;--> statement-breakpoint
 ALTER TABLE "alertes" VALIDATE CONSTRAINT "alertes_assignee_borne";--> statement-breakpoint
 

@@ -73,3 +73,17 @@ describe("portées d'une instance (C-017)", () => {
     expect(appels).toEqual([]);
   });
 });
+
+describe("attribution de cellule par la fonction de l'équipe (migration 0019)", () => {
+  it("[C-017] attribuerCellule appelle attribuer_cellule par le pool de l'équipe, jamais un UPDATE direct", async () => {
+    const { pool, appels } = fauxPool(() => ({ rows: [], rowCount: 1 }));
+    await attribuerCellule(pool, { tenantId: TENANT, instanceId: INSTANCE, cellule: "cellule-un" }, APPELANT);
+    const [appel] = metier(appels);
+    expect(appel?.sql).toMatch(/SELECT public\.attribuer_cellule\(\$1, \$2\)/);
+    expect(appel?.sql).not.toMatch(/UPDATE/i);
+    expect(appel?.valeurs).toEqual([INSTANCE, "cellule-un"]);
+    expect(appels[0]?.sql).toBe("BEGIN");
+    expect(appels.find((a) => /app\.tenant_id/.test(a.sql))?.valeurs).toEqual([TENANT]);
+    expect(appels.find((a) => /app\.acteur/.test(a.sql))?.valeurs).toContain("agent-essai");
+  });
+});

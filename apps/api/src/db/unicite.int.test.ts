@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { controlerInvariants, type Requete } from "../../../../packages/contrats/src/c5/invariants.js";
+import { controlerInvariants, EXCEPTIONS_UNICITE, type Requete } from "../../../../packages/contrats/src/c5/invariants.js";
 
 // Tests contre le socle lancé par ops/socle/lancer.sh (job socle-integration), même méthode de connexion que isolation.int.test.ts :
 // adresse lue sur le réseau interne (docker inspect), rôle console_migration en direct, schéma jetable.
@@ -129,5 +129,14 @@ describe("règles C5 d'unicité et de clés étrangères sur le vrai PostgreSQL"
     const trouves = (await ecarts()).filter((e) => e.includes("c_exclu"));
     expect(trouves.length === 1 && trouves[0] === `unicite_sans_tenant ${SCHEMA}.c_exclu_ko.c_exclu_ko_${gist ? "tenant_id_ressource" : "tenant_id"}_excl`, `btree_gist ${gist ? "présent" : "absent"} : ${trouves.join(" | ")}`).toBe(true);
     await migration.query(`DROP TABLE ${SCHEMA}.c_exclu_ko, ${SCHEMA}.c_exclu_ok`);
+  });
+
+  it("[A-163] invariants C5 sans écart, seule exception d'unicité : instances_id_unique", async () => {
+    const options = { rolesApplication: /^(console|moteur)_(app|equipe)$/ };
+    const sur = (await controlerInvariants(requete, BASE, options)).filter((e) => e.objet.startsWith("public.") && e.regle !== "role_contourne_rls");
+    expect(sur).toEqual([]);
+    expect(EXCEPTIONS_UNICITE).toEqual([{ table: "public.instances", index: "instances_id_unique", raison: "ADR 0111" }]);
+    const index = await migration.query("SELECT indexdef FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'instances_id_unique'");
+    expect(index.rows[0]?.["indexdef"]).toMatch(/UNIQUE INDEX instances_id_unique ON public\.instances USING btree \(id\)/);
   });
 });

@@ -117,3 +117,9 @@ describe("garde des colonnes : aucun texte libre (C-034)", () => {
     expect(Object.values(TEXTE_PERMIS).every((n) => n > 0 && n <= 255)).toBe(true);
   });
 });
+
+describe("dette des textes sans limite soldée (migration 0019)", () => {
+  it("[T2-07] TEXTE_SANS_LIMITE_DETTE est vide", () => {
+    expect(TEXTE_SANS_LIMITE_DETTE).toEqual([]);
+  });
+});

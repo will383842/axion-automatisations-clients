@@ -34,3 +34,15 @@ describe("instances → cellule et version de l'état voulu (migration 0018)", (
     expect(migration).toMatch(/CREATE INDEX "instances_id_cellule_idx" ON "public"\."instances" USING btree \("id","cellule_code"\)/);
   });
 });
+
+describe("instances.id unique (migration 0019, ADR 0111)", () => {
+  it("[A-163] instances.id a un défaut gen_random_uuid et l'index unique instances_id_unique", () => {
+    expect(String(colonne("id")?.default ?? "")).toMatch(/gen_random_uuid/);
+    const unique = config.indexes.find((i) => i.config.name === "instances_id_unique");
+    expect(unique?.config.unique).toBe(true);
+    expect(unique?.config.columns).toHaveLength(1);
+    const sql = readFileSync(new URL("../../../drizzle/0019_durcissement_lot_2.sql", import.meta.url), "utf8");
+    expect(sql).toMatch(/ALTER COLUMN "id" SET DEFAULT gen_random_uuid\(\)/);
+    expect(sql).toMatch(/CREATE UNIQUE INDEX "instances_id_unique" ON "instances" USING btree \("id"\)/);
+  });
+});

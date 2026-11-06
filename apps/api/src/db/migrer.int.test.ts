@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -171,5 +171,68 @@ describe("migrer, avec le socle", () => {
       await lecture.query("DROP TABLE IF EXISTS public.essai_milieu_x_a189, public.essai_milieu_a_a189, public.essai_milieu_b_a189; DROP SCHEMA IF EXISTS essai_milieu_a189 CASCADE").catch(() => undefined);
       await lecture.end();
     }
+  });
+
+  // Échec fermé de 0019 (T2-52a) : base jetable migrée jusqu'à 0018, donnée fautive posée, puis 0019 doit échouer sans rien modifier.
+  describe("échec fermé de la migration 0019", { timeout: 180_000 }, () => {
+    const dossierComplet = fileURLToPath(new URL("../../drizzle", import.meta.url));
+    const urlBase = (base: string) => `postgres://console_migration:${motDePasseDe("console_migration")}@${DIRECT()}/${base}`;
+    async function avecBaseJetable(poser: (c: pg.Client) => Promise<void>, verifier: (c: pg.Client) => Promise<void>): Promise<void> {
+      const base = `essai_0019_${Math.random().toString(36).slice(2, 10)}`;
+      const admin = new pg.Client({ connectionString: urlBase("console") });
+      await admin.connect();
+      const copie = mkdtempSync(join(tmpdir(), "migrer-0019-"));
+      cpSync(dossierComplet, copie, { recursive: true });
+      const journal = JSON.parse(readFileSync(join(copie, "meta/_journal.json"), "utf8")) as { entries: { tag: string }[] };
+      const complet = JSON.stringify(journal);
+      journal.entries = journal.entries.filter((e) => e.tag < "0019");
+      writeFileSync(join(copie, "meta/_journal.json"), JSON.stringify(journal));
+      let c: pg.Client | undefined;
+      try {
+        await admin.query(`CREATE DATABASE ${base}`);
+        await migrer({ url: urlBase(base), dossier: copie });
+        c = new pg.Client({ connectionString: urlBase(base) });
+        await c.connect();
+        await poser(c);
+        writeFileSync(join(copie, "meta/_journal.json"), complet);
+        await expect(migrer({ url: urlBase(base), dossier: copie })).rejects.toThrow();
+        await verifier(c);
+      } finally {
+        await c?.end().catch(() => undefined);
+        await admin.query(`DROP DATABASE IF EXISTS ${base}`).catch(() => undefined);
+        await admin.end();
+      }
+    }
+    const ORG = "INSERT INTO organisations (id, tenant_id, console_client_id, raison_sociale) VALUES ($1, $1, $1, 'Atelier Bertin')";
+    const INST = "INSERT INTO instances (id, tenant_id, organisation_id, code_automatisation, formule, environnement, etat) VALUES ($1, $2, $2, 'relance-devis', 'abonnement', 'test', 'pause')";
+
+    it("[A-233] une base qui contient déjà un doublon d'instances.id fait échouer 0019 sans ligne modifiée ni supprimée", async () => {
+      const [A, B, id] = [randomUUID(), randomUUID(), randomUUID()];
+      await avecBaseJetable(
+        async (c) => {
+          await c.query("SET session_replication_role = replica");
+          for (const t of [A, B]) await c.query(ORG, [t]);
+          for (const t of [A, B]) await c.query(INST, [id, t]);
+        },
+        async (c) => {
+          expect((await c.query("SELECT count(*)::int AS n FROM instances")).rows[0]?.["n"]).toBe(2);
+          expect((await c.query("SELECT to_regclass('public.instances_id_unique')::text AS t")).rows[0]?.["t"]).toBeNull();
+          expect((await c.query("SELECT column_default FROM information_schema.columns WHERE table_name = 'instances' AND column_name = 'id'")).rows[0]?.["column_default"]).toBeNull();
+          expect((await c.query("SELECT count(*)::int AS n FROM public.__migrations")).rows[0]?.["n"]).toBe(15);
+        },
+      );
+    });
+
+    it("[A-233] un code de cellule ab_cd existant fait échouer 0019", async () => {
+      await avecBaseJetable(
+        async (c) => {
+          await c.query("INSERT INTO cellules (code, adresse_interne, mode, capacite, nombre_instances, version_image, etat) VALUES ('ab_cd', 'ab-cd.interne.test', 'mutualise', 50, 0, '1.0.0', 'active')");
+        },
+        async (c) => {
+          expect((await c.query("SELECT count(*)::int AS n FROM cellules WHERE code = 'ab_cd'")).rows[0]?.["n"]).toBe(1);
+          expect((await c.query("SELECT count(*)::int AS n FROM pg_constraint WHERE conname = 'cellules_code_forme_c4'")).rows[0]?.["n"]).toBe(0);
+        },
+      );
+    });
   });
 });

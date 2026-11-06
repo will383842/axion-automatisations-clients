@@ -8,7 +8,7 @@ import { controlerInvariants, type Requete } from "../../../../packages/contrats
 import { avecClient } from "./client-actif.js";
 import { migrer } from "./migrer.js";
 
-// Migration 0022 (T5-01a, ADR 0116) : tables de la supervision par client et rôle de lecture console_lecture (A-188).
+// Migrations 0022 (T5-01a) et 0023 (T5-01b), ADR 0116 : tables de la supervision par client, tables communes et rôle de lecture console_lecture (A-188).
 // Socle lancé par ops/socle/lancer.sh (job socle-integration). Les essais tournent en parallèle sur une base partagée : identifiants tirés au hasard.
 const docker = (...args: string[]) => execFileSync("docker", args, { encoding: "utf8" }).trim();
 const conteneur = (service: string) =>
@@ -187,5 +187,134 @@ describe("migration 0022 : supervision par client, avec le socle", { timeout: 12
     const ecarts = await controlerInvariants(requete, "console", OPTIONS);
     expect(ecarts.filter((e) => /^(sante_instances|liens_retour|suspensions_abus|rapports_mensuels|mesures_bases)/.test(e.objet))).toEqual([]);
     expect(ecarts.filter((e) => e.regle === "role_contourne_rls")).toEqual([]);
+  });
+});
+
+// Migration 0023 (T5-01b) : tables communes de la supervision, incidents_instances et commentaires_alertes par client, colonnes d'alertes (mesures_capacite non partitionnée : ESCALADE C5).
+const poserIncident = (cause = "panne_essai") =>
+  commeEquipe("agent-essai", async (c) => (await c.query("INSERT INTO incidents (cause, gravite, debut, detecte_le) VALUES ($1, 'mineure', now() - interval '1 hour', now()) RETURNING id", [cause])).rows[0]?.["id"] as string);
+const lierIncident = (A: string, incident: string, instance: string) =>
+  commeEquipe("agent-essai", (c) => c.query("INSERT INTO incidents_instances (tenant_id, id, incident_id, instance_id) VALUES ($1, $2, $3, $4)", [A, randomUUID(), incident, instance]));
+const poserAlerte = async (A: string) => {
+  const id = randomUUID();
+  await ecrire(app, A, (c) => c.query("INSERT INTO alertes (tenant_id, id, organisation_id, type, gravite, regle) VALUES ($1, $2, $1, 'essai', 'information', 'essai')", [A, id]), APPELANT);
+  return id;
+};
+
+describe("migration 0023 : supervision commune, avec le socle", { timeout: 120_000 }, () => {
+  it("[LOT5-tables] @isolation incidents_instances du client B invisible depuis A, y compris par jointure depuis incidents", async () => {
+    const A = randomUUID(), B = randomUUID();
+    await creerOrg(A);
+    await creerOrg(B);
+    const incident = await poserIncident();
+    await lierIncident(A, incident, await creerInstance(A));
+    await lierIncident(B, incident, await creerInstance(B));
+    // La table commune `incidents` ne dit pas QUELS clients : seule incidents_instances, sous RLS, le dit.
+    for (const [role, pool_] of [["console_app", app], ["console_lecture", lecture]] as const) {
+      const direct = await lireSous(pool_, A, "SELECT tenant_id FROM incidents_instances");
+      expect(direct.rows, role).toEqual([{ tenant_id: A }]);
+      // console_lecture n'a aucun droit sur la table commune incidents : la jointure lui est refusée (42501), jamais une fuite.
+      const requeteJointure = `SELECT ii.tenant_id FROM incidents i JOIN incidents_instances ii ON ii.incident_id = i.id WHERE i.id = '${incident}'`;
+      if (role === "console_lecture") await expect(lireSous(pool_, A, requeteJointure), role).rejects.toMatchObject({ code: "42501" });
+      else expect((await lireSous(pool_, A, requeteJointure)).rows, role).toEqual([{ tenant_id: A }]);
+      const inverse = await lireSous(pool_, A, `SELECT count(*)::int AS n FROM incidents_instances WHERE tenant_id = '${B}'`);
+      expect(inverse.rows[0]?.["n"], role).toBe(0);
+    }
+    // Sans client actif, aucune ligne ; l'instance d'un autre client est refusée comme une instance inexistante (clé étrangère composite).
+    expect((await app.query("SELECT count(*)::int AS n FROM incidents_instances").catch(() => ({ rows: [{ n: 0 }] }))).rows[0]?.["n"]).toBe(0);
+    await expect(lierIncident(A, incident, await creerInstance(B))).rejects.toMatchObject({ code: "23503" });
+    // console_app ne peut ni écrire ni supprimer dans incidents_instances.
+    for (const sql of [`INSERT INTO incidents_instances (tenant_id, id, incident_id, instance_id) VALUES ('${A}', '${randomUUID()}', '${incident}', '${randomUUID()}')`, "DELETE FROM incidents_instances", "UPDATE incidents_instances SET cree_le = now()"]) {
+      await expect(lireSous(app, A, sql), sql).rejects.toMatchObject({ code: "42501" });
+    }
+  });
+
+  it("[LOT5-tables] console_app ne peut pas écrire dans disjoncteurs ni modeles_messages", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    await expect(lireSous(app, A, "INSERT INTO disjoncteurs (portee, motif_code, pose_par) VALUES ('envois_plateforme', 'essai', 'x')"), "disjoncteurs").rejects.toMatchObject({ code: "42501" });
+    await expect(lireSous(app, A, "INSERT INTO modeles_messages (cle, version, texte, cree_par) VALUES ('essai', 1, 'Bonjour', 'x')"), "modeles_messages").rejects.toMatchObject({ code: "42501" });
+    await expect(lireSous(app, A, "UPDATE modeles_messages SET texte = 'x'")).rejects.toMatchObject({ code: "42501" });
+    // L'équipe écrit, avec son nom comme auteur ; sans acteur, ou avec un autre nom, l'écriture est refusée.
+    const cle = `essai_${randomUUID().slice(0, 8)}`;
+    await commeEquipe("agent-essai", (c) => c.query("INSERT INTO modeles_messages (cle, version, texte, cree_par) VALUES ($1, 1, 'Bonjour {prenom}', 'agent-essai')", [cle]));
+    await expect(commeEquipe("agent-essai", (c) => c.query("INSERT INTO modeles_messages (cle, version, texte, cree_par) VALUES ($1, 2, 'x', 'autre-personne')", [cle]))).rejects.toMatchObject({ code: "42501" });
+    await expect(commeEquipe(null, (c) => c.query("INSERT INTO modeles_messages (cle, version, texte, cree_par) VALUES ($1, 3, 'x', 'x')", [cle]))).rejects.toMatchObject({ code: "42501" });
+    await expect(commeEquipe("agent-essai", (c) => c.query("UPDATE modeles_messages SET texte = 'x' WHERE cle = $1", [cle]))).rejects.toMatchObject({ code: "42501" });
+    expect((await lireSous(app, A, `SELECT texte FROM modeles_messages WHERE cle = '${cle}'`)).rows).toEqual([{ texte: "Bonjour {prenom}" }]);
+  });
+
+  it("[LOT5-tables] console_app ne lit ni disjoncteurs ni reveils", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    for (const sql of ["SELECT 1 FROM disjoncteurs", "SELECT 1 FROM reveils", "INSERT INTO reveils (heure, cause, duree_s, justification, auteur) VALUES (now(), 'essai', 60, 'essai', 'x')"]) {
+      await expect(lireSous(app, A, sql), sql).rejects.toMatchObject({ code: "42501" });
+      await expect(lireSous(lecture, A, sql), `lecture ${sql}`).rejects.toMatchObject({ code: "42501" });
+    }
+    // L'équipe pose un disjoncteur, une seule fois par cible tant qu'il n'est pas levé ; la plateforme n'a pas de cible.
+    const cible = randomUUID();
+    await commeEquipe("agent-essai", (c) => c.query("INSERT INTO disjoncteurs (portee, cible, motif_code, pose_par) VALUES ('envois_instance', $1, 'essai', 'agent-essai')", [cible]));
+    await expect(commeEquipe("agent-essai", (c) => c.query("INSERT INTO disjoncteurs (portee, cible, motif_code, pose_par) VALUES ('envois_instance', $1, 'essai', 'agent-essai')", [cible]))).rejects.toMatchObject({ code: "23505" });
+    await expect(commeEquipe("agent-essai", (c) => c.query("INSERT INTO disjoncteurs (portee, cible, motif_code, pose_par) VALUES ('envois_plateforme', $1, 'essai', 'agent-essai')", [cible]))).rejects.toMatchObject({ code: "23514" });
+    await expect(commeEquipe("agent-essai", (c) => c.query("INSERT INTO disjoncteurs (portee, motif_code, pose_par) VALUES ('cellule', 'essai', 'agent-essai')"))).rejects.toMatchObject({ code: "23514" });
+    expect((await commeEquipe("agent-essai", (c) => c.query("UPDATE disjoncteurs SET leve_par = 'agent-essai', leve_le = now() WHERE cible = $1", [cible]))).rowCount).toBe(1);
+  });
+
+  it("[LOT5-tables] incidents.cause refuse un texte libre", async () => {
+    for (const cause of ["Boulangerie Rivoire", "contact@exemple.fr", "a".repeat(65), "Panne"]) {
+      await expect(poserIncident(cause), cause).rejects.toMatchObject({ code: "23514" });
+    }
+    await expect(commeEquipe("agent-essai", (c) => c.query("INSERT INTO incidents (cause, gravite, debut, detecte_le) VALUES ('essai', 'mineure', now(), now() - interval '1 hour')"))).rejects.toMatchObject({ code: "23514" });
+    await poserIncident("cause_code.v1");
+  });
+
+  it("[LOT5-tables] commentaires_alertes : ajout seul, auteur = acteur, texte limité à 500 caractères, jamais lisible chez un autre client", async () => {
+    const A = randomUUID(), B = randomUUID();
+    await creerOrg(A);
+    await creerOrg(B);
+    const alerteA = await poserAlerte(A);
+    const alerteB = await poserAlerte(B);
+    const inserer = (client: string, alerte: string, auteur: string, texte: string) =>
+      ecrire(app, client, (c) => c.query("INSERT INTO commentaires_alertes (tenant_id, id, alerte_id, auteur, texte) VALUES ($1, $2, $3, $4, $5)", [client, randomUUID(), alerte, auteur, texte]), APPELANT);
+    await inserer(A, alerteA, APPELANT.acteur, "Redémarré, à surveiller.");
+    await inserer(B, alerteB, APPELANT.acteur, "Autre client.");
+    await expect(inserer(A, alerteA, "autre-personne", "x")).rejects.toMatchObject({ code: "42501" });
+    await expect(inserer(A, alerteA, APPELANT.acteur, "x".repeat(501))).rejects.toMatchObject({ code: "23514" });
+    await expect(inserer(A, alerteA, APPELANT.acteur, "   ")).rejects.toMatchObject({ code: "23514" });
+    await expect(inserer(A, alerteB, APPELANT.acteur, "x")).rejects.toMatchObject({ code: "23503" });
+    await expect(lireSous(app, A, "UPDATE commentaires_alertes SET texte = 'x'")).rejects.toMatchObject({ code: "42501" });
+    await expect(lireSous(app, A, "DELETE FROM commentaires_alertes")).rejects.toMatchObject({ code: "42501" });
+    for (const [role, pool_] of [["console_app", app], ["console_lecture", lecture]] as const) {
+      expect((await lireSous(pool_, A, "SELECT tenant_id FROM commentaires_alertes")).rows, role).toEqual([{ tenant_id: A }]);
+    }
+    // Colonnes d'alertes : à la création (INSERT) ou avec une transition vers « acquittee » ou « close » (politique transitions_alerte de la 0010, ESCALADE : une mise à jour qui garde l'état « ouverte » est refusée).
+    await expect(ecrire(app, A, (c) => c.query("UPDATE alertes SET cle_regroupement = 'groupe:essai' WHERE id = $1", [alerteA]), APPELANT)).rejects.toMatchObject({ code: "42501" });
+    await expect(ecrire(app, A, (c) => c.query("UPDATE alertes SET cause = 'Texte Libre', etat = 'acquittee' WHERE id = $1", [alerteA]), APPELANT)).rejects.toMatchObject({ code: "23514" });
+    await expect(ecrire(app, A, (c) => c.query("UPDATE alertes SET type = 'autre', etat = 'acquittee' WHERE id = $1", [alerteA]), APPELANT)).rejects.toMatchObject({ code: "42501" });
+    expect((await ecrire(app, A, (c) => c.query("UPDATE alertes SET cause = 'x', etat = 'acquittee' WHERE id = $1", [alerteB]), APPELANT)).rowCount).toBe(0);
+    expect((await ecrire(app, A, (c) => c.query("UPDATE alertes SET cle_regroupement = 'groupe:essai', cause = 'cause_essai', etat = 'acquittee' WHERE id = $1", [alerteA]), APPELANT)).rowCount).toBe(1);
+  });
+
+  it("[LOT5-tables] mesures_capacite : table commune non partitionnée, lue par console_app, écrite par l'équipe seule avec un acteur", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    expect((await migration.query("SELECT relkind FROM pg_class WHERE oid = 'public.mesures_capacite'::regclass")).rows[0]?.relkind).toBe("r");
+    expect((await migration.query("SELECT count(*)::int AS n FROM pg_inherits WHERE inhparent = 'public.mesures_capacite'::regclass")).rows[0]?.n).toBe(0);
+    const releve = "INSERT INTO mesures_capacite (debut, cible_type, cible_code, cpu_bps, memoire_octets, disque_octets) VALUES (now(), 'serveur', $1, $2, 1000, 1000)";
+    const cible = `serveur_${randomUUID().slice(0, 8)}`;
+    await expect(commeEquipe(null, (c) => c.query(releve, [cible, 1200]))).rejects.toMatchObject({ code: "42501" });
+    await expect(commeEquipe("agent-essai", (c) => c.query(releve, [cible, 10001]))).rejects.toMatchObject({ code: "23514" });
+    await commeEquipe("agent-essai", (c) => c.query(releve, [cible, 1200]));
+    expect((await lireSous(app, A, `SELECT cpu_bps FROM mesures_capacite WHERE cible_code = '${cible}'`)).rows).toEqual([{ cpu_bps: 1200 }]);
+    await expect(lireSous(app, A, `INSERT INTO mesures_capacite (debut, cible_type, cible_code, cpu_bps, memoire_octets, disque_octets) VALUES (now(), 'serveur', 'serveur_x', 1, 1, 1)`)).rejects.toMatchObject({ code: "42501" });
+    await expect(lireSous(lecture, A, "SELECT 1 FROM mesures_capacite")).rejects.toMatchObject({ code: "42501" });
+    await expect(commeEquipe("agent-essai", (c) => c.query("UPDATE mesures_capacite SET cpu_bps = 1"))).rejects.toMatchObject({ code: "42501" });
+  });
+
+  it("[LOT5-tables] invariants C5 sans écart après la migration 0023, alertes et agregats_quotidiens compris", async () => {
+    const ecarts = await controlerInvariants(requete, "console", OPTIONS);
+    const nouvelles = /^(incidents|regles_alertes|disjoncteurs|reveils|mesures_capacite|modeles_messages|bilans_incident|fenetres_maintenance|avis_depreciation|commentaires_alertes|alertes|agregats_quotidiens)/;
+    expect(ecarts.filter((e) => nouvelles.test(e.objet))).toEqual([]);
+    expect(ecarts.filter((e) => e.regle === "ecriture_commune_ouverte" || e.regle === "role_contourne_rls")).toEqual([]);
   });
 });

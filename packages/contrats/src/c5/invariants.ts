@@ -78,6 +78,16 @@ export const TABLES_COMMUNES: readonly string[] = Object.freeze([
   "public.sous_traitants_ulterieurs",
   "public.signatures_fiches",
   "public.historique_grilles_prix",
+  // T5-01b (ADR 0116) : tables communes de la supervision, écrites par l'équipe seule ; disjoncteurs et reveils ne sont lisibles que par elle. Sans nom de client.
+  "public.incidents",
+  "public.regles_alertes",
+  "public.disjoncteurs",
+  "public.reveils",
+  "public.mesures_capacite",
+  "public.modeles_messages",
+  "public.bilans_incident",
+  "public.fenetres_maintenance",
+  "public.avis_depreciation",
 ]);
 // Unicités permises sans tenant_id : liste fermée, une seule entrée nominative (instances_id_unique, ADR 0111). Une entrée ne s'ajoute qu'avec sa raison, relue en 2 tours (ADR 0040).
 // Aucune option d'appel ne l'étend.

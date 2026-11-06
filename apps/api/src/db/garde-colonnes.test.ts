@@ -215,3 +215,70 @@ describe("tables du lot 3 : conformité (T3-05b)", () => {
     }
   });
 });
+
+// Migration 0022 (T5-01a, ADR 0116) : tables de la supervision par client (lot 5).
+// Liste fermée propre à ces tables (TEXTE_PERMIS, à compte exact, reste inchangée) : chaque ajout se relit en 2 tours (zone sécurité).
+const TEXTE_SUPERVISION: Readonly<Record<string, number>> = Object.freeze({
+  "liens_retour.adresse": 800,
+  "suspensions_abus.posee_par": 200,
+  "suspensions_abus.levee_par": 200,
+  "rapports_mensuels.objet_pdf_ref": 255,
+  "rapports_mensuels.envoye_par": 200,
+  "mesures_bases.base": 60,
+  "mesures_bases.version_structure": 32,
+});
+describe("tables du lot 5 : supervision par client (T5-01a)", () => {
+  const dossier = new URL("../../drizzle/", import.meta.url);
+  const nomMigration = () => readdirSync(dossier).find((f) => f.startsWith("0022_") && f.endsWith(".sql")) ?? "0022_absente.sql";
+  const CLIENT_5A = ["sante_instances", "liens_retour", "suspensions_abus", "rapports_mensuels", "mesures_bases"];
+
+  it("[A-119] TABLES_CLIENT contient les cinq tables de la supervision par client, aucune n'est dans TABLES_COMMUNES", () => {
+    expect(tablesDuSchema().length).toBeGreaterThan(10);
+    for (const nom of CLIENT_5A) {
+      expect(TABLES_CLIENT.map((t) => t.nom), nom).toContain(nom);
+      expect(TABLES_COMMUNES, nom).not.toContain(`public.${nom}`);
+      expect(getTableConfig(tableNommee(nom)).columns.map((c) => c.name), nom).toContain("tenant_id");
+    }
+  });
+
+  it("[LOT5-tables] garde des colonnes : aucune colonne de texte sans limite, aucune colonne de secret", () => {
+    const tables = CLIENT_5A.map(tableNommee);
+    expect(textesSansLimite(tables, TEXTE_SUPERVISION)).toEqual([]);
+    expect(colonnesInterdites(tables)).toEqual([]);
+    expect(Object.keys(TEXTE_SUPERVISION)).toHaveLength(7);
+    // Une colonne de texte neuve hors liste est refusée.
+    const neuve = pgTable("liens_retour", { note: text("note") });
+    expect(textesSansLimite([neuve], TEXTE_SUPERVISION)).toEqual(["liens_retour.note : hors de la liste fermée"]);
+  });
+
+  it("[LOT5-tables] garde-migrations : migration 0022 additive seulement, avec l'unique fonction de protection des partitions", () => {
+    const nom = nomMigration();
+    expect(nom).toBe("0022_supervision_clients.sql");
+    const texte = readFileSync(new URL(nom, dossier), "utf8");
+    expect(analyserSql(nom, texte)).toEqual([]);
+    const code = texte.replace(/--[^\n]*/g, "");
+    expect(code).not.toMatch(/\b(DROP|TRUNCATE|RENAME)\b|\bDELETE\s+FROM\b/i);
+    expect(code).not.toMatch(/ALTER\s+(TABLE\s+\S+\s+ALTER\s+COLUMN|COLUMN)[^;]*\bTYPE\b/i);
+    expect(code).not.toMatch(/GRANT[^;]*\bDELETE\b|GRANT[^;]*\bTRUNCATE\b/i);
+    expect([...code.matchAll(/CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+(\S+)/gi)].map((m) => m[1])).toEqual(["public.mesures_bases_proteger_partitions()"]);
+    expect(code).not.toMatch(/SECURITY\s+DEFINER/i);
+  });
+
+  it("[LOT5-tables] chaque table de la 0022 a RLS activée et forcée, PUBLIC sans droit, et console_lecture en lecture seule sous sa politique", () => {
+    const texte = readFileSync(new URL(nomMigration(), dossier), "utf8");
+    for (const nom of CLIENT_5A) {
+      expect(texte, nom).toContain(`ALTER TABLE "public"."${nom}" ENABLE ROW LEVEL SECURITY`);
+      expect(texte, nom).toContain(`ALTER TABLE "public"."${nom}" FORCE ROW LEVEL SECURITY`);
+      expect(texte, nom).toContain(`REVOKE ALL ON TABLE "public"."${nom}" FROM PUBLIC`);
+    }
+    for (const nom of [...CLIENT_5A, "alertes", "agregats_quotidiens"]) {
+      expect(texte, nom).toContain(`CREATE POLICY isolation_lecture ON "public"."${nom}" FOR SELECT TO console_lecture`);
+      expect(texte, nom).toContain(`GRANT SELECT ON TABLE "public"."${nom}" TO console_lecture`);
+    }
+    expect(texte).not.toMatch(/GRANT[^;]*(INSERT|UPDATE)[^;]*TO console_lecture/);
+    // mesures_bases : aucun droit pour console_app (écrite par la tâche de relevé, sous console_equipe).
+    expect(texte).not.toMatch(/GRANT[^;]*ON TABLE "public"\."mesures_bases" TO console_app/);
+    expect(texte).toMatch(/partman\.create_parent\(\s*p_parent_table => 'public\.mesures_bases',\s*p_control => 'debut',\s*p_interval => '1 month',\s*p_premake => 4/);
+    expect(texte).toContain('PARTITION BY RANGE ("debut")');
+  });
+});

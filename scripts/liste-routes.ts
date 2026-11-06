@@ -110,7 +110,7 @@ export async function listerRoutes(): Promise<RouteListee[]> {
   brancherHub(appli, { entrant, recepteur: { alerter: () => undefined } as never });
   routeCrm(appli, { entrant, recepteur: rien, file: rien });
   routeImportCatalogue(appli, { ouvert: false, importeur: rien, authentifier: garde as never });
-  routeExecuteur(appli, { actif: () => false, cles: rien, memoire: rien, depot: rien });
+  routeExecuteur(appli, { actif: () => false, cles: rien, memoire: rien, depot: rien, evenements: { depot: rien } });
   routeWebhooks(appli, { actif: () => false, depot: rien, secret: rien, instance: rien, memoire: rien, file: rien, sceller: rien, debit: { parWebhook: 1, global: 1, fenetreMs: 1 } });
   await appli.ready();
   await appli.close();

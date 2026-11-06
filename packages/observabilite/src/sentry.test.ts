@@ -51,6 +51,21 @@ describe("observabilite : nettoyage avant envoi", () => {
   });
 });
 
+describe("observabilite : route envoyée à Sentry", () => {
+  const routeDe = (url: string) => avantEnvoi({ request: { url } }, { application: "api" }).route;
+  const JWT = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2ln";
+  it("[C-025] une route dont un segment est un JWT, une adresse e-mail ou un jeton opaque arrive à Sentry avec ce segment masqué", () => {
+    expect(routeDe(`/api/portail/v1/invitations/${JWT}`)).toBe("/api/portail/v1/invitations/:id");
+    expect(routeDe("/api/console/v1/contacts/claire@exemple.fr")).toBe("/api/console/v1/contacts/:id");
+    expect(routeDe("/reinit/Zx8yQ2abcDEF0123ghij")).toBe("/reinit/:id");
+    expect(routeDe("/api/console/v1/clients/envois")).toBe("/api/console/v1/clients/envois");
+  });
+  it("[LOT5-secret] le marqueur placé dans le chemin de l'adresse est absent de l'événement envoyé", () => {
+    const sortie = JSON.stringify(avantEnvoi({ request: { url: `/fin-de-contrat/accuse/t1/2026-11-06/${MARQUEUR}` } }, { application: "api" }));
+    expect(sortie).not.toContain("MARQUEUR_UNIQUE");
+  });
+});
+
 describe("observabilite : initialisation commune de Sentry", () => {
   function fauxSentry() {
     const recus: Record<string, unknown>[] = [];

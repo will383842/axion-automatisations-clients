@@ -4,8 +4,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 let cookie = "";
 let chemin = "/alertes";
 const redirige = vi.fn((a: string) => { throw new Error(`REDIRECT:${a}`); });
-vi.mock("next/headers", () => ({ headers: async () => new Headers({ cookie, "x-chemin": chemin }) }));
-vi.mock("next/navigation", () => ({ redirect: (a: string) => redirige(a) }));
+vi.mock("next/headers.js", () => ({ headers: async () => new Headers({ cookie, "x-chemin": chemin }) }));
+vi.mock("next/navigation.js", () => ({ redirect: (a: string) => redirige(a) }));
 const { magasin } = await import("../../lib/session.ts");
 const { default: MiseEnPage } = await import("./layout.tsx");
 

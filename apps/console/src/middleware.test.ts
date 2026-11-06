@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { NextRequest } from "next/server";
+import { NextRequest } from "next/server.js";
 import { middleware } from "./middleware.ts";
 
 const appeler = (chemin: string, cookie?: string) =>

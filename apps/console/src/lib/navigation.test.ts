@@ -24,6 +24,7 @@ describe("navigation de la console", () => {
   it("[A-003] l'entrée active se déduit du chemin", async () => {
     const { actifDe } = await import("./navigation.ts");
     expect(actifDe("/")).toBe("accueil");
+    expect(actifDe("/accueil")).toBe("accueil");
     expect(actifDe("/facturation")).toBe("facturation");
     expect(actifDe("/clients/atelier-bertin/demandes")).toBe("clients");
     expect(actifDe("/inconnu")).toBeUndefined();

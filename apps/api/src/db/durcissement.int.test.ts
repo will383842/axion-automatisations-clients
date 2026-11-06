@@ -252,11 +252,11 @@ describe("migration 0019 : durcissement du lot 2, avec le socle", { timeout: 120
   });
 
   // ---- M10
-  it("[C-609] après leverGel, le motif de levée se relit sur le gel levé ; un motif sur un gel non levé est refusé (23514) ; aucun DELETE sur gels_litige", async () => {
+  it("[C-609] après leverGel, le motif de levée se relit sur le gel levé ; un gel créé avec un motif de levée mais sans levée est refusé (23514, gels_litige_motif_avec_levee) ; aucun DELETE sur gels_litige", async () => {
     const A = randomUUID();
     await creerOrg(A);
     const gel = await ecrire(app, A, async (c) => (await c.query("INSERT INTO gels_litige (tenant_id, id, organisation_id, motif_litige, posee_par) VALUES ($1, gen_random_uuid(), $1, 'litige essai', 'agent-essai') RETURNING id", [A])).rows[0]?.["id"] as string, APPELANT);
-    await expect(ecrire(app, A, (c) => c.query("UPDATE gels_litige SET motif_levee = 'litige clos' WHERE id = $1", [gel]), APPELANT)).rejects.toMatchObject({ code: "23514" }); // le déclencheur gels_levee_unique (BEFORE) refuse d'abord ; la contrainte gels_litige_motif_avec_levee double ce refus
+    await expect(ecrire(app, A, (c) => c.query("INSERT INTO gels_litige (tenant_id, id, organisation_id, motif_litige, posee_par, motif_levee) VALUES ($1, gen_random_uuid(), $1, 'litige essai', 'agent-essai', 'motif orphelin')", [A]), APPELANT)).rejects.toMatchObject({ code: "23514", constraint: "gels_litige_motif_avec_levee" });
     await ecrire(app, A, (c) => c.query("UPDATE gels_litige SET levee_le = now(), leve_par = 'agent-essai', motif_levee = 'litige clos' WHERE id = $1", [gel]), APPELANT);
     const { rows } = await ecrire(app, A, (c) => c.query("SELECT motif_levee FROM gels_litige WHERE id = $1", [gel]), APPELANT);
     expect(rows[0]?.["motif_levee"]).toBe("litige clos");
@@ -264,7 +264,7 @@ describe("migration 0019 : durcissement du lot 2, avec le socle", { timeout: 120
   });
 
   // ---- M11
-  it("[C-550] lu_le mis à jour pour un apporteur connu, 0 ligne créée pour un inconnu", async () => {
+  it("[C-550] console_app ne modifie que lu_le : UPDATE de taux_points_de_base refusé (42501) ; lu_le mis à jour pour un apporteur connu, 0 ligne créée pour un inconnu", async () => {
     const A = randomUUID();
     await creerOrg(A);
     await commeProprietaire(A, (c) => c.query("INSERT INTO apporteurs_clients (tenant_id, id, organisation_id, apporteur_axion_ia_id, taux_points_de_base, lu_le) VALUES ($1, gen_random_uuid(), $1, 'app-connu', 500, now() - interval '1 day')", [A]));
@@ -272,6 +272,7 @@ describe("migration 0019 : durcissement du lot 2, avec le socle", { timeout: 120
     expect(maj.rowCount).toBe(1);
     const inconnu = await ecrire(app, A, (c) => c.query("UPDATE apporteurs_clients SET lu_le = now() WHERE apporteur_axion_ia_id = $1", ["app-inconnu"]), APPELANT);
     expect(inconnu.rowCount).toBe(0);
+    await expect(ecrire(app, A, (c) => c.query("UPDATE apporteurs_clients SET taux_points_de_base = 0 WHERE apporteur_axion_ia_id = 'app-connu'", []), APPELANT)).rejects.toMatchObject({ code: "42501" });
     const { rows } = await ecrire(app, A, (c) => c.query("SELECT count(*)::int AS n FROM apporteurs_clients", []), APPELANT);
     expect(rows[0]?.["n"]).toBe(1);
   });
@@ -286,14 +287,17 @@ describe("migration 0019 : durcissement du lot 2, avec le socle", { timeout: 120
   });
 
   // ---- M12
-  it("[T2-07] auteur de 201 caractères refusé (23514)", async () => {
+  it("[T2-07] auteur ou termine_par de 201 caractères refusé (23514, executions_auteur_borne, executions_termine_par_borne)", async () => {
     const A = randomUUID();
     await creerOrg(A);
     const id = await creerInstance(A);
     // auteur doit valoir app.acteur pour console_app (politique du lot 2) et l'acteur est borné à 128 : la borne de 200 se prouve par l'écriture hors RLS.
     const inserer = (auteur: string) => commeProprietaire(A, (c) => c.query("INSERT INTO executions (tenant_id, id, instance_id, auteur) VALUES ($1, gen_random_uuid(), $2, $3)", [A, id, auteur]));
-    await expect(inserer("a".repeat(201))).rejects.toMatchObject({ code: "23514" });
+    await expect(inserer("a".repeat(201))).rejects.toMatchObject({ code: "23514", constraint: "executions_auteur_borne" });
     await inserer("a".repeat(200));
+    const insererFin = (termine: string) => commeProprietaire(A, (c) => c.query("INSERT INTO executions (tenant_id, id, instance_id, auteur, termine_par) VALUES ($1, gen_random_uuid(), $2, 'agent-essai', $3)", [A, id, termine]));
+    await expect(insererFin("a".repeat(201))).rejects.toMatchObject({ code: "23514", constraint: "executions_termine_par_borne" });
+    await insererFin("a".repeat(200));
     await expect(ecrire(app, A, (c) => c.query("INSERT INTO alertes (tenant_id, id, organisation_id, type, gravite, regle, assignee_a) VALUES ($1, gen_random_uuid(), $1, 'essai', 'information', 'essai', $2)", [A, "b".repeat(201)]), APPELANT)).rejects.toMatchObject({ code: "23514", constraint: "alertes_assignee_borne" });
   });
 
@@ -301,8 +305,10 @@ describe("migration 0019 : durcissement du lot 2, avec le socle", { timeout: 120
   it("[T2-07] une proposition acceptee, refusee ou expiree ne change plus de statut (23514)", async () => {
     const A = randomUUID();
     await creerOrg(A);
-    const id = await commeProprietaire(A, async (c) => (await c.query("INSERT INTO propositions (tenant_id, id, organisation_id, statut, identifiant_hub, nombre_paliers) VALUES ($1, gen_random_uuid(), $1, 'acceptee', $2, 1) RETURNING id", [A, `prop-${unique()}`])).rows[0]?.["id"] as string);
-    await expect(commeProprietaire(A, (c) => c.query("UPDATE propositions SET statut = 'refusee' WHERE id = $1", [id]))).rejects.toMatchObject({ code: "23514" });
+    for (const final of ["acceptee", "refusee", "expiree"]) {
+      const id = await commeProprietaire(A, async (c) => (await c.query("INSERT INTO propositions (tenant_id, id, organisation_id, statut, identifiant_hub, nombre_paliers) VALUES ($1, gen_random_uuid(), $1, $3, $2, 1) RETURNING id", [A, `prop-${unique()}`, final])).rows[0]?.["id"] as string);
+      await expect(commeProprietaire(A, (c) => c.query("UPDATE propositions SET statut = 'envoyee' WHERE id = $1", [id]))).rejects.toMatchObject({ code: "23514", message: "proposition : statut final" });
+    }
   });
 
   // ---- M14
@@ -312,7 +318,7 @@ describe("migration 0019 : durcissement du lot 2, avec le socle", { timeout: 120
     const reserver = () => ecrire(app, A, (c) => c.query("INSERT INTO reservations_alertes_quota (tenant_id, quota, seuil, periode, reserve_le) VALUES ($1, 'base', 70, '2026-11', now())", [A]), APPELANT);
     const resultats = await Promise.allSettled([reserver(), reserver()]);
     expect(resultats.filter((r) => r.status === "fulfilled")).toHaveLength(1);
-    expect((resultats.find((r) => r.status === "rejected") as PromiseRejectedResult).reason).toMatchObject({ code: "23505" });
+    expect((resultats.find((r) => r.status === "rejected") as PromiseRejectedResult).reason).toMatchObject({ code: "23505", constraint: "reservations_alertes_quota_cle_unique" });
     await expect(ecrire(app, A, (c) => c.query("DELETE FROM reservations_alertes_quota", []), APPELANT)).rejects.toMatchObject({ code: "42501" });
   });
 

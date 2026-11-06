@@ -48,6 +48,7 @@ CREATE TABLE "reservations_alertes_quota" (
 	"reserve_le" timestamp with time zone,
 	"envoye_le" timestamp with time zone,
 	CONSTRAINT "reservations_alertes_quota_tenant_id_id_pk" PRIMARY KEY("tenant_id","id"),
+	CONSTRAINT "reservations_alertes_quota_tenant_id_id_unique" UNIQUE("tenant_id","id"),
 	CONSTRAINT "reservations_alertes_quota_cle_unique" UNIQUE("tenant_id","quota","seuil","periode"),
 	CONSTRAINT "reservations_alertes_quota_quota" CHECK ("quota" IN ('base', 'fichiers', 'personnes', 'tous')),
 	CONSTRAINT "reservations_alertes_quota_seuil" CHECK ("seuil" IN (70, 100)),

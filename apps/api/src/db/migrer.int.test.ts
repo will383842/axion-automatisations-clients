@@ -184,7 +184,7 @@ describe("migrer, avec le socle", () => {
     const urlDe_ = (role: string, base: string) => `postgres://${role}:${motDePasseDe(role)}@${DIRECT()}/${base}`;
     // Base jetable : créée et peuplée par le superutilisateur (seul à pouvoir créer une base et à écrire hors RLS), avec la même mise en place que
     // ops/socle/postgres/init/03-console.sql ; migrée jusqu'à 0018 par console_migration ; la donnée fautive est posée hors RLS ; puis 0019 doit échouer.
-    async function avecBaseJetable(poser: (c: pg.Client) => Promise<void>, verifier: (c: pg.Client) => Promise<void>): Promise<void> {
+    async function avecBaseJetable(attendu: { code: string; constraint: string }, poser: (c: pg.Client) => Promise<void>, verifier: (c: pg.Client) => Promise<void>): Promise<void> {
       const base = `essai_0019_${Math.random().toString(36).slice(2, 10)}`;
       const admin = new pg.Client({ connectionString: urlDe_("postgres", "console") });
       await admin.connect();
@@ -211,7 +211,7 @@ describe("migrer, avec le socle", () => {
         writeFileSync(join(copie, "meta/_journal.json"), complet);
         cpSync(join(dossierComplet, "0019_durcissement_lot_2.sql"), join(copie, "0019_durcissement_lot_2.sql"));
         cpSync(join(dossierComplet, "meta/0019_snapshot.json"), join(copie, "meta/0019_snapshot.json"));
-        await expect(migrer({ url: urlDe_("console_migration", base), dossier: copie })).rejects.toThrow();
+        await expect(migrer({ url: urlDe_("console_migration", base), dossier: copie })).rejects.toMatchObject({ cause: attendu });
         await verifier(c);
       } finally {
         await c?.end().catch(() => undefined);
@@ -222,9 +222,10 @@ describe("migrer, avec le socle", () => {
     const ORG = "INSERT INTO organisations (id, tenant_id, console_client_id, raison_sociale) VALUES ($1, $1, $1, 'Atelier Bertin')";
     const INST = "INSERT INTO instances (id, tenant_id, organisation_id, code_automatisation, formule, environnement, etat) VALUES ($1, $2, $2, 'relance-devis', 'abonnement', 'test', 'pause')";
 
-    it("[A-233] une base qui contient déjà un doublon d'instances.id fait échouer 0019 sans ligne modifiée ni supprimée", async () => {
+    it("[A-233] une base qui contient déjà un doublon d'instances.id fait échouer 0019 sans ligne modifiée ni supprimée (23505, instances_id_unique)", async () => {
       const [A, B, id] = [randomUUID(), randomUUID(), randomUUID()];
       await avecBaseJetable(
+        { code: "23505", constraint: "instances_id_unique" },
         async (c) => {
           await c.query("SELECT set_config('app.acteur', 'agent-essai', false)");
           for (const t of [A, B]) {
@@ -242,8 +243,9 @@ describe("migrer, avec le socle", () => {
       );
     });
 
-    it("[A-233] un code de cellule ab_cd existant fait échouer 0019", async () => {
+    it("[A-233] un code de cellule ab_cd existant fait échouer 0019 (23514, cellules_code_forme_c4) sans rien appliquer (index M1 absent, journal à 15)", async () => {
       await avecBaseJetable(
+        { code: "23514", constraint: "cellules_code_forme_c4" },
         async (c) => {
           await c.query("SELECT set_config('app.acteur', 'agent-essai', false)");
           await c.query("INSERT INTO cellules (code, adresse_interne, mode, capacite, nombre_instances, version_image, etat) VALUES ('ab_cd', 'ab-cd.interne.test', 'mutualise', 50, 0, '1.0.0', 'active')");
@@ -251,6 +253,26 @@ describe("migrer, avec le socle", () => {
         async (c) => {
           expect((await c.query("SELECT count(*)::int AS n FROM cellules WHERE code = 'ab_cd'")).rows[0]?.["n"]).toBe(1);
           expect((await c.query("SELECT count(*)::int AS n FROM pg_constraint WHERE conname = 'cellules_code_forme_c4'")).rows[0]?.["n"]).toBe(0);
+          expect((await c.query("SELECT to_regclass('public.instances_id_unique')::text AS t")).rows[0]?.["t"]).toBeNull();
+          expect((await c.query("SELECT count(*)::int AS n FROM public.__migrations")).rows[0]?.["n"]).toBe(15);
+        },
+      );
+    });
+
+    it("[A-233] un SIREN d'apporteur à clé de Luhn fausse fait échouer 0019 sans ligne modifiée (23514, apporteurs_clients_siren_luhn)", async () => {
+      const A = randomUUID();
+      await avecBaseJetable(
+        { code: "23514", constraint: "apporteurs_clients_siren_luhn" },
+        async (c) => {
+          await c.query("SELECT set_config('app.acteur', 'agent-essai', false)");
+          await c.query("SELECT set_config('app.tenant_id', $1, false)", [A]);
+          await c.query(ORG, [A]);
+          await c.query("INSERT INTO apporteurs_clients (tenant_id, id, organisation_id, apporteur_axion_ia_id, taux_points_de_base, lu_le, siren) VALUES ($1, gen_random_uuid(), $1, 'app-faux', 500, now(), '732829321')", [A]);
+        },
+        async (c) => {
+          const { rows } = await c.query("SELECT siren FROM apporteurs_clients");
+          expect(rows).toHaveLength(1);
+          expect(rows[0]?.["siren"]).toBe("732829321");
         },
       );
     });

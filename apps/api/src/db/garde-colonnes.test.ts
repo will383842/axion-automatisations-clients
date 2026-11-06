@@ -422,8 +422,10 @@ describe("tables du lot 5 : supervision commune (T5-01b)", () => {
   it("[LOT5-tables] journal et instantané : le tag 0023 suit 0022, quand croît, prevId de 0023 = id de 0022", () => {
     const lire = (f: string) => JSON.parse(readFileSync(new URL(f, dossier), "utf8")) as Record<string, unknown>;
     const journal = (lire("meta/_journal.json") as { entries: { idx: number; tag: string; when: number }[] }).entries;
-    const dernier = journal[journal.length - 1];
-    const avant = journal[journal.length - 2];
+    // Position de la 0023 cherchée par son tag : une migration suivante (0024, T4-34a) peut la suivre.
+    const i = journal.findIndex((e) => e.tag === "0023_supervision_communes");
+    const dernier = journal[i];
+    const avant = journal[i - 1];
     expect(dernier?.tag).toBe("0023_supervision_communes");
     expect(avant?.tag).toBe("0022_supervision_clients");
     expect(dernier?.idx).toBe((avant?.idx ?? 0) + 1);
@@ -448,5 +450,71 @@ describe("tables du lot 5 : supervision commune (T5-01b)", () => {
     expect(preuves).toMatch(/M3[^\n]*soldée/);
     expect(preuves).toMatch(/F5[^\n]*soldée/);
     for (const ligne of preuves.split("\n").filter((l) => l.includes("LOT5-dette-"))) expect(ligne, ligne.slice(0, 40)).toMatch(/critère de test : « \[(A-188|LOT5-tables)\]/);
+  });
+});
+
+// Migration 0024 (T4-34a, ADR 0117) : modèle d'IA par client et par instance, référence de la clé d'IA propre du client.
+// Liste fermée propre à cette table (TEXTE_PERMIS, à compte exact, reste inchangée) : chaque ajout se relit en 2 tours (zone secrets).
+const TEXTE_IA: Readonly<Record<string, number>> = Object.freeze({
+  "cles_ia_client.fournisseur": 64,
+  "cles_ia_client.reference_coffre": 96,
+  "cles_ia_client.dernier_refus_code": 64,
+  "cles_ia_client.cree_par": 200,
+});
+describe("tables du lot 4 : modèle d'IA et clé du client (T4-34a)", () => {
+  const dossier = new URL("../../drizzle/", import.meta.url);
+  const nomMigration = () => readdirSync(dossier).find((f) => f.startsWith("0024_") && f.endsWith(".sql")) ?? "0024_absente.sql";
+  const texte0024 = () => readFileSync(new URL(nomMigration(), dossier), "utf8");
+
+  it("[LOT4-ia] garde des colonnes : cles_ia_client n'a aucune colonne de texte sans limite ni colonne de secret", () => {
+    expect(TABLES_CLIENT.map((t) => t.nom)).toContain("cles_ia_client");
+    expect(TABLES_COMMUNES).not.toContain("public.cles_ia_client");
+    expect(TABLES_COMMUNES).toHaveLength(30);
+    const t = tableNommee("cles_ia_client");
+    expect(textesSansLimite([t], TEXTE_IA)).toEqual([]);
+    expect(colonnesInterdites([t])).toEqual([]);
+    expect(getTableConfig(t).columns.map((c) => c.name)).toContain("tenant_id");
+    expect(Object.keys(TEXTE_IA)).toHaveLength(4);
+    // modele_ia (instances) et modele_ia_defaut (organisations) sont bornés par un motif ; TEXTE_PERMIS garde son compte exact.
+    expect(Object.keys(TEXTE_PERMIS)).toHaveLength(19);
+    const brute = pgTable("cles_ia_client", { valeur: text("valeur") });
+    expect(textesSansLimite([brute], TEXTE_IA)).toEqual(["cles_ia_client.valeur : hors de la liste fermée"]);
+    expect(colonnesInterdites([pgTable("cles_ia_client", { cle_api: text("cle_api") })])).toEqual(["cles_ia_client.cle_api"]);
+  });
+
+  it("[LOT4-ia] journal et instantané : le tag 0024 suit 0023, quand croît, prevId de 0024 = id de 0023", () => {
+    const lire = (f: string) => JSON.parse(readFileSync(new URL(f, dossier), "utf8")) as Record<string, unknown>;
+    const journal = (lire("meta/_journal.json") as { entries: { idx: number; tag: string; when: number }[] }).entries;
+    const i = journal.findIndex((e) => e.tag === "0024_modele_ia_et_cle_client");
+    expect(i).toBeGreaterThan(0);
+    expect(journal[i - 1]?.tag).toBe("0023_supervision_communes");
+    expect(journal[i]?.idx).toBe((journal[i - 1]?.idx ?? 0) + 1);
+    expect(journal[i]?.when ?? 0).toBeGreaterThan(journal[i - 1]?.when ?? Infinity);
+    expect(lire("meta/0024_snapshot.json")["prevId"]).toBe(lire("meta/0023_snapshot.json")["id"]);
+    expect(readdirSync(dossier).filter((f) => /^0020_modele/.test(f))).toEqual([]);
+  });
+
+  it("[LOT4-ia] garde-migrations : migration 0024 additive seulement, sans fonction", () => {
+    const nom = nomMigration();
+    expect(nom).toBe("0024_modele_ia_et_cle_client.sql");
+    const texte = texte0024();
+    expect(analyserSql(nom, texte)).toEqual([]);
+    const code = texte.replace(/--[^\n]*/g, "");
+    expect(code).not.toMatch(/\b(DROP|TRUNCATE|RENAME)\b|\bDELETE\s+FROM\b/i);
+    expect(code).not.toMatch(/ALTER\s+(TABLE\s+\S+\s+ALTER\s+COLUMN|COLUMN)[^;]*\bTYPE\b/i);
+    expect(code).not.toMatch(/GRANT[^;]*\bDELETE\b|GRANT[^;]*\bTRUNCATE\b/i);
+    expect(code).not.toMatch(/\bCREATE\s+(OR\s+REPLACE\s+)?FUNCTION\b|SECURITY\s+DEFINER/i);
+    expect(code).not.toMatch(/^\s*DO\b|\bCONCURRENTLY\b/im);
+  });
+
+  it("[LOT4-ia] cles_ia_client : RLS activée et forcée, PUBLIC sans droit, aucun droit pour console_lecture, aucune écriture de la référence", () => {
+    const texte = texte0024();
+    expect(texte).toContain('ALTER TABLE "public"."cles_ia_client" ENABLE ROW LEVEL SECURITY');
+    expect(texte).toContain('ALTER TABLE "public"."cles_ia_client" FORCE ROW LEVEL SECURITY');
+    expect(texte).toContain('REVOKE ALL ON TABLE "public"."cles_ia_client" FROM PUBLIC');
+    expect(texte).toContain("FOR EACH ROW EXECUTE FUNCTION public.audit_ecrire");
+    expect(texte).not.toMatch(/GRANT[^;]*console_lecture/);
+    expect(texte).not.toMatch(/GRANT UPDATE[^;]*"(reference_coffre|fournisseur|organisation_id|cree_par)"/);
+    expect(texte).toMatch(/ALTER TABLE "organisations" VALIDATE CONSTRAINT "organisations_modele_ia_defaut_forme"/);
   });
 });

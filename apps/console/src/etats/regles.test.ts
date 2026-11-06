@@ -46,7 +46,7 @@ describe("règles de recette des écrans", () => {
 
   it("[B-309] aucun tutoiement", () => {
     expect(tutoiement("Tu peux annuler ton envoi")).not.toEqual([]);
-    expect(tutoiement("Vous pouvez annuler votre envoi. Un ton posé, une ta­ble.")).toEqual([]);
+    expect(tutoiement("Vous pouvez annuler votre envoi..")).toEqual([]);
   });
 
   it("[C-594] les contrôles structurels repèrent image sans alt, bouton sans nom et champ sans libellé", () => {

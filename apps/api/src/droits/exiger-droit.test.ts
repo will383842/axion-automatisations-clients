@@ -17,9 +17,10 @@ function appli(etat: { membre?: MembreDroits | undefined; absence?: boolean }) {
   };
   const s = Fastify();
   brancherErreurs(s);
+  s.get("/liste", { preHandler: exigerDroit("lire", d, { globale: "essai : liste non filtrée" }) }, async () => ({ ok: true }));
   s.get("/c/:id", { preHandler: exigerDroit("lire", d, { client: (r) => (r.params as { id: string }).id }) }, async () => ({ ok: true }));
-  s.post("/facture", { preHandler: exigerDroit("emettre_facture", d) }, async () => ({ ok: true }));
-  s.post("/violation", { preHandler: exigerDroit("envoyer_notification_violation", d) }, async () => ({ ok: true }));
+  s.post("/facture", { preHandler: exigerDroit("emettre_facture", d, { globale: "essai : action sans client" }) }, async () => ({ ok: true }));
+  s.post("/violation", { preHandler: exigerDroit("envoyer_notification_violation", d, { globale: "essai : action sans client" }) }, async () => ({ ok: true }));
   return { s, traces };
 }
 
@@ -58,6 +59,18 @@ describe("exigerDroit", () => {
     expect(filtrerParPortee(limite("second_administrateur", []), [A])).toEqual([]);
   });
 
+  it("[B-126] @isolation une route sans extracteur de client refuse un second administrateur limité ou à portée vide (échec fermé)", async () => {
+    for (const clients of [[A], []]) {
+      const { s, traces } = appli({ membre: limite("second_administrateur", clients) });
+      const r = await s.inject({ method: "GET", url: "/liste" });
+      expect(r.statusCode).toBe(404);
+      expect(r.json().erreur.code).toBe("introuvable");
+      expect(traces[0]).toMatchObject({ motif: "hors_portee" });
+    }
+    const { s } = appli({ membre: limite("dirigeant", []) });
+    expect((await s.inject({ method: "GET", url: "/liste" })).statusCode).toBe(200);
+  });
+
   it("[C-617] les droits suivent l'absence à chaque requête, sans cache", async () => {
     const etat: { membre?: MembreDroits | undefined; absence?: boolean } = { membre: limite(), absence: true };
     const { s } = appli(etat);
@@ -74,6 +87,6 @@ describe("exigerDroit", () => {
   it("[LOT3-droits] le crochet porte son action, lue par la garde", () => {
     const { s } = appli({});
     expect(s).toBeDefined();
-    expect((exigerDroit("lire", {} as DepsDroits) as unknown as { action: string }).action).toBe("lire");
+    expect((exigerDroit("lire", {} as DepsDroits, { globale: "essai" }) as unknown as { action: string }).action).toBe("lire");
   });
 });

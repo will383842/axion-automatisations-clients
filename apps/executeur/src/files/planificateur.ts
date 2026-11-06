@@ -86,20 +86,23 @@ export interface DepsDeclenchement {
   ajouter: (d: Declenchement) => Promise<void>;
 }
 
-// Remet en file dans l'ordre d'arrivée ; un élément n'est retiré qu'après sa remise (une panne ne perd rien).
-export async function reprendreDeclenchements(d: DepsDeclenchement, instanceId: string): Promise<number> {
+// Remet en file dans l'ordre d'arrivée, une reprise à la fois par instance ; un élément est retiré PAR IDENTITÉ, après sa remise (une panne ne perd rien).
+async function vider(d: DepsDeclenchement, instanceId: string): Promise<number> {
   let n = 0;
-  for (const item of [...d.attente.enAttente(instanceId)]) {
+  for (let item = (await d.attente.enAttente(instanceId))[0]; item !== undefined; item = (await d.attente.enAttente(instanceId))[0]) {
     await d.ajouter(item);
-    d.attente.retirerPremier(instanceId);
+    await d.attente.retirer(instanceId, item);
     n++;
   }
   return n;
 }
+export const reprendreDeclenchements = (d: DepsDeclenchement, instanceId: string): Promise<number> => d.attente.exclusif(instanceId, () => vider(d, instanceId));
 
-export async function declencher(d: DepsDeclenchement, item: Declenchement): Promise<"envoye" | "garde" | "refuse"> {
-  if ((await d.garde(item.instanceId)).etat !== "actif") return d.attente.deposer(item.instanceId, item) ? "garde" : "refuse";
-  await reprendreDeclenchements(d, item.instanceId); // ceux arrivés pendant la pause passent d'abord
-  await d.ajouter(item);
-  return "envoye";
+export function declencher(d: DepsDeclenchement, item: Declenchement): Promise<"envoye" | "garde" | "refuse"> {
+  return d.attente.exclusif(item.instanceId, async () => {
+    if ((await d.garde(item.instanceId)).etat !== "actif") return (await d.attente.deposer(item.instanceId, item)) ? "garde" : "refuse";
+    await vider(d, item.instanceId); // ceux arrivés pendant la pause passent d'abord
+    await d.ajouter(item);
+    return "envoye";
+  });
 }

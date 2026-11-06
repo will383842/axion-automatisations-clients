@@ -13,6 +13,12 @@ export interface OptionsClient {
   dormir?: (ms: number) => Promise<void>;
   attentesMs?: readonly number[];
 }
+// Refus 4xx de la console (instance retirée ou déplacée : 404) : ce n'est pas une panne, l'état voulu ne doit plus être servi.
+export class ErreurRefusConsole extends Error {
+  constructor(readonly statut: number) {
+    super(`console_refus_${statut}`);
+  }
+}
 const CHEMIN = "/api/executeur/v1/instances";
 
 // Client des routes de T4-21. Chaque essai est re-signé (horodatage strictement croissant). Seuls les échecs réseau et les 5xx sont rejoués.
@@ -37,7 +43,7 @@ export class ClientConsole {
       if (avecJeton) entetes["Authorization"] = `Instance ${this.o.jeton()}`;
       const r = await (this.o.fetch ?? fetch)(`${this.o.url}${chemin}`, { method: "GET", headers: entetes, redirect: "error", signal: AbortSignal.timeout(5000) }).catch(() => undefined);
       if (r?.ok) return r.json();
-      if (r && r.status < 500) throw new Error(`console_refus_${r.status}`); // le corps d'un refus n'est jamais repris
+      if (r && r.status < 500) throw new ErreurRefusConsole(r.status); // le corps d'un refus n'est jamais repris
       if (essai >= attentes.length) throw new Error("console_injoignable");
       await (this.o.dormir ?? ((ms) => new Promise<void>((fin) => setTimeout(fin, ms))))(attentes[essai]!);
     }

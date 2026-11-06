@@ -41,7 +41,6 @@ function pool(voie: { host: string; port: number }, user: string, max: number): 
 }
 const migration = pool(DIRECT, "console_migration", 3);
 const app = pool(PGBOUNCER, "console_app", 20);
-const equipe = pool(PGBOUNCER, "console_equipe", 5);
 const OPTIONS = { rolesApplication: /^(console|moteur)_(app|equipe|lecture)$/ };
 const requete: Requete = async (sql) => (await migration.query(`SELECT coalesce(json_agg(t), '[]') AS r FROM (${sql}) t`)).rows[0]?.["r"] as Record<string, unknown>[];
 const APPELANT = { acteur: "agent-essai", ip: "192.0.2.17" };
@@ -146,7 +145,7 @@ describe("migration 0024 : modèle d'IA et clé propre du client, avec le socle"
     expect((await maj("UPDATE cles_ia_client SET etat = 'active', desactivee_le = NULL WHERE id = $1")).rowCount).toBe(0);
     expect(await code(maj("DELETE FROM cles_ia_client WHERE id = $1"))).toBe("42501");
     expect(await code(maj("UPDATE cles_ia_client SET reference_coffre = reference_coffre WHERE id = $1"))).toBe("42501");
-    expect(await code(maj("TRUNCATE cles_ia_client"))).toBe("42501");
+    expect(await code(ecrire(app, A, (c) => c.query("TRUNCATE cles_ia_client"), APPELANT))).toBe("42501");
   });
 
   it("[LOT4-ia] cles_ia_client : deux clés vivantes pour le même fournisseur sont refusées", async () => {

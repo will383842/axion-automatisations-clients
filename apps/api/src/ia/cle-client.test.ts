@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { rangerCleClient } from "./cle-client.ts";
+import { rangerCleClient } from "./cle-client.js";
 
 // Faux coffre : garde les appels, rend une référence de la forme du vrai coffre. Valeur de clé = marqueur unique généré, jamais une forme de vraie clé.
 function fauxCoffre(montage = "clients") {

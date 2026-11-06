@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { choisirModele } from "./choix.ts";
-import { ErreurModele, MODELE_DEFAUT, MODELES_ADMIS } from "./modeles-admis.ts";
+import { choisirModele } from "./choix.js";
+import { ErreurModele, MODELE_DEFAUT, MODELES_ADMIS } from "./modeles-admis.js";
 
 const HORS_UE = MODELES_ADMIS.find((m) => m.horsUe)?.code ?? "absent";
 const DANS_UE = MODELES_ADMIS.find((m) => !m.horsUe && m.code !== MODELE_DEFAUT)?.code ?? MODELE_DEFAUT;

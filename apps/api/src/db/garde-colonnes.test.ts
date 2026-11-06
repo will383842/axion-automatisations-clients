@@ -422,8 +422,10 @@ describe("tables du lot 5 : supervision commune (T5-01b)", () => {
   it("[LOT5-tables] journal et instantané : le tag 0023 suit 0022, quand croît, prevId de 0023 = id de 0022", () => {
     const lire = (f: string) => JSON.parse(readFileSync(new URL(f, dossier), "utf8")) as Record<string, unknown>;
     const journal = (lire("meta/_journal.json") as { entries: { idx: number; tag: string; when: number }[] }).entries;
-    const dernier = journal[journal.length - 1];
-    const avant = journal[journal.length - 2];
+    // Position de la 0023 cherchée par son tag : une migration suivante (0024, T4-34a) peut la suivre.
+    const i = journal.findIndex((e) => e.tag === "0023_supervision_communes");
+    const dernier = journal[i];
+    const avant = journal[i - 1];
     expect(dernier?.tag).toBe("0023_supervision_communes");
     expect(avant?.tag).toBe("0022_supervision_clients");
     expect(dernier?.idx).toBe((avant?.idx ?? 0) + 1);
@@ -478,6 +480,18 @@ describe("tables du lot 4 : modèle d'IA et clé du client (T4-34a)", () => {
     const brute = pgTable("cles_ia_client", { valeur: text("valeur") });
     expect(textesSansLimite([brute], TEXTE_IA)).toEqual(["cles_ia_client.valeur : hors de la liste fermée"]);
     expect(colonnesInterdites([pgTable("cles_ia_client", { cle_api: text("cle_api") })])).toEqual(["cles_ia_client.cle_api"]);
+  });
+
+  it("[LOT4-ia] journal et instantané : le tag 0024 suit 0023, quand croît, prevId de 0024 = id de 0023", () => {
+    const lire = (f: string) => JSON.parse(readFileSync(new URL(f, dossier), "utf8")) as Record<string, unknown>;
+    const journal = (lire("meta/_journal.json") as { entries: { idx: number; tag: string; when: number }[] }).entries;
+    const i = journal.findIndex((e) => e.tag === "0024_modele_ia_et_cle_client");
+    expect(i).toBeGreaterThan(0);
+    expect(journal[i - 1]?.tag).toBe("0023_supervision_communes");
+    expect(journal[i]?.idx).toBe((journal[i - 1]?.idx ?? 0) + 1);
+    expect(journal[i]?.when ?? 0).toBeGreaterThan(journal[i - 1]?.when ?? Infinity);
+    expect(lire("meta/0024_snapshot.json")["prevId"]).toBe(lire("meta/0023_snapshot.json")["id"]);
+    expect(readdirSync(dossier).filter((f) => /^0020_modele/.test(f))).toEqual([]);
   });
 
   it("[LOT4-ia] garde-migrations : migration 0024 additive seulement, sans fonction", () => {

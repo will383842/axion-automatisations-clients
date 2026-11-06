@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ErreurModele, exigerModeleAdmis, MODELE_DEFAUT, MODELES_ADMIS, modeleAdmis } from "./modeles-admis.ts";
+import { ErreurModele, exigerModeleAdmis, MODELE_DEFAUT, MODELES_ADMIS, modeleAdmis } from "./modeles-admis.js";
 
 describe("liste des modèles admis tenue par AXION IA (T4-34a)", () => {
   it("[C-198] un modèle absent de la liste tenue par AXION IA est refusé", () => {

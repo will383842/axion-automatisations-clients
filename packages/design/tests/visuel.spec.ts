@@ -64,6 +64,24 @@ test.describe("[C-597] galerie à 390 px", () => {
     }
   });
 
+  test("[B-251] aucun texte courant sous 16 px à 390 px", async ({ page }) => {
+    for (const { url } of PAGES) {
+      await ouvrir(page, url);
+      const fautes = await page.evaluate(() => {
+        const sorties: string[] = [];
+        const courant = "main p, main li, main td, main label, main button, main input, main select, main textarea, main a, main dd";
+        const precision = (el: Element) => el.closest("small, [data-precision], caption, th, figcaption") !== null;
+        for (const el of document.querySelectorAll(courant)) {
+          const r = el.getBoundingClientRect();
+          const propre = [...el.childNodes].some((n) => n.nodeType === 3 && (n.textContent ?? "").trim() !== "");
+          if (r.width > 0 && propre && !precision(el) && parseFloat(getComputedStyle(el).fontSize) < 16) sorties.push(`${el.tagName} ${getComputedStyle(el).fontSize} ${el.textContent?.slice(0, 20)}`);
+        }
+        return sorties;
+      });
+      expect(fautes, url).toEqual([]);
+    }
+  });
+
   test("[C-597] sous 720 px le menu latéral est caché et la barre d'onglets visible", async ({ page }) => {
     await ouvrir(page, PAGES[1]!.url);
     await expect(page.locator(".r-menu")).toBeHidden();

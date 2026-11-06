@@ -1,6 +1,7 @@
 import { ErreurApi } from "../plugins/erreurs.js";
 import { exigerAucunGel, GelPourLitige } from "../gel/garde.js";
 import type { GelLitige } from "../retention/purger.js";
+import { etatPreuve } from "./preavis.js";
 import { ErreurEtape, normaliser, type Verrou } from "../provisionnement/machine.js";
 
 // Machine de la fin de contrat (A-250, A-254, A-255, C-035). L'état est celui du RÉEL (plans du Hub, base, export, préavis) : aucune colonne d'étape, donc aucune migration,
@@ -112,6 +113,9 @@ export function creerMachineFin(o: OptionsMachineFin) {
       const apres = await o.dossier(tenantId);
       if (!apres || !(await etape.dejaFait(tenantId, apres))) return { etat: "attend_reponses", etape: etape.nom, reessayerDansMs: REESSAI_REPONSES_MS };
     }
+    // Envoyé sans accusé n'est pas prouvé : un préavis sans accusé lève une alerte (clé stable par préavis), il ne compte jamais comme preuve (dette T2-44).
+    const fin = enRetard ? undefined : await o.dossier(tenantId);
+    for (const jour of JOURS) if (fin && etatPreuve(fin.preavis[jour]) !== "prouve") await o.alerter({ type: "fin_de_contrat", clientId: tenantId, code: `preavis_j${jour}_sans_accuse` });
     return enRetard ? { etat: "en_retard", etape: enRetard } : { etat: "a_jour", etape: "attente_mise_a_l_ecart" };
   }
   return {

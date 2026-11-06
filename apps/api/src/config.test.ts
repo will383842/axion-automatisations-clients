@@ -165,4 +165,14 @@ describe("interrupteurs des canaux", () => {
     expect(chargerConfig({ NODE_ENV: "test", SAUVEGARDES_RETRAIT_ACTIF: "true" }, dossier()).sauvegardesRetraitActif).toBe(true);
     expect(refus({ NODE_ENV: "test", SAUVEGARDES_RETRAIT_ACTIF: "oui" })).toContain("SAUVEGARDES_RETRAIT_ACTIF");
   });
+
+  it("[A-257] l'effacement est fermé par défaut ; en production, EFFACEMENT_ACTIF sans EFFACEMENT_OUVERT_PAR daté empêche le démarrage", () => {
+    expect(chargerConfig(prod(), dossier()).effacementActif).toBe(false);
+    expect(chargerConfig({ NODE_ENV: "development", EFFACEMENT_ACTIF: "" }, dossier()).effacementActif).toBe(false);
+    expect(refus(prod({ EFFACEMENT_ACTIF: "true" }))).toContain("EFFACEMENT_OUVERT_PAR");
+    expect(refus(prod({ EFFACEMENT_ACTIF: "1", EFFACEMENT_OUVERT_PAR: "pas une date" }))).toContain("EFFACEMENT_OUVERT_PAR");
+    expect(chargerConfig(prod({ EFFACEMENT_ACTIF: "true", EFFACEMENT_OUVERT_PAR: "2029-01-15" }), dossier()).effacementActif).toBe(true);
+    expect(chargerConfig({ NODE_ENV: "test", EFFACEMENT_ACTIF: "true" }, dossier()).effacementActif).toBe(true);
+    refus({ NODE_ENV: "test", EFFACEMENT_ACTIF: "oui" });
+  });
 });

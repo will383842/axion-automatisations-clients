@@ -15,6 +15,7 @@ import { routeAnnulation, routeJournal } from "../apps/api/src/routes/journal.js
 import { routeProvisionnement } from "../apps/api/src/routes/provisionnement.js";
 import { routeReglages } from "../apps/api/src/routes/reglages.js";
 import { routeSante } from "../apps/api/src/routes/sante.js";
+import { routeWebhooks } from "../apps/api/src/routes/webhooks/entree.js";
 
 // Liste des routes de l'API (C-536) : l'application Fastify est construite SANS listen et SANS base, avec des dépendances vides ; seul le tableau des routes sort.
 // Une route absente d'ici est vue par la garde (scripts/garde-mauvais-client.test.ts), qui compte aussi les enregistrements dans le code source.
@@ -110,6 +111,7 @@ export async function listerRoutes(): Promise<RouteListee[]> {
   routeCrm(appli, { entrant, recepteur: rien, file: rien });
   routeImportCatalogue(appli, { ouvert: false, importeur: rien, authentifier: garde as never });
   routeExecuteur(appli, { actif: () => false, cles: rien, memoire: rien, depot: rien });
+  routeWebhooks(appli, { actif: () => false, depot: rien, secret: rien, instance: rien, memoire: rien, file: rien, sceller: rien, debit: { parWebhook: 1, global: 1, fenetreMs: 1 } });
   await appli.ready();
   await appli.close();
   return [...vues.values()].sort((a, b) => `${a.chemin} ${a.methode}`.localeCompare(`${b.chemin} ${b.methode}`));

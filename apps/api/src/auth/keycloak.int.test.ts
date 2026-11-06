@@ -284,3 +284,59 @@ describe("Keycloak réel : double facteur et sessions", { timeout: 60_000 }, () 
     expect(((await r.json()) as { error: string }).error).toBe("invalid_grant");
   });
 });
+
+// C-681 : réglages de sécurité des pages de connexion et essais répétés de mot de passe, contre le vrai Keycloak (job socle-integration).
+// Les fichiers de royaume appartiennent à T1A-08 : ces essais lisent ce que Keycloak applique réellement, sans rien imposer au fichier.
+describe("Keycloak réel : en-têtes de sécurité et essais répétés (C-681)", { timeout: 300_000 }, () => {
+  it("[C-681] @integration browserSecurityHeaders de Keycloak sont réglés et testés contre Keycloak", async () => {
+    const royaume = (await (await api("/equipe")).json()) as { browserSecurityHeaders?: Record<string, string> };
+    const h = royaume.browserSecurityHeaders ?? {};
+    expect(h["xContentTypeOptions"]).toBe("nosniff");
+    expect(h["xFrameOptions"]).toMatch(/^(DENY|SAMEORIGIN)$/);
+    expect(h["contentSecurityPolicy"]).toContain("object-src 'none'");
+    expect(h["contentSecurityPolicy"]).toMatch(/frame-ancestors '(none|self)'/);
+    expect(Number(/max-age=(\d+)/.exec(h["strictTransportSecurity"] ?? "")?.[1] ?? 0)).toBeGreaterThanOrEqual(31_536_000);
+    // Ce que le navigateur reçoit vraiment sur la page de connexion.
+    const { r } = await demander(new Navigateur());
+    expect(r.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(r.headers.get("content-security-policy") ?? "").toContain("object-src 'none'");
+    expect(r.headers.get("x-frame-options") ?? "").not.toMatch(/allow/i);
+  });
+
+  const direct = (nom: string, motDePasse: string, extra: Record<string, string> = {}) =>
+    fetch(`${OIDC("equipe")}/token`, { method: "POST", body: formulaire({ grant_type: "password", client_id: "essai-direct", username: nom, password: motDePasse, ...extra }) });
+  const verdict = async (r: Response) => {
+    const j = (await r.json()) as Json;
+    return { statut: r.status, erreur: j["error"], description: j["error_description"], jeton: j["access_token"] };
+  };
+  const faux = () => randomBytes(8).toString("hex");
+  async function bloquer(u: Utilisateur) {
+    for (let i = 0; i < 10; i++) expect((await verdict(await direct(u.nom, faux()))).jeton).toBeUndefined();
+    // Compte bloqué : même le bon mot de passe avec le bon code est refusé.
+    expect((await verdict(await direct(u.nom, u.motDePasse, { totp: code(u.secret, pasCourant()) }))).jeton).toBeUndefined();
+  }
+
+  it("[C-681] @integration 10 essais de mot de passe faux sur Keycloak ralentissent puis bloquent, sans révéler si le compte existe", async () => {
+    const u = await creerUtilisateur();
+    const inconnu = `inconnu.${randomBytes(4).toString("hex")}@exemple.fr`;
+    // Même réponse pour un compte qui existe et pour un compte qui n'existe pas.
+    expect(await verdict(await direct(u.nom, faux()))).toEqual(await verdict(await direct(inconnu, faux())));
+    await bloquer(u);
+    const etat = (await (await api(`/equipe/attack-detection/brute-force/users/${u.id}`)).json()) as { disabled?: boolean; numFailures?: number };
+    expect(etat.numFailures ?? 0).toBeGreaterThanOrEqual(5);
+    // Le blocage n'est jamais une suppression : le compte existe toujours et reste actif.
+    expect(((await (await api(`/equipe/users/${u.id}`)).json()) as { enabled?: boolean }).enabled).toBe(true);
+  });
+
+  it("[C-681] @integration le blocage est levé seul après le délai", async () => {
+    const u = await creerUtilisateur();
+    await bloquer(u);
+    const debut = Date.now();
+    let jeton: unknown;
+    while (jeton === undefined && Date.now() - debut < 240_000) {
+      await new Promise((ok) => setTimeout(ok, 5_000));
+      jeton = (await verdict(await direct(u.nom, u.motDePasse, { totp: code(u.secret, pasCourant()) }))).jeton;
+    }
+    expect(jeton, "le blocage devait se lever seul").toBeTypeOf("string");
+  });
+});

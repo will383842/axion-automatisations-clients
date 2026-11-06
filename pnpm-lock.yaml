@@ -346,6 +346,8 @@ importers:
         specifier: ^4.6.7
         version: 4.6.7
 
+  packages/securite-web: {}
+
 packages:
 
   '@aws-sdk/checksums@3.1001.5':

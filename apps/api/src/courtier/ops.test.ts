@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const lire = (chemin: string) => readFileSync(new URL(`../../../../${chemin}`, import.meta.url), "utf8");
@@ -8,12 +9,27 @@ describe("politiques et initialisation OpenBao du courtier", () => {
     const hcl = lire("ops/socle/openbao/donnees.hcl").replace(/^#.*$/gm, "");
     expect(hcl).toContain('path "technique/data/donnees/+/app"');
     expect(hcl).toContain('path "technique/metadata/donnees/+/app"');
+    expect(hcl).toContain('path "technique/data/donnees/+/lecture"');
+    expect(hcl).toContain('path "technique/metadata/donnees/+/lecture"');
     // Le joker * n'est valable qu'en dernier caractère d'un chemin OpenBao : un * au milieu ne couvre aucun secret.
     for (const m of hcl.matchAll(/path "([^"]*)"/g)) expect(m[1]!.slice(0, -1)).not.toContain("*");
     expect(hcl).not.toMatch(/proprietaire|provisionneur|pgbouncer-admin|technique\/data\/\*|technique\/data\/donnees\/\*|technique\/data\/donnees\/cli_/);
     for (const m of hcl.matchAll(/path "([^"]*)" \{\s*capabilities = \[([^\]]*)\]/g)) expect(m[2]).toBe('"read"');
     // courtier.hcl n'est pas touché : les tests C-012 et C-015 lui interdisent tout chemin technique/.
     expect(lire("ops/socle/openbao/politiques/courtier.hcl")).not.toMatch(/technique/);
+  });
+
+  it("[A-055] seuls api.hcl et donnees.hcl lisent technique/data/donnees/+/lecture ; aucun ne lit /proprietaire", () => {
+    const dossier = new URL("../../../../ops/socle/openbao/", import.meta.url);
+    const fichiers = [...readdirSync(fileURLToPath(new URL("politiques/", dossier))).filter((f) => f.endsWith(".hcl")).map((f) => `politiques/${f}`), ...readdirSync(fileURLToPath(dossier)).filter((f) => f.endsWith(".hcl"))];
+    const couvre = (motif: string, cible: string) => new RegExp(`^${motif.replace(/[.?^${}()|[\]\\]/g, "\\$&").replace(/\+/g, "[^/]+").replace(/\*$/, ".*")}$`).test(cible);
+    const lecteurs = (cible: string) => fichiers.filter((f) => [...readFileSync(new URL(f, dossier), "utf8").replace(/#.*$/gm, "").matchAll(/path\s+"([^"]+)"\s*\{([^}]*)\}/g)].some((m) => couvre(m[1]!, cible) && /"(read|sudo)"/.test(m[2]!))).map((f) => f.replace(/^politiques\//, "")).sort();
+    expect(lecteurs("technique/data/donnees/cli_0123456789ab/lecture")).toEqual(["api.hcl", "donnees.hcl"]);
+    expect(lecteurs("technique/data/donnees/cli_0123456789ab/app")).toEqual(["donnees.hcl"]);
+    for (const interdit of ["technique/data/donnees/cli_0123456789ab/proprietaire", "technique/metadata/donnees/cli_0123456789ab/proprietaire", "technique/data/donnees/cli_0123456789ab/provisionneur", "technique/data/donnees/pgbouncer-admin"]) expect(lecteurs(interdit), interdit).toEqual([]);
+    // donnees.hcl : lecture seule, et rien d'autre que app et lecture (données et métadonnées).
+    const donnees = [...readFileSync(new URL("donnees.hcl", dossier), "utf8").replace(/#.*$/gm, "").matchAll(/path\s+"([^"]+)"\s*\{\s*capabilities\s*=\s*\[([^\]]*)\]/g)].map((m) => `${m[1]} ${m[2]}`);
+    expect(donnees.sort()).toEqual(['technique/data/donnees/+/app "read"', 'technique/data/donnees/+/lecture "read"', 'technique/metadata/donnees/+/app "read"', 'technique/metadata/donnees/+/lecture "read"']);
   });
 
   it("[A-209] le jeton de l'exécuteur (donnees) ne porte aucun droit sur le moteur database/ ni sur les baux : jetons séparés", () => {

@@ -54,10 +54,10 @@ describe("identifiants servis par le courtier", () => {
     // Le lecteur de secrets du courtier ne sait lire que .../app ; aucun autre genre, aucun autre chemin.
     const appels: string[] = [];
     const lecteur = coffreCourtier({ url: "http://coffre.test", jeton: "jeton-d-essai", fetch: (async (u: string) => { appels.push(u); return new Response(JSON.stringify({ data: { data: { valeur: MDP }, metadata: { version: 3 } } })); }) as unknown as typeof fetch });
-    await expect(lecteur.lire(`cli_${idA}`)).resolves.toEqual({ motDePasse: MDP, version: 3 });
+    await expect(lecteur.lire(`cli_${idA}`, "app")).resolves.toEqual({ motDePasse: MDP, version: 3 });
     expect(appels).toEqual([`http://coffre.test/v1/technique/data/donnees/cli_${idA}/app`]);
     for (const piege of [`cli_${idA}_proprietaire`, "provisionneur", `cli_${idA}/proprietaire`, `cli_${idA}/../provisionneur`, "pgbouncer-admin", `cli_${idA}?x=1`]) {
-      await expect(lecteur.lire(piege)).rejects.toMatchObject({ code: "chemin_refuse" });
+      await expect(lecteur.lire(piege, "app")).rejects.toMatchObject({ code: "chemin_refuse" });
     }
     expect(appels).toHaveLength(1);
   });

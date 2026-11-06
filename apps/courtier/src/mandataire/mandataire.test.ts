@@ -39,7 +39,10 @@ async function fauxServeur(protocole: "imap" | "smtp", mdp: string, identifiant:
         tampon = tampon.slice(i + 2);
         recu.push(l);
         if (protocole === "smtp" && data) {
-          if (l === ".") (data = false), s.write("250 2.0.0 accepte\r\n");
+          if (l === ".") {
+            data = false;
+            s.write("250 2.0.0 accepte\r\n");
+          }
           continue;
         }
         if (etat === "plain") {
@@ -50,15 +53,30 @@ async function fauxServeur(protocole: "imap" | "smtp", mdp: string, identifiant:
           const m = /^(\S+) (\S+)/.exec(l);
           if (!m) continue;
           tag = m[1]!;
-          if (m[2] === "AUTHENTICATE") (etat = "plain"), s.write("+ \r\n");
+          if (m[2] === "AUTHENTICATE") {
+            etat = "plain";
+            s.write("+ \r\n");
+          }
           else if (m[2] === "SELECT") s.write(`* 3 EXISTS\r\n${tag} OK [READ-WRITE] fait\r\n`);
-          else if (m[2] === "LOGOUT") s.write(`* BYE\r\n${tag} OK\r\n`), s.end();
+          else if (m[2] === "LOGOUT") {
+            s.write(`* BYE\r\n${tag} OK\r\n`);
+            s.end();
+          }
           else if (m[2] === "LOGIN") s.write(`${tag} OK login accepte\r\n`);
           else s.write(`${tag} BAD commande inconnue, la session de ${identifiant} avec ${mdp} est refusee\r\n`);
         } else if (l.startsWith("EHLO")) s.write("250-reel\r\n250 AUTH PLAIN\r\n");
-        else if (l.startsWith("AUTH PLAIN")) (etat = "plain"), s.write("334 \r\n");
-        else if (l === "DATA") (data = true), s.write("354 go\r\n");
-        else if (l.startsWith("QUIT")) s.write("221 bye\r\n"), s.end();
+        else if (l.startsWith("AUTH PLAIN")) {
+          etat = "plain";
+          s.write("334 \r\n");
+        }
+        else if (l === "DATA") {
+          data = true;
+          s.write("354 go\r\n");
+        }
+        else if (l.startsWith("QUIT")) {
+          s.write("221 bye\r\n");
+          s.end();
+        }
         else s.write(`250 ok ${l.startsWith("MAIL") ? mdp : ""}\r\n`);
       }
     });
@@ -111,7 +129,6 @@ async function client(port: number) {
       await new Promise((r) => setTimeout(r, 5));
     }
   };
-  const plain = (u: string, m: string) => Buffer.from(`\0${u}\0${m}`).toString("base64");
   return { s, attendre, envoyer: (x: string) => s.write(x), tout: () => recu, ferme: () => s.destroyed || s.writableEnded };
 }
 
@@ -275,7 +292,7 @@ describe("mandataire IMAP/SMTP du courtier", () => {
       options.push(o);
       const s = new EventEmitter();
       setImmediate(() => s.emit("error", Object.assign(new Error(`certificat de ${MDP_A}`), { code: "DEPTH_ZERO_SELF_SIGNED_CERT" })));
-      s.destroy = () => undefined;
+      (s as unknown as { destroy(): void }).destroy = () => undefined;
       return s;
     };
     const e = await ouvrirTlsVerifie({ hote: "serveur-a.exemple.test", port: 993 }, faux as never).catch((x: unknown) => x);

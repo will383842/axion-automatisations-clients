@@ -56,7 +56,7 @@ export function depotExecutionsPg(poolApp: Pool, cellule: string, signal: (cellu
     },
     async erreur(t, i, id, code) {
       await creer(t, i, id);
-      await avecClient(poolApp, t, (c) => c.query("UPDATE executions SET statut = 'echec', code_erreur = $3, termine_par = $4 WHERE tenant_id = $1 AND id = $2 AND statut = 'en_cours'", [t, id, code, appelant.acteur]), appelant);
+      await avecClient(poolApp, t, (c) => c.query("UPDATE executions SET statut = 'echec', code_erreur = $3, termine_par = $4, duree_ms = GREATEST(0, (EXTRACT(EPOCH FROM (now() - debut)) * 1000)::bigint) WHERE tenant_id = $1 AND id = $2 AND statut = 'en_cours'", [t, id, code, appelant.acteur]), appelant);
     },
     signalDeVie: signal,
   };

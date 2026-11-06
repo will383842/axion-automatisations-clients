@@ -182,6 +182,14 @@ describe("mandataire IMAP/SMTP du courtier", () => {
     expect(sortie).toContain("fin");
   });
 
+  it("[A-335] le masque garde la longueur des octets : les littéraux IMAP du serveur restent exacts", () => {
+    const mq = new Masqueur([MDP_A]);
+    const entree = Buffer.from(`* 1 FETCH (BODY[TEXT] {${MDP_A.length + 4}}\r\nmdp ${MDP_A} ok)\r\n`);
+    const sortie = Buffer.concat([mq.pousser(entree), mq.fin()]);
+    expect(sortie.length).toBe(entree.length);
+    expect(sortie.toString()).not.toContain(MDP_A);
+  });
+
   it("[A-335] @isolation le jeton de l'instance A ne donne pas accès à la boîte de B ; jeton inconnu, expiré ou d'une autre instance : refus identiques", async () => {
     const reelA = await fauxServeur("imap", MDP_A, "essai-a@exemple.fr");
     const reelB = await fauxServeur("imap", MDP_B, "essai-b@exemple.fr");

@@ -3,7 +3,7 @@ import type { Palier } from "../config.ts";
 import { etaler } from "./etalement.ts";
 import { PlafondModule } from "./plafond-module.ts";
 import { PlacesMemoire, Semaphore } from "./semaphore.ts";
-import { Repartiteur, SousFilesMemoire } from "./tour-de-role.ts";
+import { pomper, Repartiteur, SousFilesMemoire } from "./tour-de-role.ts";
 import { Cellule } from "./cellule.ts";
 import { traiter, type Travail } from "./travailleur.ts";
 
@@ -154,5 +154,64 @@ describe("heures étalées", () => {
     // le passage de minuit ne change pas le jour d'un déclencheur hebdomadaire
     const tard = etaler({ pattern: "50 23 * * 1", tz: "Europe/Paris" }, "inst-9", 30) as { pattern: string };
     expect(tard.pattern).toMatch(/^\d+ 23 \* \* 1$/);
+  });
+});
+
+describe("équité sans famine et sans perte", () => {
+  it("[A-414] un client présent n'est pas affamé par des clients qui arrivent un travail à la fois", async () => {
+    const r = new Repartiteur(new SousFilesMemoire(), POIDS);
+    await r.ajouter(travail("c", 0));
+    await r.suivant();
+    for (let i = 1; i <= 5; i++) await r.ajouter(travail("c", i));
+    const sortis: string[] = [];
+    for (let i = 0; i < 100; i++) {
+      await r.ajouter(travail(i % 2 === 0 ? "b" : "a", i));
+      sortis.push((await r.suivant())!.clientId);
+    }
+    // c attend depuis le début avec 5 travaux : il sort dans les 3 premiers tirages
+    expect(sortis.slice(0, 3)).toContain("c");
+  });
+
+  it("[A-414] aucun client n'attend plus d'un tour complet, avec des arrivées et des départs mêlés", async () => {
+    let graine = 12345;
+    const alea = (n: number) => ((graine = (graine * 1103515245 + 12345) % 2147483648), graine % n);
+    const paliers: Palier[] = ["essentiel", "pro", "etendu"];
+    const clients = Array.from({ length: 6 }, (_, i) => ({ id: `k${i}`, palier: paliers[i % 3]! }));
+    const r = new Repartiteur(new SousFilesMemoire(), POIDS);
+    const restant = new Map<string, number>();
+    let n = 0;
+    // depuis le dernier service d'un client, les autres tirages ne dépassent pas la somme des poids des autres clients
+    const depuis = new Map<string, number>();
+    const borne = clients.reduce((s, c) => s + POIDS[c.palier], 0);
+    for (let pas = 0; pas < 600; pas++) {
+      for (let k = alea(3); k > 0; k--) {
+        const c = clients[alea(clients.length)]!;
+        await r.ajouter(travail(c.id, n++, c.palier));
+        restant.set(c.id, (restant.get(c.id) ?? 0) + 1);
+      }
+      const t = await r.suivant();
+      if (!t) continue;
+      restant.set(t.clientId, restant.get(t.clientId)! - 1);
+      depuis.set(t.clientId, 0);
+      for (const c of clients) {
+        if (c.id === t.clientId) continue;
+        if ((restant.get(c.id) ?? 0) > 0) {
+          const d = (depuis.get(c.id) ?? 0) + 1;
+          depuis.set(c.id, d);
+          expect(d).toBeLessThanOrEqual(borne);
+        } else depuis.set(c.id, 0);
+      }
+    }
+  });
+
+  it("[A-414] un échec d'ajout à la file de la cellule ne perd pas le travail : il reste en tête de la sous-file de son client", async () => {
+    const r = new Repartiteur(new SousFilesMemoire(), POIDS);
+    await r.ajouter(travail("a", 0));
+    await r.ajouter(travail("a", 1));
+    const cassee = { getWaitingCount: async () => 0, add: async () => { throw new Error("coupure"); } };
+    await expect(pomper(r, cassee, 10)).rejects.toThrow("coupure");
+    expect((await r.suivant())!.id).toBe("a-0");
+    expect((await r.suivant())!.id).toBe("a-1");
+    expect(await r.suivant()).toBeUndefined();
   });
 });

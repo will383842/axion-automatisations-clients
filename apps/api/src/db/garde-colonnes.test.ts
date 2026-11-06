@@ -1,6 +1,10 @@
+import { readdirSync, readFileSync } from "node:fs";
 import { is, sql } from "drizzle-orm";
 import { check, getTableConfig, integer, PgDialect, PgTable, pgTable, text, uuid } from "drizzle-orm/pg-core";
 import { describe, expect, it } from "vitest";
+import { TABLES_COMMUNES } from "../../../../packages/contrats/src/c5/invariants.ts";
+import { analyserSql } from "../../../../scripts/garde-migrations.ts";
+import { TABLES_CLIENT } from "./schema/aides.ts";
 import * as cli from "./schema-cli/index.ts";
 import * as schema from "./schema.ts";
 
@@ -55,6 +59,10 @@ export const TEXTE_PERMIS: Readonly<Record<string, number>> = Object.freeze({
   "executions.auteur": 200,
   "executions.termine_par": 200,
   "alertes.assignee_a": 200,
+  // T3-05a (migration 0020) : « Aujourd'hui », colonnes bornées par expression régulière ou par char_length.
+  "aujourdhui_ignores.type_fait": 65,
+  "aujourdhui_ignores.reference": 129,
+  "aujourdhui_ignores.membre": 200,
 });
 // Dettes écrites (ADR 0055) : soldée par la migration 0019 (T2-52), qui borne executions.auteur, executions.termine_par et alertes.assignee_a. Liste fermée et vide : elle ne grandit pas.
 export const TEXTE_SANS_LIMITE_DETTE: readonly string[] = Object.freeze([]);
@@ -113,10 +121,10 @@ describe("garde des colonnes : aucun texte libre (C-034)", () => {
     expect(textesSansLimite([neuve])).toEqual(["demandes.note : hors de la liste fermée"]);
   });
 
-  it("[C-034] la liste des textes permis est fermée : neuf colonnes bornées et aucune dette, toutes sur demandes, executions, alertes", () => {
-    expect(Object.keys(TEXTE_PERMIS)).toHaveLength(9);
+  it("[C-034] la liste des textes permis est fermée : douze colonnes bornées et aucune dette, sur demandes, executions, alertes et aujourdhui_ignores", () => {
+    expect(Object.keys(TEXTE_PERMIS)).toHaveLength(12);
     expect(TEXTE_SANS_LIMITE_DETTE).toHaveLength(0);
-    expect(Object.keys(TEXTE_PERMIS).every((k) => ["demandes", "executions", "alertes"].includes(k.split(".")[0] ?? ""))).toBe(true);
+    expect(Object.keys(TEXTE_PERMIS).every((k) => ["demandes", "executions", "alertes", "aujourdhui_ignores"].includes(k.split(".")[0] ?? ""))).toBe(true);
     expect(Object.values(TEXTE_PERMIS).every((n) => n > 0 && n <= 255)).toBe(true);
   });
 });
@@ -124,5 +132,36 @@ describe("garde des colonnes : aucun texte libre (C-034)", () => {
 describe("dette des textes sans limite soldée (migration 0019)", () => {
   it("[T2-07] TEXTE_SANS_LIMITE_DETTE est vide", () => {
     expect(TEXTE_SANS_LIMITE_DETTE).toEqual([]);
+  });
+});
+
+// Migration 0020 (T3-05a, ADR 0115) : tables de l'équipe, des vues et de « Aujourd'hui » ; colonnes de demandes et de notes.
+describe("tables du lot 3 : équipe, vues, « Aujourd'hui » (T3-05a)", () => {
+  const dossier = new URL("../../drizzle/", import.meta.url);
+  const nomMigration = () => readdirSync(dossier).find((f) => f.startsWith("0020_") && f.endsWith(".sql")) ?? "0020_absente.sql";
+  const COMMUNES_5A = ["public.membres_equipe", "public.absences", "public.vues_enregistrees"];
+
+  it("[A-119] TABLES_CLIENT contient aujourdhui_ignores et TABLES_COMMUNES les trois tables communes de l'équipe", () => {
+    expect(tablesDuSchema().length).toBeGreaterThan(10);
+    expect(TABLES_CLIENT.map((t) => t.nom)).toContain("aujourdhui_ignores");
+    for (const t of COMMUNES_5A) expect(TABLES_COMMUNES, t).toContain(t);
+    for (const nom of ["membres_equipe", "absences", "vues_enregistrees"]) {
+      expect(getTableConfig(tableNommee(nom)).columns.map((c) => c.name), nom).not.toContain("tenant_id");
+    }
+  });
+
+  it("[LOT3-tables] aujourdhui_ignores : chaque colonne de texte est bornée", () => {
+    expect(textesSansLimite([tableNommee("aujourdhui_ignores")])).toEqual([]);
+  });
+
+  it("[LOT3-tables] garde-migrations : migration additive seulement", () => {
+    const nom = nomMigration();
+    expect(nom).toBe("0020_tables_lot_3_equipe.sql");
+    const texte = readFileSync(new URL(nom, dossier), "utf8");
+    expect(analyserSql(nom, texte)).toEqual([]);
+    const code = texte.replace(/--[^\n]*/g, "");
+    expect(code).not.toMatch(/\b(DROP|TRUNCATE|RENAME)\b|\bDELETE\s+FROM\b/i);
+    expect(code).not.toMatch(/ALTER\s+(TABLE\s+\S+\s+ALTER\s+COLUMN|COLUMN)[^;]*\bTYPE\b/i);
+    expect(code).not.toMatch(/GRANT[^;]*\bDELETE\b|GRANT[^;]*\bTRUNCATE\b/i);
   });
 });

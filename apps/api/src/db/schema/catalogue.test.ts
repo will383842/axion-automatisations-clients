@@ -16,15 +16,17 @@ const uniques = (t: Table) => getTableConfig(t).uniqueConstraints.map((u) => u.c
 const droitsDe = (table: string, role: string) => [...migration.matchAll(new RegExp(`GRANT ([A-Z, ]+(?:\\([^)]*\\))?) ON TABLE "public"\\."${table}" TO ${role}`, "g"))].map((m) => m[1] ?? "");
 const COMMUNES = ["metiers", "postes", "automatisations", "automatisation_metiers", "automatisation_postes", "versions_automatisation", "prereglages_metier", "synonymes_catalogue", "packs", "packs_automatisations", "connecteurs", "grilles_prix"];
 
+const HORS_CATALOGUE = ["cellules", "registre_traitements", "membres_equipe", "absences", "vues_enregistrees"];
+
 describe("catalogue commun : liste fermée et règle C5 (migration 0007)", () => {
   it("[A-119] les douze tables du catalogue sont dans la liste fermée TABLES_COMMUNES, gelée, sans tenant_id", () => {
     for (const t of COMMUNES) expect(TABLES_COMMUNES, t).toContain(`public.${t}`);
     expect(TABLES_COMMUNES).toContain("public.exclusions_plateforme");
-    // T2-07 (ADR 0055) ajoute deux tables communes hors catalogue : la liste du catalogue reste exacte, les ajouts ultérieurs sont nommés ici.
-    expect(TABLES_COMMUNES.filter((t) => !["public.cellules", "public.registre_traitements"].includes(t))).toHaveLength(COMMUNES.length + 1);
+    // T2-07 (ADR 0055) ajoute deux tables communes hors catalogue, T3-05a (ADR 0115) trois : la liste du catalogue reste exacte, les ajouts ultérieurs sont nommés ici.
+    expect(TABLES_COMMUNES.filter((t) => !HORS_CATALOGUE.map((n) => `public.${n}`).includes(t))).toHaveLength(COMMUNES.length + 1);
     expect(Object.isFrozen(TABLES_COMMUNES)).toBe(true);
     // clients.ts importe suivi.ts (clé étrangère instances → cellules, T4-21) : les deux tables communes de T2-07 sont chargées avec lui.
-    expect(TABLES_COMMUNES_SCHEMA.map((t) => t.nom).filter((n) => !["cellules", "registre_traitements"].includes(n)).sort()).toEqual([...COMMUNES].sort());
+    expect(TABLES_COMMUNES_SCHEMA.map((t) => t.nom).filter((n) => !HORS_CATALOGUE.includes(n)).sort()).toEqual([...COMMUNES].sort());
     for (const t of [metiers, postes, automatisations, automatisationMetiers, automatisationPostes, versionsAutomatisation, prereglagesMetier, synonymesCatalogue, packs, packsAutomatisations, connecteurs, grillesPrix]) {
       expect(colonnes(t)).not.toContain("tenant_id");
     }

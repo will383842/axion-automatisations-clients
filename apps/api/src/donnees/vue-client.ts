@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ErreurApi } from "../plugins/erreurs.js";
+import { ROLES_EQUIPE_ADMIS } from "../routes/donnees.js";
 import type { SessionDonnees } from "./service.js";
 
 // Vue « comme le client » (A-005, partie 2b ; B-070, C-006) : l'équipe ne lit le contenu d'une base qu'avec un accord écrit valide de CE client,
@@ -30,8 +31,9 @@ export interface DepsVue {
   maintenant(): Date;
 }
 
-export async function ouvrirVueClient(d: DepsVue, session: SessionDonnees, tenantId: string, motif: string): Promise<SessionDonnees> {
-  if (session.role !== "equipe") throw new ErreurApi("action_interdite", "Action interdite.");
+export async function ouvrirVueClient(d: DepsVue, session: SessionDonnees, tenantId: string, motif: string, roleEquipe: string | undefined): Promise<SessionDonnees> {
+  // Le rôle dans l'équipe est exigé ici même (liste fermée, comme la route) : lecteur, qualifieur, rôle inconnu ou absent sont refusés avant tout accord.
+  if (session.role !== "equipe" || !roleEquipe || !ROLES_EQUIPE_ADMIS.has(roleEquipe)) throw new ErreurApi("action_interdite", "Action interdite.");
   const id = z.uuid().safeParse(tenantId);
   const m = typeof motif === "string" ? motif.trim() : "";
   if (!id.success || m.length === 0 || m.length > 500) throw new ErreurApi("schema_invalide", "Requête invalide.");

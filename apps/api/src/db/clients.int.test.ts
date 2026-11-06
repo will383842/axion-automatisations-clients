@@ -80,9 +80,9 @@ const signerSousTraitance = (tenant: string) => {
   if (!sousTraitance.has(tenant)) sousTraitance.set(tenant, ecrire(app, tenant, (c) => c.query(`INSERT INTO contrats (${cles.join(", ")}) VALUES (${cles.map((_, i) => `$${i + 1}`).join(", ")})`, Object.values(v)), APPELANT));
   return sousTraitance.get(tenant);
 };
-const creerInstance = async (tenant: string, id = randomUUID(), extra: Record<string, unknown> = {}) => {
+const creerInstance = async (tenant: string, extra: Record<string, unknown> = {}) => {
   if ((extra["etat"] ?? "active") === "active") await signerSousTraitance(tenant);
-  const v = { id, tenant_id: tenant, organisation_id: tenant, code_automatisation: "relance-devis", formule: "abonnement", environnement: "production", ...extra };
+  const v = { tenant_id: tenant, organisation_id: tenant, code_automatisation: "relance-devis", formule: "abonnement", environnement: "production", ...extra };
   const cles = Object.keys(v);
   return ecrire(app, tenant, (c) => c.query(`INSERT INTO instances (${cles.join(", ")}) VALUES (${cles.map((_, i) => `$${i + 1}`).join(", ")}) RETURNING id`, Object.values(v)), APPELANT);
 };
@@ -115,7 +115,7 @@ describe("tables de client, avec le socle", { timeout: 30_000 }, () => {
     const { rows } = await migration.query(`
       SELECT i.indisprimary, (SELECT string_agg(a.attname, ',' ORDER BY k.ord) FROM unnest(i.indkey::int2[]) WITH ORDINALITY k(n, ord) JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = k.n) AS cols
       FROM pg_index i WHERE i.indrelid = 'public.instances'::regclass AND i.indisunique`);
-    expect(rows.map((r) => `${r.indisprimary}:${r.cols}`)).toEqual(["true:tenant_id,id"]);
+    expect(rows.map((r) => `${r.indisprimary}:${r.cols}`)).toEqual(["true:tenant_id,id", "false:id"]); // + instances_id_unique (ADR 0111, migration 0019)
     const fk = await migration.query("SELECT pg_get_constraintdef(oid) AS d FROM pg_constraint WHERE conname = 'instances_organisation_fk'");
     expect(fk.rows[0]?.d).toContain("REFERENCES organisations(tenant_id, id)");
     const A = randomUUID();
@@ -173,8 +173,8 @@ describe("tables de client, avec le socle", { timeout: 30_000 }, () => {
   it("[A-126] une instance refuse un état hors active, pause, erreur, livree", async () => {
     const A = randomUUID();
     await creerOrg(A);
-    for (const etat of ["active", "pause", "erreur", "livree"]) await creerInstance(A, randomUUID(), { etat });
-    await expect(creerInstance(A, randomUUID(), { etat: "supprimee" })).rejects.toMatchObject({ code: "22P02" });
+    for (const etat of ["active", "pause", "erreur", "livree"]) await creerInstance(A, { etat });
+    await expect(creerInstance(A, { etat: "supprimee" })).rejects.toMatchObject({ code: "22P02" });
   });
 
   it("[A-119] @isolation avec le client A, console_app ne lit ni n'écrit aucune ligne de B dans organisations, contacts, instances", async () => {
@@ -187,13 +187,15 @@ describe("tables de client, avec le socle", { timeout: 30_000 }, () => {
     await ecrire(app, A, async (c) => {
       for (const t of ["organisations", "contacts", "instances"]) {
         expect((await c.query(`SELECT count(*)::int AS n FROM ${t} WHERE tenant_id = $1`, [B])).rows[0]?.n, t).toBe(0);
-        expect((await c.query(`UPDATE ${t} SET tenant_id = tenant_id WHERE tenant_id = $1`, [B])).rowCount, t).toBe(0);
-        expect((await c.query(`DELETE FROM ${t} WHERE tenant_id = $1`, [B])).rowCount, t).toBe(0);
+        // T2-52 : console_app n'écrit plus tenant_id d'instances et n'y supprime plus rien (droits par colonne, 0019) ; la RLS reste prouvée par UPDATE etat.
+        const maj = t === "instances" ? "UPDATE instances SET etat = etat WHERE tenant_id = $1" : `UPDATE ${t} SET tenant_id = tenant_id WHERE tenant_id = $1`;
+        expect((await c.query(maj, [B])).rowCount, t).toBe(0);
+        if (t !== "instances") expect((await c.query(`DELETE FROM ${t} WHERE tenant_id = $1`, [B])).rowCount, t).toBe(0);
       }
       expect((await c.query("UPDATE instances SET etat = 'pause' WHERE id = $1", [instanceB])).rowCount).toBe(0);
     }, APPELANT);
     // Écrire une ligne au nom de B depuis A : refus par WITH CHECK.
-    await expect(ecrire(app, A, (c) => c.query("INSERT INTO instances (id, tenant_id, organisation_id, code_automatisation, formule, environnement, etat) VALUES ($1, $2, $2, 'x', 'abonnement', 'test', 'pause')", [randomUUID(), B]))).rejects.toMatchObject({ code: "42501" });
+    await expect(ecrire(app, A, (c) => c.query("INSERT INTO instances (tenant_id, organisation_id, code_automatisation, formule, environnement, etat) VALUES ($1, $1, 'x', 'abonnement', 'test', 'pause')", [B]))).rejects.toMatchObject({ code: "42501" });
     // Sans client actif : aucune ligne ; chaîne, identifiant ou injection dans app.tenant_id : refusés ou vides.
     for (const t of ["organisations", "contacts", "instances"]) expect((await app.query(`SELECT count(*)::int AS n FROM ${t}`)).rows[0]?.n, t).toBe(0);
     for (const mauvais of ["", "pas-un-uuid", `${A}' OR '1'='1`]) {
@@ -211,18 +213,17 @@ describe("tables de client, avec le socle", { timeout: 30_000 }, () => {
     }
   });
 
-  it("[A-178] une insertion, une modification et une suppression d'instance écrivent chacune une ligne au journal avec ancienne et nouvelle valeur, acteur et IP", async () => {
+  it("[A-178] une insertion et une modification d'instance écrivent chacune une ligne au journal avec ancienne et nouvelle valeur, acteur et IP", async () => {
     const A = randomUUID();
     await creerOrg(A);
     const id = (await creerInstance(A)).rows[0]?.id as string;
     await ecrire(app, A, (c) => c.query("UPDATE instances SET etat = 'pause' WHERE id = $1", [id]), APPELANT);
-    await ecrire(app, A, (c) => c.query("DELETE FROM instances WHERE id = $1", [id]), APPELANT);
+    // La suppression d'une instance est refusée à console_app depuis 0019 (testée dans durcissement.int.test.ts) : le journal ne reçoit plus que l'insertion et la modification.
     const { rows } = await migration.query("SELECT action, acteur, host(ip) AS ip, ancienne, nouvelle FROM public.journal_audit WHERE tenant_id = $1 AND entite = 'instances' AND entite_id = $2 ORDER BY id", [A, id]);
-    expect(rows.map((r) => r.action)).toEqual(["insertion", "modification", "suppression"]);
+    expect(rows.map((r) => r.action)).toEqual(["insertion", "modification"]);
     expect(rows.every((r) => r.acteur === "agent-essai" && r.ip === "192.0.2.17")).toBe(true);
     expect(rows[0]).toMatchObject({ ancienne: null, nouvelle: { etat: "active" } });
     expect(rows[1]).toMatchObject({ ancienne: { etat: "active" }, nouvelle: { etat: "pause" } });
-    expect(rows[2]).toMatchObject({ ancienne: { etat: "pause" }, nouvelle: null });
     expect(await lignesCassees()).toBe(0);
   });
 
@@ -284,12 +285,12 @@ describe("réserves de l'audit de la PR 95, avec le socle", { timeout: 60_000 },
     }).catch((e: unknown) => e);
     await dormir(300);
     const t1 = avecClient(app, A, async (c) => {
-      await c.query("INSERT INTO instances (id, tenant_id, organisation_id, code_automatisation, formule, environnement, etat) VALUES ($1, $2, $2, 'x', 'abonnement', 'test', 'pause')", [randomUUID(), A]);
+      await c.query("INSERT INTO instances (tenant_id, organisation_id, code_automatisation, formule, environnement, etat) VALUES ($1, $1, 'x', 'abonnement', 'test', 'pause')", [A]);
       await c.query("UPDATE instances SET etat = 'pause' WHERE id = $1", [X]);
     }).catch((e: unknown) => e);
     await dormir(1000);
     const debut = Date.now();
-    await avecClient(app, tiers, (c) => c.query("INSERT INTO instances (id, tenant_id, organisation_id, code_automatisation, formule, environnement, etat) VALUES ($1, $2, $2, 'x', 'abonnement', 'test', 'pause')", [randomUUID(), tiers]), APPELANT);
+    await avecClient(app, tiers, (c) => c.query("INSERT INTO instances (tenant_id, organisation_id, code_automatisation, formule, environnement, etat) VALUES ($1, $1, 'x', 'abonnement', 'test', 'pause')", [tiers]), APPELANT);
     // La borne de la fiche est 10 s ; derrière PgBouncer (4 connexions serveur par rôle) l'attente d'une connexion s'y ajoute : 30 s, l'échec réel est une erreur 55P03.
     expect(Date.now() - debut).toBeLessThan(30_000);
     await Promise.all([t0, t1]);

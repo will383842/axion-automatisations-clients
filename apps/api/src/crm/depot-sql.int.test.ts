@@ -1,8 +1,9 @@
+import { writeSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { empreinteEmail, identifiantEvenementC3 } from "../../../../packages/contrats/src/c3/evenements-crm-vers-console.js";
 import { avecClient } from "../db/client-actif.js";
 import { migrer } from "../db/migrer.js";
@@ -10,6 +11,11 @@ import { PLATEFORME_ID } from "../db/schema/aides.js";
 import { creerDepotSql } from "./faits/depot-sql.js";
 import { cibleDEnvoiCrm } from "./faits/fusion.js";
 import { creerRecepteurC3 } from "./recepteur-c3.js";
+
+// Le rapport de la CI est un JSON hors du journal : un essai en échec est écrit par writeSync(2, …), lisible dans le journal du job.
+afterEach((contexte) => {
+  if (contexte.task.result?.state === "fail") writeSync(2, `ECHEC ${contexte.task.name} : ${String(contexte.task.result.errors?.[0]?.message ?? "").slice(0, 400)}\n`);
+});
 
 // Adaptateur SQL du récepteur C3 sur la vraie base (socle lancé par ops/socle/lancer.sh, job socle-integration) : reprend les tests [C-331], [C-457] et [C-458] du dépôt en mémoire.
 // Même repérage du socle que les autres essais : variables SOCLE_PG_* si présentes, sinon les conteneurs du projet « socle ».

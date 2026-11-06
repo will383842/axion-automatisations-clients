@@ -44,8 +44,9 @@ beforeAll(async () => {
 afterAll(async () => { await Promise.all(ouverts.map((o) => o.end().catch(() => undefined))); });
 
 const creerOrg = (A: string) => avecClient(app, A, (c) => c.query("INSERT INTO organisations (id, tenant_id, console_client_id, raison_sociale) VALUES ($1, $1, $1, 'Atelier Bertin')", [A]), APPELANT);
-const creerInstance = (A: string, id: string = randomUUID()) =>
-  avecClient(app, A, async (c) => { await c.query("INSERT INTO instances (id, tenant_id, organisation_id, code_automatisation, formule, environnement, etat) VALUES ($1, $2, $2, 'relance-devis', 'abonnement', 'test', 'pause')", [id, A]); return id; }, APPELANT);
+// T2-52 : l'id est tiré par la base, rendu par RETURNING id.
+const creerInstance = (A: string) =>
+  avecClient(app, A, async (c) => (await c.query("INSERT INTO instances (tenant_id, organisation_id, code_automatisation, formule, environnement, etat) VALUES ($1, $1, 'relance-devis', 'abonnement', 'test', 'pause') RETURNING id", [A])).rows[0]?.["id"] as string, APPELANT);
 async function creerCellule(): Promise<string> {
   const code = `cellule-${randomUUID().replaceAll("-", "").slice(0, 8)}`;
   const c = await equipe.connect();
@@ -67,27 +68,27 @@ describe("portees.ts avec le socle", { timeout: 90_000 }, () => {
     await expect(resoudreInstance(equipe, randomUUID())).resolves.toBeNull();
   });
 
-  it("[C-017] @isolation attribuerCellule sous RLS : le client de l'instance l'attribue, un autre client ne change aucune ligne, la version monte de 1", async () => {
+  it("[C-017] @isolation attribuerCellule par la fonction de l'équipe : le client de l'instance l'attribue, un autre client reçoit P0002 (faux), la version monte de 1", async () => {
     const A = randomUUID();
     const B = randomUUID();
     await creerOrg(A);
     await creerOrg(B);
     const id = await creerInstance(A);
     const code = await creerCellule();
-    await expect(attribuerCellule(app, { tenantId: B, instanceId: id, cellule: code }, APPELANT)).resolves.toBe(false);
+    await expect(attribuerCellule(equipe, { tenantId: B, instanceId: id, cellule: code }, APPELANT)).resolves.toBe(false);
     await expect(resoudreInstance(equipe, id)).resolves.toMatchObject({ celluleCode: null, version: 0 });
-    await expect(attribuerCellule(app, { tenantId: A, instanceId: id, cellule: code }, APPELANT)).resolves.toBe(true);
+    await expect(attribuerCellule(equipe, { tenantId: A, instanceId: id, cellule: code }, APPELANT)).resolves.toBe(true);
     await expect(resoudreInstance(equipe, id)).resolves.toMatchObject({ tenantId: A, celluleCode: code, version: 1 });
   });
 
-  it("[C-017] @isolation deux lignes pour un même id (deux clients) : resoudreInstance rend null, sans distinction", async () => {
+  it("[C-017] @isolation un second client ne peut pas reprendre l'id d'une instance : resoudreInstance rend toujours le premier client", async () => {
     const A = randomUUID();
     const B = randomUUID();
     await creerOrg(A);
     await creerOrg(B);
     const id = await creerInstance(A);
-    // Tant que instances.id n'est pas unique seul (dette ouverte, ADR de l'architecte attendu), le second client peut reprendre le même id.
-    await creerInstance(B, id);
-    await expect(resoudreInstance(equipe, id)).resolves.toBeNull();
+    // Depuis 0019 (ADR 0111) le second client ne peut plus reprendre l'id : console_app ne fournit pas id (42501) et instances_id_unique le refuserait.
+    await expect(avecClient(app, B, (c) => c.query("INSERT INTO instances (id, tenant_id, organisation_id, code_automatisation, formule, environnement, etat) VALUES ($1, $2, $2, 'relance-devis', 'abonnement', 'test', 'pause')", [id, B]), APPELANT)).rejects.toMatchObject({ code: "42501" });
+    await expect(resoudreInstance(equipe, id)).resolves.toMatchObject({ tenantId: A });
   });
 });

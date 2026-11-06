@@ -158,6 +158,11 @@ export const apporteursClients = tableClient(
       check("apporteurs_clients_taux_borne", sql`${t["tauxPointsDeBase"]} BETWEEN 0 AND 10000`),
       check("apporteurs_clients_commissions_bornees", sql`${t["commissionsDuesCentimes"]} BETWEEN 0 AND ${sql.raw(MAX_ENTIER)}`),
       check("apporteurs_clients_siren_format", sql`${t["siren"]} ~ '^[0-9]{9}$'`),
+      // T2-52 : clé de Luhn du SIREN (la conversion n'a lieu que sur 9 chiffres).
+      check(
+        "apporteurs_clients_siren_luhn",
+        sql`${t["siren"]} IS NULL OR CASE WHEN ${t["siren"]} ~ '^[0-9]{9}$' THEN (substr(${t["siren"]},1,1)::int + substr(${t["siren"]},2,1)::int*2%10 + substr(${t["siren"]},2,1)::int*2/10 + substr(${t["siren"]},3,1)::int + substr(${t["siren"]},4,1)::int*2%10 + substr(${t["siren"]},4,1)::int*2/10 + substr(${t["siren"]},5,1)::int + substr(${t["siren"]},6,1)::int*2%10 + substr(${t["siren"]},6,1)::int*2/10 + substr(${t["siren"]},7,1)::int + substr(${t["siren"]},8,1)::int*2%10 + substr(${t["siren"]},8,1)::int*2/10 + substr(${t["siren"]},9,1)::int) % 10 = 0 ELSE false END`,
+      ),
       check("apporteurs_clients_commission_siren_actif", sql`${t["commissionsDuesCentimes"]} = 0 OR (${t["siren"]} IS NOT NULL AND ${t["sirenActifVerifieLe"]} IS NOT NULL)`),
     ],
   },

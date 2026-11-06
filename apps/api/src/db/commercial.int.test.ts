@@ -64,7 +64,7 @@ const inserer = (tenant: string, table: string, valeurs: Record<string, unknown>
 const creerOrg = (id: string) => inserer(id, "organisations", { id, console_client_id: id, raison_sociale: "Lemoine Rénovation" });
 // Pas de RETURNING * : console_app ne lit qu'une liste de colonnes de instances (migration 0007) ; seul l'identifiant revient.
 const creerInstance = (A: string) =>
-  ecrire(app, A, async (c) => (await c.query("INSERT INTO instances (id, tenant_id, organisation_id, code_automatisation, formule, environnement, etat) VALUES ($1, $2, $2, 'relance-devis', 'abonnement', 'test', 'pause') RETURNING id", [randomUUID(), A])).rows[0] as Record<string, unknown>, APPELANT);
+  ecrire(app, A, async (c) => (await c.query("INSERT INTO instances (tenant_id, organisation_id, code_automatisation, formule, environnement, etat) VALUES ($1, $1, 'relance-devis', 'abonnement', 'test', 'pause') RETURNING id", [A])).rows[0] as Record<string, unknown>, APPELANT);
 const SOURCES = Object.fromEntries(["formule", "frais_mise_en_place", "prix_recurrent_mensuel", "periode_facturation", "mode_avance", "maintenance_incluse", "suite_maintenance", "engagement"].map((v) => [`source_${v}`, "grille"]));
 // Valeurs fictives (jamais un prix réel) : 100, 200 et 300 centimes.
 const plan = (A: string, instance: unknown, extra: Record<string, unknown> = {}) =>
@@ -481,6 +481,6 @@ describe("plan commercial, avec le socle", { timeout: 60_000 }, () => {
     expect(ecarts).toEqual([]);
     const { rows } = await migration.query("SELECT relname FROM pg_class WHERE relkind = 'r' AND relnamespace = 'public'::regnamespace AND relname = ANY($1) ORDER BY 1", [["abonnements", "plans_commerciaux", "phases_plan", "echeances", "conditions_commerciales"]]);
     expect(rows).toHaveLength(5);
-    expect(EXCEPTIONS_UNICITE).toEqual([]);
+    expect(EXCEPTIONS_UNICITE).toEqual([{ table: "instances", index: "instances_id_unique", raison: "ADR 0111" }]);
   });
 });

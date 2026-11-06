@@ -1,0 +1,11 @@
+{
+  "name": "@axion-auto/observabilite",
+  "version": "0.0.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "exports": {
+    "./nettoyage": "./src/nettoyage.ts",
+    "./sentry": "./src/sentry.ts"
+  }
+}

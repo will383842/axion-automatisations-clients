@@ -43,14 +43,46 @@ const client = (tenantId = A, etablissements = [ETAB_A]): SessionDonnees => ({ t
 const equipe = (extra: Partial<SessionDonnees> = {}): SessionDonnees => ({ tenantId: A, role: "equipe", acteur: "e1", etablissements: [], ...extra });
 const code = async (p: Promise<unknown>) => ((await p.catch((e: unknown) => e)) as ErreurApi).code;
 
+// Motif des importations de pilote de base interdites dans les applications console et portail (A-170).
+const MOTIF_PILOTE_INTERDIT = /(?:from|import|require)\s*\(?\s*["'](?:pg|postgres|pg-[a-z-]+|(?:pg|postgres)\/[^"']*|drizzle-orm[^"']*|@neondatabase[^"']*)["']|\)\(\s*["'](?:pg|postgres)["']\s*\)|postgres(?:ql)?:\/\/|cli_[0-9a-f]{12}_app/;
+
 describe("service des données client", () => {
+  it("[A-170] le motif de pilote interdit reconnaît require, import dynamique, sous-chemins, postgres:// et drizzle", () => {
+    const interdits = [
+      'import pg from "pg";', "const pg = require('pg');", "const { Pool } = require(\"pg\");", 'const m = await import("pg");', "await import('postgres')",
+      'import { Pool } from "pg/lib/pool";', 'import x from "pg-pool";', 'import { drizzle } from "drizzle-orm/node-postgres";', 'import pg = require("pg");',
+      'const r = createRequire(import.meta.url)("pg");', 'const u = "postgresql://h/b";', 'import postgres from "postgres";', "import 'pg'", 'export * from "pg-native";',
+    ];
+    for (const ligne of interdits) expect(ligne, ligne).toMatch(MOTIF_PILOTE_INTERDIT);
+    for (const ligne of ['import { z } from "zod";', 'const pagination = 1;', 'import "./pg-style.css"; // gabarit']) expect(ligne, ligne).not.toMatch(MOTIF_PILOTE_INTERDIT);
+  });
+
+  it("[A-170] une connexion qui échoue n'est pas rafraîchie et est évincée au balayage suivant", async () => {
+    let t = T0.getTime();
+    const fermes: string[] = [];
+    let panne = false;
+    const ports: PortsDonnees = {
+      base: async (id) => ({ nomBase: `cli_${id.slice(0, 4)}`, etat: "active" }),
+      ouvrir: async (b) => ({ requete: async () => { if (panne) throw new Error("connexion morte"); return []; }, fermer: async () => void fermes.push(b) }),
+      accordValide: async () => false, vueRangee: () => undefined, maintenant: () => new Date(t),
+    };
+    const service = creerServiceDonnees(ports);
+    await service.executer(client(A), "compterPersonnes", {});
+    panne = true;
+    t += 400_000;
+    expect(await code(service.executer(client(A), "compterPersonnes", {}))).toBe("porte_fermee");
+    t += 200_000;
+    await service.balayer(300_000);
+    expect(fermes).toEqual(["cli_1111"]);
+  });
+
   it("[A-170] le portail et la console lisent la base client seulement par le service des données", async () => {
     const { service, ouvertures } = monde();
     expect((await service.executer(client(), "compterPersonnes", {}))[0]).toEqual({ total: 3 });
     expect(ouvertures).toEqual([{ base: "cli_1111", role: "lecture" }]);
     const racine = fileURLToPath(new URL("../../../../apps", import.meta.url));
     const fichiers = (d: string): string[] => readdirSync(d).flatMap((f) => (f === "node_modules" ? [] : statSync(join(d, f)).isDirectory() ? fichiers(join(d, f)) : [join(d, f)]));
-    const interdit = /from\s+["'](pg|postgres|drizzle-orm[^"']*|@neondatabase[^"']*)["']|require\(\s*["']pg["']|import\(\s*["'](pg|postgres)["']|postgres(ql)?:\/\/|cli_[0-9a-f]{12}_app/;
+    const interdit = MOTIF_PILOTE_INTERDIT;
     for (const app of ["console", "portail"]) {
       const dossier = fichiers(join(racine, app)).filter((f) => /\.(ts|tsx)$/.test(f) && !/\.test\./.test(f));
       expect(dossier.length, `aucun fichier lu pour ${app}`).toBeGreaterThan(0);

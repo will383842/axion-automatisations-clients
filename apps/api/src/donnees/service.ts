@@ -42,6 +42,7 @@ const SQL_VERSION_STRUCTURE = "SELECT coalesce(max(version), 0) AS v FROM public
 // Compatibilité N / N-1 (A-229) : une requête peut avoir plusieurs formes (`variantes`) ; la variante est choisie d'après la version de structure LUE dans la base du client (public.version_structure),
 // jamais d'après une valeur de la session ou de la requête. `depuis` : première version où la forme vaut ; la forme de base sert en dessous. Version illisible : la forme la plus ancienne.
 export function creerServiceDonnees(ports: PortsDonnees, liste: Readonly<Record<string, Requete>> = LISTE_BLANCHE) {
+  // dernierUsage ne bouge qu'à l'ouverture et à la fin d'une requête RÉUSSIE : une connexion morte n'est jamais rafraîchie et est évincée au balayage suivant.
   const pools = new Map<string, { connexion: Promise<Connexion>; dernierUsage: number; enCours: number }>();
 
   function pool(nomBase: string, role: RoleConnexion): Promise<Connexion> {
@@ -53,7 +54,6 @@ export function creerServiceDonnees(ports: PortsDonnees, liste: Readonly<Record<
       pools.set(cle, p);
       connexion.catch(() => { if (pools.get(cle) === p) pools.delete(cle); });
     }
-    p.dernierUsage = ports.maintenant().getTime();
     return p.connexion;
   }
 
@@ -90,6 +90,7 @@ export function creerServiceDonnees(ports: PortsDonnees, liste: Readonly<Record<
       const role: RoleConnexion = "lecture";
       const cle = `${base.nomBase}|${role}`;
       let compte: { enCours: number; dernierUsage: number } | undefined;
+      let reussi = false;
       try {
         const connexion = await pool(base.nomBase, role);
         compte = pools.get(cle);
@@ -105,13 +106,14 @@ export function creerServiceDonnees(ports: PortsDonnees, liste: Readonly<Record<
         // Le SQL, ses numéros $n et le filtre d'établissement (en $1, établissements de la SESSION) sont produits par le générateur seul (B-173).
         const g = genererSql(r, p.data, etablissements, forme);
         const lignes = await connexion.requete(g.texte, g.valeurs);
+        reussi = true;
         return lignes.map((l) => Object.fromEntries(g.colonnes.filter((c) => c in l).map((c) => [c, l[c]])));
       } catch (e) {
         // Aucun détail technique ni nom de base ne sort.
         throw e instanceof ErreurApi ? e : refus("porte_fermee", "Service indisponible.");
       } finally {
-        // Le pool est de nouveau « actif » à la fin de la requête : le délai d'inactivité repart de là.
-        if (compte) { compte.enCours -= 1; compte.dernierUsage = ports.maintenant().getTime(); }
+        // Le délai d'inactivité repart de la fin d'une requête réussie seulement.
+        if (compte) { compte.enCours -= 1; if (reussi) compte.dernierUsage = ports.maintenant().getTime(); }
       }
     },
     async balayer(inactiviteMs: number): Promise<void> {

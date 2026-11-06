@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { check, foreignKey, jsonb, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
+import { check, foreignKey, index, jsonb, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
 import { tableClient } from "./aides.ts";
 import { organisations } from "./clients.ts";
 
@@ -52,6 +52,8 @@ export const alertesC3 = tableClient(
       unique("alertes_c3_tenant_id_event_id_type_reference_unique").on(t["tenantId"] as never, t["eventId"] as never, t["type"] as never, t["reference"] as never),
       check("alertes_c3_type", sql`${t["type"]} IN ('exclusion_a_reporter_dans_le_hub', 'effacement_demande', 'ecart_propose', 'fait_hors_perimetre')`),
       check("alertes_c3_reference_bornee", sql`char_length(${t["reference"]}) BETWEEN 1 AND 200`),
+      // T2-52 : lecture des alertes non confirmées.
+      index("alertes_c3_non_confirmees_idx").on(t["tenantId"] as never, t["creeLe"] as never).where(sql`${t["confirmeeLe"]} IS NULL`),
     ],
   },
 );

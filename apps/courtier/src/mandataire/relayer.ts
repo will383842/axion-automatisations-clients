@@ -160,8 +160,9 @@ export class Masqueur {
   constructor(secrets: string[]) {
     this.#secrets = secrets.filter((s) => s.length > 0);
   }
+  // Même longueur que le secret : un littéral IMAP « {N} » ou une taille SMTP annoncés par le serveur restent exacts (sinon le client se désynchronise).
   #remplacer(t: string): string {
-    return this.#secrets.reduce((acc, s) => acc.split(s).join("********"), t);
+    return this.#secrets.reduce((acc, s) => acc.split(s).join("*".repeat(s.length)), t);
   }
   pousser(octets: Buffer): Buffer {
     const t = this.#remplacer(this.#carry + octets.toString("latin1"));

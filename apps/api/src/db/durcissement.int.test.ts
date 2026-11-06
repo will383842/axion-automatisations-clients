@@ -285,7 +285,7 @@ describe("migration 0019 : durcissement du lot 2, avec le socle", { timeout: 120
     const inserer = (auteur: string) => commeProprietaire(A, (c) => c.query("INSERT INTO executions (tenant_id, id, instance_id, auteur) VALUES ($1, gen_random_uuid(), $2, $3)", [A, id, auteur]));
     await expect(inserer("a".repeat(201))).rejects.toMatchObject({ code: "23514" });
     await inserer("a".repeat(200));
-    await expect(ecrire(app, A, (c) => c.query("INSERT INTO alertes (tenant_id, id, organisation_id, type, gravite, regle, assignee_a) VALUES ($1, gen_random_uuid(), $1, 'essai', 'info', 'essai', $2)", [A, "b".repeat(201)]), APPELANT)).rejects.toMatchObject({ code: "23514", constraint: "alertes_assignee_borne" });
+    await expect(ecrire(app, A, (c) => c.query("INSERT INTO alertes (tenant_id, id, organisation_id, type, gravite, regle, assignee_a) VALUES ($1, gen_random_uuid(), $1, 'essai', 'information', 'essai', $2)", [A, "b".repeat(201)]), APPELANT)).rejects.toMatchObject({ code: "23514", constraint: "alertes_assignee_borne" });
   });
 
   // ---- M13

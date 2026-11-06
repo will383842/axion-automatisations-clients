@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, writeSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -194,6 +194,9 @@ describe("migrer, avec le socle", () => {
       const complet = JSON.stringify(journal);
       journal.entries = journal.entries.filter((e) => e.tag < "0019");
       writeFileSync(join(copie, "meta/_journal.json"), JSON.stringify(journal));
+      // migrer() refuse un fichier SQL absent du journal : pendant la première étape, 0019 et son instantané sont retirés de la copie.
+      rmSync(join(copie, "0019_durcissement_lot_2.sql"));
+      rmSync(join(copie, "meta/0019_snapshot.json"));
       let c: pg.Client | undefined;
       try {
         await admin.query(`CREATE DATABASE ${base} OWNER console_proprietaire`);
@@ -206,6 +209,8 @@ describe("migrer, avec le socle", () => {
         await migrer({ url: urlDe_("console_migration", base), dossier: copie });
         await poser(c);
         writeFileSync(join(copie, "meta/_journal.json"), complet);
+        cpSync(join(dossierComplet, "0019_durcissement_lot_2.sql"), join(copie, "0019_durcissement_lot_2.sql"));
+        cpSync(join(dossierComplet, "meta/0019_snapshot.json"), join(copie, "meta/0019_snapshot.json"));
         await expect(migrer({ url: urlDe_("console_migration", base), dossier: copie })).rejects.toThrow();
         await verifier(c);
       } finally {

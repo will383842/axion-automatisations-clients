@@ -63,6 +63,12 @@ export const TEXTE_PERMIS: Readonly<Record<string, number>> = Object.freeze({
   "aujourdhui_ignores.type_fait": 65,
   "aujourdhui_ignores.reference": 129,
   "aujourdhui_ignores.membre": 200,
+  // T3-05b (migration 0021) : conformité, références de forme fermée (aucun texte libre).
+  "demandes_droits.reference": 64,
+  "demandes_droits.reference_reponse": 129,
+  "incidents_violations.reference": 64,
+  "incidents_violations.reference_dossier": 129,
+  "aipd.reference_document": 256,
 });
 // Dettes écrites (ADR 0055) : soldée par la migration 0019 (T2-52), qui borne executions.auteur, executions.termine_par et alertes.assignee_a. Liste fermée et vide : elle ne grandit pas.
 export const TEXTE_SANS_LIMITE_DETTE: readonly string[] = Object.freeze([]);
@@ -121,11 +127,11 @@ describe("garde des colonnes : aucun texte libre (C-034)", () => {
     expect(textesSansLimite([neuve])).toEqual(["demandes.note : hors de la liste fermée"]);
   });
 
-  it("[C-034] la liste des textes permis est fermée : douze colonnes bornées et aucune dette, sur demandes, executions, alertes et aujourdhui_ignores", () => {
-    expect(Object.keys(TEXTE_PERMIS)).toHaveLength(12);
+  it("[C-034] la liste des textes permis est fermée : dix-sept colonnes bornées et aucune dette, sur demandes, executions, alertes, aujourdhui_ignores et les trois tables de conformité", () => {
+    expect(Object.keys(TEXTE_PERMIS)).toHaveLength(17);
     expect(TEXTE_SANS_LIMITE_DETTE).toHaveLength(0);
-    expect(Object.keys(TEXTE_PERMIS).every((k) => ["demandes", "executions", "alertes", "aujourdhui_ignores"].includes(k.split(".")[0] ?? ""))).toBe(true);
-    expect(Object.values(TEXTE_PERMIS).every((n) => n > 0 && n <= 255)).toBe(true);
+    expect(Object.keys(TEXTE_PERMIS).every((k) => ["demandes", "executions", "alertes", "aujourdhui_ignores", "demandes_droits", "incidents_violations", "aipd"].includes(k.split(".")[0] ?? ""))).toBe(true);
+    expect(Object.values(TEXTE_PERMIS).every((n) => n > 0 && n <= 256)).toBe(true);
   });
 });
 
@@ -163,5 +169,49 @@ describe("tables du lot 3 : équipe, vues, « Aujourd'hui » (T3-05a)", () => {
     expect(code).not.toMatch(/\b(DROP|TRUNCATE|RENAME)\b|\bDELETE\s+FROM\b/i);
     expect(code).not.toMatch(/ALTER\s+(TABLE\s+\S+\s+ALTER\s+COLUMN|COLUMN)[^;]*\bTYPE\b/i);
     expect(code).not.toMatch(/GRANT[^;]*\bDELETE\b|GRANT[^;]*\bTRUNCATE\b/i);
+  });
+});
+
+// Migration 0021 (T3-05b, ADR 0115) : conformité, sous-traitants, signatures, historique des grilles.
+describe("tables du lot 3 : conformité (T3-05b)", () => {
+  const dossier = new URL("../../drizzle/", import.meta.url);
+  const nomMigration = () => readdirSync(dossier).find((f) => f.startsWith("0021_") && f.endsWith(".sql")) ?? "0021_absente.sql";
+  const CLIENT_5B = ["registre_client", "demandes_droits", "incidents_violations", "aipd"];
+  const COMMUNES_5B = ["sous_traitants_ulterieurs", "signatures_fiches", "historique_grilles_prix"];
+
+  it("[A-119] TABLES_CLIENT contient les quatre tables de conformité par client et TABLES_COMMUNES les six tables communes du lot 3", () => {
+    expect(tablesDuSchema().length).toBeGreaterThan(10);
+    for (const nom of CLIENT_5B) expect(TABLES_CLIENT.map((t) => t.nom), nom).toContain(nom);
+    for (const nom of [...COMMUNES_5B, "membres_equipe", "absences", "vues_enregistrees"]) expect(TABLES_COMMUNES, nom).toContain(`public.${nom}`);
+    for (const nom of COMMUNES_5B) expect(getTableConfig(tableNommee(nom)).columns.map((c) => c.name), nom).not.toContain("tenant_id");
+  });
+
+  it("[C-034] aucune colonne de texte libre dans demandes_droits, incidents_violations, aipd", () => {
+    expect(textesSansLimite(["demandes_droits", "incidents_violations", "aipd"].map(tableNommee))).toEqual([]);
+  });
+
+  it("[LOT3-tables] garde-migrations : migration additive seulement", () => {
+    const nom = nomMigration();
+    expect(nom).toBe("0021_tables_lot_3_conformite.sql");
+    const texte = readFileSync(new URL(nom, dossier), "utf8");
+    expect(analyserSql(nom, texte)).toEqual([]);
+    const code = texte.replace(/--[^\n]*/g, "");
+    expect(code).not.toMatch(/\b(DROP|TRUNCATE|RENAME)\b|\bDELETE\s+FROM\b/i);
+    expect(code).not.toMatch(/ALTER\s+(TABLE\s+\S+\s+ALTER\s+COLUMN|COLUMN)[^;]*\bTYPE\b/i);
+    expect(code).not.toMatch(/GRANT[^;]*\bDELETE\b|GRANT[^;]*\bTRUNCATE\b/i);
+    expect(code).not.toMatch(/\bCREATE\s+(OR\s+REPLACE\s+)?FUNCTION\b/i);
+  });
+
+  it("[LOT3-tables] les tables communes de conformité n'accordent aucun UPDATE ni droit à console_app, et chaque table a RLS activée et forcée", () => {
+    const texte = readFileSync(new URL(nomMigration(), dossier), "utf8");
+    for (const nom of [...CLIENT_5B, ...COMMUNES_5B]) {
+      expect(texte, nom).toContain(`ALTER TABLE "public"."${nom}" ENABLE ROW LEVEL SECURITY`);
+      expect(texte, nom).toContain(`ALTER TABLE "public"."${nom}" FORCE ROW LEVEL SECURITY`);
+      expect(texte, nom).toContain(`REVOKE ALL ON TABLE "public"."${nom}" FROM PUBLIC`);
+    }
+    for (const nom of COMMUNES_5B) {
+      expect(texte, nom).not.toMatch(new RegExp(`GRANT[^;]*ON TABLE "public"\\."${nom}" TO console_app`));
+      expect(texte, nom).not.toMatch(new RegExp(`GRANT UPDATE[^;]*ON TABLE "public"\\."${nom}"`));
+    }
   });
 });

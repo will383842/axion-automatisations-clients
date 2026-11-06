@@ -4,10 +4,10 @@ import { Cellule } from "../files/cellule.ts";
 import { declencher, reprendreDeclenchements, type Declenchement } from "../files/planificateur.ts";
 import { traiter, type Dependances, type Travail } from "../files/travailleur.ts";
 import { CacheReglages } from "./cache.ts";
-import { ClientConsole } from "./client.ts";
+import { ClientConsole, ErreurRefusConsole } from "./client.ts";
 import { GardeEtatVoulu } from "./etat-voulu.ts";
 import { appliquerPoussee, canalPoussees } from "./poussees.ts";
-import { AttenteEnPause, PauseSure, UNE_JOURNEE_MS, type Alertes } from "./pause-sure.ts";
+import { AttenteEnPause, PauseSure, StockageMemoire, StockageValkey, UNE_JOURNEE_MS, type Alertes } from "./pause-sure.ts";
 
 const INSTANCE = "inst-1";
 class Horloge {
@@ -169,7 +169,7 @@ describe("déclenchements gardés pendant une pause", () => {
     expect(sorties).toEqual(["garde", "garde", "garde", "refuse", "refuse"]);
     expect(attente.refuses).toBe(2);
     expect(alertes.codes).toContain("file_pause_pleine");
-    expect(attente.taille(INSTANCE)).toBe(3); // les 3 gardés restent
+    expect(await attente.taille(INSTANCE)).toBe(3); // les 3 gardés restent
     expect(ajoutes).toEqual([]);
   });
 
@@ -203,5 +203,124 @@ describe("client signé de la console", () => {
     const faux = (async () => new Response(JSON.stringify({ etat: "actif" }), { status: 200 })) as unknown as typeof fetch;
     const client = new ClientConsole({ url: "http://console.test", cle: "c4:auto-run-1:1", secret: () => "s", jeton: () => "j", fetch: faux, maintenant: () => 1_700_000_000, dormir: async () => undefined });
     await expect(client.lireEtatVoulu(INSTANCE)).rejects.toThrow();
+  });
+});
+
+// Audit tour 1 de la PR #199 : E1 à E5 (latents jusqu'au câblage par T4-18).
+describe("audit E1 à E5", () => {
+  it("[A-341] une instance que la console ne reconnaît plus (404) ne démarre plus, même si les autres instances de la cellule répondent", async () => {
+    const h = new Horloge();
+    const alertes = new AlertesNotees();
+    const pause = new PauseSure({ alertes, maintenantMs: h.maintenant });
+    const garde = new GardeEtatVoulu({
+      console: { lireEtatVoulu: async (id: string) => (id === "autre" ? { ...etat(), instanceId: "autre" } : Promise.reject(new ErreurRefusConsole(404))) },
+      pause,
+      maintenantMs: h.maintenant,
+    });
+    await garde.lire("autre"); // une autre instance répond : la cellule vit
+    await garde.lire(INSTANCE).catch(() => undefined);
+    garde.appliquer(INSTANCE, { etat: "actif" }); // dernier état connu : actif
+    expect((await garde.lire(INSTANCE)).etat).toBe("pause");
+    h.ms = UNE_JOURNEE_MS + 60_000; // la réponse d'une autre instance ne remet pas à zéro le silence de celle-ci
+    await garde.lire("autre");
+    expect((await garde.lire(INSTANCE)).etat).toBe("pause");
+  });
+
+  it("[A-342] le silence se compte par instance : l'instance muette passe en pause sûre même si une autre répond", async () => {
+    const h = new Horloge();
+    const alertes = new AlertesNotees();
+    let muet = false;
+    const pause = new PauseSure({ alertes, maintenantMs: h.maintenant });
+    const garde = new GardeEtatVoulu({ console: { lireEtatVoulu: async (id: string) => (id === INSTANCE && muet ? Promise.reject(new Error("muette")) : { ...etat(), instanceId: id }) }, pause, maintenantMs: h.maintenant });
+    await garde.lire(INSTANCE);
+    muet = true;
+    h.ms = UNE_JOURNEE_MS + 60_000;
+    await garde.lire("autre"); // répond
+    expect((await garde.lire(INSTANCE)).etat).toBe("pause");
+  });
+
+  it("[B-437] redémarrage de l'exécuteur pendant une pause : les déclenchements gardés sont toujours là et traités dans l'ordre à la reprise", async () => {
+    const stockage = new StockageMemoire<Declenchement>();
+    const { garde: g1, alertes } = monter(async () => etat("pause"));
+    const avant = new AttenteEnPause<Declenchement>(100, alertes, stockage);
+    for (let i = 1; i <= 3; i++) await declencher({ garde: (id) => g1.lire(id), attente: avant, ajouter: async () => undefined }, { instanceId: INSTANCE, jobId: `j${i}` });
+    // « redémarrage » : nouvelle file, même stockage durable
+    const apres = new AttenteEnPause<Declenchement>(100, alertes, stockage);
+    const { garde: g2 } = monter(async () => etat("actif"));
+    const remis: string[] = [];
+    await reprendreDeclenchements({ garde: (id) => g2.lire(id), attente: apres, ajouter: async (d) => void remis.push(d.jobId) }, INSTANCE);
+    expect(remis).toEqual(["j1", "j2", "j3"]);
+    expect(await apres.taille(INSTANCE)).toBe(0);
+  });
+
+  it("[B-437] le stockage Valkey garde l'ordre et retire un élément par identité", async () => {
+    const listes = new Map<string, string[]>();
+    const redis = {
+      rpush: async (k: string, v: string) => (listes.set(k, [...(listes.get(k) ?? []), v]), listes.get(k)!.length),
+      lrange: async (k: string) => listes.get(k) ?? [],
+      lrem: async (k: string, _n: number, v: string) => {
+        const l = listes.get(k) ?? [];
+        const i = l.indexOf(v);
+        if (i >= 0) l.splice(i, 1);
+        return i >= 0 ? 1 : 0;
+      },
+    };
+    const st = new StockageValkey<Declenchement>(redis, "attente");
+    await st.ajouter(INSTANCE, { instanceId: INSTANCE, jobId: "a" });
+    await st.ajouter(INSTANCE, { instanceId: INSTANCE, jobId: "b" });
+    await st.ajouter(INSTANCE, { instanceId: INSTANCE, jobId: "c" });
+    await st.retirer(INSTANCE, { instanceId: INSTANCE, jobId: "b" });
+    expect((await st.lire(INSTANCE)).map((d) => d.jobId)).toEqual(["a", "c"]);
+  });
+
+  it("[B-437] deux déclenchements concurrents à la reprise : chaque déclenchement gardé est remis exactement une fois, dans l'ordre", async () => {
+    let voulu: "actif" | "pause" = "pause";
+    const { garde, alertes } = monter(async () => etat(voulu));
+    const attente = new AttenteEnPause<Declenchement>(100, alertes);
+    const remis: string[] = [];
+    const ajouter = async (d: Declenchement) => {
+      await new Promise((r) => setTimeout(r, 5));
+      remis.push(d.jobId);
+    };
+    const deps = { garde: (id: string) => garde.lire(id), attente, ajouter };
+    for (const j of ["g1", "g2"]) await declencher(deps, { instanceId: INSTANCE, jobId: j });
+    voulu = "actif";
+    await Promise.all([declencher(deps, { instanceId: INSTANCE, jobId: "n1" }), declencher(deps, { instanceId: INSTANCE, jobId: "n2" })]);
+    expect(remis).toEqual(["g1", "g2", "n1", "n2"]);
+    expect(await attente.taille(INSTANCE)).toBe(0);
+  });
+
+  it("[A-341] état voulu arretEnvois=true lu avant l'exécution : aucun envoi, même avec des réglages en cache", async () => {
+    const { garde } = monter(async () => etat("actif", true));
+    const demarres: string[] = [];
+    const r = await traiter(travail, dependances(garde, demarres));
+    expect(r.statut).toBe("remis");
+    expect(demarres).toEqual([]);
+  });
+
+  it("[A-340] une poussée reçue pendant un chargement des réglages : la valeur chargée avant la poussée n'est pas gardée", async () => {
+    const h = new Horloge();
+    const cache = new CacheReglages<string>(h.maintenant);
+    let liberer!: () => void;
+    const attendre = new Promise<void>((r) => (liberer = r));
+    const lente = cache.lire(INSTANCE, async () => {
+      await attendre;
+      return { valeur: "ancienne", dureeSecondes: 86_400 };
+    });
+    cache.vider(INSTANCE); // révocation poussée pendant le chargement
+    liberer();
+    expect(await lente).toBe("ancienne"); // celui qui attendait la reçoit, mais...
+    expect(await cache.lire(INSTANCE, async () => ({ valeur: "neuve", dureeSecondes: 60 }))).toBe("neuve"); // ...elle n'est pas gardée
+  });
+
+  it("[A-340] vider tout le cache pendant un chargement vaut aussi", async () => {
+    const cache = new CacheReglages<string>(() => 0);
+    let liberer!: () => void;
+    const attendre = new Promise<void>((r) => (liberer = r));
+    const lente = cache.lire(INSTANCE, async () => (await attendre, { valeur: "ancienne", dureeSecondes: 60 }));
+    cache.vider();
+    liberer();
+    await lente;
+    expect(await cache.lire(INSTANCE, async () => ({ valeur: "neuve", dureeSecondes: 60 }))).toBe("neuve");
   });
 });

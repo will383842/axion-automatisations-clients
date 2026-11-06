@@ -67,12 +67,14 @@ describe("exigerDroit", () => {
       expect(r.json().erreur.code).toBe("introuvable");
       expect(traces[0]).toMatchObject({ motif: "hors_portee" });
     }
-    const { s } = appli({ membre: limite("dirigeant", []) });
-    expect((await s.inject({ method: "GET", url: "/liste" })).statusCode).toBe(200);
+    for (const membre of [limite("dirigeant", []), limite("second_administrateur", ["*"])]) {
+      const { s } = appli({ membre });
+      expect((await s.inject({ method: "GET", url: "/liste" })).statusCode).toBe(200);
+    }
   });
 
   it("[C-617] les droits suivent l'absence à chaque requête, sans cache", async () => {
-    const etat: { membre?: MembreDroits | undefined; absence?: boolean } = { membre: limite(), absence: true };
+    const etat: { membre?: MembreDroits | undefined; absence?: boolean } = { membre: limite("second_administrateur", ["*"]), absence: true };
     const { s } = appli(etat);
     expect((await s.inject({ method: "POST", url: "/violation" })).statusCode).toBe(200);
     etat.absence = false;
@@ -80,7 +82,7 @@ describe("exigerDroit", () => {
     etat.absence = true;
     etat.membre = limite("dirigeant");
     expect((await s.inject({ method: "POST", url: "/facture" })).statusCode).toBe(200);
-    etat.membre = limite("second_administrateur");
+    etat.membre = limite("second_administrateur", ["*"]);
     expect((await s.inject({ method: "POST", url: "/facture" })).statusCode).toBe(403);
   });
 

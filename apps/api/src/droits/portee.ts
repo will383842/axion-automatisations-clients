@@ -4,6 +4,12 @@ import { ErreurApi } from "../plugins/erreurs.js";
 export interface Portee { clients: string[]; automatisations: string[] }
 export interface MembrePortee { role: string; portee: Portee }
 
+// Marqueur explicite « tous les clients » : seule une portée qui le porte ouvre une route globale à un second administrateur. Une liste vide ne le porte pas.
+export const TOUS_LES_CLIENTS = "*";
+export function couvreTousLesClients(m: MembrePortee): boolean {
+  return m.role === "dirigeant" || (m.role === "second_administrateur" && m.portee.clients.includes(TOUS_LES_CLIENTS));
+}
+
 export function dansPortee(m: MembrePortee, clientId: unknown): boolean {
   if (m.role === "dirigeant") return true;
   return m.role === "second_administrateur" && typeof clientId === "string" && m.portee.clients.includes(clientId);

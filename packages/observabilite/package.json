@@ -7,8 +7,5 @@
   "exports": {
     "./nettoyage": "./src/nettoyage.ts",
     "./sentry": "./src/sentry.ts"
-  },
-  "scripts": {
-    "typecheck": "tsc --noEmit --strict --noUncheckedIndexedAccess --exactOptionalPropertyTypes --verbatimModuleSyntax --isolatedModules --skipLibCheck --target ES2023 --lib ES2023 --module NodeNext --moduleResolution NodeNext --types node --allowImportingTsExtensions src/nettoyage.ts src/sentry.ts"
   }
 }

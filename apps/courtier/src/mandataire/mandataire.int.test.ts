@@ -9,6 +9,7 @@ import { ouvrirSessionImap } from "../../../../packages/connecteur-imap/src/imap
 import { envoyerSmtp } from "../../../../packages/connecteur-imap/src/smtp.ts";
 import { verifierConfiguration } from "../../../../packages/connecteur-imap/src/verification.ts";
 import { creerJeton } from "../../../../packages/connecteurs-commun/src/jeton.ts";
+import { journalEchecs } from "../../../api/src/provisionnement/journal-echecs.ts";
 import { creerRegistreJetons } from "../jetons.ts";
 import type { PortsMandataire } from "./authentifier.ts";
 import { ecouterImap } from "./imap.ts";
@@ -17,6 +18,8 @@ import { ecouterSmtp } from "./smtp.ts";
 
 // Tests contre le GreenMail du socle lancé par ops/socle/lancer.sh (job socle-integration), comme packages/connecteur-imap.
 // Le certificat de GreenMail est un certificat de test auto-signé : la vérification n'est coupée QUE dans ces essais, pour le seul lien mandataire → GreenMail.
+// Les échecs sont écrits par writeSync(2, …) : le rapport JSON de la CI n'est pas publié (règle des routines).
+journalEchecs(import.meta.url);
 const docker = (...args: string[]) => execFileSync("docker", args, { encoding: "utf8" }).trim();
 const adresse = () => {
   const id = docker("ps", "-q", "--filter", "label=com.docker.compose.project=socle", "--filter", "label=com.docker.compose.service=greenmail");

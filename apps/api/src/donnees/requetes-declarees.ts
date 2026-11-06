@@ -16,6 +16,9 @@ export interface InstanceInstallee {
   donnees: unknown; // champ `donnees` du manifeste de CETTE version installée
 }
 export interface SessionPortail { tenantId: string; role: "client" | "equipe"; acteur: string; etablissements: string[] }
+// CONTRAT DE CONNEXION : `ouvrir` DOIT rendre une session DÉDIÉE (un pg.PoolClient pris au pool, jamais le pg.Pool lui-même) et `fermer` la rend. executerLecture envoie BEGIN READ ONLY,
+// SET LOCAL statement_timeout, le SELECT et COMMIT en appels séparés : sur un Pool.query ils partiraient sur des connexions différentes, le SELECT sortirait de la transaction en lecture seule
+// et sans délai. Une session ne sert jamais deux clients. Preuve due : dette T2-49-branchement-lecture-declaree (T2-55), essai d'intégration à deux vraies bases.
 export interface PortsDeclarees extends Pick<PortsDonnees, "base" | "ouvrir" | "maintenant"> {
   // Cherche l'instance SOUS ce client seulement (RLS) ; absente ou d'un autre client : undefined.
   instance(tenantId: string, instanceId: string): Promise<InstanceInstallee | undefined>;

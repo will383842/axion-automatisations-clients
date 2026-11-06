@@ -52,17 +52,12 @@ describe("portées d'une instance (C-017)", () => {
     expect(appels).toEqual([]);
   });
 
-  it("[C-017] attribuerCellule met à jour sous le client de l'instance, avec l'acteur, et dit si une ligne a changé", async () => {
-    const { pool, appels } = fauxPool(() => ({ rowCount: 1 }));
-    await expect(attribuerCellule(pool, { tenantId: TENANT, instanceId: INSTANCE, cellule: "cellule-un" }, APPELANT)).resolves.toBe(true);
-    const sqls = appels.map((a) => a.sql);
-    expect(sqls[0]).toBe("BEGIN");
-    expect(appels.find((a) => /app\.tenant_id/.test(a.sql))?.valeurs).toEqual([TENANT]);
-    expect(appels.find((a) => /app\.acteur/.test(a.sql))?.valeurs).toEqual(["agent-essai", "192.0.2.17"]);
-    const [maj] = metier(appels);
-    expect(maj?.sql).toMatch(/UPDATE instances SET cellule_code = \$3 WHERE tenant_id = \$1 AND id = \$2/);
-    expect(maj?.valeurs).toEqual([TENANT, INSTANCE, "cellule-un"]);
-    await expect(attribuerCellule(fauxPool(() => ({ rowCount: 0 })).pool, { tenantId: TENANT, instanceId: INSTANCE, cellule: null }, APPELANT)).resolves.toBe(false);
+  it("[C-017] attribuerCellule rend vrai si la fonction réussit, faux sur P0002 (même erreur, cellule ou instance inconnue), et relance toute autre erreur", async () => {
+    const reussite = fauxPool(() => ({ rows: [], rowCount: 1 }));
+    await expect(attribuerCellule(reussite.pool, { tenantId: TENANT, instanceId: INSTANCE, cellule: "cellule-un" }, APPELANT)).resolves.toBe(true);
+    const refus = (code: string) => fauxPool(() => { throw Object.assign(new Error("attribution refusée"), { code }); }).pool;
+    await expect(attribuerCellule(refus("P0002"), { tenantId: TENANT, instanceId: INSTANCE, cellule: null }, APPELANT)).resolves.toBe(false);
+    await expect(attribuerCellule(refus("42501"), { tenantId: TENANT, instanceId: INSTANCE, cellule: null }, APPELANT)).rejects.toMatchObject({ code: "42501" });
   });
 
   it("[C-017] attribuerCellule refuse une cellule mal formée avant toute requête", async () => {
@@ -71,5 +66,19 @@ describe("portées d'une instance (C-017)", () => {
       await expect(attribuerCellule(pool, { tenantId: TENANT, instanceId: INSTANCE, cellule }, APPELANT), cellule).rejects.toThrow();
     }
     expect(appels).toEqual([]);
+  });
+});
+
+describe("attribution de cellule par la fonction de l'équipe (migration 0019)", () => {
+  it("[C-017] attribuerCellule appelle attribuer_cellule par le pool de l'équipe, jamais un UPDATE direct", async () => {
+    const { pool, appels } = fauxPool(() => ({ rows: [], rowCount: 1 }));
+    await attribuerCellule(pool, { tenantId: TENANT, instanceId: INSTANCE, cellule: "cellule-un" }, APPELANT);
+    const [appel] = metier(appels);
+    expect(appel?.sql).toMatch(/SELECT public\.attribuer_cellule\(\$1, \$2\)/);
+    expect(appel?.sql).not.toMatch(/UPDATE/i);
+    expect(appel?.valeurs).toEqual([INSTANCE, "cellule-un"]);
+    expect(appels[0]?.sql).toBe("BEGIN");
+    expect(appels.find((a) => /app\.tenant_id/.test(a.sql))?.valeurs).toEqual([TENANT]);
+    expect(appels.find((a) => /app\.acteur/.test(a.sql))?.valeurs).toContain("agent-essai");
   });
 });

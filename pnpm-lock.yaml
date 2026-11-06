@@ -333,6 +333,8 @@ importers:
         specifier: 10.2.1
         version: 10.2.1
 
+  packages/observabilite: {}
+
   packages/reglages-heritage: {}
 
   packages/sdk-module:

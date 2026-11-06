@@ -50,7 +50,7 @@ describe("C5 · unicité et clés étrangères par client", () => {
   });
 
   it("[A-163] @isolation une exception hors de la liste fermée est refusée", async () => {
-    expect(EXCEPTIONS_UNICITE).toEqual([]);
+    expect(EXCEPTIONS_UNICITE).toEqual([{ table: "instances", index: "instances_id_unique", raison: "ADR 0111" }]);
     expect(Object.isFrozen(EXCEPTIONS_UNICITE)).toBe(true);
     const tentative = { ...OPTIONS, exceptionsUnicite: [{ table: "comptes", index: "comptes_courriel_key", raison: "essai" }] };
     expect(await regles({ tables: ["comptes"], uniques: [unique({})] }, tentative)).toEqual([{ regle: "unicite_sans_tenant", objet: "comptes.comptes_courriel_key" }]);

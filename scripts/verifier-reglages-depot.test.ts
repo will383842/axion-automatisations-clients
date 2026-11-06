@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 const script = fileURLToPath(new URL("../ops/verifier-reglages-depot.sh", import.meta.url));
 
 // Faux « gh » : l'appel à /installation échoue (401 réel), le reste répond comme un dépôt bien réglé.
-function lancer(installation: "echec" | "read" | "write", reglages: { approbation?: string; dependabot?: string; fusionAuto?: string; sansGardeFusion?: boolean; reviseurs?: string; brancheProduction?: string; brancheRecette?: string; secretsDepot?: string; workflows?: string; env?: Record<string, string> } = {}) {
+function lancer(installation: "echec" | "read" | "write", reglages: { approbation?: string; dependabot?: string; fusionAuto?: string; sansGardeFusion?: boolean; sansControlesLot1b?: boolean; reviseurs?: string; brancheProduction?: string; brancheRecette?: string; secretsDepot?: string; workflows?: string; env?: Record<string, string> } = {}) {
   const dossier = mkdtempSync(join(tmpdir(), "faux-gh-"));
   const gh = join(dossier, "gh");
   writeFileSync(
@@ -16,7 +16,7 @@ function lancer(installation: "echec" | "read" | "write", reglages: { approbatio
     `#!/usr/bin/env bash
 case "$*" in
   */installation*) ${installation === "echec" ? "exit 1" : `echo ${installation}`} ;;
-  *required_status_checks*) printf '%s\\n' "Aucun secret dans le dépôt (Gitleaks)" types lint tests garde-workflows compter-tests licences couverture-req ${reglages.sansGardeFusion ? "garde-noms" : "garde-fusion"} garde-couleurs harnais contrats-pg visuel-design ;;
+  *required_status_checks*) printf '%s\\n' "Aucun secret dans le dépôt (Gitleaks)" types lint tests garde-workflows compter-tests licences couverture-req ${reglages.sansGardeFusion ? "garde-noms" : "garde-fusion"} garde-couleurs harnais contrats-pg visuel-design ${reglages.sansControlesLot1b ? "" : "socle-integration garde-briques garde-migrations garde-donnees squelettes-web"} ;;
   *environments/production/deployment-branch-policies*) echo ${reglages.brancheProduction ?? "main"} ;;
   *environments/recette/deployment-branch-policies*) echo ${reglages.brancheRecette ?? "main"} ;;
   *environments/production*) echo ${reglages.reviseurs ?? "1"} ;;
@@ -73,6 +73,21 @@ describe("ops/verifier-reglages-depot.sh", () => {
     expect(bon.stdout).toMatch(/OK\s+main exige le contrôle « garde-fusion »/);
     expect(bon.stdout).toMatch(/OK\s+fusion automatique désactivée/);
     expect(bon.stdout).not.toMatch(/garde-noms/);
+  });
+  it("[C-389] le script refuse un dépôt dont main n'exige pas socle-integration, garde-briques, garde-migrations, garde-donnees, squelettes-web et compter-tests", () => {
+    const r = lancer("read", { sansControlesLot1b: true });
+    expect(r.status).not.toBe(0);
+    for (const nom of ["socle-integration", "garde-briques", "garde-migrations", "garde-donnees", "squelettes-web"]) {
+      expect(r.stdout, nom).toMatch(new RegExp(`À CORRIGER.*main exige le contrôle « ${nom} »`));
+    }
+    expect(r.stdout).toMatch(/OK\s+main exige le contrôle « compter-tests »/);
+    expect(r.stdout).toMatch(/OK\s+main exige le contrôle « tests »/);
+  });
+  it("[C-389] le script accepte un dépôt simulé qui a tout", () => {
+    const r = lancer("read");
+    expect(r.stdout).not.toContain("À CORRIGER");
+    expect(r.stdout).toMatch(/OK\s+main exige le contrôle « squelettes-web »/);
+    expect(r.status).toBe(0);
   });
   it("[C-529] verifier-reglages-depot.sh refuse un workflow qui demande statuses: write ou checks: write", () => {
     const dossier = mkdtempSync(join(tmpdir(), "faux-workflows-"));

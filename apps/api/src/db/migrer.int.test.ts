@@ -1,11 +1,11 @@
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { migrer, VERROU_MIGRATION } from "./migrer.js";
 
 // Tests contre le socle lancé par ops/socle/lancer.sh (job socle-integration), même méthode que roles.int.test.ts.
@@ -38,6 +38,11 @@ function dossierEssai(when = 1700000000000): string {
   );
   return dossier;
 }
+
+// Le rapport de la CI est un JSON hors du journal : un essai en échec est écrit par writeSync(2, …).
+afterEach((contexte) => {
+  if (contexte.task.result?.state === "fail") writeSync(2, `ECHEC ${contexte.task.name} : ${String(contexte.task.result.errors?.[0]?.message ?? "").slice(0, 400)}\n`);
+});
 
 describe("migrer, avec le socle", () => {
   it("[A-189] migrer applique une migration d'essai avec console_migration et refuse de tourner avec console_app", async () => {
@@ -171,5 +176,110 @@ describe("migrer, avec le socle", () => {
       await lecture.query("DROP TABLE IF EXISTS public.essai_milieu_x_a189, public.essai_milieu_a_a189, public.essai_milieu_b_a189; DROP SCHEMA IF EXISTS essai_milieu_a189 CASCADE").catch(() => undefined);
       await lecture.end();
     }
+  });
+
+  // Échec fermé de 0019 (T2-52a) : base jetable migrée jusqu'à 0018, donnée fautive posée, puis 0019 doit échouer sans rien modifier.
+  describe("échec fermé de la migration 0019", { timeout: 180_000 }, () => {
+    const dossierComplet = fileURLToPath(new URL("../../drizzle", import.meta.url));
+    const urlDe_ = (role: string, base: string) => `postgres://${role}:${motDePasseDe(role)}@${DIRECT()}/${base}`;
+    // Base jetable : créée et peuplée par le superutilisateur (seul à pouvoir créer une base et à écrire hors RLS), avec la même mise en place que
+    // ops/socle/postgres/init/03-console.sql ; migrée jusqu'à 0018 par console_migration ; la donnée fautive est posée hors RLS ; puis 0019 doit échouer.
+    async function avecBaseJetable(attendu: { code: string; constraint: string }, poser: (c: pg.Client) => Promise<void>, verifier: (c: pg.Client) => Promise<void>): Promise<void> {
+      const base = `essai_0019_${Math.random().toString(36).slice(2, 10)}`;
+      const admin = new pg.Client({ connectionString: urlDe_("postgres", "console") });
+      await admin.connect();
+      const copie = mkdtempSync(join(tmpdir(), "migrer-0019-"));
+      cpSync(dossierComplet, copie, { recursive: true });
+      const journal = JSON.parse(readFileSync(join(copie, "meta/_journal.json"), "utf8")) as { entries: { tag: string }[] };
+      // Les migrations postérieures à 0019 (0020 de T3-05a, etc.) sont hors de cet essai : retirées de la copie, journal compris.
+      const apres = (nom: string) => /^\d{4}_/.test(nom) && nom.slice(0, 4) > "0019";
+      journal.entries = journal.entries.filter((e) => !apres(e.tag));
+      const complet = JSON.stringify(journal);
+      journal.entries = journal.entries.filter((e) => e.tag < "0019");
+      for (const f of readdirSync(copie).filter(apres)) rmSync(join(copie, f));
+      for (const f of readdirSync(join(copie, "meta")).filter(apres)) rmSync(join(copie, "meta", f));
+      writeFileSync(join(copie, "meta/_journal.json"), JSON.stringify(journal));
+      // migrer() refuse un fichier SQL absent du journal : pendant la première étape, 0019 et son instantané sont retirés de la copie.
+      rmSync(join(copie, "0019_durcissement_lot_2.sql"));
+      rmSync(join(copie, "meta/0019_snapshot.json"));
+      let c: pg.Client | undefined;
+      try {
+        await admin.query(`CREATE DATABASE ${base} OWNER console_proprietaire`);
+        c = new pg.Client({ connectionString: urlDe_("postgres", base) });
+        await c.connect();
+        await c.query(`ALTER SCHEMA public OWNER TO console_proprietaire; REVOKE ALL ON SCHEMA public FROM PUBLIC; GRANT USAGE ON SCHEMA public TO console_app, console_equipe;
+          CREATE SCHEMA partman AUTHORIZATION console_proprietaire; CREATE EXTENSION pg_partman SCHEMA partman;
+          GRANT ALL ON ALL TABLES IN SCHEMA partman TO console_proprietaire; GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA partman TO console_proprietaire; GRANT EXECUTE ON ALL PROCEDURES IN SCHEMA partman TO console_proprietaire;
+          ALTER DEFAULT PRIVILEGES FOR ROLE console_proprietaire REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC; ALTER DEFAULT PRIVILEGES FOR ROLE console_migration REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC`);
+        await migrer({ url: urlDe_("console_migration", base), dossier: copie });
+        await poser(c);
+        writeFileSync(join(copie, "meta/_journal.json"), complet);
+        cpSync(join(dossierComplet, "0019_durcissement_lot_2.sql"), join(copie, "0019_durcissement_lot_2.sql"));
+        cpSync(join(dossierComplet, "meta/0019_snapshot.json"), join(copie, "meta/0019_snapshot.json"));
+        await expect(migrer({ url: urlDe_("console_migration", base), dossier: copie })).rejects.toMatchObject({ cause: attendu });
+        await verifier(c);
+      } finally {
+        await c?.end().catch(() => undefined);
+        await admin.query(`DROP DATABASE IF EXISTS ${base} WITH (FORCE)`).catch(() => undefined);
+        await admin.end();
+      }
+    }
+    const ORG = "INSERT INTO organisations (id, tenant_id, console_client_id, raison_sociale) VALUES ($1, $1, $1, 'Atelier Bertin')";
+    const INST = "INSERT INTO instances (id, tenant_id, organisation_id, code_automatisation, formule, environnement, etat) VALUES ($1, $2, $2, 'relance-devis', 'abonnement', 'test', 'pause')";
+
+    it("[A-233] une base qui contient déjà un doublon d'instances.id fait échouer 0019 sans ligne modifiée ni supprimée (23505, instances_id_unique)", async () => {
+      const [A, B, id] = [randomUUID(), randomUUID(), randomUUID()];
+      await avecBaseJetable(
+        { code: "23505", constraint: "instances_id_unique" },
+        async (c) => {
+          await c.query("SELECT set_config('app.acteur', 'agent-essai', false)");
+          for (const t of [A, B]) {
+            await c.query("SELECT set_config('app.tenant_id', $1, false)", [t]);
+            await c.query(ORG, [t]);
+            await c.query(INST, [id, t]);
+          }
+        },
+        async (c) => {
+          expect((await c.query("SELECT count(*)::int AS n FROM instances")).rows[0]?.["n"]).toBe(2);
+          expect((await c.query("SELECT to_regclass('public.instances_id_unique')::text AS t")).rows[0]?.["t"]).toBeNull();
+          expect((await c.query("SELECT column_default FROM information_schema.columns WHERE table_name = 'instances' AND column_name = 'id'")).rows[0]?.["column_default"]).toBeNull();
+          expect((await c.query("SELECT count(*)::int AS n FROM public.__migrations")).rows[0]?.["n"]).toBe(15);
+        },
+      );
+    });
+
+    it("[A-233] un code de cellule ab_cd existant fait échouer 0019 (23514, cellules_code_forme_c4) sans rien appliquer (index M1 absent, journal à 15)", async () => {
+      await avecBaseJetable(
+        { code: "23514", constraint: "cellules_code_forme_c4" },
+        async (c) => {
+          await c.query("SELECT set_config('app.acteur', 'agent-essai', false)");
+          await c.query("INSERT INTO cellules (code, adresse_interne, mode, capacite, nombre_instances, version_image, etat) VALUES ('ab_cd', 'ab-cd.interne.test', 'mutualise', 50, 0, '1.0.0', 'active')");
+        },
+        async (c) => {
+          expect((await c.query("SELECT count(*)::int AS n FROM cellules WHERE code = 'ab_cd'")).rows[0]?.["n"]).toBe(1);
+          expect((await c.query("SELECT count(*)::int AS n FROM pg_constraint WHERE conname = 'cellules_code_forme_c4'")).rows[0]?.["n"]).toBe(0);
+          expect((await c.query("SELECT to_regclass('public.instances_id_unique')::text AS t")).rows[0]?.["t"]).toBeNull();
+          expect((await c.query("SELECT count(*)::int AS n FROM public.__migrations")).rows[0]?.["n"]).toBe(15);
+        },
+      );
+    });
+
+    it("[A-233] un SIREN d'apporteur à clé de Luhn fausse fait échouer 0019 sans ligne modifiée (23514, apporteurs_clients_siren_luhn)", async () => {
+      const A = randomUUID();
+      await avecBaseJetable(
+        { code: "23514", constraint: "apporteurs_clients_siren_luhn" },
+        async (c) => {
+          await c.query("SELECT set_config('app.acteur', 'agent-essai', false)");
+          await c.query("SELECT set_config('app.tenant_id', $1, false)", [A]);
+          await c.query(ORG, [A]);
+          await c.query("INSERT INTO apporteurs_clients (tenant_id, id, organisation_id, apporteur_axion_ia_id, taux_points_de_base, lu_le, siren) VALUES ($1, gen_random_uuid(), $1, 'app-faux', 500, now(), '732829321')", [A]);
+        },
+        async (c) => {
+          const { rows } = await c.query("SELECT siren FROM apporteurs_clients");
+          expect(rows).toHaveLength(1);
+          expect(rows[0]?.["siren"]).toBe("732829321");
+        },
+      );
+    });
   });
 });

@@ -70,10 +70,18 @@ export const TABLES_COMMUNES: readonly string[] = Object.freeze([
   // T2-07 (ADR 0055) : cellules d'hébergement (adresse interne) et registre des traitements : lus et écrits par l'équipe seule.
   "public.cellules",
   "public.registre_traitements",
+  // T3-05a (ADR 0115) : équipe, absences et vues enregistrées, lues et écrites par l'équipe seule.
+  "public.membres_equipe",
+  "public.absences",
+  "public.vues_enregistrees",
+  // T3-05b (ADR 0115, docs/adr/0115-tables-du-lot-3.md) : sous-traitants ultérieurs, signatures de fiches et historique des grilles, écrits en ajout seul par l'équipe seule.
+  "public.sous_traitants_ulterieurs",
+  "public.signatures_fiches",
+  "public.historique_grilles_prix",
 ]);
-// Unicités permises sans tenant_id : liste fermée et vide. Une entrée ne s'ajoute qu'avec sa raison, relue en 2 tours (ADR 0040).
+// Unicités permises sans tenant_id : liste fermée, une seule entrée nominative (instances_id_unique, ADR 0111). Une entrée ne s'ajoute qu'avec sa raison, relue en 2 tours (ADR 0040).
 // Aucune option d'appel ne l'étend.
-export const EXCEPTIONS_UNICITE: readonly { table: string; index: string; raison: string }[] = Object.freeze([]);
+export const EXCEPTIONS_UNICITE: readonly { table: string; index: string; raison: string }[] = Object.freeze([{ table: "instances", index: "instances_id_unique", raison: "ADR 0111" }]);
 
 // Les 8 invariants de l'annexe A : contrôlés ici dès la version 0, ou à brancher au lot 2 (README.md).
 export const INVARIANTS_C5 = [

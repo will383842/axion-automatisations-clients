@@ -20,7 +20,7 @@ async function rendre(Composant: Page): Promise<string> {
 
 /** HTML de l'écran dans l'état demandé. */
 export async function rendreEcran(ecran: Ecran, etat: Etat): Promise<string> {
-  const module = (await import(`../app/${ecran.page.slice(0, -4)}.tsx`)) as ModulePage;
+  const module = (await import(/* @vite-ignore */ new URL(`../app/${ecran.page}`, import.meta.url).href)) as ModulePage;
   if (etat === "normal") return rendre(module.default);
   const forme = module.etats?.[etat];
   if (!forme) throw new Error(`${ecran.route} : l'état « ${etat} » est déclaré mais la page ne l'exporte pas`);

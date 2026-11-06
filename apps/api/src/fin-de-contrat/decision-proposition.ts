@@ -49,6 +49,7 @@ export interface PortsDecision {
   demandesParGel(tenantId: string, gelId: string): Promise<{ id: string }[]>;
   reouvrirDemande?(tenantId: string, id: string): Promise<void>;
   alerter(a: AlerteFin): Promise<void>;
+  // Une vraie transaction : si fn lève (gel posé, état changé), la validation ajoutée et la mise en file sont annulées ensemble.
   transaction<T>(id: string, fn: (tx: TxDecision) => Promise<T>): Promise<T>;
 }
 

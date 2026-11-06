@@ -80,4 +80,11 @@ describe("proposition de suppression", () => {
     await creerPropositionSuppression(p, fin);
     expect(lignes[0]?.avisEnvoyeLe).toBeNull();
   });
+  it("[C-715] une échéance imposée (renouvellement) en deçà du plancher de 2 mois après la fin est refusée", async () => {
+    const { p, lignes } = monter();
+    await expect(creerPropositionSuppression(p, fin, "2027-01-10")).rejects.toBeInstanceOf(ErreurApi);
+    await expect(creerPropositionSuppression(p, fin, "2027-03-09")).rejects.toBeInstanceOf(ErreurApi);
+    expect(await creerPropositionSuppression(p, fin, "2027-03-10")).toBe("creee");
+    expect(lignes).toHaveLength(1);
+  });
 });

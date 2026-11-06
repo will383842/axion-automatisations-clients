@@ -47,6 +47,8 @@ async function aviser(p: PortsProposition, tenantId: string, id: string): Promis
 }
 
 export async function creerPropositionSuppression(p: PortsProposition, fin: FinRef, echeanceImposee?: string): Promise<"creee" | "existante" | "pas_encore"> {
+  // Une échéance imposée (renouvellement après un écart) ne passe jamais sous le plancher de 2 mois après la fin.
+  if (echeanceImposee !== undefined && (!DATE.test(echeanceImposee) || echeanceImposee < ajouterMois(fin.dateFin, DELAI_MINIMAL_MOIS))) throw new ErreurApi("regle_metier", "Échéance de proposition invalide.");
   const jour = echeanceImposee ?? (await (async () => {
     const delai = await p.delaiMois(fin.tenantId);
     if (!Number.isInteger(delai) || delai < DELAI_MINIMAL_MOIS) throw new ErreurApi("regle_metier", "Délai de proposition invalide.");

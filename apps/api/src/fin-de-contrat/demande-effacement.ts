@@ -10,6 +10,7 @@ export type DecisionEffacement =
   | { action: "accepter" }
   | { action: "refuser"; cause: "litige_en_cours" | "obligation_legale"; motif: string; gelId?: string; referenceTexte?: string };
 export interface TxDemande extends TxAcceptation {
+  // Compare-et-pose en_attente → refusee, en ajout seul (cause, gel, référence, motif, auteur, date).
   poserRefusee(r: { cause: string; gelId: string | null; referenceTexte: string | null; motif: string; par: string; le: Date }): Promise<boolean>;
 }
 export interface PortsDemande {

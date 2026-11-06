@@ -213,8 +213,10 @@ describe("migration 0023 : supervision commune, avec le socle", { timeout: 120_0
     for (const [role, pool_] of [["console_app", app], ["console_lecture", lecture]] as const) {
       const direct = await lireSous(pool_, A, "SELECT tenant_id FROM incidents_instances");
       expect(direct.rows, role).toEqual([{ tenant_id: A }]);
-      const jointure = await lireSous(pool_, A, `SELECT ii.tenant_id FROM incidents i JOIN incidents_instances ii ON ii.incident_id = i.id WHERE i.id = '${incident}'`);
-      expect(jointure.rows, role).toEqual([{ tenant_id: A }]);
+      // console_lecture n'a aucun droit sur la table commune incidents : la jointure lui est refusée (42501), jamais une fuite.
+      const requeteJointure = `SELECT ii.tenant_id FROM incidents i JOIN incidents_instances ii ON ii.incident_id = i.id WHERE i.id = '${incident}'`;
+      if (role === "console_lecture") await expect(lireSous(pool_, A, requeteJointure), role).rejects.toMatchObject({ code: "42501" });
+      else expect((await lireSous(pool_, A, requeteJointure)).rows, role).toEqual([{ tenant_id: A }]);
       const inverse = await lireSous(pool_, A, `SELECT count(*)::int AS n FROM incidents_instances WHERE tenant_id = '${B}'`);
       expect(inverse.rows[0]?.["n"], role).toBe(0);
     }

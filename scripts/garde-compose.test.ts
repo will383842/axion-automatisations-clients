@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { load } from "js-yaml";
 import { describe, expect, it } from "vitest";
 import config from "../vitest.config.js";
 import { verifierCompose } from "./garde-compose.js";
@@ -128,10 +129,55 @@ describe("tests d'intégration et lancement", () => {
     const t = lire(".github/workflows/socle-integration.yml");
     expect(t).toMatch(/^permissions:\n\s+contents: read/m);
     expect(t).not.toMatch(/^\s*environment:/m);
-    expect(t).toMatch(/if: always\(\)/);
     expect(t).toMatch(/compter-tests\.ts --projet integration --rapport rapport-integration\.json/);
     expect(t).not.toMatch(/--reference|compte-tests-integration\.json/);
     expect(t).toMatch(/fetch-depth: 2/);
+  });
+  type Etape = { run?: string; uses?: string; if?: string; with?: Record<string, unknown>; "continue-on-error"?: unknown };
+  type Job = { name?: string; if?: string; needs?: string[]; env?: Record<string, string>; steps: Etape[]; "continue-on-error"?: unknown };
+  const jobsSocle = () => (load(lire(".github/workflows/socle-integration.yml")) as { jobs: Record<string, Job> }).jobs;
+  const run = (e: Etape) => e.run?.trim();
+  it("[A-066] chaque job qui lance le socle l'arrête toujours, en dernière étape, sans tolérer d'échec", () => {
+    const jobs = jobsSocle();
+    const lanceurs = Object.entries(jobs).filter(([, j]) => j.steps.some((e) => run(e) === "ops/socle/lancer.sh"));
+    expect(lanceurs.map(([id]) => id).sort()).toEqual(Object.keys(jobs).sort());
+    for (const [id, j] of lanceurs) {
+      const fin = j.steps.at(-1);
+      expect(fin && run(fin), id).toBe("ops/socle/arreter.sh");
+      expect(fin?.if, id).toBe("always()");
+      expect(j.steps.filter((e) => run(e) === "ops/socle/arreter.sh").length, id).toBe(1);
+      expect(j["continue-on-error"], id).toBeUndefined();
+      for (const e of j.steps) expect(e["continue-on-error"], `${id} ${run(e) ?? e.uses}`).toBeUndefined();
+    }
+  });
+  it("[A-066] le contrôle requis socle-integration rassemble tous les fragments, tourne toujours et échoue si un fragment n'a pas réussi", () => {
+    const jobs = jobsSocle();
+    const fragments = Object.keys(jobs).filter((id) => /^fragment-\d+$/.test(id)).sort();
+    const n = fragments.length;
+    expect(n).toBeGreaterThanOrEqual(2);
+    expect(Object.keys(jobs).sort()).toEqual([...fragments, "socle-integration"].sort());
+    const r = jobs["socle-integration"]!;
+    expect(r.name).toBe("socle-integration");
+    expect(r.if).toBe("always()");
+    expect([...(r.needs ?? [])].sort()).toEqual(fragments);
+    expect(r.env?.RESULTATS_FRAGMENTS).toBe("${{ join(needs.*.result, ' ') }}");
+    const controle = `test "$RESULTATS_FRAGMENTS" = "${Array(n).fill("success").join(" ")}"`;
+    expect(r.steps.findIndex((e) => run(e) === controle)).toBe(1);
+    expect(r.steps.slice(0, 1).every((e) => e.uses?.startsWith("actions/checkout@") && e.if === undefined)).toBe(true);
+    const ordre = ["pnpm exec vitest --merge-reports rapports-vitest --reporter=json --outputFile=rapport-integration.json", "ops/socle/lancer.sh", "node scripts/compter-tests.ts --projet integration --rapport rapport-integration.json"].map((c) => r.steps.findIndex((e) => run(e) === c));
+    expect(ordre.every((k, i) => k > 1 && (i === 0 || k > (ordre[i - 1] ?? 0)))).toBe(true);
+    const parts: number[] = [];
+    for (const id of fragments) {
+      const j = jobs[id]!;
+      const i = Number(id.split("-")[1]);
+      expect(j.name).toBe(`socle-integration-fragment-${i}`);
+      expect(j.if, id).toBeUndefined();
+      const tests = j.steps.filter((e) => run(e)?.includes("vitest"));
+      expect(tests.map(run), id).toEqual([`pnpm exec vitest run --project integration --shard=${i}/${n} --reporter=blob --outputFile=rapports-vitest/blob-${i}-${n}.json`]);
+      expect(j.steps.some((e) => e.uses?.startsWith("actions/upload-artifact@") && e.with?.name === `rapport-integration-${i}` && e.with?.path === `rapports-vitest/blob-${i}-${n}.json`), id).toBe(true);
+      parts.push(i);
+    }
+    expect(parts.sort((a, b) => a - b)).toEqual(Array.from({ length: n }, (_, k) => k + 1));
   });
 });
 

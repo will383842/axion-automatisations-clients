@@ -8,6 +8,7 @@ import { automatisationFictive, GRILLE_FICTIVE } from "../catalogue/fixtures.js"
 import { avecClient } from "../db/client-actif.js";
 import { PLATEFORME_ID } from "../db/schema/aides.js";
 import { migrer } from "../db/migrer.js";
+import { lirePlanClient } from "./plan-client.js";
 import { enregistrerPlan, ErreurPlan, preparerPlan } from "./plan.js";
 
 // Plan commercial calculé (T2-08) contre un vrai PostgreSQL : socle lancé par ops/socle/lancer.sh (job socle-integration). Instances d'essai à l'état pause, montants fictifs.
@@ -211,5 +212,31 @@ describe("plan commercial calculé, contre PostgreSQL", () => {
     expect((await jour("2026-03-09")).fraisMiseEnPlaceHtCentimes).toBe(100);
     expect((await jour("2026-03-10")).fraisMiseEnPlaceHtCentimes).toBe(300);
     expect((await jour("2026-03-11")).fraisMiseEnPlaceHtCentimes).toBe(300);
+  });
+});
+
+// T3-14a : lecture du plan enregistré et des conditions du client (essais pour la CI socle-integration ; non lancés sans démon Docker).
+describe("lecture du plan d'un client (T3-14a)", () => {
+  it("[A-040] une condition insérée pour le client est relue avec son auteur et la date de son journal", async () => {
+    const { A } = await client(12);
+    const lu = await avecClient(app, A, (c) => lirePlanClient(c, A, "2026-11-07"), APPELANT);
+    const trois = lu.conditions.filter((c) => c.auteur === "agent-essai");
+    expect(trois).toHaveLength(3);
+    for (const c of trois) expect(Number.isNaN(Date.parse(String(c.modifie_le)))).toBe(false);
+    expect(lu.instances).toHaveLength(1);
+    expect(lu.instances[0]?.plan).toBeNull();
+  });
+
+  it("[LOT3-argent] @isolation lirePlanClient sous le client A ne rend ni plan ni condition du client B", async () => {
+    const a = await client(12);
+    const b = await client(24);
+    const lu = await avecClient(app, a.A, (c) => lirePlanClient(c, a.A, "2026-11-07"), APPELANT);
+    expect(lu.instances.map((i) => i.instance_id)).toEqual([a.instance]);
+    expect(lu.instances.map((i) => i.instance_id)).not.toContain(b.instance);
+    expect(lu.conditions.every((c) => JSON.stringify(c.valeur).includes("engagement_mois") ? (c.valeur as Record<string, unknown>)["engagement_mois"] === 12 : true)).toBe(true);
+    // Même avec l'identifiant de B demandé sous la portée de A, la RLS ne rend rien.
+    const croise = await avecClient(app, a.A, (c) => lirePlanClient(c, b.A, "2026-11-07"), APPELANT);
+    expect(croise.instances).toEqual([]);
+    expect(croise.conditions).toEqual([]);
   });
 });

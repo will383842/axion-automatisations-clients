@@ -61,8 +61,7 @@ export async function terminerRappel(p: PortsRappel, session: SessionPortail | n
   // 3.
   if (tx.echeance < p.maintenant()) return refus("transaction_echue", tx);
   const suite = async (genre: Transaction["genre"], code: "accord_admin_requis" | "accord_admin_donne"): Promise<ReponseRappel> => {
-    const { state: _s, verifier: _v, nonce: _n, echeance: _e, ...base } = tx;
-    const nouvelle = await p.transactions.creer({ ...base, genre });
+    const nouvelle = await p.transactions.creer({ sujet: tx.sujet, tenantId: tx.tenantId, connexionId: tx.connexionId, outil: tx.outil, fournisseur: tx.fournisseur, genre, ...(tx.locataire ? { locataire: tx.locataire } : {}), ...(tx.domaine ? { domaine: tx.domaine } : {}) });
     return { etat: "suite", code, adresse: genre === "accord_admin" ? adresseAccordAdmin(nouvelle, p.microsoft) : adresseMicrosoft(nouvelle, p.microsoft) };
   };
   // 4 et 5. Accord de l'administrateur (jamais de texte du fournisseur recopié).

@@ -90,7 +90,7 @@ describe("révocation d'une connexion", () => {
     expect(etat.appels).toContain("effacerValeur");
     expect(etat.args["effacerValeur"]).toEqual([[JETONS, APPLICATION]]);
     expect(etat.alertes).toEqual(["revocation_incomplete"]);
-    expect(etat.lignes.map((l) => JSON.parse(l))).toEqual([{ evenement: "connexion_revoquee", tenantId: T, connexionId: C, code: "pause_echouee" }]);
+    expect(etat.lignes.map((l) => JSON.parse(l))).toEqual([{ evenement: "revocation_etape_echouee", tenantId: T, connexionId: C, code: "pause_echouee" }, { evenement: "connexion_revoquee", tenantId: T, connexionId: C, code: "pause_echouee" }]);
     expect(etat.lignes.join("")).not.toContain(JETON);
   });
 
@@ -100,7 +100,7 @@ describe("révocation d'une connexion", () => {
     expect(etat.appels).toContain("effacerValeur");
     expect(etat.appels).toContain("mettreEnPause");
     expect(etat.alertes).toEqual(["revocation_incomplete"]);
-    expect(etat.lignes.map((l) => JSON.parse(l))).toEqual([{ evenement: "connexion_revoquee", tenantId: T, connexionId: C, code: "fournisseur_inconnu" }]);
+    expect(etat.lignes.map((l) => JSON.parse(l))).toEqual([{ evenement: "revocation_etape_echouee", tenantId: T, connexionId: C, code: "fournisseur_inconnu" }, { evenement: "connexion_revoquee", tenantId: T, connexionId: C, code: "fournisseur_inconnu" }]);
     expect(etat.lignes.join("")).not.toContain(JETON);
   });
 

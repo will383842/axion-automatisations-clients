@@ -132,10 +132,12 @@ describe("grille de prix : historique", () => {
     };
     const depot = depotSqlGrilles({ transaction: (_acteur, fn) => fn(q), lecture: (fn) => fn(q) });
     await creerServiceGrilles(depot).ecrire(AUTO, ACTEUR, CORPS);
-    const ecrits = requetes.filter((s) => /\b(INSERT|UPDATE|DELETE|TRUNCATE)\b/i.test(s));
+    // Le verrou « FOR NO KEY UPDATE » n'est pas une écriture : on le retire avant de chercher UPDATE.
+    const sansVerrou = (s: string) => s.replace(/FOR NO KEY UPDATE/g, "");
+    const ecrits = requetes.filter((s) => /\b(INSERT|UPDATE|DELETE|TRUNCATE)\b/i.test(sansVerrou(s)));
     expect(ecrits.length).toBeGreaterThan(0);
     for (const s of ecrits) expect(s).toMatch(/^\s*INSERT INTO (grilles_prix|historique_grilles_prix)\b/);
-    expect(requetes.some((s) => /\b(UPDATE|DELETE|TRUNCATE)\b/i.test(s))).toBe(false);
+    expect(requetes.some((s) => /\b(UPDATE|DELETE|TRUNCATE)\b/i.test(sansVerrou(s)))).toBe(false);
     // Le verrou est la première requête ; les montants passent en texte, jamais convertis en nombre.
     expect(requetes[0]).toMatch(/SELECT statut FROM automatisations WHERE id = \$1 FOR NO KEY UPDATE/);
     expect(requetes.some((s) => /\$\d+::bigint/.test(s))).toBe(true);

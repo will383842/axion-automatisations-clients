@@ -1,7 +1,7 @@
 import Fastify from "fastify";
 import { describe, expect, it } from "vitest";
 import { exigerReauthentification } from "../../auth/exiger-reauthentification.js";
-import type { ServiceGrilles } from "../../catalogue/grille.js";
+import { creerServiceGrilles, type ServiceGrilles } from "../../catalogue/grille.js";
 import { TOUS_LES_CLIENTS } from "../../droits/portee.js";
 import type { MembreDroits, TraceRefus } from "../../droits/exiger-droit.js";
 import { brancherErreurs } from "../../plugins/erreurs.js";
@@ -11,16 +11,25 @@ import { routeGrillesCatalogue } from "./grilles.js";
 const AUTO = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const MAINTENANT = Date.UTC(2026, 10, 7, 12, 0, 0);
 const CORPS = { formules: ["abonnement"], frais_mise_en_place_ht_centimes: "12345", prix_mensuel_ht_centimes: "6789", maintenance_ensuite_ht_centimes: "1500", maintenance_incluse_mois: 3, grille_precedente_id: null, motif: "Essai" };
-const GRILLE = { id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd", formules: ["abonnement"], formules_proposees: ["abonnement"], frais_mise_en_place_ht_centimes: "12345", prix_mensuel_ht_centimes: "6789", maintenance_incluse_mois: 3, maintenance_ensuite_ht_centimes: "1500", auteur: "agent-essai", cree_le: "2026-11-07T09:00:00.000Z" };
 
 function serveur(o: { ouvert?: boolean } = {}) {
   const appels: string[] = [];
   const traces: TraceRefus[] = [];
-  const service: ServiceGrilles = {
-    async lire() { appels.push("lire"); return { automatisation_id: AUTO, grille: GRILLE, masquee_par_defaut: [] }; },
+  // Vrai service sur un faux dépôt : la validation du corps et de la limite est celle de la production ; le dépôt note chaque appel.
+  const service: ServiceGrilles = creerServiceGrilles({
+    async lire() { appels.push("lire"); return { grille: null, masquage: [] }; },
     async historique() { appels.push("historique"); return []; },
-    async ecrire() { appels.push("ecrire"); return { grille: GRILLE, historique: [], masquee_par_defaut: [] }; },
-  };
+    async ecrire(_acteur, fn) {
+      appels.push("ecrire");
+      return fn({
+        verrouiller: async () => ({ statut: "au_catalogue" }),
+        grilleEnVigueur: async () => undefined,
+        insererGrille: async () => ({ id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd", creeLe: new Date("2026-11-07T09:00:00Z") }),
+        insererHistorique: async () => undefined,
+        masquage: async () => [],
+      });
+    },
+  });
   const app = Fastify();
   brancherErreurs(app);
   // Identité de l'essai : lue des en-têtes (auth_time en secondes d'âge, acr, rôle). Le jeton réel est celui du crochet fourni par l'appelant.

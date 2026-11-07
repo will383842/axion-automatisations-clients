@@ -20,10 +20,10 @@ const nomBase = (tenant: string): string => `cli_${tenant.replaceAll("-", "").sl
 const baseDe = (tenant: string): BaseLecture => ({ hote: "pgbouncer-donnees.test", base: nomBase(tenant), role: `${nomBase(tenant)}_lecture`, motDePasse: "mdp-d-essai", expire: new Date("2030-01-01"), valideJusqua: null });
 
 interface Espion { ouvertures: BaseLecture[]; liberees: (Error | undefined)[]; demandes: [string, string][]; traces: Record<string, unknown>[]; textes: string[]; instances: string[] }
-function ports(o: { instances?: Record<string, InstanceInstallee | undefined>; base?: (t: string) => BaseLecture; identite?: (b: BaseLecture) => { u: string; d: string }; lignes?: Record<string, unknown>[]; echec?: Error; retardBase?: number; retardOuvrir?: number; retardRequete?: (b: BaseLecture) => number; etablissements?: number } = {}): { p: PortsLecture; e: Espion } {
+function ports(o: { instances?: Record<string, InstanceInstallee | undefined>; base?: (t: string) => BaseLecture; identite?: (b: BaseLecture) => { u: string; d: string }; lignes?: Record<string, unknown>[]; echec?: Error; retardInstance?: number; retardBase?: number; retardOuvrir?: number; retardRequete?: (b: BaseLecture) => number; etablissements?: number } = {}): { p: PortsLecture; e: Espion } {
   const e: Espion = { ouvertures: [], liberees: [], demandes: [], traces: [], textes: [], instances: [] };
   const p: PortsLecture = {
-    instance: async (t, i) => { e.instances.push(`${t}|${i}`); return (o.instances ?? { [A]: instance() })[t]; },
+    instance: async (t, i) => { e.instances.push(`${t}|${i}`); if (o.retardInstance) await attendre(o.retardInstance); return (o.instances ?? { [A]: instance() })[t]; },
     baseLecture: async (t, id) => { e.demandes.push([t, id]); if (o.retardBase) await attendre(o.retardBase); return (o.base ?? ((x) => baseDe(x)))(t); },
     ouvrir: async (b) => {
       e.ouvertures.push(b);
@@ -234,6 +234,11 @@ describe("port données de l'exécuteur", () => {
     const e1 = await lancer({ retardBase: 200 }, 6);
     expect(e1.demandes).toHaveLength(1);
     expect(e1.ouvertures).toEqual([]); // abandonnée pendant la remise : pas d'ouverture une fois la remise arrivée
+    // Abandon pendant la recherche de l'instance : ni remise ni ouverture.
+    const e0 = await lancer({ retardInstance: 200 }, 6);
+    expect(e0.instances).toHaveLength(1);
+    expect(e0.demandes).toEqual([]);
+    expect(e0.ouvertures).toEqual([]);
     // Abandon pendant la lecture : la 1re finit sa sonde après le délai ; aucune autre lecture ne démarre.
     const e2 = await lancer({ retardRequete: () => 200 }, 6);
     expect(e2.demandes).toHaveLength(1);

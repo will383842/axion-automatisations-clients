@@ -230,7 +230,10 @@ describe("T3-07b : accès en cours lus par console_equipe", { timeout: 120_000 }
     const fin = new Date(Date.now() + 3_600_000).toISOString();
     const debut = new Date(Date.now() - 600_000).toISOString();
     await insererApp(A, "visibilite_acces", { organisation_id: A, intervention_perimetre: "lecture", intervention_debut: debut, intervention_fin: fin });
-    await insererApp(A, "visibilite_acces", { organisation_id: A, intervention_perimetre: "lecture", intervention_debut: new Date(Date.now() - 7_200_000).toISOString(), intervention_fin: new Date(Date.now() - 3_600_000).toISOString() });
+    // Une ligne par organisation (contrainte d'unicité) : la seconde organisation est créée dans le même client.
+    const O2 = randomUUID();
+    await insererApp(A, "organisations", { id: O2, console_client_id: O2, raison_sociale: "Garage Fontaine" });
+    await insererApp(A, "visibilite_acces", { organisation_id: O2, intervention_perimetre: "lecture", intervention_debut: new Date(Date.now() - 7_200_000).toISOString(), intervention_fin: new Date(Date.now() - 3_600_000).toISOString() });
     const { creerAccesInterventions } = await import("../equipe/acces-en-cours.ts");
     const vus = (await creerAccesInterventions(equipe).lister()).filter((a) => a.clientId === A);
     expect(vus).toEqual([{ type: "intervention", clientId: A, debut: new Date(debut).toISOString(), fin: new Date(fin).toISOString() }]);

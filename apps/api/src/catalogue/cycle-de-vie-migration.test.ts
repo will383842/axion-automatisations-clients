@@ -91,6 +91,23 @@ describe("cycle de vie des versions : schéma et migration 0027", () => {
     expect(t).not.toMatch(/GRANT[^;]*"modeles_testes"[^;]*TO (console_app|console_lecture|PUBLIC)/);
   });
 
+  it("[A-305] passages_version n'admet que les six passages de la machine d'états, la même liste que catalogue_garde (0007), sans réécrire cette fonction", () => {
+    const liste = (texte: string) => /\(\('brouillon', 'recette'\)[^;]*?\('depreciee', 'retiree'\)\)/.exec(texte)?.[0];
+    const garde = readFileSync(new URL("0007_catalogue.sql", dossier), "utf8");
+    expect(liste(code())).toBeDefined();
+    expect(liste(code())).toBe(liste(garde));
+    expect(code()).not.toMatch(/catalogue_garde\(\)\s*RETURNS|CREATE\s+(OR\s+REPLACE\s+)?FUNCTION/i);
+  });
+
+  it("[A-306] une version figée le reste : 0027 n'ouvre que modeles_testes en écriture, la preuve est liée à l'empreinte de l'artefact et la base garde le déclencheur de 0007", () => {
+    const t = code();
+    const ouverts = [...t.matchAll(/GRANT UPDATE \(([^)]*)\) ON TABLE "public"\."versions_automatisation"/g)].map((m) => m[1]);
+    expect(ouverts).toEqual(['"modeles_testes"']);
+    expect(t).not.toMatch(/(DISABLE|DROP)\s+TRIGGER|ALTER TABLE "(public"\."|)versions_automatisation" (ENABLE|DISABLE) /);
+    expect(getTableConfig(preuvesProcedure).uniqueConstraints[0]?.columns.map((c) => c.name)).toContain("empreinte_sha256");
+    expect(getTableConfig(passagesVersion).columns.map((c) => c.name)).toContain("empreinte_sha256");
+  });
+
   it("[LOT4-cycle] journal et instantané : 0027 suit 0026, quand croît, prevId de 0027 = id de 0026, un seul fichier 0027", () => {
     const journal = (lire("meta/_journal.json") as { entries: { idx: number; tag: string; when: number }[] }).entries;
     const i = journal.findIndex((e) => e.tag === "0027_cycle_de_vie_des_versions");

@@ -1,6 +1,6 @@
 # 0132 · Connexion du portail et rôles du client
 
-Date : 07/11/2026 · Statut : proposé (T6-02a), à accepter par l'architecte · Contrat touché : aucun · Migration : aucune · S'appuie sur : ADR 0056 (connexion de la console), décision d'architecte E1 du 07/11/2026
+Date : 07/11/2026 · Statut : accepté (accord de l'architecte, 07/11/2026) · Contrat touché : aucun · Migration : aucune · S'appuie sur : ADR 0056 (connexion de la console), accord de l'architecte sur la décision D-T602 (plan T6-02, section 2.1) du 07/11/2026
 
 ## Contexte
 - Le portail des clients n'avait pas de connexion : le client OIDC `portail` du royaume `clients` n'avait ni adresse de rappel, ni rôle, ni revendication d'organisation.
@@ -26,4 +26,5 @@ Date : 07/11/2026 · Statut : proposé (T6-02a), à accepter par l'architecte ·
 ## Conséquences et limites
 - Un jeton d'accès reste valable jusqu'à 300 s après la déconnexion (pas d'introspection en V1) : limite acceptée.
 - `role_invitation` (dirigeant, administrateur, utilisateur) ne correspond pas aux quatre rôles : dette portée par T6-14.
-- Next 16 déprécie `middleware.ts` au profit de `proxy.ts` (même fonctionnement). Le nom est gardé comme la console ; la bascule est une dette (escalade E2 du plan, à trancher par l'architecte).
+- Next 16 déprécie `middleware.ts` au profit de `proxy.ts` (même fonctionnement) : la bascule vers `proxy.ts` est une dette portée par T6-05 pour le portail ; la console suivra dans la même forme.
+- Le magasin de session est en mémoire du processus (T6-04) : `PORTAIL_CONNEXION_OUVERTE` reste FERMÉ en production (condition de l'accord).

@@ -12,7 +12,7 @@ Date : 07/11/2026 · Statut : proposé (T5-13b-3), à accepter par l'architecte 
 2. Alimentation par ENVOI : chaque application pousse des objets déjà masqués vers `/insert/jsonline` (module `@axion-auto/observabilite/journal`). Aucun montage de l'hôte, ni `/var/lib/docker`, ni `docker.sock`, ni volume de l'exécuteur.
 3. Liste fermée de champs : heure, niveau, application, code, message masqué et borné à 500 caractères, reqId, tenant. Aucun autre champ n'est recopié. Le contenu des étapes de l'exécuteur n'est jamais branché sur ce module.
 4. Envoi jamais bloquant : au plus N lignes en attente, le surplus est compté comme perdu ; abandon à 2 s ; aucune file sur disque, aucune relance. Sans adresse de collecteur, rien n'est gardé ni envoyé (fermé par défaut).
-5. Réseau interne seulement, aucun port publié, `healthcheck` obligatoire (le socle de la CI démarre tous les fragments), un moniteur dans Uptime Kuma.
+5. Réseau interne seulement, aucun port publié, aucun `healthcheck` : l'image est sans shell ni client HTTP, aucune sonde interne n'est possible (essai de la CI du 07/11/2026). Le socle attend l'état « en marche » ; la santé (`/health`) est surveillée par le moniteur d'Uptime Kuma. Si l'architecte veut une sonde interne, il faut une autre image ou un service de sonde : décision à lui.
 6. Plafond : durée de conservation et taille disque maximale par `JOURNAUX_RETENTION` et `JOURNAUX_PLAFOND_OCTETS`. Valeurs provisoires, fixées au lot 8a. Ce plafond n'est pas celui des journaux d'archivage de PostgreSQL (ADR 0039).
 
 ## Options écartées

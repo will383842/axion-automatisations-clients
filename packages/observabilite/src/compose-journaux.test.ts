@@ -28,7 +28,10 @@ describe("collecteur de journaux : fragment compose", () => {
     expect(t).toMatch(/networks: \[interne\]/);
     expect(t).not.toMatch(/^\s+ports:/m);
     expect(t).not.toMatch(/entree/);
-    expect(t).toMatch(/healthcheck:/);
+    // L'image est sans shell ni client HTTP : aucune sonde interne possible. La santé est suivie par le moniteur d'Uptime Kuma.
+    expect(t).not.toMatch(/^\s+healthcheck:/m);
+    const moniteur = (JSON.parse(lire("ops/socle/uptime-kuma/moniteurs.json")) as { moniteurs: Array<{ service: string; chemin?: string }> }).moniteurs.find((m) => m.service === "victoria-logs");
+    expect(moniteur?.chemin).toBe("/health");
     expect(t).toMatch(/restart: "no"/);
     expect(t).not.toMatch(/:latest/);
     const m = /image: (victoriametrics\/victoria-logs):(v\d+\.\d+\.\d+)@(sha256:[0-9a-f]{64})/.exec(t);

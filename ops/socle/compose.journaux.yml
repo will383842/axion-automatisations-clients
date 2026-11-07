@@ -2,6 +2,8 @@
 # Alimenté PAR ENVOI : l'API, l'exécuteur et la console poussent des lignes déjà masquées (packages/observabilite, journal.ts).
 # Aucun montage de l'hôte, aucun accès au démon Docker : le bac à sable de l'exécuteur n'est jamais lu (C-022).
 # Plafond : durée de conservation et taille disque maximale par variables ; valeurs provisoires, fixées au lot 8a.
+# Pas de healthcheck : l'image est sans shell ni client HTTP (aucune sonde possible dedans). « up --wait » attend l'état « en marche » ;
+# la santé réelle (/health) est surveillée de l'extérieur par le moniteur d'Uptime Kuma (ops/socle/uptime-kuma/moniteurs.json).
 # Les briques tierces (base, connexion, coffre...) ne sont pas collectées ici : décision d'architecte, voir la dette T5-13-dette-briques-tierces.
 services:
   victoria-logs:
@@ -15,11 +17,5 @@ services:
     volumes:
       - victoria-logs-donnees:/victoria-logs-data
     networks: [interne]
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9428/health"]
-      interval: 5s
-      timeout: 3s
-      start_period: 10s
-      retries: 30
 volumes:
   victoria-logs-donnees: {}

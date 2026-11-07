@@ -15,18 +15,19 @@ function monter(intervention: PortsAccesHumain["intervention"], ttl = 3600, o: {
   const programmees: { bail: string; delaiMs: number }[] = [];
   const revoques: string[] = [];
   let pris = o.verrouPris ?? false;
+  const etatsVerrou: string[] = [];
   const p: PortsAccesHumain = {
     intervention,
     verrou: { prendre: async () => { if (pris) return undefined; pris = true; return async () => { pris = false; }; } },
-    creds: { emettre: async (tenantId) => { if (o.echecEmission) throw new Error("coffre en panne"); demandes.push(tenantId); return { utilisateur: "v-essai-1", motDePasse: "secret-dynamique-d-essai", dureeSecondes: ttl, bail: BAIL }; } },
+    creds: { emettre: async (tenantId) => { etatsVerrou.push(`emission:${pris ? "verrou" : "libre"}`); if (o.echecEmission) throw new Error("coffre en panne"); demandes.push(tenantId); return { utilisateur: "v-essai-1", motDePasse: "secret-dynamique-d-essai", dureeSecondes: ttl, bail: BAIL }; } },
     bail: {
-      programmerRevocation: async (_t, bail, delaiMs) => { if (o.echecProgrammation) throw new Error("file en panne"); programmees.push({ bail, delaiMs }); },
+      programmerRevocation: async (_t, bail, delaiMs) => { etatsVerrou.push(`programmation:${pris ? "verrou" : "libre"}`); if (o.echecProgrammation) throw new Error("file en panne"); programmees.push({ bail, delaiMs }); },
       revoquer: async (_t, bail) => { revoques.push(bail); },
     },
     journal: { tracer: (e) => { journal.push(e); } },
     maintenant: () => MAINTENANT,
   };
-  return { p, journal, demandes, programmees, revoques, verrouPris: () => pris, poser: (v: boolean) => { pris = v; } };
+  return { p, journal, demandes, programmees, revoques, etatsVerrou, verrouPris: () => pris, poser: (v: boolean) => { pris = v; } };
 }
 
 describe("accès humain à une base client", () => {
@@ -276,6 +277,8 @@ describe("accès humain et verrou de rotation", () => {
     await expect(ouvrirAccesHumain(m.p, T, "equipe-1", "x")).resolves.toMatchObject({ utilisateur: "v-essai-1" });
     expect(m.demandes).toEqual([T]);
     expect(m.programmees).toHaveLength(1);
+    // Le verrou est TENU pendant l'émission et la programmation (jamais un contrôle « libre » suivi de l'action).
+    expect(m.etatsVerrou).toEqual(["emission:verrou", "programmation:verrou"]);
   });
 
   it("[A-211] l'accès humain rend le verrou même si l'émission ou la programmation échoue", async () => {

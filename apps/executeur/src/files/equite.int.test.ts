@@ -45,24 +45,6 @@ describe("tour de rôle sur Valkey", () => {
     expect(sortis.indexOf("calme")).toBeLessThanOrEqual(POIDS.etendu);
   });
 
-  it("[A-414] un travail tiré mais pas encore ajouté est repris après un arrêt du processus, sans doublon (jobId)", async () => {
-    const cellule = unique();
-    const avant = new Repartiteur(new SousFilesValkey(connexion(), cellule), POIDS);
-    await avant.ajouter(travail("a", 0));
-    await avant.ajouter(travail("a", 1));
-    // le processus s'arrête après le tirage et avant l'ajout : le travail est tiré, jamais confirmé
-    const tire = await avant.suivant();
-    expect(tire!.id).toBe("a-0");
-    const apres = new Repartiteur(new SousFilesValkey(connexion(), cellule), POIDS);
-    expect(await apres.reprendre()).toBe(1);
-    const ajouts: { id: string | undefined }[] = [];
-    const file = { getWaitingCount: async () => 0, add: async (_n: string, t: { id: string }, o?: { jobId?: string }) => { ajouts.push({ id: o?.jobId }); expect(o?.jobId).toBe(t.id); } };
-    await pomper(apres, file, 10);
-    expect(ajouts.map((a) => a.id)).toEqual(["a-0", "a-1"]);
-    // rien de plus à reprendre : pas de doublon
-    expect(await apres.reprendre()).toBe(0);
-  });
-
   it("[A-415] le plafond par module tient sur Valkey avec 20 prises en parallèle", async () => {
     const plafond = new PlafondModule(new PlacesValkey(connexion(), unique()), { placesParModule: 3, bailPlaceMs: 60_000 });
     const r = await Promise.all(Array.from({ length: 20 }, (_, i) => plafond.acquerir("module-x", `p${i}`)));

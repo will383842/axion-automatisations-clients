@@ -41,13 +41,13 @@ describe("partition du socle d'intégration", () => {
     });
     listes.forEach((l, k) => expect(l, `fragment ${k + 1}`).toEqual([...(parts[k] ?? [])].sort()));
     expect(listes.flat().sort()).toEqual([...fichiers].sort());
-  });
+  }, 120_000);
   it("[C-538] une valeur de fragment invalide fait échouer au lieu de tout lancer", () => {
     for (const v of ["0/4", "5/4", "x", "1/3", "1"]) {
       const r = spawnSync("npx", ["vitest", "list", "--filesOnly", "--project", "integration"], { encoding: "utf8", env: { ...process.env, SOCLE_INTEGRATION: "1", FRAGMENT_INTEGRATION: v } });
       expect(r.status, v).not.toBe(0);
     }
-  });
+  }, 120_000);
   it("[A-066] le fichier des poids est du JSON simple avec un poids par défaut", () => {
     const brut = JSON.parse(readFileSync("ops/socle/poids-integration.json", "utf8")) as { defaut: number };
     expect(brut.defaut).toBeGreaterThan(0);

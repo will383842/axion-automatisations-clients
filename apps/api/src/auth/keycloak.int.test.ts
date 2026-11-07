@@ -344,6 +344,10 @@ describe("Keycloak réel : en-têtes de sécurité et essais répétés (C-681)"
 
 // T3-07a : compte de service console-sessions du royaume equipe (droits minimaux). Le secret vient de l'environnement du conteneur, jamais affiché.
 describe("Keycloak réel : compte de service console-sessions (LOT3-securite)", { timeout: 60_000 }, () => {
+  // Le jeton d'administration du socle dure une minute : l'obtenir de nouveau avant ce bloc.
+  beforeAll(async () => {
+    admin = await jetonAdmin();
+  });
   async function jetonService(): Promise<string> {
     const r = await fetch(`${OIDC("equipe")}/token`, {
       method: "POST",

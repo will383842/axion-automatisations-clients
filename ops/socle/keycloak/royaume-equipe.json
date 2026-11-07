@@ -104,7 +104,7 @@
       "directAccessGrantsEnabled": false,
       "implicitFlowEnabled": false,
       "serviceAccountsEnabled": true,
-      "defaultClientScopes": [],
+      "defaultClientScopes": ["basic", "roles"],
       "optionalClientScopes": [],
       "redirectUris": [],
       "webOrigins": [],

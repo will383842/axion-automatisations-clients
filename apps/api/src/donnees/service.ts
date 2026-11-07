@@ -3,6 +3,7 @@ import { ErreurApi } from "../plugins/erreurs.js";
 import { genererSql } from "./requetes/generer.js";
 import { LISTE_BLANCHE, type Requete } from "./requetes/liste.js";
 import { schemaParametres } from "./requetes/structure.js";
+import { permiseEnVue } from "../vue-client/masque.js";
 
 // Seul chemin du portail et de la console vers la base d'un client (A-170). Tout ce qui décide de la base vient de la SESSION :
 //   - le client (tenantId), le rôle et les établissements permis ; rien de tel n'est lu dans l'URL, le corps, un en-tête ou un cookie (C-536) ;
@@ -79,6 +80,7 @@ export function creerServiceDonnees(ports: PortsDonnees, liste: Readonly<Record<
       if (session.role === "equipe") {
         const vue = await vueValide(session);
         if (!vue && !r.metadonnees) throw refus("action_interdite", "Action interdite.");
+        if (vue && !permiseEnVue(r)) throw refus("action_interdite", "Action interdite."); // masque de la vue (B-068) : sur la déclaration, avant toute base
       }
       const p = schemaParametres(r).safeParse(parametres ?? {});
       if (!p.success) throw refus("schema_invalide", "Requête invalide.");

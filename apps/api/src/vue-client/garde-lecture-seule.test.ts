@@ -22,7 +22,7 @@ const B = "22222222-2222-4222-8222-222222222222";
 const T0 = new Date("2026-11-07T10:00:00Z");
 let appels = 0;
 // Dépendance vide : tout appel (même profond) est compté ; « then » reste indéfini pour qu'un await ne la prenne pas pour une promesse.
-const espion = (): never => new Proxy(function () {}, { get: (_c, p) => (p === "then" ? undefined : espion()), apply: () => { appels++; return undefined; } }) as never;
+const espion = (): never => new Proxy(function () {} as object, { get: (_c, p) => (p === "then" ? undefined : espion()), apply: () => { appels++; return undefined; } }) as never;
 const passe = (async () => { appels++; }) as never;
 
 async function monde() {
@@ -36,7 +36,7 @@ async function monde() {
   const acteur = async (req: FastifyRequest) => /sid=(e\d)/.exec(String(req.headers.cookie ?? ""))?.[1];
   brancherGardeLectureSeule(s, { registre, acteur });
   const o = { exigerEquipe: passe };
-  routeVueClient(s, { garde: { registre, acteur }, exigerDroit: passe, equipe: async (r: FastifyRequest) => ({ acteur: (await acteur(r))!, roleEquipe: "administrateur" }), vue: { accordValide: async () => true, finIntervention: async () => new Date(t + 7_200_000) }, maintenant: () => new Date(t), envois: espion(), trace: espion() } as never);
+  routeVueClient(s, { garde: { registre, acteur }, exigerDroit: passe, equipe: async (r: FastifyRequest) => ({ acteur: (await acteur(r))!, roleEquipe: "administrateur" }), vue: { accordValide: async () => true, finIntervention: async () => new Date(t + 7_200_000) }, maintenant: () => new Date(t), envois: espion(), trace: { ecrire: async () => undefined } } as never);
   routeDonnees(s, { session: espion(), executer: espion() });
   routeGel(s, { ...o, exigerReauthentification: passe, session: espion(), gel: espion() });
   routeATrancher(s, { ...o, appelant: espion(), reauthentifie: espion(), appliquer: espion(), ecarter: espion() });
@@ -52,7 +52,7 @@ async function monde() {
   s.post("/api/console/v1/clients/:id/export-futur", async () => { appels++; return { ok: true }; });
   s.get("/equipe/export-csv", async () => { appels++; return { ok: true }; });
   await s.ready();
-  const jouer = (methode: string, url: string, sid?: string) => s.inject({ method: methode as "GET", url, headers: sid ? { cookie: `sid=${sid}` } : {}, payload: methode === "POST" ? {} : undefined });
+  const jouer = (methode: string, url: string, sid?: string) => s.inject({ method: methode as "GET", url, headers: sid ? { cookie: `sid=${sid}` } : {}, ...(methode === "POST" ? { payload: {} } : {}) });
   return { s, registre, routes, jouer, avancer: (ms: number) => { t += ms; }, ouvrirVue: (acteurVue = "e1", client = A) => registre.ranger({ acteur: acteurVue, tenantId: client, expireLe: new Date(t + 3_600_000) }) };
 }
 const remplir = (url: string) => url.replace(/:[A-Za-z]+/g, B);

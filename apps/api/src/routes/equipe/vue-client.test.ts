@@ -40,7 +40,7 @@ async function monde(o: { panneTrace?: boolean; accord?: (id: string) => boolean
   await s.ready();
   const ports: PortsDonnees = {
     base: async () => ({ nomBase: "cli_1111", etat: "active" }),
-    ouvrir: async () => ({ requete: async () => [{ id: "x", nom: "Liste", cree_le: "t" }], fermer: async () => {} }),
+    ouvrir: async () => ({ requete: async (texte) => (texte.includes("commun.etablissements") ? [{ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" }] : [{ id: "x", nom: "Liste", cree_le: "t" }]), fermer: async () => {} }),
     accordValide: async () => true,
     vueRangee: (acteur, tenantId) => registre.vueRangee(acteur, tenantId),
     maintenant,
@@ -66,6 +66,20 @@ describe("routes de la vue « comme le client »", () => {
     // Le service des données refuse aussi le contenu de B : la vue rangée est celle de A seulement.
     const session = { tenantId: B, role: "equipe" as const, acteur: "e1", etablissements: [], vue: { tenantId: B, expireLe: new Date(T0.getTime() + 600_000) } };
     expect(((await m.service.executer(session, "listerListesProspects", {}).catch((e: unknown) => e)) as { code: string }).code).toBe("action_interdite");
+  });
+
+  it("[C-007] @isolation la route seule, sans la garde, refuse aussi un client qui n'est pas celui de la vue", async () => {
+    const m = await monde();
+    await m.ouvrir();
+    const s = Fastify();
+    brancherErreurs(s);
+    routeVueClient(s, { garde: { registre: m.registre, acteur: async () => "e1" }, exigerDroit: async () => {}, equipe: async () => ({ acteur: "e1", roleEquipe: "administrateur" }), vue: { accordValide: async () => true, finIntervention: async () => new Date(T0.getTime() + 7_200_000) }, maintenant: () => T0, envois: m.envois, trace: { ecrire: async (e: EntreeTrace) => void m.traces.push(e) } } as never);
+    const avant = m.traces.length;
+    for (const [methode, url] of [["POST", `${BASE(B)}/pages`], ["GET", BASE(B)], ["POST", `${BASE(B)}/fermer`]] as const) {
+      expect((await s.inject({ method: methode, url, ...(methode === "POST" ? { payload: url.endsWith("fermer") ? {} : { page: "fiche" } } : {}) })).statusCode, url).toBe(404);
+    }
+    expect(m.traces).toHaveLength(avant);
+    expect(m.registre.vueDe("e1")?.tenantId).toBe(A);
   });
 
   it("[C-008] @isolation à la 61e minute, la vue est fermée côté serveur", async () => {

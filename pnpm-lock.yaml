@@ -53,6 +53,9 @@ importers:
       '@axion-auto/donnees-module':
         specifier: workspace:*
         version: link:../../packages/donnees-module
+      '@axion-auto/observabilite':
+        specifier: workspace:*
+        version: link:../../packages/observabilite
       '@axion-auto/reglages-heritage':
         specifier: workspace:*
         version: link:../../packages/reglages-heritage
@@ -93,6 +96,9 @@ importers:
       '@axion-auto/design':
         specifier: workspace:*
         version: link:../../packages/design
+      '@axion-auto/observabilite':
+        specifier: workspace:*
+        version: link:../../packages/observabilite
       next:
         specifier: 16.4.3
         version: 16.4.3(@playwright/test@1.64.1)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
@@ -120,6 +126,9 @@ importers:
       '@axion-auto/donnees-module':
         specifier: workspace:*
         version: link:../../packages/donnees-module
+      '@axion-auto/observabilite':
+        specifier: workspace:*
+        version: link:../../packages/observabilite
       '@axion-auto/sdk-module':
         specifier: workspace:*
         version: link:../../packages/sdk-module
@@ -333,7 +342,11 @@ importers:
         specifier: 10.2.1
         version: 10.2.1
 
-  packages/observabilite: {}
+  packages/observabilite:
+    dependencies:
+      '@sentry/core':
+        specifier: 11.11.0
+        version: 11.11.0
 
   packages/reglages-heritage: {}
 
@@ -1482,6 +1495,14 @@ packages:
     resolution: {integrity: sha512-oELmoyA6ML9jDRMV3kgcMQFKxUfBU0yFVn6yTctVaLT5ygXnxH52I3TZEgV9EhXJC68/uFvE5Daj1/25c0Xa/A==}
     peerDependencies:
       selderee: ~0.12.0
+
+  '@sentry/conventions@0.30.0':
+    resolution: {integrity: sha512-WTumd5A2iFmHTRubi6mc6gLHU8LswPQqoNaZu6T1cxiTUmy3WdEw0i8FAnVbcgxTlsumX5oh63/b4B9lY5wAPQ==}
+    engines: {node: '>=14'}
+
+  '@sentry/core@11.11.0':
+    resolution: {integrity: sha512-PRrcEdPrTYuHcbDa6DhJZR9Qg2d+2gjKVXiv2QeiTgxvhvXDxYiaVSXH0lldKTR099Er5TAEChiX7aEu4yNlUw==}
+    engines: {node: '>=20.19.0 <22.0.0 || >=22.12.0 <23.0.0 || >=23.2.0'}
 
   '@smithy/core@3.36.2':
     resolution: {integrity: sha512-oRw0rB9QSUiCZfEs23G5F4Af+b2rQt1lItIICWu5IejFNd+uPM8SWqiKLMpQ6bX1Q7slsLbjuoE2niErFtkVPQ==}
@@ -3915,6 +3936,12 @@ snapshots:
       domelementtype: 2.3.0
       domhandler: 5.0.3
       selderee: 0.12.0
+
+  '@sentry/conventions@0.30.0': {}
+
+  '@sentry/core@11.11.0':
+    dependencies:
+      '@sentry/conventions': 0.30.0
 
   '@smithy/core@3.36.2':
     dependencies:

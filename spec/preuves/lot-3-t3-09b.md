@@ -1,0 +1,2 @@
+A-018 → EN PARTIE (T3-09b) : [A-018] packages/design/src/textes/glossaire.test.ts (14 mots, une phrase chacun, sans mot interdit, tutoiement, prix ni « Grenoble ») ; la page /glossaire et le « ? » d'un mot restent à faire en T3-09c2, 2026-11-07
+B-225 → EN PARTIE (T3-09b) : [B-225] packages/design/src/textes/glossaire.test.ts (liste des raccourcis clavier et de leur effet) ; l'ouverture par Ctrl ou Cmd + K reste à faire en T3-09c2, 2026-11-07

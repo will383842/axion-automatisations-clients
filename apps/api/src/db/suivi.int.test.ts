@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { controlerInvariants, EXCEPTIONS_UNICITE, type Requete } from "../../../../packages/contrats/src/c5/invariants.js";
+import { creerDepotOutils } from "../compatibilite/depot.js";
 import { avecClient } from "./client-actif.js";
 import { migrer } from "./migrer.js";
 
@@ -283,5 +284,16 @@ describe("suivi, avec le socle", { timeout: 90_000 }, () => {
     const { rows } = await migration.query("SELECT relname FROM pg_class WHERE relkind = 'r' AND relnamespace = 'public'::regnamespace AND relname = ANY($1) ORDER BY 1", [["audits_client", "besoins", "cellules", "demandes", "notes", "outils_client", "propositions", "propositions_automatisations", "registre_traitements", "themes_client"]]);
     expect(rows).toHaveLength(10);
     expect(EXCEPTIONS_UNICITE).toEqual([{ table: "instances", index: "instances_id_unique", raison: "ADR 0111" }]);
+  });
+  it("[A-409] la requête réelle des outils sous console_equipe ne rend que les outils du client demandé", async () => {
+    const [A, B] = [randomUUID(), randomUUID()];
+    await creerOrg(A);
+    await creerOrg(B);
+    await inserer(A, "outils_client", { organisation_id: A, famille: "agenda", outil: `agenda_${unique()}` });
+    await inserer(B, "outils_client", { organisation_id: B, famille: "messagerie", outil: `messagerie_${unique()}` });
+    const lus = await creerDepotOutils(equipe).outils(A);
+    expect(lus).toHaveLength(1);
+    expect(lus[0]).toMatchObject({ famille: "agenda" });
+    expect(Object.keys(lus[0] ?? {}).sort()).toEqual(["cree_le", "famille", "outil"]);
   });
 });

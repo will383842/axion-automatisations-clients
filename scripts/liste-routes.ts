@@ -4,6 +4,7 @@ import { brancherErreurs } from "../apps/api/src/plugins/erreurs.js";
 import { routeATrancher } from "../apps/api/src/routes/a-trancher.js";
 import { routeFiche } from "../apps/api/src/routes/clients/fiche.js";
 import { routeNotes } from "../apps/api/src/routes/clients/notes.js";
+import { routeOutils } from "../apps/api/src/routes/clients/outils.js";
 import { routeCanaux } from "../apps/api/src/routes/canaux.js";
 import { routeImportCatalogue } from "../apps/api/src/routes/catalogue/import.js";
 import { routeVersionsCatalogue } from "../apps/api/src/routes/catalogue/versions.js";
@@ -114,6 +115,7 @@ export async function listerRoutes(): Promise<RouteListee[]> {
   routeReglages(appli, { exigerEquipe: garde, contexte: rien, historique: rien, modifier: rien, revenir: rien });
   routeFiche(appli, { ouvert: () => false, exigerEquipe: garde, session: rien, lire: rien });
   routeNotes(appli, { ouvert: () => false, exigerEquipe: garde, session: rien, lister: rien, ajouter: rien, epingler: rien, noterAppelEtClore: rien });
+  routeOutils(appli, { ouvert: () => false, exigerEquipe: garde, droits: rien, depot: rien });
   routeEntree(appli, { cles: rien, memoire: rien, alertes: rien, connexionNormale: "/connexion" });
   const entrant = { cles: rien, memoire: rien, actif: () => false };
   brancherHub(appli, { entrant, recepteur: { alerter: () => undefined } as never });

@@ -47,7 +47,7 @@ describe("keycloak-admin : adresses et identifiants", () => {
   });
   it("[LOT3-securite] l'adaptateur refuse une adresse électronique qui n'en est pas une", async () => {
     const m = monter();
-    for (const e of ["", "sans-arobase", "a@b@c.fr", "a b@exemple.fr", `${"x".repeat(250)}@exemple.fr`, "a@exemple.fr\r\nX: y"]) {
+    for (const e of ["", "sans-arobase", "a@b@exemple.fr", "a b@exemple.fr", `${"x".repeat(250)}@exemple.fr`, "a@exemple.fr\r\nX: y"]) {
       await expect(m.kc.chercherParEmail(e)).rejects.toMatchObject({ code: "entree_invalide" });
       await expect(m.kc.creerUtilisateur({ email: e })).rejects.toMatchObject({ code: "entree_invalide" });
     }

@@ -23,6 +23,7 @@ import { routeFiche, type DepsFiche } from "./routes/clients/fiche.js";
 import { routeNotes, type DepsNotes } from "./routes/clients/notes.js";
 import { routeImportCatalogue, type DepsImportCatalogue } from "./routes/catalogue/import.js";
 import { routeVersionsCatalogue, type DepsVersionsCatalogue } from "./routes/catalogue/versions.js";
+import { routeDeploiementInstances, type DepsDeploiementInstances } from "./routes/instances/deploiement.js";
 
 // journal : flux qui masque les secrets (plugins/journal.ts) ; les sérialiseurs (journal/serialiseur-req.ts) retirent la partie « ?… » de l'adresse, l'hôte et l'IP (base: {} retire aussi le nom de la machine). Sans flux, aucun journal n'est écrit (interrupteur fermé).
 // exigerEquipe de la route de reprise du provisionnement (A-224) : une session d'équipe est exigée, et les rôles « lecteur » et « qualifieur » sont refusés même dans l'équipe.
@@ -44,7 +45,7 @@ export function creerTravailleurProvisionnement(o: {
 }
 
 // `provisionnement` : routes de reprise fournies par l'appelant ; absent, la route n'existe pas (fermé par défaut).
-export function construireServeur(options: { config?: Config; pool?: pg.Pool; journal?: { write(ligne: string): void }; provisionnement?: DepsRoutesProvisionnement; crm?: DepsCrm; executeur?: DepsExecuteur; donnees?: DepsRoutesDonnees; importCatalogue?: DepsImportCatalogue; versionsCatalogue?: DepsVersionsCatalogue; webhooks?: DepsWebhooks; fiche?: DepsFiche; notes?: DepsNotes; importPersonnes?: DepsImport; clients?: DepsClients } = {}) {
+export function construireServeur(options: { config?: Config; pool?: pg.Pool; journal?: { write(ligne: string): void }; provisionnement?: DepsRoutesProvisionnement; crm?: DepsCrm; executeur?: DepsExecuteur; donnees?: DepsRoutesDonnees; importCatalogue?: DepsImportCatalogue; versionsCatalogue?: DepsVersionsCatalogue; deploiementInstances?: DepsDeploiementInstances; webhooks?: DepsWebhooks; fiche?: DepsFiche; notes?: DepsNotes; importPersonnes?: DepsImport; clients?: DepsClients } = {}) {
   // id_trace : toujours choisi par le serveur, l'en-tête du client est ignoré.
   const serveur = Fastify({ genReqId: () => randomUUID(), requestIdHeader: false, ...(options.journal ? { logger: { level: "info", stream: options.journal, base: {}, serializers: serialiseursJournal } } : {}) });
   brancherErreurs(serveur);
@@ -62,6 +63,8 @@ export function construireServeur(options: { config?: Config; pool?: pg.Pool; jo
   if (options.importCatalogue) routeImportCatalogue(serveur, options.importCatalogue);
   // Cycle de vie des versions (T4-27b) : la route n'existe que si l'appelant la fournit, réservée à l'équipe, et répond 503 tant que `ouvert` est faux (fermé par défaut).
   if (options.versionsCatalogue) routeVersionsCatalogue(serveur, options.versionsCatalogue);
+  // Déploiement d'une instance (T4-28b1) : la route n'existe que si l'appelant la fournit, réservée à l'équipe, 503 tant que `ouvert` est faux (fermé par défaut).
+  if (options.deploiementInstances) routeDeploiementInstances(serveur, options.deploiementInstances);
   // Webhooks entrants (T4-24) : la route n'existe que si l'appelant la fournit, et répond 503 tant que `actif()` est faux (WEBHOOKS_OUVERTS, fermé par défaut).
   if (options.webhooks) routeWebhooks(serveur, options.webhooks);
   // Espace Clients (T3-10) : la route n'existe que si l'appelant la fournit, et répond 503 tant que `ouvert()` est faux (fermé par défaut).

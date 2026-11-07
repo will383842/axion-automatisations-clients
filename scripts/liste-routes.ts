@@ -8,6 +8,7 @@ import { routeCanaux } from "../apps/api/src/routes/canaux.js";
 import { routeImportCatalogue } from "../apps/api/src/routes/catalogue/import.js";
 import { routeVersionsCatalogue } from "../apps/api/src/routes/catalogue/versions.js";
 import { routeClients } from "../apps/api/src/routes/clients/liste.js";
+import { routeDeploiementInstances } from "../apps/api/src/routes/instances/deploiement.js";
 import { routeCrm } from "../apps/api/src/routes/crm.js";
 import { routeDonnees } from "../apps/api/src/routes/donnees.js";
 import { routeDonneesModule } from "../apps/api/src/routes/portail/donnees-module.js";
@@ -122,6 +123,7 @@ export async function listerRoutes(): Promise<RouteListee[]> {
   routeImport(appli, { ouvert: false, session: rien, ports: rien });
   routeImportCatalogue(appli, { ouvert: false, importeur: rien, authentifier: garde as never });
   routeVersionsCatalogue(appli, { ouvert: false, cycle: rien, authentifier: garde as never });
+  routeDeploiementInstances(appli, { ouvert: false, authentifier: garde as never, creer: rien, tester: rien, activer: rien });
   routeExecuteur(appli, { actif: () => false, cles: rien, memoire: rien, depot: rien, evenements: { depot: rien } });
   routeWebhooks(appli, { actif: () => false, depot: rien, secret: rien, instance: rien, memoire: rien, file: rien, sceller: rien, debit: { parWebhook: 1, global: 1, fenetreMs: 1 } });
   await appli.ready();

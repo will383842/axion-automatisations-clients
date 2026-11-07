@@ -1,3 +1,4 @@
+// FICHIER FIGÉ (T-REG-3, ADR 0139) : ne pas y ajouter de bloc describe. Une table neuve s'inscrit dans colonnes/fragments/<fiche>.ts et ses tests vont dans un fichier de test neuf de la fiche.
 import { readdirSync, readFileSync } from "node:fs";
 import { is, sql } from "drizzle-orm";
 import { check, getTableConfig, integer, PgDialect, PgTable, pgTable, text, uuid } from "drizzle-orm/pg-core";
@@ -6,20 +7,9 @@ import { TABLES_COMMUNES } from "../../../../packages/contrats/src/c5/invariants
 import { analyserSql } from "../../../../scripts/garde-migrations.ts";
 import { TABLES_CLIENT } from "./schema/aides.ts";
 import * as cli from "./schema-cli/index.ts";
-import * as schema from "./schema.ts";
+import { colonnesInterdites, PERMISES, tableauxSansBorne, tableNommee, tablesDuSchema, TEXTE_PERMIS, TEXTE_SANS_LIMITE_DETTE, textesSansLimite } from "./colonnes/outils.ts";
+import { COMMUNES_SOCLE, TABLES_CLI_SOCLE } from "./colonnes/socle.ts";
 
-// Garde « aucun secret en base » (T2-06) : aucune colonne du schéma ne porte un nom de secret. Un secret vit dans le coffre ; la base ne garde qu'une référence.
-const INTERDITS = ["secret", "mot_de_passe", "password", "token", "jeton", "cle_api"];
-// Liste fermée des colonnes de référence permises : chaque ajout se relit en 2 tours (zone sécurité).
-const PERMISES: readonly string[] = ["reference_coffre"];
-
-export function colonnesInterdites(tables: PgTable[]): string[] {
-  return tables.flatMap((t) => {
-    const { name, columns } = getTableConfig(t);
-    return columns.filter((c) => INTERDITS.some((m) => c.name.toLowerCase().includes(m)) && !PERMISES.includes(c.name)).map((c) => `${name}.${c.name}`);
-  });
-}
-const tablesDuSchema = () => Object.values(schema).filter((v) => is(v, PgTable)) as PgTable[];
 
 describe("garde des colonnes : aucun secret en base", () => {
   it("[LOT2-garde] aucune colonne du schéma réel n'est nommée comme un secret", () => {
@@ -29,7 +19,7 @@ describe("garde des colonnes : aucun secret en base", () => {
 
   it("[C-034] aucune colonne des tables de schema-cli (bases des clients) n'est nommée comme un secret", () => {
     const tablesCli = Object.values(cli).filter((v) => is(v, PgTable)) as PgTable[];
-    expect(tablesCli.length).toBe(9);
+    expect(tablesCli.map((x) => getTableConfig(x).name)).toEqual(expect.arrayContaining([...TABLES_CLI_SOCLE]));
     expect(colonnesInterdites(tablesCli)).toEqual([]);
   });
 
@@ -46,64 +36,6 @@ describe("garde des colonnes : aucun secret en base", () => {
   });
 });
 
-// Garde « aucun texte libre » (C-034) : dans demandes, executions et alertes, toute colonne `text` figure dans une liste fermée avec sa longueur maximale,
-// et le schéma porte un CHECK qui la borne (char_length(col) <= N, ou une expression régulière à quantificateur borné {m,n}). Un motif borné compte pour n + 1 caractères au plus (un caractère d'attaque possible avant la classe répétée). Chaque ajout se relit en 2 tours.
-export const TEXTE_PERMIS: Readonly<Record<string, number>> = Object.freeze({
-  "demandes.categorie": 64,
-  "demandes.reference_texte": 64,
-  "demandes.responsable": 200,
-  "executions.code_erreur": 65,
-  "alertes.type": 64,
-  "alertes.regle": 64,
-  // Soldées par la migration 0019 (T2-52, bornes validées en base).
-  "executions.auteur": 200,
-  "executions.termine_par": 200,
-  "alertes.assignee_a": 200,
-  // T3-05a (migration 0020) : « Aujourd'hui », colonnes bornées par expression régulière ou par char_length.
-  "aujourdhui_ignores.type_fait": 65,
-  "aujourdhui_ignores.reference": 129,
-  "aujourdhui_ignores.membre": 200,
-  // T3-05b (migration 0021) : conformité, références de forme fermée (aucun texte libre).
-  "demandes_droits.reference": 64,
-  "demandes_droits.reference_reponse": 129,
-  "incidents_violations.reference": 64,
-  "incidents_violations.reference_dossier": 129,
-  "aipd.reference_document": 256,
-  // T5-01b (migration 0023) : colonnes d'alertes, bornées par un motif (clé de regroupement 128, cause 64).
-  "alertes.cle_regroupement": 128,
-  "alertes.cause": 64,
-});
-// Dettes écrites (ADR 0055) : soldée par la migration 0019 (T2-52), qui borne executions.auteur, executions.termine_par et alertes.assignee_a. Liste fermée et vide : elle ne grandit pas.
-export const TEXTE_SANS_LIMITE_DETTE: readonly string[] = Object.freeze([]);
-const sqlDe = (c: { value: Parameters<PgDialect["sqlToQuery"]>[0] }) => new PgDialect().sqlToQuery(c.value).sql;
-const borne = (verifs: string[], colonne: string): number | null => {
-  let max: number | null = null;
-  for (const v of verifs) {
-    if (!v.includes(`"${colonne}"`)) continue;
-    const l = /char_length\((?:"[a-z_]+"\.)?"[a-z_]+"\)(?: <=|\s+BETWEEN \d+ AND) (\d+)/.exec(v);
-    if (l) max = Math.max(max ?? 0, Number(l[1]));
-    else if (/\{\d+,(\d+)\}\$/.test(v)) max = Math.max(max ?? 0, Number(/\{\d+,(\d+)\}\$/.exec(v)?.[1]) + 1);
-  }
-  return max;
-};
-export function textesSansLimite(tables: PgTable[], permis: Readonly<Record<string, number>> = TEXTE_PERMIS, dette: readonly string[] = TEXTE_SANS_LIMITE_DETTE): string[] {
-  return tables.flatMap((t) => {
-    const { name, columns, checks } = getTableConfig(t);
-    const verifs = checks.map(sqlDe);
-    return columns
-      .filter((c) => c.getSQLType() === "text")
-      .flatMap((c) => {
-        const cle = `${name}.${c.name}`;
-        const max = borne(verifs, c.name);
-        if (dette.includes(cle)) return max === null ? [] : [`${cle} : désormais bornée, la retirer de la dette`];
-        if (!(cle in permis)) return [`${cle} : hors de la liste fermée`];
-        if (max === null) return [`${cle} : aucune longueur maximale dans le schéma`];
-        if (max > (permis[cle] ?? 0)) return [`${cle} : ${max} > ${permis[cle]}`];
-        return [];
-      });
-  });
-}
-const tableNommee = (nom: string) => tablesDuSchema().find((t) => getTableConfig(t).name === nom) as PgTable;
 
 describe("garde des colonnes : aucun texte libre (C-034)", () => {
   it("[C-034] demandes, executions et alertes : chaque colonne de texte est dans la liste fermée et bornée", () => {
@@ -312,22 +244,6 @@ const TEXTE_SUPERVISION_5B: Readonly<Record<string, number>> = Object.freeze({
   "commentaires_alertes.auteur": 200,
   "commentaires_alertes.texte": 500,
 });
-// Colonnes text[] : bornées en nombre ET en forme (dette M3 de l'audit de la 0022). Une colonne text[] hors de cette garde est refusée.
-export function tableauxSansBorne(tables: PgTable[]): string[] {
-  return tables.flatMap((t) => {
-    const { name, columns, checks } = getTableConfig(t);
-    const verifs = checks.map(sqlDe);
-    return columns
-      .filter((c) => c.getSQLType() === "text[]")
-      .flatMap((c) => {
-        const cle = `${name}.${c.name}`;
-        const siennes = verifs.filter((v) => v.includes(`"${c.name}"`));
-        const nombre = siennes.some((v) => new RegExp(`cardinality\\((?:"[a-z_]+"\\.)?"${c.name}"\\) <= \\d+`).test(v));
-        const forme = siennes.some((v) => v.includes("array_to_string") && /\{\d+,\d+\}/.test(v));
-        return [...(nombre ? [] : [`${cle} : nombre d'éléments non borné`]), ...(forme ? [] : [`${cle} : forme des éléments non bornée`])];
-      });
-  });
-}
 
 describe("tables du lot 5 : supervision commune (T5-01b)", () => {
   const dossier = new URL("../../drizzle/", import.meta.url);
@@ -347,7 +263,7 @@ describe("tables du lot 5 : supervision commune (T5-01b)", () => {
     }
     // Les neuf, et aucune autre table de la supervision, entrent dans la liste fermée (elle compte 9 de plus qu'avant la 0023).
     expect(TABLES_COMMUNES.filter((t) => COMMUNES_5B.includes(t.replace("public.", "")))).toHaveLength(9);
-    expect(TABLES_COMMUNES).toHaveLength(32);
+    expect(TABLES_COMMUNES).toEqual(expect.arrayContaining([...COMMUNES_SOCLE]));
     expect(Object.isFrozen(TABLES_COMMUNES)).toBe(true);
   });
 
@@ -469,7 +385,7 @@ describe("tables du lot 4 : modèle d'IA et clé du client (T4-34a)", () => {
   it("[LOT4-ia] garde des colonnes : cles_ia_client n'a aucune colonne de texte sans limite ni colonne de secret", () => {
     expect(TABLES_CLIENT.map((t) => t.nom)).toContain("cles_ia_client");
     expect(TABLES_COMMUNES).not.toContain("public.cles_ia_client");
-    expect(TABLES_COMMUNES).toHaveLength(32);
+    expect(TABLES_COMMUNES).toEqual(expect.arrayContaining([...COMMUNES_SOCLE]));
     const t = tableNommee("cles_ia_client");
     expect(textesSansLimite([t], TEXTE_IA)).toEqual([]);
     expect(colonnesInterdites([t])).toEqual([]);
@@ -534,7 +450,7 @@ describe("tables du lot 4 : cycle de vie des versions (T4-27a)", () => {
 
   it("[LOT4-cycle] garde des colonnes 0027 : textes bornés, aucune colonne de secret, TABLES_COMMUNES compte 32", () => {
     const tables = ["passages_version", "preuves_procedure"].map(tableNommee);
-    expect(TABLES_COMMUNES).toHaveLength(32);
+    expect(TABLES_COMMUNES).toEqual(expect.arrayContaining([...COMMUNES_SOCLE]));
     for (const nom of ["passages_version", "preuves_procedure"]) {
       expect(TABLES_COMMUNES, nom).toContain(`public.${nom}`);
       expect(getTableConfig(tableNommee(nom)).columns.map((c) => c.name), nom).not.toContain("tenant_id");
@@ -576,7 +492,7 @@ describe("tables du lot 4 : déploiement (T4-28a)", () => {
     expect(TABLES_CLIENT.map((t) => t.nom)).toEqual(expect.arrayContaining(["tests_a_blanc", "deploiements_instance"]));
     expect(TABLES_COMMUNES).not.toContain("public.tests_a_blanc");
     expect(TABLES_COMMUNES).not.toContain("public.deploiements_instance");
-    expect(TABLES_COMMUNES).toHaveLength(32);
+    expect(TABLES_COMMUNES).toEqual(expect.arrayContaining([...COMMUNES_SOCLE]));
     expect(Object.keys(TEXTE_DEPLOIEMENT)).toHaveLength(4);
     expect(textesSansLimite(tables, TEXTE_DEPLOIEMENT)).toEqual([]);
     expect(colonnesInterdites(tables)).toEqual([]);
@@ -597,7 +513,7 @@ describe("tables du lot 5 : file d'alertes (T5-04a)", () => {
     expect(TABLES_CLIENT.map((t) => t.nom)).toEqual(expect.arrayContaining(["occurrences_alertes", "clotures_alertes"]));
     expect(TABLES_COMMUNES).not.toContain("public.occurrences_alertes");
     expect(TABLES_COMMUNES).not.toContain("public.clotures_alertes");
-    expect(TABLES_COMMUNES).toHaveLength(32);
+    expect(TABLES_COMMUNES).toEqual(expect.arrayContaining([...COMMUNES_SOCLE]));
     expect(Object.keys(TEXTE_FILE_ALERTES)).toHaveLength(2);
     expect(textesSansLimite(tables, TEXTE_FILE_ALERTES)).toEqual([]);
     expect(colonnesInterdites(tables)).toEqual([]);

@@ -1,0 +1,21 @@
+# VictoriaLogs : collecteur des journaux regroupés des trois applications (A-080, C-022). Réseau interne seulement, aucun port publié.
+# Alimenté PAR ENVOI : l'API, l'exécuteur et la console poussent des lignes déjà masquées (packages/observabilite, journal.ts).
+# Aucun montage de l'hôte, aucun accès au démon Docker : le bac à sable de l'exécuteur n'est jamais lu (C-022).
+# Plafond : durée de conservation et taille disque maximale par variables ; valeurs provisoires, fixées au lot 8a.
+# Pas de healthcheck : l'image est sans shell ni client HTTP (aucune sonde possible dedans). « up --wait » attend l'état « en marche » ;
+# la santé réelle (/health) est surveillée de l'extérieur par le moniteur d'Uptime Kuma (ops/socle/uptime-kuma/moniteurs.json).
+# Les briques tierces (base, connexion, coffre...) ne sont pas collectées ici : décision d'architecte, voir la dette T5-13-dette-briques-tierces.
+services:
+  victoria-logs:
+    image: victoriametrics/victoria-logs:v1.53.0@sha256:251121fa882af99b95ba0c230a4a2f412ea602d2698c64a96c58dc9842bb755d
+    restart: "no"
+    command:
+      - -storageDataPath=/victoria-logs-data
+      - -httpListenAddr=:9428
+      - -retentionPeriod=${JOURNAUX_RETENTION:-30d}
+      - -retention.maxDiskSpaceUsageBytes=${JOURNAUX_PLAFOND_OCTETS:-5000000000}
+    volumes:
+      - victoria-logs-donnees:/victoria-logs-data
+    networks: [interne]
+volumes:
+  victoria-logs-donnees: {}

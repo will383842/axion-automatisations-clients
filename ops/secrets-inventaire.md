@@ -22,6 +22,12 @@ Les secrets de l'équipe vivent dans Bitwarden ou sous `technique/` d'OpenBao, J
 | `BACKOFFICE_URL` | aucun | environnement cloud (A-104) | sans objet |
 | `MIGRATION_DATABASE_URL` | production | environnement cloud, le temps d'une migration (le mot de passe du rôle qui modifie le schéma vient d'OpenBao) | à chaque départ d'un administrateur |
 | `APP_VERSION` | aucun | environnement de construction | sans objet |
+| `SENTRY_DSN` | equipe | OpenBao `technique/` (adresse d'envoi des erreurs, région européenne seulement ; absente : aucun signalement, la console démarre sans) | à chaque changement de projet Sentry |
+| `SENTRY_ECHANTILLONNAGE` | aucun | environnement cloud (taux de 0 à 1, 0 par défaut ; les transactions sont de toute façon retirées avant l'envoi) | sans objet |
+| `SENTRY_CELLULE` | aucun | environnement cloud (nom de la cellule, étiquette des erreurs) | sans objet |
+| `JOURNAUX_RETENTION` | aucun | environnement cloud (durée de conservation des journaux regroupés ; valeur provisoire, fixée au lot 8a) | sans objet |
+| `JOURNAUX_PLAFOND_OCTETS` | aucun | environnement cloud (taille disque maximale des journaux regroupés ; valeur provisoire, fixée au lot 8a) | sans objet |
+| `NEXT_RUNTIME` | aucun | posée par Next lui-même (moteur nodejs ou edge) ; lue par l'instrumentation de la console | sans objet |
 | `HUB_URL` | aucun | environnement cloud | sans objet |
 | `WEBHOOKS_OUVERTS` | aucun | environnement cloud (interrupteur, fermé par défaut) | sans objet |
 | `GMAIL_URL` | aucun | environnement cloud | sans objet |
@@ -62,8 +68,10 @@ Les secrets de l'équipe vivent dans Bitwarden ou sous `technique/` d'OpenBao, J
 | `SOCLE_KEYCLOAK_ADMIN_MOT_DE_PASSE` | construction | environnement de construction | généré à chaque lancement |
 | `SOCLE_KEYCLOAK_BD_MOT_DE_PASSE` | construction | environnement de construction | généré à chaque lancement |
 | `SOCLE_KEYCLOAK_SECRET_CONSOLE` | construction | environnement de construction | généré à chaque lancement |
+| `SOCLE_KEYCLOAK_SECRET_CONSOLE_SESSIONS` | construction | environnement de construction | généré à chaque lancement |
 | `SOCLE_KEYCLOAK_SECRET_PORTAIL` | construction | environnement de construction | généré à chaque lancement |
 | `KC_SECRET_CONSOLE` | production | environnement du conteneur Keycloak (substitué dans le fichier de royaume de l'équipe ; en essai, valeur de `SOCLE_KEYCLOAK_SECRET_CONSOLE`) | à chaque départ d'un administrateur |
+| `KC_SECRET_CONSOLE_SESSIONS` | production | OpenBao `technique/` ; lu par l'API seule (compte de service `console-sessions` du royaume de l'équipe) et substitué dans le fichier de royaume de l'équipe ; en essai, valeur de `SOCLE_KEYCLOAK_SECRET_CONSOLE_SESSIONS` | à chaque départ d'un administrateur |
 | `KC_SECRET_PORTAIL` | production | environnement du conteneur Keycloak (substitué dans le fichier de royaume des clients ; en essai, valeur de `SOCLE_KEYCLOAK_SECRET_PORTAIL`) | à chaque départ d'un administrateur |
 | `KC_ORIGINE_CONSOLE` | aucun | environnement du conteneur Keycloak (origine publique de la console, substituée dans les adresses de rappel et de fin de session du client `console` ; en essai, l'adresse fictive https://console.exemple.test) | sans objet |
 | `SOCLE_STOCKAGE_MOT_DE_PASSE` | construction | environnement de construction | généré à chaque lancement |

@@ -12,6 +12,8 @@ import { BoitePostgres } from "../noyau/postgres/boite-envoi.ts";
 import { JournalPostgres } from "../noyau/postgres/journal-etapes.ts";
 import { decider, ErreurConnecteur, erreurSysteme } from "../noyau/politique-erreurs.ts";
 import { CoupureProcessus, type Connecteurs, type Console, type Horloge } from "../noyau/ports.ts";
+import { ArretEnvoisPose } from "../envois/arret-urgence.ts";
+import { EnvoiAnnule } from "../envois/delai-annulation.ts";
 import type { Cellule } from "./cellule.ts";
 import type { PlafondModule } from "./plafond-module.ts";
 import type { Semaphore } from "./semaphore.ts";
@@ -23,6 +25,8 @@ export interface Travail {
   palier: Palier;
   // Automatisation (module) de l'instance : sert au plafond de places par module (A-415).
   moduleId?: string;
+  // Envoi d'un brouillon validé : la garde relit une annulation avant le départ (C-576).
+  annulable?: boolean;
 }
 
 export type Resultat = { statut: "fait" } | { statut: "remis"; delaiMs: number };
@@ -145,6 +149,16 @@ export function normaliserErreur(e: unknown): ErreurConnecteur {
   return new ErreurConnecteur("passagere", "erreur_inattendue");
 }
 
+// Si le marquage échoue, on suit le chemin normal (passager) : à la reprise la garde refuse encore, ce qui reste sûr.
+async function marquer(job: Pick<Job, "data" | "updateData">, marque: Record<string, unknown>): Promise<boolean> {
+  try {
+    await job.updateData({ ...(job.data as object), ...marque });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // Le compte des essais est dans les données du travail : moveToDelayed ne fait pas monter attemptsMade (skipAttempt de BullMQ).
 export function creerGestionnaire(config: Pick<ConfigExecuteur, "delaiRemiseMs">, d: Omit<Dependances, "delaiRemiseMs">, lire: (job: Pick<Job, "data">) => Travail, horloge: Horloge = horlogeSysteme): Gestionnaire {
   return async (job, token) => {
@@ -153,6 +167,9 @@ export function creerGestionnaire(config: Pick<ConfigExecuteur, "delaiRemiseMs">
     try {
       r = await traiter(travail, { ...d, delaiRemiseMs: config.delaiRemiseMs });
     } catch (e) {
+      // Arrêt d'urgence ou annulation (C-534, C-576) : reconnus AVANT le compte des essais. Le travail est marqué et gardé, jamais supprimé ni remis en attente.
+      if (e instanceof ArretEnvoisPose && (await marquer(job, { arrete: { code: "arret_urgence", a: new Date(horloge.maintenant()).toISOString() } }))) throw new UnrecoverableError("arret_urgence");
+      if (e instanceof EnvoiAnnule && (await marquer(job, { annule: true }))) return;
       if (e instanceof RemiseIntention) {
         // Une remise, pas un essai : le compte des essais ne bouge pas, le compteur de remises est à part et borné.
         const avant = remiseDe(job.data);
@@ -209,6 +226,8 @@ export interface BrancheMoteur {
   console: Console;
   connecteurs: Connecteurs;
   horloge: Horloge;
+  // Garde d'envoi (C-534), construite par travail avec le client de la configuration. Absente : aucun envoi n'est gardé (câblage = dette T4-50e).
+  garderEnvois?(connecteurs: Connecteurs, contexte: { travail: Travail; clientId: string }): Connecteurs;
 }
 
 // Une seule boîte d'envoi par client et par processus : le bail et les échecs connus y sont partagés entre les travaux du même client.
@@ -225,7 +244,14 @@ function boiteDe(pool: Pool, clientId: string): BoitePostgres {
 // Remplace les ports en mémoire : journal et boîte d'envoi sont ceux de la base moteur, pour le client du travail.
 export function executerAvecMoteur(b: BrancheMoteur): Dependances["executer"] {
   return async (travail) => {
-    const ports = { journal: new JournalPostgres(b.pool, travail.clientId), boite: boiteDe(b.pool, travail.clientId), connecteurs: b.connecteurs, console: b.console, horloge: b.horloge };
+    let connecteurs = b.connecteurs;
+    if (b.garderEnvois) {
+      // Le client du travail vient d'un emplacement modifiable (Valkey) : il est comparé à la configuration AVANT toute écriture dans la boîte ou le journal.
+      const { clientId } = await b.console.lireConfiguration(travail.instanceId);
+      if (clientId !== travail.clientId) throw new ErreurConnecteur("definitive", "client_incoherent");
+      connecteurs = b.garderEnvois(b.connecteurs, { travail, clientId });
+    }
+    const ports = { journal: new JournalPostgres(b.pool, travail.clientId), boite: boiteDe(b.pool, travail.clientId), connecteurs, console: b.console, horloge: b.horloge };
     // reporter : le plafond total de 5 essais est compté par le travailleur, la machine ne rejoue plus les erreurs passagères (ADR 0102).
     const r = await new Machine({ module: b.module, ports, reporter: true }).lancer(travail.instanceId, travail.id);
     if (r.statut === "reportee") throw r.cause;

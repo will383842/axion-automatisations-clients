@@ -6,8 +6,11 @@ import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { lireYaml } from "../../../../scripts/garde-compose.js";
 import { nomBaseDe, nomsRoles } from "../provisionnement/etapes-base.js";
-import { definitionRoleHumain } from "./acces-humain.js";
-import { adminRotationPg, sessionsPg } from "./rotation.js";
+import { journalEchecs } from "../provisionnement/journal-echecs.js";
+import { definitionRoleHumain, revocationsParFile, revoquerTousBauxHumains, type FileRevocations } from "./acces-humain.js";
+import { adminRotationPg, creerRotation, PERIODE_DEFAUT_JOURS, sessionsPg, type PortsRotation } from "./rotation.js";
+
+journalEchecs(import.meta.url);
 
 // T2-36b, essais sur un VRAI PostgreSQL lancé par l'essai (même image que le socle, mots de passe tirés au lancement). Ce que l'essai exerce pour de bon :
 // les ordres SQL de creation_statements et revocation_statements de definitionRoleHumain (OpenBao les joue tels quels), adminRotationPg et sessionsPg.
@@ -167,5 +170,105 @@ describe("accès humain et coupure des sessions sur un vrai PostgreSQL", () => {
     await sessionsPg({ requete: async (t, v) => (await admin.query(t, v)).rows as never }, { requete: async () => [] as never }).couper(nomBaseDe(A), r.app);
     await expect(lecture.query("SELECT 1")).rejects.toThrow();
     expect((await autre.query("SELECT 1")).rowCount).toBe(1);
+  });
+});
+
+// T4-39b-3 : rotation immédiate et baux humains sur un vrai PostgreSQL. OpenBao est SIMULÉ : le faux « revoquer » joue revocation_statements de definitionRoleHumain, comme OpenBao.
+// La file BullMQ est une file en mémoire de même forme (le branchement réel reste une dette : LOT4-dette-39b3-branchement). Clients neufs : les essais ci-dessus laissent des rôles humains vivants chez A.
+describe("rotation immédiate et rôles dynamiques (T4-39b-3)", () => {
+  const C = randomUUID();
+  const D = randomUUID();
+  const E = randomUUID();
+  const baux = new Map<string, { nom: string; mdp: string }>();
+  const taches: { id: string; data: unknown }[] = [];
+  const file: FileRevocations = {
+    add: async (_n, donnees, options) => { taches.push({ id: String(options["jobId"]), data: donnees }); },
+    getJobs: async () => taches.map((t) => ({ ...t, remove: async () => { taches.splice(taches.findIndex((x) => x.id === t.id), 1); } })),
+  };
+  const sqlAdmin = { requete: async (t: string, v?: unknown[]) => (await admin.query(t, v)).rows as never };
+  const bail = async (tenantId: string) => {
+    const h = await humain(tenantId);
+    const id = `database/creds/humain-lecture-${nomBaseDe(tenantId)}/${randomBytes(8).toString("hex")}`;
+    baux.set(id, h);
+    await revocationsParFile(file).programmerRevocation(tenantId, id, 3_600_000);
+    return h;
+  };
+  const rotation = (alertes: Record<string, unknown>[] = []) => {
+    let version = 0;
+    const p: PortsRotation = {
+      sessions: () => sessionsPg(sqlAdmin, { requete: async () => [] as never }),
+      alerte: { envoyer: async (e) => { alertes.push(e); } },
+      base: async (t) => ({ etat: "active", grappe: "donnees-1", nomBase: nomBaseDe(t) }),
+      admin: () => adminRotationPg(sqlAdmin),
+      coffre: { ranger: async () => ++version },
+      bouncer: () => ({ reconnecter: async () => undefined }),
+      verrou: { prendre: async () => async () => undefined },
+      motDePasse: () => randomBytes(12).toString("hex"),
+      empreinte: scram,
+      journal: { tracer: () => undefined },
+      maintenant: () => new Date(),
+      periodeJours: PERIODE_DEFAUT_JOURS,
+      humains: {
+        revoquerTous: (t) => revoquerTousBauxHumains({
+          bail: { revoquer: async (tenantId, id) => { const b = baux.get(id)!; await jouer(definitionRoleHumain(tenantId).revocation_statements, b.nom, b.mdp); } },
+          taches: revocationsParFile(file),
+          journal: { tracer: () => undefined },
+        }, t),
+      },
+    };
+    return creerRotation(p);
+  };
+  const equipe = (tenantId: string) => ({ acteur: "equipe-1", role: "administrateur", clientActifId: tenantId, reauthentifie: true });
+  const membresLogin = async (tenantId: string) =>
+    (await admin.query("SELECT m.rolname FROM pg_auth_members a JOIN pg_roles r ON r.oid = a.roleid JOIN pg_roles m ON m.oid = a.member WHERE r.rolname = $1 AND m.rolcanlogin AND (a.inherit_option OR a.set_option)", [nomsRoles(tenantId).lecture])).rows;
+
+  beforeAll(async () => {
+    for (const t of [C, D, E]) await creerClient(t);
+  }, 120_000);
+
+  it("[A-209] rotation immédiate : les rôles dynamiques rattachés à _lecture sont révoqués ou expirés", async () => {
+    const h = await bail(C);
+    const session = await ouvrir(S, h.nom, h.mdp, nomBaseDe(C));
+    expect((await session.query("SELECT 1")).rowCount).toBe(1);
+    expect(await membresLogin(C)).toHaveLength(1);
+    await expect(rotation().immediate(C, "poste perdu", equipe(C), { add: async () => undefined })).resolves.toBe("faite");
+    await expect(session.query("SELECT 1")).rejects.toThrow();
+    expect(await refuse(S, h.nom, h.mdp, nomBaseDe(C))).toMatch(/password authentication failed|not permitted to log in|does not exist/i);
+    expect(await existe(h.nom)).toBe(false);
+    expect(await membresLogin(C)).toEqual([]);
+    expect(taches.filter((t) => String((t.data as { bail: string }).bail).includes(nomBaseDe(C)))).toEqual([]);
+  });
+
+  it("[A-209] @isolation la rotation immédiate de A ne révoque aucun bail humain de B", async () => {
+    const dehors = await bail(D);
+    const session = await ouvrir(S, dehors.nom, dehors.mdp, nomBaseDe(D));
+    const dedans = await bail(C);
+    await rotation().immediate(C, "poste perdu", equipe(C), { add: async () => undefined });
+    expect(await existe(dedans.nom)).toBe(false);
+    expect(await existe(dehors.nom)).toBe(true);
+    expect((await session.query("SELECT texte FROM public.relances")).rows[0]).toEqual({ texte: `relance de ${nomBaseDe(D)}` });
+    expect((await (await ouvrir(S, dehors.nom, dehors.mdp, nomBaseDe(D))).query("SELECT 1")).rowCount).toBe(1);
+    expect(taches.some((t) => String((t.data as { bail: string }).bail).includes(nomBaseDe(D)))).toBe(true);
+  });
+
+  it("[A-209] le filet compte un membre LOGIN créé à la main et ne le supprime pas ; il ignore un membre ADMIN seul", async () => {
+    const lecture = nomsRoles(E).lecture;
+    const manuel = `manuel_${randomBytes(4).toString("hex")}`;
+    const gestion = `gestion_${randomBytes(4).toString("hex")}`;
+    await admin.query(`CREATE ROLE "${manuel}" LOGIN NOINHERIT`);
+    await admin.query(`GRANT "${lecture}" TO "${manuel}" WITH INHERIT TRUE`);
+    await admin.query(`CREATE ROLE "${gestion}" LOGIN`);
+    await admin.query(`GRANT "${lecture}" TO "${gestion}" WITH ADMIN TRUE, INHERIT FALSE, SET FALSE`);
+    const filet = sessionsPg(sqlAdmin, { requete: async () => [] as never });
+    expect((await filet.restants(nomBaseDe(E))).membres).toBe(1);
+    // La rotation immédiate le voit : revocation_incomplete, et le rôle n'est pas supprimé par elle.
+    const alertes: Record<string, unknown>[] = [];
+    await expect(rotation(alertes).immediate(E, "poste perdu", equipe(E), { add: async () => undefined })).resolves.toBe("revocation_incomplete");
+    expect(alertes).toHaveLength(1);
+    expect(JSON.stringify(alertes)).not.toContain(manuel);
+    expect(await existe(manuel)).toBe(true);
+    expect(await existe(gestion)).toBe(true);
+    await admin.query(`DROP ROLE "${manuel}"`);
+    await admin.query(`DROP ROLE "${gestion}"`);
   });
 });

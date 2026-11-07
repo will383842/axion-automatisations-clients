@@ -115,7 +115,8 @@ describe("tables de client, avec le socle", { timeout: 30_000 }, () => {
     const { rows } = await migration.query(`
       SELECT i.indisprimary, (SELECT string_agg(a.attname, ',' ORDER BY k.ord) FROM unnest(i.indkey::int2[]) WITH ORDINALITY k(n, ord) JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = k.n) AS cols
       FROM pg_index i WHERE i.indrelid = 'public.instances'::regclass AND i.indisunique`);
-    expect(rows.map((r) => `${r.indisprimary}:${r.cols}`)).toEqual(["true:tenant_id,id", "false:id"]); // + instances_id_unique (ADR 0111, migration 0019)
+    // + instances_id_unique (ADR 0111, migration 0019) + instances_une_par_automatisation (ADR 0125, migration 0028) : l'ordre des index n'est pas garanti.
+    expect(rows.map((r) => `${r.indisprimary}:${r.cols}`).sort()).toEqual(["false:id", "false:tenant_id,automatisation_id,environnement", "true:tenant_id,id"]);
     const fk = await migration.query("SELECT pg_get_constraintdef(oid) AS d FROM pg_constraint WHERE conname = 'instances_organisation_fk'");
     expect(fk.rows[0]?.d).toContain("REFERENCES organisations(tenant_id, id)");
     const A = randomUUID();
@@ -353,5 +354,105 @@ describe("réserves de l'audit de la PR 95, avec le socle", { timeout: 60_000 },
     await expect(essai("2001:db8::/32")).rejects.toThrow(/adresse IP avec masque/);
     await expect(essai("192.0.2.17")).resolves.toBeUndefined();
     await expect(essai(null)).resolves.toBeUndefined();
+  });
+});
+
+// Migration 0028 (T4-28a, ADR 0125) : tests à blanc et journal des déploiements. Mise en place du catalogue et des configurations par le propriétaire de la base (les routes viennent avec T4-28b).
+describe("déploiement (T4-28a)", { timeout: 30_000 }, () => {
+  const su = pool(DIRECT, "postgres", 2);
+  const uniq = () => String(Math.floor(10_000 + Math.random() * 89_999));
+  const creerVersion = async () => {
+    const a = (await su.query("INSERT INTO automatisations (code, nom) VALUES ($1, 'Relance de devis') RETURNING id", [`ESS-${uniq()}${uniq()}`])).rows[0]?.["id"] as string;
+    const empreinte = createHash("sha256").update(randomUUID()).digest("hex");
+    const v = (await su.query("INSERT INTO versions_automatisation (automatisation_id, semver, api_moteur, artefact_ref, empreinte_sha256, signature_ed25519, sbom_ref) VALUES ($1, '1.0.0', '^0.1.0', $2, $3, 'c2lnbmF0dXJlLWZpY3RpdmU=', 'sbom/essai') RETURNING id", [a, `modules/${empreinte}/`, empreinte])).rows[0]?.["id"] as string;
+    return { automatisation: a, version: v };
+  };
+  const creerConfiguration = async (tenant: string, instance: string) => {
+    const id = randomUUID();
+    await su.query("INSERT INTO configurations (tenant_id, id, instance_id, numero, donnees, version_schema, auteur, motif_changement) VALUES ($1, $2, $3, 1, '{}', '1.0.0', $4, 'essai')", [tenant, id, instance, APPELANT.acteur]);
+    return id;
+  };
+  const ligneTest = (t: string, i: string, v: string, cfg: string, extra: Record<string, unknown> = {}) => ({ tenant_id: t, instance_id: i, version_id: v, configuration_id: cfg, resultat: "reussi", lectures: 3, brouillons: 2, envois: 0, duree_ms: 120, auteur: APPELANT.acteur, ...extra });
+  const inserer = (table: string, tenant: string, v: Record<string, unknown>) => {
+    const cles = Object.keys(v);
+    return ecrire(app, tenant, (c) => c.query(`INSERT INTO ${table} (${cles.join(", ")}) VALUES (${cles.map((_, i) => `$${i + 1}`).join(", ")})`, Object.values(v)), APPELANT);
+  };
+  const monde = async () => {
+    const A = randomUUID();
+    await creerOrg(A, { raison_sociale: "Boulangerie Rivoire" });
+    const { automatisation, version } = await creerVersion();
+    const instance = (await creerInstance(A, { etat: "pause", automatisation_id: automatisation })).rows[0]?.id as string;
+    const cfg = await creerConfiguration(A, instance);
+    return { A, automatisation, version, instance, cfg };
+  };
+
+  it("[B-093] @isolation un test à blanc réussi avec un envoi, ou échoué sans code, est refusé par la base", async () => {
+    const { A, instance, version, cfg } = await monde();
+    await inserer("tests_a_blanc", A, ligneTest(A, instance, version, cfg));
+    await expect(inserer("tests_a_blanc", A, ligneTest(A, instance, version, cfg, { envois: 1 }))).rejects.toMatchObject({ code: "23514", constraint: "tests_a_blanc_reussi_sans_envoi" });
+    await expect(inserer("tests_a_blanc", A, ligneTest(A, instance, version, cfg, { resultat: "echoue" }))).rejects.toMatchObject({ code: "23514", constraint: "tests_a_blanc_echec_motive" });
+    await inserer("tests_a_blanc", A, ligneTest(A, instance, version, cfg, { resultat: "echoue", envois: 1, code_erreur: "envoi_pendant_test" }));
+    await expect(inserer("tests_a_blanc", A, ligneTest(A, instance, version, cfg, { resultat: "echoue", code_erreur: "Erreur: adresse a@exemple.fr" }))).rejects.toMatchObject({ code: "23514", constraint: "tests_a_blanc_code_erreur_format" });
+    await expect(inserer("tests_a_blanc", A, ligneTest(A, instance, version, cfg, { lectures: -1 }))).rejects.toMatchObject({ code: "23514", constraint: "tests_a_blanc_compteurs_bornes" });
+  });
+
+  it("[B-093] @isolation un test à blanc ne peut pas citer la configuration d'une autre instance du même client", async () => {
+    const { A, instance, version, automatisation } = await monde();
+    const autre = (await creerInstance(A, { etat: "pause", automatisation_id: automatisation, environnement: "test" })).rows[0]?.id as string;
+    const cfgAutre = await creerConfiguration(A, autre);
+    await expect(inserer("tests_a_blanc", A, ligneTest(A, instance, version, cfgAutre))).rejects.toMatchObject({ code: "23503", constraint: "tests_a_blanc_configuration_fk" });
+    await expect(inserer("deploiements_instance", A, { tenant_id: A, instance_id: instance, version_cible_id: version, configuration_id: cfgAutre, resultat: "ok", auteur: APPELANT.acteur })).rejects.toMatchObject({ code: "23503", constraint: "deploiements_instance_configuration_fk" });
+  });
+
+  it("[A-119] @isolation sous le client A, console_app ne lit ni n'écrit aucune ligne de B dans tests_a_blanc ni deploiements_instance, et ne cite pas une configuration de B", async () => {
+    const a = await monde();
+    const b = await monde();
+    await inserer("tests_a_blanc", b.A, ligneTest(b.A, b.instance, b.version, b.cfg));
+    await inserer("deploiements_instance", b.A, { tenant_id: b.A, instance_id: b.instance, version_cible_id: b.version, resultat: "ok", auteur: APPELANT.acteur });
+    await ecrire(app, a.A, async (c) => {
+      for (const t of ["tests_a_blanc", "deploiements_instance"]) expect((await c.query(`SELECT count(*)::int AS n FROM ${t} WHERE tenant_id = $1`, [b.A])).rows[0]?.n, t).toBe(0);
+    }, APPELANT);
+    await expect(inserer("tests_a_blanc", a.A, ligneTest(b.A, b.instance, b.version, b.cfg))).rejects.toMatchObject({ code: "42501" });
+    await expect(inserer("deploiements_instance", a.A, { tenant_id: b.A, instance_id: b.instance, version_cible_id: b.version, resultat: "ok", auteur: APPELANT.acteur })).rejects.toMatchObject({ code: "42501" });
+    await expect(inserer("tests_a_blanc", a.A, ligneTest(a.A, a.instance, a.version, b.cfg))).rejects.toMatchObject({ code: "23503" });
+    for (const t of ["tests_a_blanc", "deploiements_instance"]) expect((await app.query(`SELECT count(*)::int AS n FROM ${t}`)).rows[0]?.n, t).toBe(0);
+  });
+
+  it("[A-119] @isolation UPDATE, DELETE et TRUNCATE de tests_a_blanc et deploiements_instance sont refusés à console_app et console_equipe ; console_lecture ne lit rien", async () => {
+    const { A, instance, version, cfg } = await monde();
+    await inserer("tests_a_blanc", A, ligneTest(A, instance, version, cfg));
+    await inserer("deploiements_instance", A, { tenant_id: A, instance_id: instance, version_cible_id: version, resultat: "ok", auteur: APPELANT.acteur });
+    for (const t of ["tests_a_blanc", "deploiements_instance"]) {
+      for (const requeteMal of [`UPDATE ${t} SET auteur = 'autre'`, `DELETE FROM ${t}`, `TRUNCATE ${t}`]) {
+        await expect(ecrire(app, A, (c) => c.query(requeteMal), APPELANT), requeteMal).rejects.toMatchObject({ code: "42501" });
+        await expect(avecEquipe(equipe, (c) => c.query(requeteMal)), requeteMal).rejects.toMatchObject({ code: "42501" });
+      }
+      expect((await avecEquipe(equipe, (c) => c.query(`SELECT count(*)::int AS n FROM ${t} WHERE tenant_id = $1`, [A]))).rows[0]?.n, t).toBe(1);
+      const { rows } = await migration.query("SELECT has_table_privilege('console_lecture', $1, 'SELECT') AS p", [`public.${t}`]);
+      expect(rows[0]?.p, t).toBe(false);
+    }
+  });
+
+  it("[A-119] @isolation l'auteur d'un test à blanc ou d'un déploiement est l'acteur de la transaction, et cree_le ne peut pas être antidaté", async () => {
+    const { A, instance, version, cfg } = await monde();
+    await expect(inserer("tests_a_blanc", A, ligneTest(A, instance, version, cfg, { auteur: "usurpateur" }))).rejects.toMatchObject({ code: "42501" });
+    await expect(inserer("deploiements_instance", A, { tenant_id: A, instance_id: instance, version_cible_id: version, resultat: "ok", auteur: "usurpateur" })).rejects.toMatchObject({ code: "42501" });
+    await expect(inserer("tests_a_blanc", A, ligneTest(A, instance, version, cfg, { cree_le: "2020-01-01T00:00:00Z" }))).rejects.toMatchObject({ code: "42501" });
+    await expect(inserer("deploiements_instance", A, { tenant_id: A, instance_id: instance, version_cible_id: version, resultat: "ok", auteur: APPELANT.acteur, cree_le: "2020-01-01T00:00:00Z" })).rejects.toMatchObject({ code: "42501" });
+    await inserer("deploiements_instance", A, { tenant_id: A, instance_id: instance, version_cible_id: version, resultat: "ok", auteur: APPELANT.acteur });
+    const { rows } = await migration.query("SELECT acteur FROM public.journal_audit WHERE entite = 'deploiements_instance' AND tenant_id = $1", [A]);
+    expect(rows.map((r) => r.acteur)).toEqual([APPELANT.acteur]);
+  });
+
+  it("[B-312] @isolation une deuxième instance du même client, de la même automatisation et du même environnement est refusée ; une instance de test à côté de la production est acceptée", async () => {
+    const { A, automatisation } = await monde();
+    await expect(creerInstance(A, { etat: "pause", automatisation_id: automatisation })).rejects.toMatchObject({ code: "23505", constraint: "instances_une_par_automatisation" });
+    await creerInstance(A, { etat: "pause", automatisation_id: automatisation, environnement: "test" });
+    // Les instances anciennes (sans automatisation_id) ne sont pas concernées par l'index partiel.
+    await creerInstance(A, { etat: "pause" });
+    await creerInstance(A, { etat: "pause" });
+    const B = randomUUID();
+    await creerOrg(B, { raison_sociale: "Garage Fontaine" });
+    await creerInstance(B, { etat: "pause", automatisation_id: automatisation });
   });
 });

@@ -10,17 +10,18 @@ const INST = "33333333-3333-4333-8333-333333333333";
 const COR = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const ETAB = "44444444-4444-4444-8444-444444444444";
 const MODELE = analyserModele('CREATE TABLE "commun"."factures_essai" (\n  "id" uuid PRIMARY KEY,\n  "etablissement_id" uuid NOT NULL,\n  "libelle" text\n);');
-const LIMITES = { delaiMs: 300, maxLignes: 2, hotes: ["pgbouncer-donnees.test"] };
+const LIMITES = { delaiMs: 300, delaiTotalMs: 5000, maxLignes: 2, hotes: ["pgbouncer-donnees.test"] };
 const requete = (extra: object = {}) => ({ nom: "liste-factures", mode: "lecture", parametres: { motif: { type: "texte", max: 20 } }, forme: { type: "simple", table: "commun.factures_essai", sortie: { lignes: [{ colonne: "libelle" }] }, filtres: [{ colonne: "libelle", operateur: "egal", parametre: "motif" }], limite: { fixe: 10 } }, ...extra });
 const instance = (donnees: unknown = { requetes: [requete()], actions: [] }, extra: Partial<InstanceInstallee> = {}): InstanceInstallee => ({ empreinte: "sha256:aaaa", installee: true, ecart: false, impaye: false, etat: "actif", donnees, ...extra });
-const baseDe = (id: string): BaseLecture => ({ hote: "pgbouncer-donnees.test", base: `cli_${id.repeat(12)}`, role: `cli_${id.repeat(12)}_lecture`, motDePasse: "mdp-d-essai", expire: new Date("2030-01-01"), valideJusqua: null });
+const nomBase = (tenant: string): string => `cli_${tenant.replaceAll("-", "").slice(0, 12)}`; // dérivé de l'UUID du client, comme le courtier
+const baseDe = (tenant: string): BaseLecture => ({ hote: "pgbouncer-donnees.test", base: nomBase(tenant), role: `${nomBase(tenant)}_lecture`, motDePasse: "mdp-d-essai", expire: new Date("2030-01-01"), valideJusqua: null });
 
 interface Espion { ouvertures: BaseLecture[]; liberees: (Error | undefined)[]; demandes: [string, string][]; traces: Record<string, unknown>[]; textes: string[]; instances: string[] }
 function ports(o: { instances?: Record<string, InstanceInstallee | undefined>; base?: (t: string) => BaseLecture; identite?: (b: BaseLecture) => { u: string; d: string }; lignes?: Record<string, unknown>[]; echec?: Error } = {}): { p: PortsLecture; e: Espion } {
   const e: Espion = { ouvertures: [], liberees: [], demandes: [], traces: [], textes: [], instances: [] };
   const p: PortsLecture = {
     instance: async (t, i) => { e.instances.push(`${t}|${i}`); return (o.instances ?? { [A]: instance() })[t]; },
-    baseLecture: async (t, id) => { e.demandes.push([t, id]); return (o.base ?? ((x) => baseDe(x === A ? "a" : "b")))(t); },
+    baseLecture: async (t, id) => { e.demandes.push([t, id]); return (o.base ?? ((x) => baseDe(x)))(t); },
     ouvrir: async (b) => {
       e.ouvertures.push(b);
       const id = o.identite?.(b) ?? { u: b.role, d: b.base };
@@ -79,20 +80,20 @@ describe("port données de l'exécuteur", () => {
     await lire("liste-factures", { motif: "x" });
     expect(e.demandes).toEqual([[A, "tache-1"]]);
     expect(e.ouvertures).toHaveLength(1);
-    expect(e.ouvertures[0]).toMatchObject({ base: "cli_" + "a".repeat(12), role: "cli_" + "a".repeat(12) + "_lecture" });
+    expect(e.ouvertures[0]).toMatchObject({ base: "cli_" + "1".repeat(12), role: "cli_" + "1".repeat(12) + "_lecture" });
     // Le client B ne reçoit que sa base à lui, même instance et même nom de requête.
     const b = port({ instances: { [B]: instance() } }, B);
     await b.lire("liste-factures", { motif: "x" });
     expect(b.e.demandes).toEqual([[B, "tache-1"]]);
-    expect(b.e.ouvertures[0]?.base).toBe("cli_" + "b".repeat(12));
+    expect(b.e.ouvertures[0]?.base).toBe("cli_" + "2".repeat(12));
   });
 
   it("[C-624] @isolation une base remise qui n'est pas le rôle _lecture attendu, ou une identité de session différente, est refusée et la connexion jetée", async () => {
     const mauvaises: Parameters<typeof ports>[0][] = [
-      { base: () => ({ ...baseDe("a"), role: "cli_" + "a".repeat(12) + "_app" }) },
-      { base: () => ({ ...baseDe("a"), role: "cli_" + "b".repeat(12) + "_lecture" }) },
+      { base: () => ({ ...baseDe(A), role: "cli_" + "1".repeat(12) + "_app" }) },
+      { base: () => ({ ...baseDe(A), role: "cli_" + "2".repeat(12) + "_lecture" }) },
       { identite: (b) => ({ u: b.base + "_app", d: b.base }) },
-      { identite: () => ({ u: "cli_" + "b".repeat(12) + "_lecture", d: "cli_" + "b".repeat(12) }) },
+      { identite: () => ({ u: "cli_" + "2".repeat(12) + "_lecture", d: "cli_" + "2".repeat(12) }) },
     ];
     for (const m of mauvaises) {
       const { lire, e } = port(m);
@@ -176,5 +177,36 @@ describe("port données de l'exécuteur", () => {
     await lire("liste-factures", { motif: "x" });
     x.p.instance = async () => instance({ requetes: [], actions: [] }); // même empreinte, contenu différent
     await expect(lire("liste-factures", { motif: "x" })).rejects.toMatchObject({ code: "introuvable" });
+  });
+  it("[C-624] @isolation une remise dont la base n'est pas celle du client de l'exécution est refusée", async () => {
+    // Un courtier fautif remet la base (et le rôle) de B pour une exécution de A : la session est cohérente avec la remise, mais pas avec le client.
+    const { lire, e } = port({ base: () => baseDe(B) });
+    await expect(lire("liste-factures", { motif: "x" })).rejects.toMatchObject({ code: "indisponible" });
+    expect(e.ouvertures).toEqual([]); // aucune session n'est ouverte sur la base d'un autre client
+    expect(e.textes).toEqual([]);
+  });
+
+  it("[A-170] un client de plus de 1000 établissements est refusé explicitement, jamais lu en partie", async () => {
+    const x = ports();
+    const ouvrir = x.p.ouvrir;
+    x.p.ouvrir = async (b) => {
+      const c = await ouvrir(b);
+      return { liberer: c.liberer, query: async (t, v) => (t.includes("etablissements") ? { rows: Array.from({ length: 1001 }, (_, i) => ({ u: b.role, d: b.base, id: `44444444-4444-4444-8444-${String(i).padStart(12, "0")}` })) } : c.query(t, v)) };
+    };
+    await expect(creerFabriquePort(x.p, LIMITES, MODELE)(ctx()).lire("liste-factures", { motif: "x" })).rejects.toMatchObject({ code: "indisponible" });
+    expect(x.e.textes.some((t) => t.includes("factures_essai"))).toBe(false);
+    expect(x.e.liberees.every((r) => r instanceof Error)).toBe(true);
+  });
+
+  it("[A-170] une lecture dépasse au plus le délai total configuré, attente en file comprise", async () => {
+    const x = ports();
+    const ouvrir = x.p.ouvrir;
+    x.p.ouvrir = async (b) => { const c = await ouvrir(b); return { liberer: c.liberer, query: async (t, v) => { await new Promise((ok) => setTimeout(ok, 60)); return c.query(t, v); } }; };
+    const lire = creerFabriquePort(x.p, { ...LIMITES, delaiTotalMs: 150 }, MODELE)(ctx()).lire;
+    const debut = Date.now();
+    const res = await Promise.allSettled([lire("liste-factures", { motif: "a" }), lire("liste-factures", { motif: "b" }), lire("liste-factures", { motif: "c" })]);
+    expect(Date.now() - debut).toBeLessThan(400);
+    expect(res.filter((r) => r.status === "rejected").every((r) => (r as PromiseRejectedResult).reason?.code === "indisponible")).toBe(true);
+    expect(res.some((r) => r.status === "rejected")).toBe(true);
   });
 });

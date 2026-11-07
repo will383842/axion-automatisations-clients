@@ -539,7 +539,10 @@ describe("tables du lot 4 : cycle de vie des versions (T4-27a)", () => {
       expect(TABLES_COMMUNES, nom).toContain(`public.${nom}`);
       expect(getTableConfig(tableNommee(nom)).columns.map((c) => c.name), nom).not.toContain("tenant_id");
     }
-    expect(textesSansLimite(tables, TEXTE_CYCLE)).toEqual([]);
+    // L'empreinte est bornée par une longueur exacte ({64}$), que l'analyseur de bornes ne lit pas : elle est contrôlée à part, par son CHECK de forme.
+    const empreintes = ["passages_version.empreinte_sha256", "preuves_procedure.empreinte_sha256"];
+    expect(textesSansLimite(tables, TEXTE_CYCLE).filter((l) => !empreintes.some((e) => l.startsWith(`${e} : aucune longueur maximale`)))).toEqual([]);
+    for (const t of tables) expect(getTableConfig(t).checks.map((c) => new PgDialect().sqlToQuery(c.value).sql).some((v) => v.includes('"empreinte_sha256" ~ \'^[0-9a-f]{64}$\''))).toBe(true);
     expect(colonnesInterdites(tables)).toEqual([]);
     expect(Object.keys(TEXTE_CYCLE)).toHaveLength(5);
     expect(Object.keys(TEXTE_PERMIS)).toHaveLength(19);

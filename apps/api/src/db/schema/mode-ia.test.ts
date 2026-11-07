@@ -45,7 +45,7 @@ describe("instances.mode_ia : schéma et migration 0026", () => {
     expect(journal[i - 1]?.tag).toBe("0025_portail");
     expect(journal[i]?.idx).toBe((journal[i - 1]?.idx ?? 0) + 1);
     expect(journal[i]?.when ?? 0).toBeGreaterThan(journal[i - 1]?.when ?? Infinity);
-    expect(journal).toHaveLength(i + 1);
+    expect(journal.length).toBeGreaterThanOrEqual(i + 1);
     expect(lire("meta/0026_snapshot.json")["prevId"]).toBe(lire("meta/0025_snapshot.json")["id"]);
     expect(readdirSync(dossier).filter((f) => /^0026_.*\.sql$/.test(f))).toEqual([NOM]);
   });

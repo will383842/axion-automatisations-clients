@@ -146,13 +146,17 @@ describe("cycle de vie des versions (migration 0027)", () => {
     expect(await codeErreur(enEquipe((c) => c.query("UPDATE preuves_procedure SET reference = 'x' WHERE version_id = $1", [v.id])))).toBe("42501");
     expect(await codeErreur(enEquipe((c) => c.query("DELETE FROM preuves_procedure WHERE version_id = $1", [v.id])))).toBe("42501");
     expect(await codeErreur(enEquipe((c) => c.query("TRUNCATE preuves_procedure")))).toBe("42501");
-    expect(await messageErreur(enProprietaire((c) => c.query("DELETE FROM preuves_procedure WHERE version_id = $1", [v.id])))).toMatch(/suppression refusée dans preuves_procedure/);
+    // Le propriétaire est soumis à la RLS forcée (aucune politique pour lui) : son DELETE ne touche aucune ligne ; le déclencheur refuse en plus tout DELETE sans RLS (superutilisateur, rejeu local).
+    expect((await enProprietaire((c) => c.query("DELETE FROM preuves_procedure WHERE version_id = $1", [v.id]))).rowCount).toBe(0);
+    expect((await enEquipe((c) => c.query("SELECT 1 FROM preuves_procedure WHERE version_id = $1 AND etape = 1", [v.id]))).rowCount).toBe(1);
+    const gardes = await migration.query("SELECT c.relname FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid JOIN pg_proc p ON p.oid = t.tgfoid WHERE p.proname = 'catalogue_garde' AND c.relname IN ('passages_version', 'preuves_procedure') AND (t.tgtype & 2) = 2 AND (t.tgtype & 8) = 8 AND t.tgenabled = 'O' ORDER BY 1");
+    expect(gardes.rows.map((r) => r["relname"])).toEqual(["passages_version", "preuves_procedure"]);
     expect(await codeErreur(enEquipe((c) => preuve(c, v, 11)))).toBe("23514");
     expect(await codeErreur(enEquipe((c) => preuve(c, v, 7)))).toBe("23514");
     await enEquipe((c) => preuve(c, v, 7, {}, ", mesure_ms", [850]));
     expect(await codeErreur(enEquipe((c) => c.query("INSERT INTO preuves_procedure (version_id, etape, empreinte_sha256, auteur, contenu) VALUES ($1, 2, $2, $3, '[]'::jsonb)", [v.id, v.empreinte, ACTEUR])))).toBe("23514");
     await enEquipe((c) => passage(c, v, "brouillon", "recette"));
-    expect(await messageErreur(enProprietaire((c) => c.query("DELETE FROM passages_version WHERE version_id = $1", [v.id])))).toMatch(/suppression refusée dans passages_version/);
+    expect((await enProprietaire((c) => c.query("DELETE FROM passages_version WHERE version_id = $1", [v.id]))).rowCount).toBe(0);
   });
 
   it("[C-240] @isolation l'auteur d'une preuve ou d'un passage est l'acteur de la transaction", async () => {
@@ -219,11 +223,10 @@ describe("cycle de vie des versions (migration 0027)", () => {
   });
 
   it("[LOT4-cycle] @isolation 0027 s'applique sur une base qui a déjà des versions dans les six états (VALIDATE passe, modeles_testes reste nul)", async () => {
-    const r = await migration.query("SELECT count(*)::int AS n, count(modeles_testes)::int AS remplis FROM versions_automatisation WHERE statut IN ('brouillon','recette','pilote','publiee','depreciee','retiree')");
-    expect(r.rows[0]?.["n"]).toBeGreaterThanOrEqual(0);
+    // Le VALIDATE de 0027 a passé sur les lignes présentes (le rejeu avec des versions dans les six états avant 0027 est consigné dans spec/preuves/lot-4-t4-27a.md).
     const c = await migration.query("SELECT convalidated FROM pg_constraint WHERE conname = 'versions_automatisation_modeles_testes_bornes'");
     expect(c.rows).toEqual([{ convalidated: true }]);
     const v = await creerVersion();
-    expect((await migration.query("SELECT modeles_testes FROM versions_automatisation WHERE id = $1", [v.id])).rows[0]?.["modeles_testes"]).toBeNull();
+    expect((await enEquipe((c) => c.query("SELECT modeles_testes FROM versions_automatisation WHERE id = $1", [v.id]))).rows).toEqual([{ modeles_testes: null }]);
   });
 });

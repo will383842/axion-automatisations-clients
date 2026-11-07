@@ -88,6 +88,9 @@ export const TABLES_COMMUNES: readonly string[] = Object.freeze([
   "public.bilans_incident",
   "public.fenetres_maintenance",
   "public.avis_depreciation",
+  // T4-27a (ADR 0122) : cycle de vie des versions et preuves de la procédure, en ajout seul, écrites par l'équipe seule. Sans nom de client.
+  "public.passages_version",
+  "public.preuves_procedure",
 ]);
 // Unicités permises sans tenant_id : liste fermée, une seule entrée nominative (instances_id_unique, ADR 0111). Une entrée ne s'ajoute qu'avec sa raison, relue en 2 tours (ADR 0040).
 // Aucune option d'appel ne l'étend.

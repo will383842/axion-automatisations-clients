@@ -318,3 +318,141 @@ describe("migration 0023 : supervision commune, avec le socle", { timeout: 120_0
     expect(ecarts.filter((e) => e.regle === "ecriture_commune_ouverte" || e.regle === "role_contourne_rls")).toEqual([]);
   });
 });
+
+// Migration 0029 (T5-04a, ADR 0126) : file d'alertes. Essais en base ajoutés à ce fichier (aucun nouveau *.int.test.ts : partition du socle, ADR 0121).
+const COND = "ON CONFLICT (tenant_id, cle_regroupement) WHERE cle_regroupement IS NOT NULL AND etat IN ('ouverte','acquittee') DO NOTHING";
+const SUPERVISION = { acteur: "supervision", ip: "192.0.2.17" };
+const ouvrirCle = (A: string, cle: string, appelant = SUPERVISION) =>
+  ecrire(app, A, (c) => c.query(`INSERT INTO alertes (tenant_id, id, organisation_id, type, gravite, regle, cle_regroupement, cause) VALUES ($1, $2, $1, 'sauvegarde_echec', 'avertissement', 'essai', $3, 'sauvegarde_echec') ${COND} RETURNING id`, [A, randomUUID(), cle]), appelant);
+const occurrence = (A: string, alerte: string, extra = "", valeurs: unknown[] = [], appelant: typeof APPELANT | null = SUPERVISION) =>
+  ecrire(app, A, (c) => c.query(`INSERT INTO occurrences_alertes (tenant_id, alerte_id${extra ? `, ${extra.split("=")[0]}` : ""}) VALUES ($1, $2${extra ? `, ${extra.split("=")[1]}` : ""})`, [A, alerte, ...valeurs]), appelant ?? undefined);
+const cloture = (A: string, alerte: string, raison = "traitee", auteur = "agent-essai", appelant: typeof APPELANT | null = APPELANT) =>
+  ecrire(app, A, (c) => c.query("INSERT INTO clotures_alertes (tenant_id, alerte_id, raison, auteur) VALUES ($1, $2, $3, $4)", [A, alerte, raison, auteur]), appelant ?? undefined);
+const compter = async (A: string, alerte: string) => (await lireSous(app, A, `SELECT count(*)::int AS n FROM occurrences_alertes WHERE alerte_id = '${alerte}'`)).rows[0]?.["n"] as number;
+const idDe = (r: { rows: Record<string, unknown>[] }) => r.rows[0]?.["id"] as string;
+const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+describe("migration 0029 : file d'alertes, avec le socle", { timeout: 120_000 }, () => {
+  it("[B-395] @isolation deux ouvertures simultanées de la même clé chez le même client donnent une seule alerte ; la même clé chez un autre client est acceptée", async () => {
+    const A = randomUUID();
+    const B = randomUUID();
+    await creerOrg(A);
+    await creerOrg(B);
+    const cle = `course:${randomUUID().slice(0, 8)}`;
+    // La première transaction reste ouverte 1,5 s : la seconde attend le verrou de l'index puis ne crée rien (DO NOTHING).
+    const premiere = ecrire(app, A, async (c) => {
+      const r = await c.query(`INSERT INTO alertes (tenant_id, id, organisation_id, type, gravite, regle, cle_regroupement) VALUES ($1, $2, $1, 'sauvegarde_echec', 'avertissement', 'essai', $3) ${COND} RETURNING id`, [A, randomUUID(), cle]);
+      await pause(1500);
+      return r.rowCount ?? 0;
+    }, SUPERVISION);
+    await pause(300);
+    const seconde = await ouvrirCle(A, cle);
+    expect((await premiere) + (seconde.rowCount ?? 0)).toBe(1);
+    expect((await lireSous(app, A, `SELECT count(*)::int AS n FROM alertes WHERE cle_regroupement = '${cle}'`)).rows[0]?.["n"]).toBe(1);
+    await expect(ecrire(app, A, (c) => c.query("INSERT INTO alertes (tenant_id, id, organisation_id, type, gravite, regle, cle_regroupement) VALUES ($1, $2, $1, 'sauvegarde_echec', 'avertissement', 'essai', $3)", [A, randomUUID(), cle]), SUPERVISION)).rejects.toMatchObject({ code: "23505" });
+    expect((await ouvrirCle(B, cle)).rowCount).toBe(1);
+  });
+
+  it("[B-427] @isolation dix occurrences d'une alerte ouverte : compteur 10 ; occurrence antidatée, sans acteur, chez un autre client ou citant l'instance d'un autre client : refusées", async () => {
+    const A = randomUUID();
+    const B = randomUUID();
+    await creerOrg(A);
+    await creerOrg(B);
+    const instanceB = await creerInstance(B);
+    const alerte = idDe(await ouvrirCle(A, `compteur:${randomUUID().slice(0, 8)}`));
+    for (let i = 0; i < 10; i++) await occurrence(A, alerte);
+    expect(await compter(A, alerte)).toBe(10);
+    await expect(occurrence(A, alerte, "recue_le=now() - interval '9 days'")).rejects.toMatchObject({ code: "42501" });
+    await expect(occurrence(A, alerte, "", [], null)).rejects.toMatchObject({ code: "42501" });
+    await expect(occurrence(B, alerte)).rejects.toMatchObject({ code: "42501" });
+    await expect(occurrence(A, alerte, "instance_id=$3", [instanceB])).rejects.toMatchObject({ code: "23503" });
+    expect(await compter(B, alerte)).toBe(0);
+  });
+
+  it("[LOT5-tables] la relance d'une alerte ouverte est enregistrée (occurrences_alertes.relance) sans changer d'état, et type, gravité et organisation restent refusés", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    const alerte = idDe(await ouvrirCle(A, `relance:${randomUUID().slice(0, 8)}`));
+    await occurrence(A, alerte, "relance=$3", [true]);
+    expect((await lireSous(app, A, `SELECT count(*)::int AS n FROM occurrences_alertes WHERE alerte_id = '${alerte}' AND relance`)).rows[0]?.["n"]).toBe(1);
+    expect((await lireSous(app, A, `SELECT etat FROM alertes WHERE id = '${alerte}'`)).rows[0]?.["etat"]).toBe("ouverte");
+    // La politique transitions_alerte (0010) est inchangée : garder l'état « ouverte » dans une mise à jour reste refusé.
+    await expect(ecrire(app, A, (c) => c.query("UPDATE alertes SET derniere_relance = now() WHERE id = $1", [alerte]), SUPERVISION)).rejects.toMatchObject({ code: "42501" });
+    for (const set of ["type = 'autre'", "gravite = 'critique'", `organisation_id = '${randomUUID()}'`]) {
+      await expect(ecrire(app, A, (c) => c.query(`UPDATE alertes SET ${set}, etat = 'acquittee' WHERE id = $1`, [alerte]), SUPERVISION), set).rejects.toMatchObject({ code: "42501" });
+    }
+  });
+
+  it("[B-031] @isolation clore sans clôture est refusé ; clôture motivée puis close dans la même transaction : accepté ; deuxième clôture, occurrence sur une alerte close, réouverture : refusées", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    const cle = `cloture:${randomUUID().slice(0, 8)}`;
+    const alerte = idDe(await ouvrirCle(A, cle));
+    const clore = (id: string) => ecrire(app, A, (c) => c.query("UPDATE alertes SET etat = 'close' WHERE id = $1", [id]), APPELANT);
+    await expect(clore(alerte)).rejects.toMatchObject({ code: "42501" });
+    const fait = await ecrire(app, A, async (c) => {
+      await c.query("INSERT INTO clotures_alertes (tenant_id, alerte_id, raison, auteur) VALUES ($1, $2, 'traitee', 'agent-essai')", [A, alerte]);
+      return c.query("UPDATE alertes SET etat = 'close' WHERE id = $1", [alerte]);
+    }, APPELANT);
+    expect(fait.rowCount).toBe(1);
+    await expect(cloture(A, alerte)).rejects.toMatchObject({ code: "42501" });
+    await expect(ecrire(app, A, (c) => c.query("INSERT INTO clotures_alertes (tenant_id, alerte_id, raison, auteur) VALUES ($1, $2, 'traitee', 'agent-essai') ON CONFLICT DO NOTHING", [A, alerte]), APPELANT)).rejects.toMatchObject({ code: "42501" });
+    await expect(occurrence(A, alerte)).rejects.toMatchObject({ code: "42501" });
+    expect((await ecrire(app, A, (c) => c.query("UPDATE alertes SET etat = 'ouverte' WHERE id = $1", [alerte]), APPELANT)).rowCount).toBe(0);
+    // Après la clôture, une nouvelle alerte de la même clé peut naître.
+    expect((await ouvrirCle(A, cle)).rowCount).toBe(1);
+  });
+
+  it("[B-031] @isolation une clôture dont l'auteur n'est pas l'acteur, dont la raison est un texte libre, ou antidatée est refusée", async () => {
+    const A = randomUUID();
+    const B = randomUUID();
+    await creerOrg(A);
+    await creerOrg(B);
+    const alerte = idDe(await ouvrirCle(A, `auteur:${randomUUID().slice(0, 8)}`));
+    await expect(cloture(A, alerte, "traitee", "autre-agent")).rejects.toMatchObject({ code: "42501" });
+    await expect(cloture(A, alerte, "Réglé avec contact@exemple.fr")).rejects.toMatchObject({ code: "23514" });
+    await expect(ecrire(app, A, (c) => c.query("INSERT INTO clotures_alertes (tenant_id, alerte_id, raison, auteur, cree_le) VALUES ($1, $2, 'traitee', 'agent-essai', now() - interval '9 days')", [A, alerte]), APPELANT)).rejects.toMatchObject({ code: "42501" });
+    await expect(cloture(B, alerte)).rejects.toMatchObject({ code: "42501" });
+    await cloture(A, alerte);
+  });
+
+  it("[A-188] @isolation console_equipe lit les deux tables de tous les clients sans pouvoir écrire ; console_lecture ne voit que son client ; console_app sans client ne voit rien", async () => {
+    const A = randomUUID();
+    const B = randomUUID();
+    await creerOrg(A);
+    await creerOrg(B);
+    const alerteA = idDe(await ouvrirCle(A, `lecture:${randomUUID().slice(0, 8)}`));
+    const alerteB = idDe(await ouvrirCle(B, `lecture:${randomUUID().slice(0, 8)}`));
+    await occurrence(A, alerteA);
+    await occurrence(B, alerteB);
+    await cloture(A, alerteA);
+    const vus = await commeEquipe("agent-essai", (c) => c.query("SELECT DISTINCT tenant_id FROM occurrences_alertes WHERE tenant_id IN ($1, $2)", [A, B]));
+    expect(vus.rows.map((r) => r["tenant_id"]).sort()).toEqual([A, B].sort());
+    expect((await commeEquipe("agent-essai", (c) => c.query("SELECT 1 FROM clotures_alertes WHERE tenant_id = $1", [A]))).rowCount).toBe(1);
+    await expect(commeEquipe("agent-essai", (c) => c.query("INSERT INTO occurrences_alertes (tenant_id, alerte_id) VALUES ($1, $2)", [A, alerteA]))).rejects.toMatchObject({ code: "42501" });
+    await expect(commeEquipe("agent-essai", (c) => c.query("INSERT INTO clotures_alertes (tenant_id, alerte_id, raison, auteur) VALUES ($1, $2, 'traitee', 'agent-essai')", [B, alerteB]))).rejects.toMatchObject({ code: "42501" });
+    expect((await lireSous(lecture, A, "SELECT DISTINCT tenant_id FROM occurrences_alertes")).rows.map((r) => r["tenant_id"])).toEqual([A]);
+    expect((await lireSous(lecture, B, "SELECT 1 FROM clotures_alertes")).rowCount).toBe(0);
+    const sansClient = await app.query("SELECT (SELECT count(*)::int FROM occurrences_alertes) AS o, (SELECT count(*)::int FROM clotures_alertes) AS c");
+    expect(sansClient.rows[0]).toEqual({ o: 0, c: 0 });
+  });
+
+  it("[A-119] @isolation UPDATE, DELETE et TRUNCATE de occurrences_alertes et clotures_alertes sont refusés à console_app et console_equipe", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    for (const table of ["occurrences_alertes", "clotures_alertes"]) {
+      await expect(ecrire(app, A, (c) => c.query(`UPDATE ${table} SET tenant_id = tenant_id`), APPELANT), `UPDATE ${table}`).rejects.toMatchObject({ code: "42501" });
+      await expect(ecrire(app, A, (c) => c.query(`DELETE FROM ${table}`), APPELANT), `DELETE ${table}`).rejects.toMatchObject({ code: "42501" });
+      await expect(ecrire(app, A, (c) => c.query(`TRUNCATE ${table}`), APPELANT), `TRUNCATE ${table}`).rejects.toMatchObject({ code: "42501" });
+      await expect(commeEquipe("agent-essai", (c) => c.query(`UPDATE ${table} SET tenant_id = tenant_id`)), `équipe UPDATE ${table}`).rejects.toMatchObject({ code: "42501" });
+      await expect(commeEquipe("agent-essai", (c) => c.query(`DELETE FROM ${table}`)), `équipe DELETE ${table}`).rejects.toMatchObject({ code: "42501" });
+      await expect(commeEquipe("agent-essai", (c) => c.query(`TRUNCATE ${table}`)), `équipe TRUNCATE ${table}`).rejects.toMatchObject({ code: "42501" });
+    }
+  });
+
+  it("[A-119] @isolation toutes les migrations appliquées jusqu'à 0029, les invariants C5 ne trouvent aucun écart", async () => {
+    const ecarts = await controlerInvariants(requete, "console", OPTIONS);
+    expect(ecarts.filter((e) => /^(occurrences_alertes|clotures_alertes|alertes)/.test(e.objet))).toEqual([]);
+    expect(ecarts.filter((e) => e.regle === "ecriture_commune_ouverte" || e.regle === "role_contourne_rls")).toEqual([]);
+  });
+});

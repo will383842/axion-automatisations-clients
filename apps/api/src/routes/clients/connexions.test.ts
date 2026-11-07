@@ -15,14 +15,14 @@ const brute = {
   automatisation_code: null, automatisation_nom: null, contact_nom: null, contact_role: null,
   reference_coffre: `bao:clients/${A}/${MARQUEUR}`,
 } as unknown as LigneConnexion;
-const membre = (clients: string[]): MembreDroits => ({ sujet: "m1", role: "second_administrateur", actif: true, portee: { clients, automatisations: [] } });
+const membre = (clients: string[], role: MembreDroits["role"] = "second_administrateur"): MembreDroits => ({ sujet: "m1", role, actif: true, portee: { clients, automatisations: [] } });
 
-function serveur(o: { ouvert?: boolean; clients?: string[]; equipe?: boolean; lignes?: LigneConnexion[] } = {}) {
+function serveur(o: { ouvert?: boolean; clients?: string[]; role?: MembreDroits["role"]; equipe?: boolean; lignes?: LigneConnexion[] } = {}) {
   const lectures: string[] = [];
   const journal: string[] = [];
   const app = Fastify({ logger: { level: "info", stream: { write: (l: string) => { journal.push(l); } } } });
   brancherErreurs(app);
-  const droits: DepsDroits = { membre: async () => membre(o.clients ?? [A]), absenceOuverte: async () => false, tracer: async () => undefined };
+  const droits: DepsDroits = { membre: async () => membre(o.clients ?? [A], o.role), absenceOuverte: async () => false, tracer: async () => undefined };
   const deps: DepsConnexions = {
     ouvert: () => o.ouvert ?? true,
     exigerEquipe: (async () => { if (o.equipe === false) throw new ErreurApi("action_interdite", "Action interdite."); }) as never,
@@ -68,7 +68,7 @@ describe("route des connexions d'un client", () => {
   });
 
   it("[LOT3-outils] un identifiant de client non UUID rend 400 sans lecture", async () => {
-    const { app, lectures } = serveur();
+    const { app, lectures } = serveur({ role: "dirigeant" });
     const r = await app.inject({ method: "GET", url: url("pas-un-uuid") });
     expect(r.statusCode).toBe(400);
     expect(lectures).toEqual([]);

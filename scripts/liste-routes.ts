@@ -20,6 +20,7 @@ import { brancherHub } from "../apps/api/src/routes/hub.js";
 import { routeAnnulation, routeJournal } from "../apps/api/src/routes/journal.js";
 import { routeProvisionnement } from "../apps/api/src/routes/provisionnement.js";
 import { routeReglages } from "../apps/api/src/routes/reglages.js";
+import { routeMembres } from "../apps/api/src/routes/equipe/membres.js";
 import { routeSante } from "../apps/api/src/routes/sante.js";
 import { routeWebhooks } from "../apps/api/src/routes/webhooks/entree.js";
 
@@ -116,6 +117,7 @@ export async function listerRoutes(): Promise<RouteListee[]> {
   routeReglages(appli, { exigerEquipe: garde, contexte: rien, historique: rien, modifier: rien, revenir: rien });
   routeFiche(appli, { ouvert: () => false, exigerEquipe: garde, session: rien, lire: rien });
   routeNotes(appli, { ouvert: () => false, exigerEquipe: garde, session: rien, lister: rien, ajouter: rien, epingler: rien, noterAppelEtClore: rien });
+  routeMembres(appli, { ouvert: false, exigerJeton: garde, exigerReauthentification: garde, droits: rien, service: rien });
   routeEntree(appli, { cles: rien, memoire: rien, alertes: rien, connexionNormale: "/connexion" });
   const entrant = { cles: rien, memoire: rien, actif: () => false };
   brancherHub(appli, { entrant, recepteur: { alerter: () => undefined } as never });

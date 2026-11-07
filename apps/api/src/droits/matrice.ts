@@ -87,4 +87,8 @@ export const ACTION_PAR_ROUTE: Readonly<Record<string, Action>> = {
   "GET /api/console/v1/instances/:id/reglages/versions": "lire",
   "POST /api/console/v1/journal/:id/annuler": "modifier_reglages",
   "GET /equipe/journal": "journal_complet",
+  // T3-07c : membres de l'équipe (dirigeant seul).
+  "GET /api/console/v1/equipe/membres": "utilisateurs_roles",
+  "POST /api/console/v1/equipe/membres": "utilisateurs_roles",
+  "POST /api/console/v1/equipe/membres/:id/desactiver": "utilisateurs_roles",
 };

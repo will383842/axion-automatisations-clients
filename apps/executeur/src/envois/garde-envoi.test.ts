@@ -113,7 +113,7 @@ describe("garde d'envoi : isolation entre clients", () => {
     await b.envoyer("  Marie+Devis@CAFÉ.Exemple.fr ");
     expect(b.connecteur.appels).toHaveLength(1);
     await expect(b.envoyer("marie@café.exemple.fr")).rejects.toMatchObject({ code: "destinataire_hors_client" }); // sans le « + » : autre adresse
-    for (const mauvais of ["Marie <marie+devis@exemple.fr>", "<marie@exemple.fr>", "a@b@exemple.fr", "marie devis@exemple.fr", '"x"@exemple.fr', "sans-arobase", "", 42, undefined]) {
+    for (const mauvais of ["Marie <marie+devis@exemple.fr>", "<marie@exemple.fr>", "a@b@exemple.fr", "marie devis@exemple.fr", '"x"@exemple.fr', "sans-arobase", "", 42, null]) {
       await expect(b.envoyer(mauvais)).rejects.toMatchObject({ classe: "definitive", code: "destinataire_illisible" });
     }
     expect(b.connecteur.appels).toHaveLength(1);

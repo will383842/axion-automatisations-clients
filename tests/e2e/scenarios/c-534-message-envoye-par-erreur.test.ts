@@ -10,7 +10,7 @@ import { creerClientMailpit } from "../../../packages/harnais/src/mailpit.ts";
 import { CLE_ARRET_GLOBAL } from "../../../apps/executeur/src/envois/arret-urgence.ts";
 import { garderConnecteurs } from "../../../apps/executeur/src/envois/garde-envoi.ts";
 import { executerAvecMoteur, type Travail } from "../../../apps/executeur/src/files/travailleur.ts";
-import { HorlogeFactice } from "../../../apps/executeur/src/noyau/horloge.ts";
+import { HorlogeSysteme } from "../../../apps/executeur/src/noyau/horloge.ts";
 import { ConsoleFactice } from "../../../apps/executeur/src/noyau/memoire/console-factice.ts";
 import { FauxMoteur } from "../../../apps/executeur/src/noyau/postgres/faux-moteur.ts";
 import { ErreurConnecteur } from "../../../apps/executeur/src/noyau/politique-erreurs.ts";
@@ -125,7 +125,7 @@ function banc() {
     connecteurs: [{ famille: "messagerie", actions: ["envoyer"], portees: ["envoi"], garantie: "verifiable_apres_coup" }],
   });
   const moteur = new FauxMoteur();
-  const horloge = new HorlogeFactice();
+  const horloge = new HorlogeSysteme();
   const valkey = new FauxValkey();
   const console = new ConsoleClient({ reglages: { actionsAutomatiquesAutorisees: ["envoyer"], objetAccuse: "x" } });
   const executer = executerAvecMoteur({
@@ -141,10 +141,10 @@ describe("message envoyé par erreur : faux Graph, connecteur Microsoft 365 et p
   it("[C-534] @anti-doublon coupure après l'envoi, avant le journal (reponse_perdue) : exactement 1 message dans le puits après reprise", async () => {
     const b = banc();
     await controle("reponse_perdue");
-    await expect(b.horloge.piloter(b.executer(b.travail))).rejects.toMatchObject({ classe: "passagere", code: "reponse_perdue" });
+    await expect(b.executer(b.travail)).rejects.toMatchObject({ classe: "passagere", code: "reponse_perdue" });
     expect(puits.depots).toHaveLength(1);
     await controle("reponse_perdue"); // la recherche dans Éléments envoyés répond encore
-    await b.horloge.piloter(b.executer(b.travail));
+    await b.executer(b.travail);
     expect(puits.depots).toHaveLength(1);
     expect(b.moteur.etat.intentions.map((i) => i.etat)).toEqual(["faite"]);
   });
@@ -152,9 +152,9 @@ describe("message envoyé par erreur : faux Graph, connecteur Microsoft 365 et p
   it("[C-534] @anti-doublon panne pendant la recherche : à trancher, 0 renvoi", async () => {
     const b = banc();
     await controle("reponse_perdue");
-    await expect(b.horloge.piloter(b.executer(b.travail))).rejects.toMatchObject({ code: "reponse_perdue" });
+    await expect(b.executer(b.travail)).rejects.toMatchObject({ code: "reponse_perdue" });
     await controle("panne_generale"); // la recherche ne conclut pas
-    await b.horloge.piloter(b.executer(b.travail));
+    await b.executer(b.travail);
     expect(puits.depots).toHaveLength(1);
     expect(b.moteur.etat.intentions.map((i) => i.etat)).toEqual(["a_trancher"]);
   });
@@ -162,7 +162,7 @@ describe("message envoyé par erreur : faux Graph, connecteur Microsoft 365 et p
   it("[C-534] @envoi arrêt global posé : 0 message dans le puits", async () => {
     const b = banc();
     b.valkey.cles.set(CLE_ARRET_GLOBAL, "1");
-    await expect(b.horloge.piloter(b.executer(b.travail))).rejects.toMatchObject({ classe: "passagere", code: "arret_urgence" });
+    await expect(b.executer(b.travail)).rejects.toMatchObject({ classe: "passagere", code: "arret_urgence" });
     expect(puits.depots).toHaveLength(0);
   });
 });

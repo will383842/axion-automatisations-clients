@@ -31,7 +31,7 @@ case "$mode" in
     if [ "$mode" = "--assembler" ]; then
       exec docker compose -p socle "${fichiers[@]}" config
     fi
-    exec docker compose -p socle "${fichiers[@]}" down -v --remove-orphans
+    exec docker compose -p socle "${fichiers[@]}" down -v --remove-orphans --timeout 2
     ;;
 esac
 

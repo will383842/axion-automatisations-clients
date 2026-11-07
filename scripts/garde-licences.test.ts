@@ -291,11 +291,34 @@ describe("garde-licences : liste blanche des workflows", () => {
     expect(nouvelles.length).toBeGreaterThanOrEqual(15);
     for (const cmd of nouvelles) expect(verifierInstallationsFigees(fich(wf([{ run: cmd }]))), cmd).not.toEqual([]);
   });
-  const SHA_CONNUS = ["3d3c42e5aac5ba805825da76410c181273ba90b1", "949feb2413d6458794dcd2491c4babbbce0c15c1", "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a", "8498dc4c2b27cdd99baf0f87955b29ebbf30c78d", "ff98106e4c7b2bc287b24eaf42907196329070c7", "4d101475d8b20a2381f78447822ac1eab6504dd8"];
-  it("[C-020] tous les « uses » du dépôt sont l'un des 7 textes exacts connus", () => {
+  const SHA_CONNUS = ["3d3c42e5aac5ba805825da76410c181273ba90b1", "949feb2413d6458794dcd2491c4babbbce0c15c1", "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a", "8498dc4c2b27cdd99baf0f87955b29ebbf30c78d", "ff98106e4c7b2bc287b24eaf42907196329070c7", "4d101475d8b20a2381f78447822ac1eab6504dd8", "9000827ccba6bdab643e8b6fd33ac0654aef8333"];
+  it("[C-020] tous les « uses » du dépôt sont l'un des 8 textes exacts connus", () => {
     const usages = new Set(dossier().flatMap((f) => [...f.texte.matchAll(/^\s*-?\s*uses:\s*(\S+)/gm)].map((m) => m[1])));
-    expect(usages.size).toBe(7);
+    expect(usages.size).toBe(8);
     for (const u of usages) expect(SHA_CONNUS.some((sha) => u?.endsWith(`@${sha}`)), u).toBe(true);
+  });
+  const SHA_FORK_DL = "2".repeat(40);
+  it("[C-020] accepte les fragments du socle et refuse un --shard, un rapport ou un artefact hors liste", () => {
+    const DL = `actions/download-artifact@${SHA_CONNUS[6]}`;
+    const UL = `actions/upload-artifact@${SHA_CONNUS[2]}`;
+    const telecharger = { pattern: "rapport-integration-*", path: "rapports-vitest", "merge-multiple": true };
+    const envoyer = (i: number | string, chemin = `rapports-vitest/blob-${i}-3.json`) => ({ name: `rapport-integration-${i}`, path: chemin, "if-no-files-found": "error", "retention-days": 1 });
+    const fragment = (i: number | string) => `pnpm exec vitest run --project integration --shard=${i}/3 --reporter=blob --outputFile=rapports-vitest/blob-${i}-3.json`;
+    const fusion = "pnpm exec vitest --merge-reports rapports-vitest --reporter=json --outputFile=rapport-integration.json";
+    const controle = 'test "$RESULTATS_FRAGMENTS" = "success success success"';
+    const acceptes: Obj[] = [...[1, 2, 3].flatMap((i): Obj[] => [{ run: fragment(i) }, { uses: UL, with: envoyer(i) }]), { uses: DL, with: telecharger }, { run: fusion }, { run: controle }];
+    for (const e of acceptes) expect(verifierInstallationsFigees(fich(wf([e], { env: { RESULTATS_FRAGMENTS: "${{ join(needs.*.result, ' ') }}" } }))), JSON.stringify(e)).toEqual([]);
+    const refuses: Obj[] = [
+      { run: fragment(4) }, { run: fragment("0") }, { run: fragment("1").replace("--shard=1/3", "--shard=1/4") }, { run: `${fragment(1)} --passWithNoTests` },
+      { run: fragment(1).replace("--reporter=blob", "--reporter=json") }, { run: fragment(1).replace("rapports-vitest/", "/tmp/") },
+      { run: "pnpm exec vitest run --project integration --reporter=json --outputFile=rapport-integration.json" },
+      { run: `${fusion} || true` }, { run: fusion.replace("rapports-vitest", ".") }, { run: 'test "$RESULTATS_FRAGMENTS" = "success success"' }, { run: `${controle} || true` },
+      { uses: UL, with: envoyer(4) }, { uses: UL, with: envoyer(1, "rapports-vitest/") }, { uses: UL, with: { ...envoyer(1), "retention-days": 90 } }, { uses: UL, with: { ...envoyer(1), "include-hidden-files": true } },
+      { uses: DL, with: { ...telecharger, pattern: "*" } }, { uses: DL, with: { ...telecharger, "run-id": "1", "github-token": "${{ github.token }}" } }, { uses: DL, with: { name: "rapport-integration-1", path: "rapports-vitest" } },
+      { uses: `actions/download-artifact@${SHA_FORK_DL}`, with: telecharger }, { uses: "actions/download-artifact@v8", with: telecharger },
+    ];
+    for (const e of refuses) expect(verifierInstallationsFigees(fich(wf([e]))), JSON.stringify(e)).not.toEqual([]);
+    expect(verifierInstallationsFigees(fich(wf([{ run: controle }], { env: { RESULTATS_FRAGMENTS: "x", AUTRE: "y" } })))).not.toEqual([]);
   });
   const SHA_FORK = "1".repeat(40);
   const usesRefuse: [string, string, Obj | undefined][] = [

@@ -121,6 +121,15 @@ describe("routes de la liste des clients", () => {
     expect((await vide.app.inject({ url: B })).json().lignes).toEqual([]);
   });
 
+  it("[B-126] une portée * voit tous les clients dans la liste et l'export", async () => {
+    const etoile: MembreDroits = { ...LIMITE, portee: { clients: ["*"], automatisations: [] } };
+    const { app, traces } = montage({ membre: etoile });
+    expect((await app.inject({ url: B })).json().lignes).toHaveLength(4);
+    const r = await app.inject({ method: "POST", url: `${B}/export`, payload: {} });
+    for (const nom of ["Lemoine", "Boulangerie", "Garage"]) expect(r.body).toContain(nom);
+    expect(traces[0]!.lignes).toBe(4);
+  });
+
   it("[LOT3-droits] un rôle inconnu ou inactif est refusé, la porte fermée répond 503", async () => {
     expect((await montage({ membre: { ...DIRIGEANT, role: "support" as never } }).app.inject({ url: B })).statusCode).toBe(403);
     expect((await montage({ membre: { ...DIRIGEANT, actif: false } }).app.inject({ url: B })).statusCode).toBe(403);

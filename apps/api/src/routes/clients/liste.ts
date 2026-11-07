@@ -3,7 +3,7 @@ import { z } from "zod";
 import { filtrerClients, paginer, SchemaFiltres, versDto, VUE_PRETE_ABONNEMENTS, type DepotVues, type FiltresClients, type LigneClient } from "../../clients/liste.js";
 import { autorise } from "../../droits/matrice.js";
 import type { MembreDroits } from "../../droits/exiger-droit.js";
-import { filtrerParPortee } from "../../droits/portee.js";
+import { couvreTousLesClients, filtrerParPortee } from "../../droits/portee.js";
 import { ErreurApi } from "../../plugins/erreurs.js";
 import { routeExport } from "./export.js";
 import { routeVues } from "./vues.js";
@@ -35,6 +35,7 @@ export async function membreAutorise(d: DepsClients, requete: FastifyRequest): P
 }
 export async function clientsVisibles(d: DepsClients, m: MembreDroits): Promise<LigneClient[]> {
   const toutes = await d.clients.toutes();
+  if (couvreTousLesClients(m)) return toutes;
   const ok = new Set(filtrerParPortee(m, toutes.map((l) => l.id)));
   return toutes.filter((l) => ok.has(l.id));
 }

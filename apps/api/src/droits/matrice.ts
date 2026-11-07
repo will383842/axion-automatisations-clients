@@ -66,6 +66,10 @@ export const ACTION_PAR_ROUTE: Readonly<Record<string, Action>> = {
   "GET /api/console/v1/canaux/echecs": "lire",
   "POST /api/console/v1/canaux/echecs/:tenantId/:id/renvoyer": "relancer",
   "POST /api/console/v1/clients/:id/base/reprendre": "relancer",
+  "GET /api/console/v1/clients": "lire",
+  "GET /api/console/v1/clients/vues": "lire",
+  "POST /api/console/v1/clients/vues": "lire",
+  "POST /api/console/v1/clients/export": "lire",
   // T4-28b1 : déploiement d'une instance (routes fermées par défaut). Action provisoire « modifier_reglages » ; une action dédiée reste à décider (dette T4-28b1-dette-matrice-droits).
   "POST /api/console/v1/clients/:tenantId/instances": "modifier_reglages",
   "POST /api/console/v1/clients/:tenantId/instances/:id/activation": "modifier_reglages",

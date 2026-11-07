@@ -4,7 +4,7 @@ import { formuleInstance } from "../db/schema/clients.js";
 import { PLATEFORME_ID } from "../db/schema/aides.js";
 import { ErreurApi } from "../plugins/erreurs.js";
 
-// Grille de prix d'une automatisation (T3-31a1, ADR 0133). Une grille est une version immuable : écrire = insérer une ligne de grilles_prix ; la grille en vigueur est la plus récente.
+// Grille de prix d'une automatisation (T3-31a1, ADR 0135). Une grille est une version immuable : écrire = insérer une ligne de grilles_prix ; la grille en vigueur est la plus récente.
 // Montants en centimes HT, en chaînes de chiffres (jamais de Number ni de flottant). La console ne facture jamais : aucune écriture hors grilles_prix et historique_grilles_prix.
 export type Champ = "installation" | "mensuel" | "maintenance_ensuite" | "maintenance_incluse_mois";
 export interface ValeursGrille { formules: string[]; installation: string; mensuel: string; maintenanceEnsuite: string; maintenanceIncluseMois: number }
@@ -81,7 +81,7 @@ export function creerServiceGrilles(depot: DepotGrilles) {
       if (!lignes) throw new ErreurApi("introuvable", "Ressource introuvable.");
       return lignes.map(dtoLigne);
     },
-    // Règles dans l'ordre de l'ADR 0133 ; chaque refus se fait sans écriture. Les messages sont fixes : ni montant, ni valeur saisie, ni motif.
+    // Règles dans l'ordre de l'ADR 0135 ; chaque refus se fait sans écriture. Les messages sont fixes : ni montant, ni valeur saisie, ni motif.
     async ecrire(id: string, acteur: string, corps: unknown) {
       if (acteur.trim() === "" || acteur.length > 128) throw new ErreurApi("action_interdite", "Action non permise.");
       const p = Saisie.safeParse(corps);

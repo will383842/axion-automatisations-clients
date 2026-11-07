@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { creerServiceGrilles, depotSqlGrilles, type DepotGrilles, type GrilleLue, type LigneAEcrire, type LigneHistorique, type TxGrilles, type ValeursGrille } from "./grille.js";
 
-// Grille de prix d'une automatisation (T3-31a1, ADR 0133). Montants fictifs seulement. Faux dépôt en mémoire qui enregistre chaque opération.
+// Grille de prix d'une automatisation (T3-31a1, ADR 0135). Montants fictifs seulement. Faux dépôt en mémoire qui enregistre chaque opération.
 const AUTO = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const PREC = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const AUTRE = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";

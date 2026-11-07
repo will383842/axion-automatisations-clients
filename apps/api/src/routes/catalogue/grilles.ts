@@ -4,7 +4,7 @@ import type { ServiceGrilles } from "../../catalogue/grille.js";
 import { exigerDroit, type DepsDroits } from "../../droits/exiger-droit.js";
 import { ErreurApi } from "../../plugins/erreurs.js";
 
-// Grille de prix d'une automatisation (T3-31a1, ADR 0133) : routes de l'équipe, catalogue commun (aucune donnée de client).
+// Grille de prix d'une automatisation (T3-31a1, ADR 0135) : routes de l'équipe, catalogue commun (aucune donnée de client).
 //   GET  /api/console/v1/catalogue/automatisations/:id/grille            : grille en vigueur et signal « masquée par défaut » ;
 //   GET  /api/console/v1/catalogue/automatisations/:id/grille/historique : historique, une ligne par champ changé ;
 //   POST /api/console/v1/catalogue/automatisations/:id/grille            : nouvelle grille (jamais de modification) ; dirigeant seul, réauthentification récente.

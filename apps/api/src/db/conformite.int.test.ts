@@ -238,7 +238,7 @@ describe("migration 0021 : conformité, avec le socle", { timeout: 120_000 }, ()
   });
 });
 
-// T3-31a1 (ADR 0133) : grille de prix, écrite par le vrai service et le vrai SQL, sous le rôle console_equipe. Aucun résultat n'est connu hors de la CI socle-integration.
+// T3-31a1 (ADR 0135) : grille de prix, écrite par le vrai service et le vrai SQL, sous le rôle console_equipe. Aucun résultat n'est connu hors de la CI socle-integration.
 // Chaque échec est journalisé (journal-echecs.ts, sans secret). Les essais de concurrence ouvrent leurs connexions directement, SANS commeEquipe (son rejeu masquerait la course).
 type RequeteSql = (sql: string, valeurs: unknown[]) => Promise<Record<string, unknown>[]>;
 const CORPS_GRILLE = { formules: ["abonnement"], frais_mise_en_place_ht_centimes: "12345", prix_mensuel_ht_centimes: "6789", maintenance_ensuite_ht_centimes: "1500", maintenance_incluse_mois: 3, motif: "Essai de grille" };

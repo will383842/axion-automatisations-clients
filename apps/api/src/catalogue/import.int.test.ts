@@ -131,7 +131,17 @@ const messageErreur = async (p: Promise<unknown>) => {
   }
 };
 // Une transaction de l'équipe : jamais app.tenant_id (audit_ecrire_equipe le refuse), toujours app.acteur.
+// Le verrou du journal d'audit peut être tenu ~7 s par audit.int.test.ts (même fragment) : le lock_timeout du rôle (5 s) annule alors la transaction (55P03). Rien n'a été écrit, on la rejoue.
 async function enEquipe<T>(fn: (c: pg.PoolClient) => Promise<T>, acteur = ACTEUR): Promise<T> {
+  for (let essai = 1; ; essai++) {
+    try {
+      return await enEquipeUneFois(fn, acteur);
+    } catch (e) {
+      if ((e as { code?: string }).code !== "55P03" || essai >= 4) throw e;
+    }
+  }
+}
+async function enEquipeUneFois<T>(fn: (c: pg.PoolClient) => Promise<T>, acteur: string): Promise<T> {
   const c = await equipe.connect();
   try {
     await c.query("BEGIN");

@@ -70,6 +70,7 @@ export const ACTION_PAR_ROUTE: Readonly<Record<string, Action>> = {
   "POST /api/console/v1/clients/:tenantId/instances": "modifier_reglages",
   "POST /api/console/v1/clients/:tenantId/instances/:id/activation": "modifier_reglages",
   "POST /api/console/v1/clients/:tenantId/instances/:id/tests-a-blanc": "modifier_reglages",
+  "GET /api/console/v1/clients/:id/connexions": "lire",
   "GET /api/console/v1/clients/:id/fiche": "lire",
   "GET /api/console/v1/clients/:id/gel": "lire",
   "GET /api/console/v1/clients/:id/notes": "lire",

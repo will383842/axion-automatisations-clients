@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
+import { revocationsParFile, revoquerTousBauxHumains, type BilanRevocation, type FileRevocations } from "./acces-humain.js";
 import { adminRotationPg, creerRotation, DELAI_GRACE_MS, ESSAIS_ROTATION, sessionsPg, deposerRotation, idTacheRotation, periodeDe, PERIODE_DEFAUT_JOURS, type PortsRotation } from "./rotation.js";
 import type { SessionEquipe } from "../gel/gel.js";
 
@@ -9,7 +10,7 @@ const BASE = `cli_${ID}`;
 const MDP = ["premier-mot-de-passe", "second-mot-de-passe", "troisieme-mot-de-passe"];
 const session = (o: Partial<SessionEquipe> = {}): SessionEquipe => ({ acteur: "equipe-1", role: "administrateur", clientActifId: T, reauthentifie: true, ...o });
 
-function monter(o: { etat?: string; rolePresent?: boolean; echecRole?: boolean; echecCoupure?: boolean; echecAlerte?: boolean; echecLecture?: boolean } = {}) {
+function monter(o: { etat?: string; rolePresent?: boolean; echecRole?: boolean; echecCoupure?: boolean; echecAlerte?: boolean; echecLecture?: boolean; panneHumains?: boolean; bilan?: Partial<BilanRevocation>; restants?: { membres: number; sessions: number } } = {}) {
   let maintenant = Date.parse("2027-01-10T10:00:00Z");
   let n = 0;
   const coffre = new Map<string, string>();
@@ -20,9 +21,21 @@ function monter(o: { etat?: string; rolePresent?: boolean; echecRole?: boolean; 
   const journal: Record<string, unknown>[] = [];
   const taches: { nom: string; donnees: unknown; options: Record<string, unknown> }[] = [];
   const alertes: Record<string, unknown>[] = [];
+  const etats: string[] = [];
   let pris = false;
   const p: PortsRotation = {
-    sessions: () => ({ couper: async (b, r) => { if (o.echecCoupure) throw new Error("bouncer injoignable"); evenements.push(`couper:${b}:${r}`); } }),
+    sessions: () => ({
+      couper: async (b, r) => { etats.push(`couper:${pris ? "verrou" : "libre"}`); if (o.echecCoupure) throw new Error("bouncer injoignable"); evenements.push(`couper:${b}:${r}`); },
+      restants: async () => { etats.push(`restants:${pris ? "verrou" : "libre"}`); evenements.push("restants"); return o.restants ?? { membres: 0, sessions: 0 }; },
+    }),
+    humains: {
+      revoquerTous: async () => {
+        etats.push(`revoquer-tous:${pris ? "verrou" : "libre"}`);
+        evenements.push("revoquer-tous");
+        if (o.panneHumains) throw new Error("coffre injoignable");
+        return { revoques: 1, etrangers: 0, echecs: 0, complet: true, ...o.bilan };
+      },
+    },
     alerte: { envoyer: async (e) => { if (o.echecAlerte) throw new Error("récepteur absent"); alertes.push(e); } },
     base: async () => ({ etat: (o.etat ?? "active") as "active", grappe: "donnees-1", nomBase: `cli_${T.replaceAll("-", "")}` }),
     admin: () => ({
@@ -45,7 +58,7 @@ function monter(o: { etat?: string; rolePresent?: boolean; echecRole?: boolean; 
     periodeJours: PERIODE_DEFAUT_JOURS,
   };
   const file = { async add(nom: string, donnees: unknown, options: Record<string, unknown>) { taches.push({ nom, donnees, options }); } };
-  return { p, file, coffre, role, roles, versions, alertes, evenements, journal, taches, avancer: (ms: number) => { maintenant += ms; }, bloquer: () => { pris = true; } };
+  return { p, file, coffre, role, roles, versions, alertes, evenements, etats, verrouPris: () => pris, journal, taches, avancer: (ms: number) => { maintenant += ms; }, bloquer: () => { pris = true; } };
 }
 
 describe("rotation des mots de passe", () => {
@@ -158,6 +171,8 @@ describe("rotation des mots de passe", () => {
     await creerRotation(m.p).immediate(T, "poste perdu", session(), m.file);
     const i = m.evenements.findLastIndex((e) => e.startsWith("role:"));
     expect(m.evenements[i + 1]).toBe(`couper:cli_${ID}:cli_${ID}_app`);
+    // Puis les baux humains, puis le filet : la révocation suit la coupure.
+    expect(m.evenements.slice(i + 1)).toEqual([`couper:cli_${ID}:cli_${ID}_app`, "revoquer-tous", "restants"]);
     expect(m.journal).toContainEqual(expect.objectContaining({ evenement: "sessions_coupees", tenantId: T }));
     const plan = monter();
     await creerRotation(plan.p).pourBase(T, plan.file);
@@ -296,5 +311,115 @@ describe("rotation des mots de passe", () => {
     const avant = ordres.length;
     for (const r of [`cli_${ID}_proprietaire`, `cli_${ID}_lecture2`, `xcli_${ID}_lecture`, "provisionneur"]) await expect(admin.changerMotDePasse(r, emp, 1, new Date())).rejects.toThrow();
     expect(ordres).toHaveLength(avant);
+  });
+
+  it("[A-209] rotation immédiate : coffre indisponible, la rotation reste faite et rend revocation_incomplete avec une alerte", async () => {
+    const m = monter({ panneHumains: true });
+    await expect(creerRotation(m.p).immediate(T, "poste perdu", session(), m.file)).resolves.toBe("revocation_incomplete");
+    // Aucun retour en arrière : les deux secrets sont à leur nouvelle version, la coupure a eu lieu, le verrou est rendu.
+    expect(m.versions.get(`technique/donnees/${BASE}/app`)).toBe(1);
+    expect(m.roles.get(`cli_${ID}_lecture`)?.version).toBe(1);
+    expect(m.evenements).toContain(`couper:cli_${ID}:cli_${ID}_app`);
+    expect(m.verrouPris()).toBe(false);
+    expect(m.alertes).toEqual([{ evenement: "roles_dynamiques_restants", tenantId: T, base: BASE, essais: 3, code: "revocation_incomplete" }]);
+    expect(m.journal).toContainEqual(expect.objectContaining({ evenement: "roles_dynamiques_restants", tenantId: T }));
+    // Récepteur d'alerte absent : la trace le dit, le résultat reste revocation_incomplete.
+    const sans = monter({ panneHumains: true, echecAlerte: true });
+    await expect(creerRotation(sans.p).immediate(T, "poste perdu", session(), sans.file)).resolves.toBe("revocation_incomplete");
+    expect(sans.journal).toContainEqual(expect.objectContaining({ evenement: "alerte_non_envoyee", tenantId: T }));
+    // Tout va bien : « faite », aucune alerte.
+    const bien = monter();
+    await expect(creerRotation(bien.p).immediate(T, "poste perdu", session(), bien.file)).resolves.toBe("faite");
+    expect(bien.alertes).toEqual([]);
+  });
+
+  it("[A-209] rotation immédiate : un membre de _lecture encore LOGIN après révocation donne revocation_incomplete, sans nom de rôle dans l'alerte", async () => {
+    const m = monter({ restants: { membres: 1, sessions: 0 } });
+    await expect(creerRotation(m.p).immediate(T, "poste perdu", session(), m.file)).resolves.toBe("revocation_incomplete");
+    expect(m.alertes).toEqual([{ evenement: "roles_dynamiques_restants", tenantId: T, base: BASE, essais: 3, code: "revocation_incomplete" }]);
+    expect(m.journal).toContainEqual(expect.objectContaining({ evenement: "roles_dynamiques_restants", tenantId: T, nombre: 1 }));
+    expect(JSON.stringify([m.alertes, m.journal])).not.toMatch(/humain-lecture|v-essai|rolname/);
+    // Une session restante seule suffit aussi ; un bilan de révocation incomplet aussi.
+    for (const o of [{ restants: { membres: 0, sessions: 2 } }, { bilan: { complet: false, echecs: 1 } }]) {
+      const x = monter(o);
+      await expect(creerRotation(x.p).immediate(T, "poste perdu", session(), x.file)).resolves.toBe("revocation_incomplete");
+    }
+  });
+
+  it("[A-209] les traces et alertes de la révocation ne portent ni nom de rôle, ni identifiant de bail, ni mot de passe", async () => {
+    const m = monter();
+    const bail = `database/creds/humain-lecture-${BASE}/Zk3JdQ8wLm2Xr5Tn`;
+    const etranger = `database/creds/humain-lecture-cli_${"f".repeat(12)}/Zk3JdQ8wLm2Xr5Tn`;
+    const pref = `revocation-humain-${BASE}-`;
+    const taches = [{ id: `${pref}Zk3JdQ8wLm2Xr5Tn`, data: { tenantId: T, bail } }, { id: `${pref}Ab1Cd2Ef3Gh4Ij5K`, data: { tenantId: T, bail: etranger } }];
+    const file: FileRevocations = { add: async () => undefined, getJobs: async () => taches.map((t) => ({ ...t, remove: async () => undefined })) };
+    m.p.humains = { revoquerTous: (t) => revoquerTousBauxHumains({ bail: { revoquer: async () => { throw new Error(`refus ${bail} v-essai-1 mdp-dynamique-d-essai`); } }, taches: revocationsParFile(file), journal: m.p.journal }, t) };
+    await expect(creerRotation(m.p).immediate(T, "poste perdu", session(), m.file)).resolves.toBe("revocation_incomplete");
+    const tout = JSON.stringify([m.journal, m.alertes]);
+    expect(tout).toContain("bail_etranger");
+    expect(tout).toContain("revocation_incomplete");
+    for (const interdit of ["humain-lecture-", "database/creds", "mdp-dynamique-d-essai", "v-essai", "Zk3JdQ8wLm2Xr5Tn", MDP[0]!, MDP[1]!]) expect(tout).not.toContain(interdit);
+  });
+
+  it("[A-209] rotation immédiate en échec partiel (_lecture) : les baux humains sont quand même révoqués", async () => {
+    const m = monter({ echecLecture: true });
+    await expect(creerRotation(m.p).immediate(T, "poste perdu", session(), m.file)).rejects.toMatchObject({ code: "role_echoue" });
+    expect(m.evenements).toContain("revoquer-tous");
+    expect(m.etats).toContain("revoquer-tous:verrou");
+    expect(m.verrouPris()).toBe(false);
+    // La révocation elle-même en panne : l'échec d'origine remonte quand même, avec l'alerte.
+    const double = monter({ echecLecture: true, panneHumains: true });
+    await expect(creerRotation(double.p).immediate(T, "poste perdu", session(), double.file)).rejects.toMatchObject({ code: "role_echoue" });
+    expect(double.alertes).toContainEqual(expect.objectContaining({ code: "revocation_incomplete" }));
+  });
+
+  it("[A-169] rotation immédiate : la coupure se fait sous le même verrou que le pivot", async () => {
+    const m = monter();
+    await creerRotation(m.p).immediate(T, "poste perdu", session(), m.file);
+    expect(m.etats).toEqual(["couper:verrou", "revoquer-tous:verrou", "restants:verrou"]);
+    expect(m.verrouPris()).toBe(false);
+    // Coupure en échec : coupure_echouee remonte après la révocation et le filet, verrou rendu.
+    const panne = monter({ echecCoupure: true });
+    await expect(creerRotation(panne.p).immediate(T, "poste perdu", session(), panne.file)).rejects.toMatchObject({ code: "coupure_echouee" });
+    expect(panne.etats).toEqual(["couper:verrou", "revoquer-tous:verrou", "restants:verrou"]);
+    expect(panne.verrouPris()).toBe(false);
+  });
+
+  it("[A-169] couper : KILL en échec, la coupure côté base est quand même tentée et l'erreur remonte", async () => {
+    const ordres: string[] = [];
+    const sql = (cible: string, echecSur?: string) => ({ requete: async (texte: string) => { ordres.push(`${cible}:${texte.split(" ")[0]}`); if (echecSur && texte.startsWith(echecSur)) throw new Error(`${echecSur} refusé`); return [] as never; } });
+    await expect(sessionsPg(sql("grappe"), sql("bouncer", "KILL")).couper(`cli_${ID}`, `cli_${ID}_app`)).rejects.toThrow("KILL refusé");
+    expect(ordres).toEqual(["bouncer:KILL", "grappe:SELECT", "bouncer:RESUME"]);
+    // La première erreur remonte, même si la suite échoue aussi ; RESUME est toujours tenté.
+    ordres.length = 0;
+    await expect(sessionsPg(sql("grappe", "SELECT"), sql("bouncer", "KILL")).couper(`cli_${ID}`, `cli_${ID}_app`)).rejects.toThrow("KILL refusé");
+    expect(ordres).toEqual(["bouncer:KILL", "grappe:SELECT", "bouncer:RESUME"]);
+  });
+
+  it("[A-169] rotation planifiée : les baux humains ne sont pas révoqués (expiration seule)", async () => {
+    const m = monter();
+    await expect(creerRotation(m.p).pourBase(T, m.file)).resolves.toBe("faite");
+    expect(m.evenements.some((e) => e === "revoquer-tous" || e === "restants" || e.startsWith("couper:"))).toBe(false);
+    expect(m.etats).toEqual([]);
+    const partielle = monter({ echecLecture: true });
+    await expect(creerRotation(partielle.p).pourBase(T, partielle.file)).rejects.toMatchObject({ code: "role_echoue" });
+    expect(partielle.etats).toEqual([]);
+  });
+
+  it("[A-169] restants : nom de base piégé refusé avant tout ordre, requête paramétrée en lecture seule", async () => {
+    const ordres: { texte: string; valeurs?: unknown[] | undefined }[] = [];
+    const sql = { requete: async (texte: string, valeurs?: unknown[]) => { ordres.push({ texte, valeurs }); return [{ membres: "2", sessions: 1 }] as never; } };
+    await expect(sessionsPg(sql, sql).restants(`cli_${ID}`)).resolves.toEqual({ membres: 2, sessions: 1 });
+    expect(ordres).toHaveLength(1);
+    expect(ordres[0]!.valeurs).toEqual([`cli_${ID}_lecture`]);
+    expect(ordres[0]!.texte).toMatch(/^\s*SELECT/i);
+    expect(ordres[0]!.texte).toMatch(/rolcanlogin/);
+    expect(ordres[0]!.texte).toMatch(/inherit_option/);
+    expect(ordres[0]!.texte).toMatch(/set_option/);
+    expect(ordres[0]!.texte).not.toMatch(/\b(ALTER|REVOKE|DROP|GRANT|DELETE|UPDATE|INSERT|pg_terminate_backend)\b/i);
+    expect(ordres[0]!.texte).not.toContain(ID);
+    ordres.length = 0;
+    for (const b of ["postgres", `cli_${ID}; SHUTDOWN`, `cli_${ID}_lecture`, "CLI_ABC", ""]) await expect(sessionsPg(sql, sql).restants(b)).rejects.toThrow();
+    expect(ordres).toEqual([]);
   });
 });

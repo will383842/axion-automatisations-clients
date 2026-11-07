@@ -110,7 +110,7 @@ afterEach((contexte) => {
 });
 
 describe("migration 0020 : équipe, vues, « Aujourd'hui », avec le socle", { timeout: 120_000 }, () => {
-  it.skip("[A-119] @isolation console_app du client A ne lit aucune ligne de B dans aujourdhui_ignores", async () => {
+  it("[A-119] @isolation console_app du client A ne lit aucune ligne de B dans aujourdhui_ignores", async () => {
     const A = randomUUID(), B = randomUUID();
     await creerOrg(A);
     await creerOrg(B);

@@ -14,6 +14,8 @@ import { routeDonneesModule } from "../apps/api/src/routes/portail/donnees-modul
 import { routeExecuteur } from "../apps/api/src/routes/executeur/index.js";
 import { routeEntree } from "../apps/api/src/routes/entree.js";
 import { routeImport } from "../apps/api/src/routes/import.js";
+import { routeLiensConnexions } from "../apps/api/src/routes/connexions/liens.js";
+import { routeRevocationConnexion } from "../apps/api/src/routes/connexions/revocation.js";
 import { routeGel } from "../apps/api/src/routes/gel.js";
 import { brancherHub } from "../apps/api/src/routes/hub.js";
 import { routeAnnulation, routeJournal } from "../apps/api/src/routes/journal.js";
@@ -106,6 +108,8 @@ export async function listerRoutes(): Promise<RouteListee[]> {
   routeDonnees(appli, rien);
   routeDonneesModule(appli, rien);
   routeGel(appli, { exigerEquipe: garde, exigerReauthentification: garde, session: rien, gel: rien });
+  routeLiensConnexions(appli, { exigerEquipe: garde, session: rien, porte: () => false, nouvelId: rien, creer: rien, ecrireCoffre: rien, emettreLien: rien });
+  routeRevocationConnexion(appli, { exigerEquipe: garde, session: rien, revoquer: rien });
   routeATrancher(appli, { exigerEquipe: garde, appelant: rien, reauthentifie: rien, appliquer: rien, ecarter: rien });
   routeCanaux(appli, { exigerEquipe: garde, magasin: rien });
   routeJournal(appli, { exigerEquipe: garde, lire: rien });

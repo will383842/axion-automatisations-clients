@@ -76,6 +76,8 @@ export const ACTION_PAR_ROUTE: Readonly<Record<string, Action>> = {
   "POST /api/console/v1/clients/:id/notes": "modifier_reglages",
   "POST /api/console/v1/clients/:id/notes/:idNote/epingler": "modifier_reglages",
   "POST /api/console/v1/clients/:id/notes/appel-et-cloture": "modifier_reglages",
+  "POST /api/console/v1/clients/:id/connexions/liens": "connexions_secrets",
+  "POST /api/console/v1/clients/:id/connexions/:connexionId/revoquer": "connexions_secrets",
   "POST /api/console/v1/clients/:id/gel": "disjoncteur",
   "POST /api/console/v1/clients/:id/gel/:idGel/lever": "disjoncteur",
   "POST /api/console/v1/instances/:id/reglages": "modifier_reglages",

@@ -1,9 +1,9 @@
 import { generateKeyPairSync, sign } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { magasin } from "../../../auth/session.ts";
-import { GET as connexion } from "./connexion/route.ts";
-import { GET as rappel } from "./rappel/route.ts";
-import { POST as deconnexion } from "./deconnexion/route.ts";
+import { magasin } from "../../../../auth/session.ts";
+import { GET as connexion } from "./route.ts";
+import { GET as rappel } from "../rappel/route.ts";
+import { POST as deconnexion } from "../deconnexion/route.ts";
 
 const ENV = {
   PORTAIL_CONNEXION_OUVERTE: "1",

@@ -4,6 +4,7 @@ import { readFileSync, writeSync } from "node:fs";
 import { createRemoteJWKSet, decodeJwt } from "jose";
 import Fastify from "fastify";
 import { beforeAll, beforeEach, describe, expect, it, onTestFailed } from "vitest";
+import { creerKeycloakAdmin } from "../equipe/keycloak-admin.ts";
 import { exigerReauthentification } from "./exiger-reauthentification.ts";
 import { creerVerificateur, exigerJeton } from "./oidc.ts";
 
@@ -383,5 +384,33 @@ describe("Keycloak réel : compte de service console-sessions (LOT3-securite)", 
     expect((await avec(jeton, `/equipe/users/${u.id}/role-mappings/clients/${gestion}`, { method: "POST", json: [role] })).status).toBe(403);
     expect((await avec(jeton, `/equipe/users/${u.id}/impersonation`, { method: "POST" })).status).toBe(403);
     expect((await avec(jeton, "/equipe/clients")).status).toBe(403);
+  });
+});
+
+describe("Keycloak réel : invitation d'un membre par l'adaptateur (T3-07c)", { timeout: 60_000 }, () => {
+  beforeAll(async () => {
+    admin = await jetonAdmin();
+  });
+  it("[B-028] inviter un membre impose le double facteur à sa première connexion", async () => {
+    const kc = creerKeycloakAdmin({ base: BASE, secrets: { lire: async (nom) => lireEnv(nom) } });
+    const email = `invite.${randomBytes(4).toString("hex")}@exemple.fr`;
+    const { id } = await kc.creerUtilisateur({ email });
+    // Créé désactivé, avec le mot de passe et le double facteur en actions requises.
+    const brut = (await (await api(`/equipe/users/${id}`)).json()) as { enabled: boolean; requiredActions: string[] };
+    expect(brut.enabled).toBe(false);
+    expect([...brut.requiredActions].sort()).toEqual(["CONFIGURE_TOTP", "UPDATE_PASSWORD"]);
+    expect(await kc.chercherParEmail(email)).toEqual({ id, actif: false });
+    // L'essai pose un mot de passe généré, jamais affiché, par le compte d'administration du socle (l'API, elle, n'en fixe jamais).
+    const motDePasse = randomBytes(12).toString("hex");
+    expect((await api(`/equipe/users/${id}/reset-password`, { method: "PUT", json: { type: "password", value: motDePasse, temporary: false } })).status).toBe(204);
+    await kc.activer(id);
+    const r = await fetch(`${OIDC("equipe")}/token`, { method: "POST", body: formulaire({ grant_type: "password", client_id: "essai-direct", username: email, password: motDePasse }) });
+    expect(r.status).toBeGreaterThanOrEqual(400);
+    const corps = (await r.json()) as Json;
+    expect(corps["access_token"]).toBeUndefined();
+    expect(corps["error"]).toBe("invalid_grant");
+    // Désactiver coupe le compte sans le supprimer.
+    await kc.desactiver(id);
+    expect(((await (await api(`/equipe/users/${id}`)).json()) as { enabled: boolean }).enabled).toBe(false);
   });
 });

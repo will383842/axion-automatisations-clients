@@ -23,7 +23,8 @@ describe("dépôt des outils et du catalogue", () => {
     const { vus, tx } = faux([{ code: "AUT-101", nom: "Rappel", familles: ["agenda"], manifeste: { secret: "x" } }]);
     const r = await creerDepotOutils(tx).catalogue();
     expect(vus[0]?.texte).toContain("jsonb_path_query_array");
-    expect(vus[0]?.texte).not.toMatch(/\bmanifeste\s*(,|AS\b|FROM\b)/i);
+    // Une fois l'extraction retirée, la colonne du manifeste ne figure plus nulle part dans la requête.
+    expect((vus[0]?.texte ?? "").replace(/jsonb_path_query_array\([^)]*\)/g, "")).not.toMatch(/manifeste/i);
     expect(vus[0]?.texte).not.toMatch(/\*\s*FROM|SELECT\s+\*/i);
     expect(r).toEqual([{ code: "AUT-101", nom: "Rappel", familles: ["agenda"] }]);
   });

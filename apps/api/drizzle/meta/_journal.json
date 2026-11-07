@@ -148,6 +148,13 @@
       "when": 1793999202199,
       "tag": "0024_modele_ia_et_cle_client",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1794013565851,
+      "tag": "0025_portail",
+      "breakpoints": true
     }
   ]
 }

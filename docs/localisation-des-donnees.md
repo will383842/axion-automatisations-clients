@@ -17,6 +17,7 @@ Toutes tournent chez AXION IA (lieu `local`) ; aucune n'est livrée chez un clie
 | `sftp-essai` | cible d'essai des sauvegardes (CI seulement) | `local` : ne garde que des données d'essai |
 | `pgbouncer` | répartiteur de connexions | `local` : ne garde aucune donnée |
 | `valkey` | files de tâches | `local` : serveur d'AXION IA |
+| `uptime-kuma` | disponibilité des briques et page d'état | `local` : serveur d'AXION IA, aucune donnée de client |
 | `openbao` | coffre à secrets | `local` : serveur d'AXION IA |
 | `stockage` | stockage d'objets compatible S3 (exports, factures, pièces de suivi, artefacts) | `local` : serveur d'AXION IA |
 | `keycloak` | connexion | `local` : serveur d'AXION IA |

@@ -22,6 +22,8 @@ export interface DepsDeploiementInstances {
 const MESSAGES_MOTIFS: Record<string, string> = {
   test_a_blanc_absent: "Aucun test à blanc réussi pour cette version et ces réglages : lancez un test à blanc.",
   test_a_blanc_echoue: "Le dernier test à blanc de cette version et de ces réglages a échoué.",
+  etat_depart: "Seule une instance en pause peut être activée.",
+  version_non_publiee: "La version installée n'est plus publiée : l'instance ne peut pas être activée.",
   sous_traitance_absente: "Le contrat de sous-traitance du client n'est pas signé : l'instance ne peut pas être activée.",
 };
 // Une règle métier de l'activation devient une réponse 422 qui nomme le motif ; une instance inconnue pour ce client devient 404.

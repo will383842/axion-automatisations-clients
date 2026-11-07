@@ -6,8 +6,9 @@ import { modifierDans } from "../reglages/versions.js";
 import type { EmetteurC3 } from "../crm/emetteur-c3.js";
 import { activerInstance, ErreurRegleMetier, type Requeteur } from "./activer.js";
 import { verifierFormule } from "./formule.js";
+import { gardeTestABlanc } from "./test-a-blanc.js";
 
-// Création d'une instance et gardes d'activation (T4-28b1, ADR 0125). Le client vient TOUJOURS de la session (paramètre tenantId, posé par avecClient), jamais du corps.
+// Création d'une instance et gardes d'activation (T4-28b1, ADR 0125). Le client vient du chemin de la route (paramètre tenantId, posé par avecClient), jamais du corps.
 // Une instance naît en pause ; elle ne devient active que par activerAvecGardes (seul appelant d'activerInstance) : toutes les gardes doivent dire oui.
 const Uuid = z.uuid();
 export const DemandeCreation = z.strictObject({
@@ -80,11 +81,18 @@ export interface ContexteGarde { client: Requeteur; tenantId: string; instanceId
 export type ResultatGarde = { ok: true } | { ok: false; motif: string };
 export type GardeActivation = (ctx: ContexteGarde) => Promise<ResultatGarde>;
 
-export async function activerAvecGardes(client: Requeteur, tenantId: string, instanceId: string, gardes: readonly GardeActivation[], emetteur?: Pick<EmetteurC3, "automatisationActivee">): Promise<void> {
-  // Verrou de l'instance du client de la session : l'état ne change pas entre les gardes et l'activation.
-  const verrou = await client.query("SELECT id FROM instances WHERE tenant_id = $1 AND id = $2 FOR UPDATE", [tenantId, instanceId]);
-  if (verrou.rows.length === 0) throw new ErreurRegleMetier("instance_introuvable");
-  for (const garde of gardes) {
+// Gardes de socle (E1 de l'audit de #235) : toujours appliquées, avant celles de l'appelant, sans moyen de les retirer. Le paramètre `gardes` n'ajoute que des gardes EN PLUS.
+const GARDES_SOCLE: readonly GardeActivation[] = [gardeTestABlanc];
+
+export async function activerAvecGardes(client: Requeteur, tenantId: string, instanceId: string, gardesEnPlus: readonly GardeActivation[], emetteur?: Pick<EmetteurC3, "automatisationActivee">): Promise<void> {
+  // Verrou de l'instance du client de la session : l'état ne change pas entre les gardes et l'activation. La version courante est lue avec elle.
+  const verrou = await client.query("SELECT i.id, i.etat, v.statut FROM instances AS i JOIN versions_automatisation AS v ON v.id = i.version_courante_id WHERE i.tenant_id = $1 AND i.id = $2 FOR UPDATE OF i", [tenantId, instanceId]);
+  const ligne = verrou.rows[0] as { etat: string; statut: string } | undefined;
+  if (!ligne) throw new ErreurRegleMetier("instance_introuvable");
+  if (ligne.etat === "active") return; // déjà active : sans effet (idempotent)
+  if (ligne.etat !== "pause") throw new ErreurRegleMetier("etat_depart");
+  if (ligne.statut !== "publiee") throw new ErreurRegleMetier("version_non_publiee");
+  for (const garde of [...GARDES_SOCLE, ...gardesEnPlus]) {
     const r = await garde({ client, tenantId, instanceId });
     if (!r.ok) throw new ErreurRegleMetier(r.motif);
   }

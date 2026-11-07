@@ -115,7 +115,8 @@ describe("gardes d'activation", () => {
     const client = {
       async query(texte: string, valeurs: unknown[] = []): Promise<Rep> {
         appels.push({ texte, valeurs });
-        if (texte.includes("FOR UPDATE")) return { rows: o.instance === false ? [] : [{ id: INSTANCE }] };
+        if (texte.includes("FOR UPDATE")) return { rows: o.instance === false ? [] : [{ id: INSTANCE, etat: "pause", statut: "publiee" }] };
+        if (texte.includes("tests_a_blanc")) return { rows: [{ resultat: "reussi" }], rowCount: 1 };
         if (texte.includes("FROM instances")) return { rows: [{ organisation_id: ORG, code_automatisation: "REL-001" }], rowCount: 1 };
         if (texte.includes("FROM contrats")) return { rows: [{ un: 1 }], rowCount: 1 };
         if (texte.startsWith("UPDATE instances")) return { rows: [{ jour: "2026-11-07" }], rowCount: 1 };
@@ -148,7 +149,7 @@ describe("gardes d'activation", () => {
     expect(maj?.texte).toContain("etat = 'active'");
     expect(maj?.valeurs).toEqual([A, INSTANCE]);
     // L'instance est verrouillée avant la première garde, pour le client de la session.
-    expect(accord.appels[0]?.texte).toMatch(/FROM instances WHERE tenant_id = \$1 AND id = \$2 FOR UPDATE/);
+    expect(accord.appels[0]?.texte).toMatch(/FROM instances AS i JOIN versions_automatisation AS v .* WHERE i\.tenant_id = \$1 AND i\.id = \$2 FOR UPDATE OF i/);
     expect(accord.appels[0]?.valeurs).toEqual([A, INSTANCE]);
   });
 

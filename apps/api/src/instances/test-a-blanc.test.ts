@@ -52,7 +52,7 @@ describe("test à blanc", () => {
 
   it("[B-093] activation sans test à blanc réussi : refusée", async () => {
     const appels: string[] = [];
-    const client = { query: async (texte: string) => (appels.push(texte), texte.includes("tests_a_blanc") ? { rows: [], rowCount: 0 } : { rows: [{ id: INSTANCE }], rowCount: 1 }) } as never;
+    const client = { query: async (texte: string) => (appels.push(texte), texte.includes("tests_a_blanc") ? { rows: [], rowCount: 0 } : { rows: [{ id: INSTANCE, etat: "pause", statut: "publiee" }], rowCount: 1 }) } as never;
     expect(await gardeTestABlanc({ client, tenantId: A, instanceId: INSTANCE })).toEqual({ ok: false, motif: "test_a_blanc_absent" });
     await expect(activerAvecGardes(client, A, INSTANCE, [gardeTestABlanc])).rejects.toMatchObject({ code: "regle_metier", motif: "test_a_blanc_absent" });
     expect(appels.some((t) => t.startsWith("UPDATE"))).toBe(false);

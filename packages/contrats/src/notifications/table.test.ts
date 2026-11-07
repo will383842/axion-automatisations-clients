@@ -49,4 +49,38 @@ describe("[C-557] table unique des envois", () => {
     const reconnexion = TABLE_ENVOIS.find((e) => e.evenement === "lienReconnexion");
     expect(reconnexion?.conditions).toEqual(["connexionTesteeEnEchec", "aucunIncidentOuvertSurConnecteur"]);
   });
+
+  it("[C-557] la table garde ses 18 lignes, leurs modes, destinataires, interrupteurs et conditions", () => {
+    const attendu = [
+      ["invitationPortail", "administrateur_client", "automatique", []],
+      ["invitationCollegue", "collegue_invite", "automatique", []],
+      ["cestParti", "administrateur_client", "automatique", []],
+      ["lancementEnCours", "administrateur_client", "automatique", []],
+      ["lienReconnexion", "administrateur_client", "automatique", ["connexionTesteeEnEchec", "aucunIncidentOuvertSurConnecteur"]],
+      ["avisExpirationConnexion7Jours", "administrateur_client", "automatique", []],
+      ["brouillonEnAttente", "administrateur_client", "automatique", []],
+      ["brouillonExpire", "administrateur_client", "automatique", []],
+      ["envoiEnAttenteARelire", "administrateur_client", "automatique", []],
+      ["palier80Client", "administrateur_client", "automatique", []],
+      ["palier100Client", "administrateur_client", "automatique", []],
+      ["palier80Will", "will", "automatique", []],
+      ["palier100Will", "will", "automatique", []],
+      ["factureDisponible", "administrateur_client", "automatique", []],
+      ["relanceImpaye", "administrateur_client", "clic_will", []],
+      ["nonPaiement30Jours", "administrateur_client", "clic_will", []],
+      ["rapportMensuel", "administrateur_client", "automatique", []],
+      ["notificationViolation", "administrateur_client", "clic_will", []],
+    ];
+    const reel = TABLE_ENVOIS.map((e) => [e.evenement, e.destinataire, e.mode, e.conditions ?? []]);
+    expect(reel).toEqual(attendu);
+    for (const e of TABLE_ENVOIS) {
+      expect(e.interrupteur, e.evenement).toBe(`envoi.${e.evenement}`);
+      expect(e.canal, e.evenement).toBe("email");
+      expect(e.version, e.evenement).toBe("V1");
+    }
+  });
+
+  it("[C-557] le bandeau d'incident n'a aucune ligne dans la table : aucun e-mail", () => {
+    expect(TABLE_ENVOIS.some((e) => /bandeau/i.test(e.evenement))).toBe(false);
+  });
 });

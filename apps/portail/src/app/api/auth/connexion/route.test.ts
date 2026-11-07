@@ -21,13 +21,15 @@ function jeton(charge: object = {}) {
   return `${e}.${c}.${sign("sha256", Buffer.from(`${e}.${c}`), privateKey).toString("base64url")}`;
 }
 let appels: Array<{ url: string; corps: string }>;
+let nonce = "N";
 beforeEach(() => {
+  nonce = "N";
   for (const [k, v] of Object.entries(ENV)) vi.stubEnv(k, v);
   appels = [];
   vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
     if (url.endsWith("/certs")) return Response.json({ keys: [{ ...publicKey.export({ format: "jwk" }), kid: "k1", alg: "RS256", use: "sig" }] });
     appels.push({ url, corps: String(init?.body ?? "") });
-    return Response.json({ id_token: jeton(), access_token: "acces-de-test", refresh_token: "rafraichissement-de-test", expires_in: 300 });
+    return Response.json({ id_token: jeton({ nonce }), access_token: "acces-de-test", refresh_token: "rafraichissement-de-test", expires_in: 300 });
   });
 });
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
@@ -39,13 +41,15 @@ describe("routes de connexion du portail", () => {
     vi.stubEnv("PORTAIL_CONNEXION_OUVERTE", "");
     expect(connexion(new Request("https://portail.exemple.test/api/auth/connexion")).status).toBe(404);
     expect((await appelRappel("x")).status).toBe(404);
-    expect(deconnexion(new Request("https://portail.exemple.test/api/auth/deconnexion", { method: "POST", headers: { origin: ENV.PORTAIL_ORIGINE } })).status).toBe(404);
+    expect((await deconnexion(new Request("https://portail.exemple.test/api/auth/deconnexion", { method: "POST", headers: { origin: ENV.PORTAIL_ORIGINE } }))).status).toBe(404);
   });
 
   it("[LOT6-connexion] connexion puis rappel : 302 direct vers le retour local, cookie Lax, code échangé avec le vérificateur PKCE", async () => {
     const c = connexion(new Request("https://portail.exemple.test/api/auth/connexion?retour=/factures"));
     expect(c.status).toBe(302);
-    const etat = new URL(c.headers.get("location") as string).searchParams.get("state") as string;
+    const url = new URL(c.headers.get("location") as string);
+    const etat = url.searchParams.get("state") as string;
+    nonce = url.searchParams.get("nonce") as string;
     expect(c.headers.getSetCookie().join("\n")).toContain(`__Host-transaction=${etat}`);
     const r = await appelRappel(etat);
     expect(r.status).toBe(302);
@@ -66,8 +70,8 @@ describe("routes de connexion du portail", () => {
   it("[LOT6-connexion] déconnexion : POST seul, Origin exigé, refresh_token envoyé au point logout de Keycloak, session détruite, cookie effacé, 303 vers la fin de session", async () => {
     const s = magasin.ouvrirSession({ sub: "u1", role: "comptable", organisation: "o", jetonIdentite: "id-de-test", jetonAcces: "a", jetonRafraichissement: "r-de-test", accesExpireA: Date.now() + 300_000 });
     const requete = (origine?: string) => new Request("https://portail.exemple.test/api/auth/deconnexion", { method: "POST", headers: { cookie: `__Host-session=${s.id}`, ...(origine ? { origin: origine } : {}) } });
-    expect(deconnexion(requete()).status).toBe(403);
-    expect(deconnexion(requete("https://autre.test")).status).toBe(403);
+    expect((await deconnexion(requete())).status).toBe(403);
+    expect((await deconnexion(requete("https://autre.test"))).status).toBe(403);
     expect(magasin.lireSession(s.id)).toBeDefined();
     const r = await deconnexion(requete(ENV.PORTAIL_ORIGINE));
     expect(r.status).toBe(303);

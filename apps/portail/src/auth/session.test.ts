@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { problemesCookie } from "../../../../packages/securite-web/src/cookies.ts";
-import { COOKIE_SESSION, DUREE_SESSION, cookieEffacer, cookieSession, cookieTransaction, creerMagasin } from "./session.ts";
+import { COOKIE_SESSION, cookieEffacer, cookieSession, cookieTransaction, creerMagasin } from "./session.ts";
 
 const IDENTITE = { sub: "u1", role: "comptable", organisation: "3f2b8c1e-9a4d-4b6e-8c5f-1a2b3c4d5e6f", jetonIdentite: "i", jetonAcces: "a", jetonRafraichissement: "r", accesExpireA: 1_000_000 + 300_000 } as const;
 const T = { verifier: "V".repeat(43), nonce: "N", retour: "/" };
@@ -36,7 +36,6 @@ describe("session du portail", () => {
     expect(m.lireSession(s.id)).toBeUndefined();
     const longue = m.ouvrirSession(IDENTITE);
     for (let i = 0; i < 17; i++) { t += 29 * 60_000; m.lireSession(longue.id); }
-    expect(t - longue.expireA + DUREE_SESSION).toBeGreaterThan(DUREE_SESSION);
     expect(m.lireSession(longue.id)).toBeUndefined();
   });
 

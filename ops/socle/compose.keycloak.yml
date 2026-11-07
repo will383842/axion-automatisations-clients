@@ -28,6 +28,7 @@ services:
       KC_SECRET_CONSOLE: ${SOCLE_KEYCLOAK_SECRET_CONSOLE:?secret de test absent}
       KC_SECRET_PORTAIL: ${SOCLE_KEYCLOAK_SECRET_PORTAIL:?secret de test absent}
       KC_ORIGINE_CONSOLE: https://console.exemple.test
+      KC_ORIGINE_PORTAIL: https://portail.exemple.test
     volumes:
       - ./keycloak/royaume-equipe.json:/opt/keycloak/data/import/royaume-equipe.json:ro
       - ./keycloak/royaume-clients.json:/opt/keycloak/data/import/royaume-clients.json:ro

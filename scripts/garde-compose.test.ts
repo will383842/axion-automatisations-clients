@@ -4,6 +4,7 @@ import { load } from "js-yaml";
 import { describe, expect, it } from "vitest";
 import config from "../vitest.config.js";
 import { verifierCompose } from "./garde-compose.js";
+import { FRAGMENTS_INTEGRATION } from "./partition-integration.ts";
 
 const lire = (chemin: string) => readFileSync(fileURLToPath(new URL(`../${chemin}`, import.meta.url)), "utf8");
 const fixture = (nom: string) => lire(`scripts/__fixtures__/compose/${nom}`);
@@ -155,6 +156,7 @@ describe("tests d'intégration et lancement", () => {
     const fragments = Object.keys(jobs).filter((id) => /^fragment-\d+$/.test(id)).sort();
     const n = fragments.length;
     expect(n).toBeGreaterThanOrEqual(2);
+    expect(n).toBe(FRAGMENTS_INTEGRATION);
     expect(Object.keys(jobs).sort()).toEqual([...fragments, "socle-integration"].sort());
     const r = jobs["socle-integration"]!;
     expect(r.name).toBe("socle-integration");
@@ -173,7 +175,10 @@ describe("tests d'intégration et lancement", () => {
       expect(j.name).toBe(`socle-integration-fragment-${i}`);
       expect(j.if, id).toBeUndefined();
       const tests = j.steps.filter((e) => run(e)?.includes("vitest"));
-      expect(tests.map(run), id).toEqual([`pnpm exec vitest run --project integration --shard=${i}/${n} --reporter=blob --outputFile=rapports-vitest/blob-${i}-${n}.json`]);
+      expect(tests.map(run), id).toEqual([`pnpm exec vitest run --project integration --reporter=blob --outputFile=rapports-vitest/blob-${i}-${n}.json`]);
+      const etapeTests = j.steps.find((e) => run(e)?.includes("vitest"));
+      expect(etapeTests?.env, id).toEqual({ SOCLE_INTEGRATION: "1", FRAGMENT_INTEGRATION: `${i}/${n}` });
+      expect(run(etapeTests ?? { run: "" }), id).not.toMatch(/--shard/);
       expect(j.steps.some((e) => e.uses?.startsWith("actions/upload-artifact@") && e.with?.name === `rapport-integration-${i}` && e.with?.path === `rapports-vitest/blob-${i}-${n}.json`), id).toBe(true);
       parts.push(i);
     }

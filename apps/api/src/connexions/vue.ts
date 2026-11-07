@@ -1,4 +1,4 @@
-// Vue des connexions d'un client (T3-17a, ADR 0133). Seule forme que l'API rend : jamais reference_coffre, portee ni organisation_id (le coffre reste au coffre).
+// Vue des connexions d'un client (T3-17a, ADR 0134). Seule forme que l'API rend : jamais reference_coffre, portee ni organisation_id (le coffre reste au coffre).
 // console_equipe lit tous les clients : le filtre « tenant_id = $1 » figure sur CHAQUE table de la requête, jointures comprises (seconde barrière d'isolation).
 export interface Requeteur {
   query(sql: string, params: unknown[]): Promise<{ rows: unknown[] }>;
@@ -51,7 +51,7 @@ function alaMinute(v: Date | string | null): string | null {
   const d = new Date(v);
   return Number.isNaN(d.getTime()) ? null : `${d.toISOString().slice(0, 16)}Z`;
 }
-// Le code du dernier test n'a pas de colonne (ADR 0133, E1) : toujours null d'ici là.
+// Le code du dernier test n'a pas de colonne (ADR 0134, E1) : toujours null d'ici là.
 const resultatDe = (etat: string): "ok" | "echec" | null => (etat === "active" ? "ok" : etat === "en_echec" || etat === "expiree" ? "echec" : null);
 
 // Projection clé par clé : aucune clé de la ligne brute ne sort sans être nommée ici (jamais d'étalement).

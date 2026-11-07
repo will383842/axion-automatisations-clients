@@ -5,7 +5,7 @@ import { versVues, type LigneConnexion } from "../../connexions/vue.js";
 import { ErreurApi } from "../../plugins/erreurs.js";
 
 // Connexions d'un client (T3-17a) : lecture seule, réservée à l'équipe (droit « lire »). Client hors portée : 404 sans lecture. 503 tant que `ouvert()` est faux (fermé par défaut).
-// Aucune lecture de variable d'environnement ici : la porte est un booléen fourni par l'appelant (ADR 0133).
+// Aucune lecture de variable d'environnement ici : la porte est un booléen fourni par l'appelant (ADR 0134).
 export interface DepsConnexions {
   ouvert(): boolean;
   exigerEquipe: preHandlerAsyncHookHandler;

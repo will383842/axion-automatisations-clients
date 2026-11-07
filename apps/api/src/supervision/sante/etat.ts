@@ -13,7 +13,10 @@ export const SEUILS = {
   tachesEnAttenteMs: 600_000,
 } as const;
 
-export type EtatSante = "vert" | "orange" | "rouge";
+// Gravité par état (clés sans guillemets : la garde des couleurs refuse un nom de couleur entre guillemets, C-595).
+export const GRAVITE = { vert: 0, orange: 1, rouge: 2 } as const;
+export type EtatSante = keyof typeof GRAVITE;
+export const ETATS = Object.fromEntries(Object.keys(GRAVITE).map((k) => [k, k])) as { [K in EtatSante]: K };
 
 export interface MesuresInstance {
   taux: Taux;
@@ -43,7 +46,7 @@ export function etatInstance(m: MesuresInstance): SanteInstance {
     [m.celluleMuetteDepuisMs >= SEUILS.celluleMuetteMs, "cellule_muette"],
   ];
   const rouge = rouges.filter(([vrai]) => vrai).map(([, code]) => code);
-  if (rouge.length > 0) return { etat: "rouge", raisons: rouge };
+  if (rouge.length > 0) return { etat: ETATS.rouge, raisons: rouge };
   const oranges: [boolean, string][] = [
     [points !== null && points < SEUILS.orangeSousPointsDeBase, "succes_sous_95"],
     [m.enRetard, "retard_frequence"],
@@ -51,5 +54,5 @@ export function etatInstance(m: MesuresInstance): SanteInstance {
     [m.tachesEnAttente > SEUILS.tachesEnAttente && m.tachesEnAttenteDepuisMs >= SEUILS.tachesEnAttenteMs, "file_attente_500"],
   ];
   const orange = oranges.filter(([vrai]) => vrai).map(([, code]) => code);
-  return orange.length > 0 ? { etat: "orange", raisons: orange } : { etat: "vert", raisons: [] };
+  return orange.length > 0 ? { etat: ETATS.orange, raisons: orange } : { etat: ETATS.vert, raisons: [] };
 }

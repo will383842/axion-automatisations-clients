@@ -43,7 +43,7 @@ describe("écran Sécurité et accès", () => {
     expect(t).toContain("Double facteur absent");
     expect(t).toContain("Garage Fontaine");
     expect(t).toContain("Intervention");
-    expect(h.match(/data-session="/g)).toHaveLength(2);
+    expect(h.match(/<tr[^>]*data-session="/g)).toHaveLength(2);
   });
 
   it("[B-027] le bouton Révoquer demande confirmation et vise la session de sa ligne", () => {

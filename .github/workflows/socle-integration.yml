@@ -38,7 +38,7 @@ jobs:
           SOCLE_INTEGRATION: "1"
           FRAGMENT_INTEGRATION: "1/4"
       - name: Envoyer le rapport du fragment
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: rapport-integration-1
           path: rapports-vitest/blob-1-4.json
@@ -75,7 +75,7 @@ jobs:
           SOCLE_INTEGRATION: "1"
           FRAGMENT_INTEGRATION: "2/4"
       - name: Envoyer le rapport du fragment
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: rapport-integration-2
           path: rapports-vitest/blob-2-4.json
@@ -112,7 +112,7 @@ jobs:
           SOCLE_INTEGRATION: "1"
           FRAGMENT_INTEGRATION: "3/4"
       - name: Envoyer le rapport du fragment
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: rapport-integration-3
           path: rapports-vitest/blob-3-4.json
@@ -149,7 +149,7 @@ jobs:
           SOCLE_INTEGRATION: "1"
           FRAGMENT_INTEGRATION: "4/4"
       - name: Envoyer le rapport du fragment
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: rapport-integration-4
           path: rapports-vitest/blob-4-4.json

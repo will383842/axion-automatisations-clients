@@ -4,14 +4,18 @@ import { writeSync } from "node:fs";
 import { createRequire } from "node:module";
 import { createServer, type Server } from "node:net";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { afterAll, afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { deriverCleIntention } from "../../packages/contrats/src/c4/intention.ts";
-import { avecClient } from "../../apps/executeur/src/db/connexion.ts";
+import { avecClient, securiserPartitions } from "../../apps/executeur/src/db/connexion.ts";
+import { verifierDossier } from "../../scripts/garde-migrations.ts";
 import type { ClientMailpit } from "../../packages/harnais/src/mailpit.ts";
 import { demarrerFauxGraph } from "../../packages/harnais/src/faux-graph/serveur.ts";
 
 // « pg » n'est pas une dépendance de la racine : on le prend chez l'exécuteur.
-const pg = createRequire(new URL("../../apps/executeur/package.json", import.meta.url))("pg") as { Pool: new (o: object) => { on(e: string, f: () => void): void; end(): Promise<void> } };
+const depuisExecuteur = createRequire(new URL("../../apps/executeur/package.json", import.meta.url));
+const pg = depuisExecuteur("pg") as { Pool: new (o: object) => { on(e: string, f: () => void): void; end(): Promise<void>; connect(): Promise<{ release(): void; query(t: string): Promise<unknown> }> } };
+const { drizzle } = depuisExecuteur("drizzle-orm/node-postgres") as { drizzle: (c: unknown) => unknown };
+const { migrate } = depuisExecuteur("drizzle-orm/node-postgres/migrator") as { migrate: (db: unknown, o: { migrationsFolder: string; migrationsSchema: string; migrationsTable: string }) => Promise<void> };
 
 // Arrêt brutal (C-470) : 50 exécutions du module d'exemple contre le faux Graph, le travailleur tué par SIGKILL à des instants tirés au sort, relancé, puis les messages reçus comptés dans un piège SMTP local (le socle n'a pas de Mailpit).
 // Le travailleur est un processus enfant (jamais le processus du test) lancé avec le même Node : son code est écrit ici, le seul fichier de cette fiche à cet endroit.
@@ -29,7 +33,13 @@ function secret(): string {
   return ligne.slice("SOCLE_PG_MOT_DE_PASSE=".length);
 }
 const PGBOUNCER = cible("pgbouncer", 6432, process.env["SOCLE_PG_PGBOUNCER"]);
-const MOT_DE_PASSE = createHash("sha256").update(`${secret()}/moteur_app`).digest("hex");
+const SECRET = secret();
+const motDePasseDe = (role: string) => createHash("sha256").update(`${SECRET}/${role}`).digest("hex");
+const MOT_DE_PASSE = motDePasseDe("moteur_app");
+const DIRECT = cible("postgres", 5432, process.env["SOCLE_PG_DIRECT"]);
+// Même chemin que moteur.int.test.ts : le test migre lui-même la base moteur (idempotent), il ne dépend plus d'un autre fragment.
+const migration = new pg.Pool({ ...DIRECT, user: "moteur_migration", database: "moteur", password: motDePasseDe("moteur_migration"), max: 2, connectionTimeoutMillis: 10_000 });
+migration.on("error", () => undefined);
 const app = new pg.Pool({ ...PGBOUNCER, user: "moteur_app", database: "moteur", password: MOT_DE_PASSE, max: 4, connectionTimeoutMillis: 10_000 });
 app.on("error", () => undefined);
 
@@ -119,9 +129,22 @@ const compter = async (tenant: string) => Number((await avecClient(app as never,
 afterEach((contexte) => {
   if (contexte.task.result?.state === "fail") writeSync(2, `ECHEC ${contexte.task.name} : ${String(contexte.task.result.errors?.[0]?.message ?? "").slice(0, 400)}\n`);
 });
+beforeAll(async () => {
+  const dossier = fileURLToPath(new URL("../../apps/executeur/drizzle", import.meta.url));
+  const refus = verifierDossier(dossier);
+  if (refus.length) throw new Error(`migrations refusées :\n${refus.join("\n")}`);
+  const c = await migration.connect();
+  try {
+    await migrate(drizzle(c), { migrationsFolder: dossier, migrationsSchema: "public", migrationsTable: "__migrations" });
+    await securiserPartitions(c);
+  } finally {
+    c.release();
+  }
+}, 120_000);
 afterAll(async () => {
   for (const p of vivants) p.kill("SIGKILL");
   await app.end().catch(() => undefined);
+  await migration.end().catch(() => undefined);
 });
 
 function lancerTravailleur(travail: object) {

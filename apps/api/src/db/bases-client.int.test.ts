@@ -341,7 +341,7 @@ describe("fin de contrat et effacement (C-715)", { timeout: 40_000 }, () => {
     const d = (await demande(A))["id"];
     await expect(decision(A, { demande_id: d, decision: "ecarter", cause: "decision_de_will" })).rejects.toMatchObject({ code: "23514" });
     await expect(decision(A, { demande_id: d, decision: "ecarter", cause: "obligation_legale", reference_texte: "texte d'essai" })).rejects.toMatchObject({ code: "23514" });
-    const fin = await creerFin(A);
+    const fin = await ecrire(app, A, async (c) => (await c.query("SELECT id FROM fins_de_contrat WHERE tenant_id = $1", [A])).rows[0] as Record<string, unknown>, APPELANT); // la fin créée par la demande (une seule par client)
     const prop = await creerProposition(A, fin["id"], "2032-06-30");
     expect(await decision(A, { proposition_id: prop["id"], decision: "ecarter", cause: "decision_de_will" })).toMatchObject({ cause: "decision_de_will" });
   });
@@ -388,5 +388,34 @@ describe("fin de contrat et effacement (C-715)", { timeout: 40_000 }, () => {
     await confirmer(personne, "will");
     await expect(confirmer(personne, "second_administrateur")).rejects.toMatchObject({ code: "23505" });
     await confirmer(randomUUID(), "second_administrateur");
+  });
+});
+
+describe("une fin de contrat par client (T2-44b-a)", { timeout: 40_000 }, () => {
+  it("[C-035] @isolation une seconde fin pour le même client est refusée (23505), une fin pour un autre client passe, et le client A ne voit jamais la ligne de B", async () => {
+    const A = await nouveauClient();
+    const B = await nouveauClient();
+    await creerFin(A);
+    await expect(creerFin(A)).rejects.toMatchObject({ code: "23505", constraint: "fins_de_contrat_une_par_client" });
+    const finB = await creerFin(B);
+    const vusParA = await ecrire(app, A, async (c) => (await c.query("SELECT id FROM fins_de_contrat WHERE id = $1", [finB["id"]])).rows, APPELANT);
+    expect(vusParA).toHaveLength(0);
+  });
+
+  it("[C-035] deux INSERT … ON CONFLICT (tenant_id) DO NOTHING lancés ensemble sur deux connexions donnent une seule ligne ; le perdant ne reçoit aucune erreur et relit la date du gagnant", async () => {
+    const A = await nouveauClient();
+    const lancer = (date: string) =>
+      ecrire(app, A, async (c) => {
+        const r = await c.query("INSERT INTO fins_de_contrat (id, tenant_id, organisation_id, date_fin) VALUES ($1, $2, $2, $3) ON CONFLICT (tenant_id) DO NOTHING RETURNING id", [randomUUID(), A, date]);
+        if (r.rowCount === 1) return { gagnant: true, date };
+        // Le perdant relit dans une nouvelle instruction (READ COMMITTED).
+        return { gagnant: false, date: (await c.query("SELECT date_fin::text AS d FROM fins_de_contrat WHERE tenant_id = $1", [A])).rows[0]?.d as string };
+      }, APPELANT);
+    const [x, y] = await Promise.all([lancer("2027-03-31"), lancer("2027-03-31")]);
+    expect([x.gagnant, y.gagnant].filter(Boolean)).toHaveLength(1);
+    expect(x.date).toBe("2027-03-31");
+    expect(y.date).toBe("2027-03-31");
+    const n = await ecrire(app, A, async (c) => (await c.query("SELECT count(*)::int AS n FROM fins_de_contrat WHERE tenant_id = $1", [A])).rows[0]?.n as number, APPELANT);
+    expect(n).toBe(1);
   });
 });

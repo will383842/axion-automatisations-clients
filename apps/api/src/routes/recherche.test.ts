@@ -16,7 +16,7 @@ const lignes = (): LigneMemoire[] => [
   { type: "contact", id: "c1", client_id: A, client_nom: "Atelier Bertin", libelle: "Claire Bertin", email: "claire@exemple.fr", role: "principal" },
   { type: "facture", id: "f1", client_id: A, client_nom: "Atelier Bertin", libelle: "AXI-FACT-0001", statut: "emise", periode_debut: "2026-02-01", periode_fin: "2026-02-28" },
   { type: "demande", id: "33333333-3333-4333-8333-333333333333", client_id: A, client_nom: "Atelier Bertin", libelle: "question", statut: "nouvelle", cree_le: "2026-11-01T08:00:00Z" },
-  { type: "instance", id: "i1", client_id: A, client_nom: "Atelier Bertin", libelle: "relance-devis", automatisation_nom: null, etat: "active" },
+  { type: "instance", id: "i1", client_id: A, client_nom: "Atelier Bertin", libelle: "relance-bertin", automatisation_nom: null, etat: "active" },
   { type: "client", id: B, client_id: B, libelle: "Boulangerie Rivoire", statut: "client" },
 ];
 function monter(o: Partial<DepsRecherche> & { depot?: DepotRecherche } = {}) {
@@ -49,7 +49,7 @@ describe("route de la recherche", () => {
 
   it("[LOT3-recherche] un terme de moins de 2 ou de plus de 100 caractères, ou porteur d'un caractère de contrôle, rend 400 sans lecture", async () => {
     const { app, vus } = monter();
-    for (const q of ["", "a", " b ", "x".repeat(101), "x".repeat(10_000), "ab\ncd", "ab\u0000cd", "ab‮cd"]) expect((await chercher(app, { q })).statusCode, JSON.stringify(q.slice(0, 5))).toBe(400);
+    for (const q of ["", "a", " b ", "x".repeat(101), "x".repeat(10_000), "ab\ncd", "ab\u0000cd", "ab" + String.fromCharCode(0x202e) + "cd"]) expect((await chercher(app, { q })).statusCode, JSON.stringify(q.slice(0, 5))).toBe(400);
     expect((await app.inject({ method: "GET", url: URL })).statusCode).toBe(400);
     expect((await chercher(app, { q: "x".repeat(100) })).statusCode).toBe(200);
     expect((await chercher(app, { q: "  ab   cd  " })).statusCode).toBe(200);

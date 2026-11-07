@@ -81,6 +81,7 @@ export const ACTION_PAR_ROUTE: Readonly<Record<string, Action>> = {
   "POST /api/console/v1/instances/:id/reglages": "modifier_reglages",
   "POST /api/console/v1/instances/:id/reglages/revenir": "modifier_reglages",
   "GET /api/console/v1/instances/:id/reglages/versions": "lire",
+  "GET /api/console/v1/recherche": "lire",
   "POST /api/console/v1/journal/:id/annuler": "modifier_reglages",
   "GET /equipe/journal": "journal_complet",
 };

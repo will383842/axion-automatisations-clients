@@ -62,10 +62,10 @@ describe("[C-557] catalogue des e-mails", () => {
     expect(lexique.mots.length).toBeGreaterThan(0);
     for (const [cle, t] of entrees) {
       const texte = `${textesDe(t)}\n${PIED_EMAIL}`;
-      expect(texte, cle).not.toMatch(/\b(tu|ton|ta|tes|toi)\b/i);
+      expect(texte, cle).not.toMatch(/(?<!\p{L})(tu|ton|ta|tes|toi)(?!\p{L})/iu);
       expect(texte, cle).not.toMatch(/\p{Extended_Pictographic}/u);
       expect(texte, cle).not.toMatch(/grenoble|aucun gain garanti/i);
-      for (const mot of lexique.mots) expect(texte, `${cle} ${mot}`).not.toMatch(new RegExp(`\\b${mot}\\b`, "i"));
+      for (const mot of lexique.mots) expect(texte, `${cle} ${mot}`).not.toMatch(new RegExp(`(?<!\\p{L})${mot}(?!\\p{L})`, "iu"));
     }
   });
 

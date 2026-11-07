@@ -12,7 +12,6 @@ import { routePlan, type DepsPlan } from "./plan.js";
 // Onglet Contrat et plan (T3-14a) : lecture du plan ENREGISTRÉ, jamais recalculé. Montants FICTIFS en centimes, identifiants tirés au hasard, aucun vrai client.
 const A = randomUUID();
 const B = randomUUID();
-const JOUR = "2026-11-07";
 type Ligne = Record<string, unknown>;
 
 const COLONNES_SOURCE = { formule: "source_formule", fraisMiseEnPlace: "source_frais_mise_en_place", prixRecurrentMensuel: "source_prix_recurrent_mensuel", periodeFacturation: "source_periode_facturation", modeAvance: "source_mode_avance", maintenanceIncluse: "source_maintenance_incluse", suiteMaintenance: "source_suite_maintenance", engagement: "source_engagement" } as const;
@@ -75,7 +74,7 @@ describe("route du plan d'un client", () => {
     expect(Object.keys(corps.plans[0].plan).sort()).toEqual(["auteur", "enregistre_le", "id", "phases", "valeurs"]);
     expect(Object.keys(corps.plans[0].plan.valeurs).sort()).toEqual(CLES_VALEURS);
     expect(corps.plans[0].plan.phases.map((p: Ligne) => Object.keys(p).sort())).toEqual([["debut", "fin", "montant_ht_centimes", "nature", "ordre", "periode_facturation_mois", "statut"], ["debut", "fin", "montant_ht_centimes", "nature", "ordre", "periode_facturation_mois", "statut"]]);
-    expect(Object.keys(corps.conditions[0]).sort()).toEqual(["auteur", "id", "modifie_le", "personnalise", "type", "valeur", "valide_au", "valide_du"].sort());
+    expect(Object.keys(corps.conditions[0]).sort()).toEqual(["auteur", "id", "modifie_le", "personnalise", "type", "valeurs", "valide_au", "valide_du"].sort());
     expect(JSON.stringify(corps)).not.toMatch(/plan_id|tenant_id|plan_auteur|source_/);
   });
 
@@ -93,7 +92,7 @@ describe("route du plan d'un client", () => {
   it("[C-183] une condition propre au client porte le repère « personnalisé »", async () => {
     const avecClient = fauxClient([ligneDe(calculer(5000, 1000, [{ type: "engagement", valeur: { engagement_mois: 6 } }]))], [], [condition()]);
     const c = (await serveur(avecClient.client).app.inject({ method: "GET", url: url(A) })).json();
-    expect(c.plans[0].plan.valeurs.engagement_mois).toEqual({ valeur: 6, source: "client" });
+    expect(c.plans[0].plan.valeurs.engagement_mois).toMatchObject({ valeur: 6, source: "client" });
     expect(c.plans[0].plan.valeurs.engagement_mois.personnalise).toBe(true);
     expect(c.conditions[0].personnalise).toBe(true);
     // Source « instance » : choisie pour cette automatisation, pas personnalisée.

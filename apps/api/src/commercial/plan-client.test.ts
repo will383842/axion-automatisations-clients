@@ -29,7 +29,7 @@ describe("dépôt de lecture du plan", () => {
   it("[A-040] le dernier changement d'une condition donne son auteur et sa date, lus au journal", async () => {
     const { client, appels } = fauxClient([{ id: randomUUID(), type: "frais", valeur: { frais_mise_en_place_centimes: 4000 }, valide_du: null, valide_au: null, auteur: "agent-essai", modifie_le: "2026-10-30T09:00:00.000Z" }]);
     const lu = await lirePlanClient(client, T, "2026-11-07");
-    expect(lu.conditions[0]).toMatchObject({ auteur: "agent-essai", modifie_le: "2026-10-30T09:00:00.000Z" });
+    expect(lu.conditions[0]).toMatchObject({ auteur: "agent-essai", modifieLe: "2026-10-30T09:00:00.000Z" });
     const texte = appels.find((a) => a.texte.includes("FROM conditions_commerciales"))?.texte ?? "";
     expect(texte).toContain("entite = 'conditions_commerciales'");
     expect(texte).toMatch(/ORDER BY[^)]*DESC\s+LIMIT 1/);

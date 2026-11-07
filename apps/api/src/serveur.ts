@@ -20,6 +20,7 @@ import { routeImport, type DepsImport } from "./routes/import.js";
 import { routeSante } from "./routes/sante.js";
 import { routeFiche, type DepsFiche } from "./routes/clients/fiche.js";
 import { routeNotes, type DepsNotes } from "./routes/clients/notes.js";
+import { routePlan, type DepsPlan } from "./routes/clients/plan.js";
 import { routeImportCatalogue, type DepsImportCatalogue } from "./routes/catalogue/import.js";
 import { routeVersionsCatalogue, type DepsVersionsCatalogue } from "./routes/catalogue/versions.js";
 import { routeDeploiementInstances, type DepsDeploiementInstances } from "./routes/instances/deploiement.js";
@@ -44,7 +45,7 @@ export function creerTravailleurProvisionnement(o: {
 }
 
 // `provisionnement` : routes de reprise fournies par l'appelant ; absent, la route n'existe pas (fermé par défaut).
-export function construireServeur(options: { config?: Config; pool?: pg.Pool; journal?: { write(ligne: string): void }; provisionnement?: DepsRoutesProvisionnement; crm?: DepsCrm; executeur?: DepsExecuteur; donnees?: DepsRoutesDonnees; importCatalogue?: DepsImportCatalogue; versionsCatalogue?: DepsVersionsCatalogue; deploiementInstances?: DepsDeploiementInstances; webhooks?: DepsWebhooks; fiche?: DepsFiche; notes?: DepsNotes; importPersonnes?: DepsImport } = {}) {
+export function construireServeur(options: { config?: Config; pool?: pg.Pool; journal?: { write(ligne: string): void }; provisionnement?: DepsRoutesProvisionnement; crm?: DepsCrm; executeur?: DepsExecuteur; donnees?: DepsRoutesDonnees; importCatalogue?: DepsImportCatalogue; versionsCatalogue?: DepsVersionsCatalogue; deploiementInstances?: DepsDeploiementInstances; webhooks?: DepsWebhooks; fiche?: DepsFiche; notes?: DepsNotes; planClient?: DepsPlan; importPersonnes?: DepsImport } = {}) {
   // id_trace : toujours choisi par le serveur, l'en-tête du client est ignoré.
   const serveur = Fastify({ genReqId: () => randomUUID(), requestIdHeader: false, ...(options.journal ? { logger: { level: "info", stream: options.journal, base: {}, serializers: serialiseursJournal } } : {}) });
   brancherErreurs(serveur);
@@ -69,6 +70,7 @@ export function construireServeur(options: { config?: Config; pool?: pg.Pool; jo
   // Fiche client et notes (T3-13) : les routes n'existent que si l'appelant les fournit, et répondent 503 tant que `ouvert()` est faux (fermé par défaut).
   if (options.fiche) routeFiche(serveur, options.fiche);
   if (options.notes) routeNotes(serveur, options.notes);
+  if (options.planClient) routePlan(serveur, options.planClient);
   // Import de personnes (T2-47b) : la route n'existe que si l'appelant la fournit, et répond 503 tant que `ouvert` est faux (fermé par défaut).
   if (options.importPersonnes) routeImport(serveur, options.importPersonnes);
   return serveur;

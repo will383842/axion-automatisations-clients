@@ -222,7 +222,7 @@ describe("lecture du plan d'un client (T3-14a)", () => {
     const lu = await avecClient(app, A, (c) => lirePlanClient(c, A, "2026-11-07"), APPELANT);
     const trois = lu.conditions.filter((c) => c.auteur === "agent-essai");
     expect(trois).toHaveLength(3);
-    for (const c of trois) expect(Number.isNaN(Date.parse(String(c.modifie_le)))).toBe(false);
+    for (const c of trois) expect(Number.isNaN(Date.parse(String(c.modifieLe)))).toBe(false);
     expect(lu.instances).toHaveLength(1);
     expect(lu.instances[0]?.plan).toBeNull();
   });
@@ -231,9 +231,9 @@ describe("lecture du plan d'un client (T3-14a)", () => {
     const a = await client(12);
     const b = await client(24);
     const lu = await avecClient(app, a.A, (c) => lirePlanClient(c, a.A, "2026-11-07"), APPELANT);
-    expect(lu.instances.map((i) => i.instance_id)).toEqual([a.instance]);
-    expect(lu.instances.map((i) => i.instance_id)).not.toContain(b.instance);
-    expect(lu.conditions.every((c) => JSON.stringify(c.valeur).includes("engagement_mois") ? (c.valeur as Record<string, unknown>)["engagement_mois"] === 12 : true)).toBe(true);
+    expect(lu.instances.map((i) => i.instanceId)).toEqual([a.instance]);
+    expect(lu.instances.map((i) => i.instanceId)).not.toContain(b.instance);
+    expect(lu.conditions.map((c) => (c.valeur as Record<string, unknown>)["engagement_mois"]).filter((v) => v !== undefined)).toEqual([12]);
     // Même avec l'identifiant de B demandé sous la portée de A, la RLS ne rend rien.
     const croise = await avecClient(app, a.A, (c) => lirePlanClient(c, b.A, "2026-11-07"), APPELANT);
     expect(croise.instances).toEqual([]);

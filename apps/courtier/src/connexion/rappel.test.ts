@@ -66,8 +66,9 @@ const ouvrir = async (m: ReturnType<typeof monde>, lien = lienMs()) => {
   if (!r.ok) throw new Error(`ouverture refusée : ${r.code}`);
   return etatDe(r.adresse);
 };
+// Hors coffre : la base, le journal et les réponses ne doivent contenir aucune valeur.
 const aucunJeton = (m: ReturnType<typeof monde>, ...reponses: unknown[]) => {
-  const tous = m.tout() + JSON.stringify(reponses);
+  const tous = JSON.stringify({ ...m.base, coffre: [] }) + JSON.stringify(reponses);
   expect(tous).not.toContain(MARQUE_ACCES);
   expect(tous).not.toContain(MARQUE_RENOUV);
 };
@@ -238,7 +239,7 @@ describe("rappel OAuth", () => {
       const rep = await terminerRappel(m.p, SESSION, { state: await ouvrir(m), code: "c" });
       expect(rep).toEqual({ etat: "en_echec", code });
       expect(m.base.etats).toEqual([`en_echec:${code}`]);
-      aucunJeton({ ...m, tout: () => JSON.stringify({ ...m.base, coffre: [] }) }, rep);
+      aucunJeton(m, rep);
     }
   });
 

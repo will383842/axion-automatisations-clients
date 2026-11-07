@@ -29,5 +29,8 @@ export const ECRANS: readonly Ecran[] = [
   { route: "/", page: "page.tsx", maquette: null, etats: [] },
   { route: "/entree", page: "entree/page.tsx", maquette: null, etats: [] },
   { route: "/connexion/reconnexion", page: "connexion/reconnexion/page.tsx", maquette: null, etats: ["normal"], parcours: [{ nom: "se reconnecter", clics: 1 }] },
+  // Fiche client (T3-13) : pages de passage tant que l'appel à l'API de la fiche n'est pas câblé ; le bandeau et le résumé sont recettés par leurs tests.
+  { route: "/clients/[id]", page: "(equipe)/clients/[id]/page.tsx", maquette: "F-Console-Fiche", etats: [] },
+  { route: "/clients/[id]/notes", page: "(equipe)/clients/[id]/notes/page.tsx", maquette: "F-Console-Fiche", etats: [] },
   ...["accueil", "clients", "alertes", "demandes", "facturation", "catalogue", "conformite", "securite", "plus"].map(coquille),
 ];

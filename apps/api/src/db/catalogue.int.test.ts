@@ -526,7 +526,7 @@ describe("liste du catalogue par métier (T3-31a2)", () => {
     });
     const { depotSqlListe } = await import("../routes/catalogue/liste.js");
     const depot = depotSqlListe(async (texte, valeurs) => equipe.query(texte, valeurs));
-    const codes = async (metiers: string[]) => (await depot.lister({ metiers, curseur: null, limite: 100 })).map((l) => l.code);
+    const codes = async (metiers: string[]) => (await depot.lister({ metiers, curseur: null, limite: 100 })).map((l) => l.code).sort();
     const mien = [String(a["code"]), String(b["code"]), String(c["code"])];
     const parBtp = (await codes([m1 ?? ""])).filter((x) => mien.includes(x));
     const parCompta = (await codes([m2 ?? ""])).filter((x) => mien.includes(x));

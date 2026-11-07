@@ -39,20 +39,23 @@ describe("observabilite : nettoyage avant envoi", () => {
     const ev = avantEnvoi(evenementBrut(), { application: "api" });
     const sortie = JSON.stringify(ev);
     expect(sortie).not.toMatch(/Authorization|Cookie|Bearer|corps|query_string|jeton=/i);
-    expect(ev.route).toBe("/api/console/v1/clients/:id/envois");
+    expect(ev.tags.route).toBe("/api/console/v1/clients/:id/envois");
   });
   it("[LOT5-secret] le marqueur d'un secret de test est absent de l'événement envoyé", () => {
     expect(JSON.stringify(avantEnvoi(evenementBrut(), { application: "executeur" }))).not.toContain("MARQUEUR_UNIQUE");
   });
   it("[C-025] seuls le code d'erreur, la route, la version, la cellule et l'instance opaque sont gardés", () => {
     const ev = avantEnvoi(evenementBrut(), { application: "console" });
-    expect(Object.keys(ev).sort()).toEqual(["application", "cellule", "code", "instance", "message", "route", "version"].sort());
-    expect(ev).toMatchObject({ application: "console", code: "ErreurConnecteur", version: "1.4.2", cellule: "cellule-1", instance: "inst-opaque-42" });
+    expect(Object.keys(ev).sort()).toEqual(["contexts", "exception", "message", "release", "tags"]);
+    expect(ev.tags).toEqual({ application: "console", cellule: "cellule-1", route: "/api/console/v1/clients/:id/envois" });
+    expect(ev.exception.values[0]?.type).toBe("ErreurConnecteur");
+    expect(ev.release).toBe("1.4.2");
+    expect(ev.contexts.app.instance).toBe("inst-opaque-42");
   });
 });
 
 describe("observabilite : route envoyée à Sentry", () => {
-  const routeDe = (url: string) => avantEnvoi({ request: { url } }, { application: "api" }).route;
+  const routeDe = (url: string) => avantEnvoi({ request: { url } }, { application: "api" }).tags.route;
   const JWT = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2ln";
   it("[C-025] une route dont un segment est un JWT, une adresse e-mail ou un jeton opaque arrive à Sentry avec ce segment masqué", () => {
     expect(routeDe(`/api/portail/v1/invitations/${JWT}`)).toBe("/api/portail/v1/invitations/:id");
@@ -82,7 +85,7 @@ describe("observabilite : initialisation commune de Sentry", () => {
       configurerSentry({ dsn: dsn("o1.ingest.de.sentry.io"), application, version: "1.0.0", sentry: faux.client });
       faux.envoyer(evenementBrut());
     }
-    expect(faux.recus.map((e) => e["application"])).toEqual(["api", "executeur", "console"]);
+    expect(faux.recus.map((e) => (e["tags"] as Record<string, string>)["application"])).toEqual(["api", "executeur", "console"]);
     expect(JSON.stringify(faux.recus)).not.toContain("MARQUEUR_UNIQUE");
   });
   it("[A-113] refuse de démarrer sans adresse européenne, avec un message clair pour l'équipe", () => {
@@ -98,5 +101,18 @@ describe("observabilite : initialisation commune de Sentry", () => {
     expect(options?.beforeBreadcrumb?.({ message: MARQUEUR } as never)).toBeNull();
     expect(options?.replaysSessionSampleRate ?? 0).toBe(0);
     expect(faux.recus).toHaveLength(0);
+  });
+});
+
+describe("observabilite : options sans transaction ni fil d'Ariane", () => {
+  it("[C-025] aucune transaction, aucun span, aucun fil d'Ariane, aucune intégration ; le masqueur injecté est appliqué", () => {
+    let options: OptionsSentry | undefined;
+    const mdp = `marqueur-${"a1b2c3"}`;
+    configurerSentry({ dsn: dsn("o1.ingest.de.sentry.io"), application: "api", version: "1", sentry: { init: (o) => { options = o; } }, masquerSecrets: (t) => t.replaceAll(mdp, "[masqué]") });
+    expect(options?.beforeSendTransaction?.({ transaction: "/x?jeton=1" })).toBeNull();
+    expect(options?.beforeSendSpan?.({ description: "x" })).toBeNull();
+    expect(options?.maxBreadcrumbs).toBe(0);
+    expect(options?.integrations).toEqual([]);
+    expect(JSON.stringify(options?.beforeSend({ message: `a ${mdp}` }))).not.toContain(mdp);
   });
 });

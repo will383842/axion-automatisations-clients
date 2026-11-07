@@ -415,7 +415,7 @@ describe("déploiement (T4-28a)", { timeout: 30_000 }, () => {
     await expect(inserer("tests_a_blanc", a.A, ligneTest(b.A, b.instance, b.version, b.cfg))).rejects.toMatchObject({ code: "42501" });
     await expect(inserer("deploiements_instance", a.A, { tenant_id: b.A, instance_id: b.instance, version_cible_id: b.version, resultat: "ok", auteur: APPELANT.acteur })).rejects.toMatchObject({ code: "42501" });
     await expect(inserer("tests_a_blanc", a.A, ligneTest(a.A, a.instance, a.version, b.cfg))).rejects.toMatchObject({ code: "23503" });
-    // F1 de l'audit de #234 : même cloisonnement pour deploiements_instance, y compris sous le client B avec la configuration de A (clés étrangères à deux et trois colonnes).
+    // F1 de l'audit de la PR 234 : même cloisonnement pour deploiements_instance, y compris sous le client B avec la configuration de A (clés étrangères à deux et trois colonnes).
     const depl = (t: string, i: string, v: string, cfg?: string) => ({ tenant_id: t, instance_id: i, version_cible_id: v, ...(cfg ? { configuration_id: cfg } : {}), resultat: "ok", auteur: APPELANT.acteur });
     await expect(inserer("deploiements_instance", a.A, depl(a.A, b.instance, a.version))).rejects.toMatchObject({ code: "23503", constraint: "deploiements_instance_instance_fk" });
     await expect(inserer("deploiements_instance", a.A, depl(a.A, a.instance, a.version, b.cfg))).rejects.toMatchObject({ code: "23503", constraint: "deploiements_instance_configuration_fk" });

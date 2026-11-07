@@ -48,7 +48,7 @@ export async function lancerTestABlanc(pool: Pool, tenantId: string, cible: Cibl
   // L'exécution (longue) se fait hors transaction.
   const brut = await executeur.executer({ tenantId, ...cible }).catch((e: unknown) => (e instanceof Error ? e : new Error("executeur")));
   const rapport = normaliser(brut);
-  // Écriture : la version et la configuration sont relues dans la MÊME transaction, sous verrou de l'instance (M1 de l'audit de #234) ; la base ne lie pas la version à l'automatisation.
+  // Écriture : la version et la configuration sont relues dans la MÊME transaction, sous verrou de l'instance (M1 de l'audit de la PR 234) ; la base ne lie pas la version à l'automatisation.
   return avecClient(pool, tenantId, async (client) => {
     if (!estCourant(await lireCourant(client, tenantId, cible.instanceId, true), cible)) throw erreurVersion();
     const ligne = await client.query(

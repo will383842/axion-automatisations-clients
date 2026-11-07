@@ -18,6 +18,7 @@ Toutes tournent chez AXION IA (lieu `local`) ; aucune n'est livrée chez un clie
 | `pgbouncer` | répartiteur de connexions | `local` : ne garde aucune donnée |
 | `valkey` | files de tâches | `local` : serveur d'AXION IA |
 | `uptime-kuma` | disponibilité des briques et page d'état | `local` : serveur d'AXION IA, aucune donnée de client |
+| `victoria-logs` | journaux regroupés des trois applications (lignes déjà masquées) | `local` : serveur d'AXION IA |
 | `openbao` | coffre à secrets | `local` : serveur d'AXION IA |
 | `stockage` | stockage d'objets compatible S3 (exports, factures, pièces de suivi, artefacts) | `local` : serveur d'AXION IA |
 | `keycloak` | connexion | `local` : serveur d'AXION IA |
@@ -28,5 +29,10 @@ Toutes tournent chez AXION IA (lieu `local`) ; aucune n'est livrée chez un clie
 |---|---|
 | Claude (Anthropic) | hors UE : à confirmer auprès du fournisseur |
 | GPT (OpenAI) | hors UE : à confirmer auprès du fournisseur |
+
+## Fournisseurs de supervision
+| Fournisseur | Lieu des données |
+|---|---|
+| Sentry (erreurs des applications, après nettoyage) | région européenne seulement : le code refuse tout autre hôte (ADR 0127) ; contrat de sous-traitance à confirmer au lot 8a |
 
 **À trancher par le juriste :** les fournisseurs d'IA situés hors UE posent la question du transfert de données personnelles. Ce document la signale ; il ne la tranche pas. Tant que le juriste n'a pas répondu, aucune donnée réelle de client ne part vers eux.

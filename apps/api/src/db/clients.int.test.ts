@@ -362,14 +362,14 @@ describe("déploiement (T4-28a)", { timeout: 30_000 }, () => {
   const su = pool(DIRECT, "postgres", 2);
   const uniq = () => String(Math.floor(10_000 + Math.random() * 89_999));
   const creerVersion = async () => {
-    const a = (await su.query("INSERT INTO automatisations (code, nom) VALUES ($1, 'Relance de devis') RETURNING id", [`ESS-${uniq()}${uniq()}`])).rows[0]?.["id"] as string;
+    const a = (await su.query("INSERT INTO automatisations (code, nom) VALUES ($1, 'Relance de devis') RETURNING id", [`ESS-${uniq()}`])).rows[0]?.["id"] as string;
     const empreinte = createHash("sha256").update(randomUUID()).digest("hex");
     const v = (await su.query("INSERT INTO versions_automatisation (automatisation_id, semver, api_moteur, artefact_ref, empreinte_sha256, signature_ed25519, sbom_ref) VALUES ($1, '1.0.0', '^0.1.0', $2, $3, 'c2lnbmF0dXJlLWZpY3RpdmU=', 'sbom/essai') RETURNING id", [a, `modules/${empreinte}/`, empreinte])).rows[0]?.["id"] as string;
     return { automatisation: a, version: v };
   };
   const creerConfiguration = async (tenant: string, instance: string) => {
     const id = randomUUID();
-    await su.query("INSERT INTO configurations (tenant_id, id, instance_id, numero, donnees, version_schema, auteur, motif_changement) VALUES ($1, $2, $3, 1, '{}', '1.0.0', $4, 'essai')", [tenant, id, instance, APPELANT.acteur]);
+    await ecrire(app, tenant, (c) => c.query("INSERT INTO configurations (tenant_id, id, instance_id, numero, donnees, version_schema, auteur, motif_changement) VALUES ($1, $2, $3, 1, '{}', '1.0.0', $4, 'essai')", [tenant, id, instance, APPELANT.acteur]), APPELANT);
     return id;
   };
   const ligneTest = (t: string, i: string, v: string, cfg: string, extra: Record<string, unknown> = {}) => ({ tenant_id: t, instance_id: i, version_id: v, configuration_id: cfg, resultat: "reussi", lectures: 3, brouillons: 2, envois: 0, duree_ms: 120, auteur: APPELANT.acteur, ...extra });
@@ -425,7 +425,12 @@ describe("déploiement (T4-28a)", { timeout: 30_000 }, () => {
     for (const t of ["tests_a_blanc", "deploiements_instance"]) {
       for (const requeteMal of [`UPDATE ${t} SET auteur = 'autre'`, `DELETE FROM ${t}`, `TRUNCATE ${t}`]) {
         await expect(ecrire(app, A, (c) => c.query(requeteMal), APPELANT), requeteMal).rejects.toMatchObject({ code: "42501" });
-        await expect(avecEquipe(equipe, (c) => c.query(requeteMal)), requeteMal).rejects.toMatchObject({ code: "42501" });
+        // L'équipe lit dans une transaction en lecture seule (25006) : le droit lui-même est jugé plus bas.
+        await expect(avecEquipe(equipe, (c) => c.query(requeteMal)), requeteMal).rejects.toBeTruthy();
+      }
+      for (const droit of ["INSERT", "UPDATE", "DELETE", "TRUNCATE"]) {
+        const { rows: r } = await migration.query("SELECT has_table_privilege('console_equipe', $1, $2) AS p", [`public.${t}`, droit]);
+        expect(r[0]?.p, `${t} ${droit}`).toBe(false);
       }
       expect((await avecEquipe(equipe, (c) => c.query(`SELECT count(*)::int AS n FROM ${t} WHERE tenant_id = $1`, [A]))).rows[0]?.n, t).toBe(1);
       const { rows } = await migration.query("SELECT has_table_privilege('console_lecture', $1, 'SELECT') AS p", [`public.${t}`]);

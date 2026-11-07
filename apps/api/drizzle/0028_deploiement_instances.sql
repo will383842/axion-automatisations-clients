@@ -46,6 +46,7 @@ CREATE TABLE "tests_a_blanc" (
 	CONSTRAINT "tests_a_blanc_auteur_borne" CHECK (length(btrim("tests_a_blanc"."auteur")) > 0 AND char_length("tests_a_blanc"."auteur") <= 200)
 );
 --> statement-breakpoint
+CREATE UNIQUE INDEX "configurations_tenant_instance_id_unique" ON "configurations" USING btree ("tenant_id","instance_id","id");--> statement-breakpoint
 ALTER TABLE "deploiements_instance" ADD CONSTRAINT "deploiements_instance_instance_fk" FOREIGN KEY ("tenant_id","instance_id") REFERENCES "public"."instances"("tenant_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "deploiements_instance" ADD CONSTRAINT "deploiements_instance_configuration_fk" FOREIGN KEY ("tenant_id","instance_id","configuration_id") REFERENCES "public"."configurations"("tenant_id","instance_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "deploiements_instance" ADD CONSTRAINT "deploiements_instance_version_depart_fk" FOREIGN KEY ("version_depart_id") REFERENCES "public"."versions_automatisation"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
@@ -58,7 +59,6 @@ CREATE INDEX "deploiements_instance_instance_idx" ON "deploiements_instance" USI
 CREATE INDEX "tests_a_blanc_tenant_id_idx" ON "tests_a_blanc" USING btree ("tenant_id");--> statement-breakpoint
 CREATE INDEX "tests_a_blanc_instance_idx" ON "tests_a_blanc" USING btree ("tenant_id","instance_id","cree_le");--> statement-breakpoint
 CREATE UNIQUE INDEX "instances_une_par_automatisation" ON "instances" USING btree ("tenant_id","automatisation_id","environnement") WHERE "instances"."automatisation_id" IS NOT NULL;--> statement-breakpoint
-CREATE UNIQUE INDEX "configurations_tenant_instance_id_unique" ON "configurations" USING btree ("tenant_id","instance_id","id");--> statement-breakpoint
 -- ===== Partie écrite à la main (drizzle-kit ne génère ni RLS, ni droits, ni déclencheurs) : deux tables de client, en ajout seul (aucun UPDATE, DELETE ni TRUNCATE accordé). =====
 ALTER TABLE "public"."tests_a_blanc" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
 ALTER TABLE "public"."tests_a_blanc" FORCE ROW LEVEL SECURITY;--> statement-breakpoint

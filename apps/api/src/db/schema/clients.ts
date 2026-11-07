@@ -94,6 +94,8 @@ export const instances = tableClient(
     versionEtatVoulu: integer("version_etat_voulu").notNull().default(0),
     // T4-34a (migration 0024, ADR 0117), ajout seul : modèle d'IA de l'instance (surcharge du défaut du client), un code de la liste d'AXION IA, jamais une clé étrangère.
     modeleIa: text("modele_ia"),
+    // T4-54a (migration 0026), ajout seul : mode d'IA de l'instance (C-634). Défaut via_axion ; l'équipe seule le change (réauthentification, journal d'audit, côté API).
+    modeIa: text("mode_ia").notNull().default("via_axion"),
   },
   {
     contraintes: (t) => [
@@ -103,6 +105,7 @@ export const instances = tableClient(
       foreignKey({ name: "instances_cellule_fk", columns: [t["celluleCode"] as never], foreignColumns: [cellules.code] }).onDelete("no action"),
       check("instances_cellule_code_forme_c4", sql`${t["celluleCode"]} IS NULL OR (${t["celluleCode"]} ~ '^[a-z0-9]+(-[a-z0-9]+)*$' AND char_length(${t["celluleCode"]}) <= 64)`),
       check("instances_modele_ia_forme", sql`${t["modeleIa"]} IS NULL OR (${t["modeleIa"]} ~ '^[a-z0-9][a-z0-9._:/-]{0,127}$' AND ${t["modeleIa"]} !~ '\\.\\.')`),
+      check("instances_mode_ia_borne", sql`${t["modeIa"]} IN ('client_direct', 'via_axion')`),
       check("instances_version_etat_voulu_positive", sql`${t["versionEtatVoulu"]} >= 0`),
       index("instances_id_cellule_idx").on(t["id"] as never, t["celluleCode"] as never),
       uniqueIndex("instances_id_unique").on(t["id"] as never),

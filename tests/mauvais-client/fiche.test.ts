@@ -24,14 +24,13 @@ beforeAll(async () => {
 const refuse = async (methode: "GET" | "POST", url: string, payload?: object) => {
   const avant = appels;
   const rep = await appli.inject({ method: methode, url, ...(payload ? { payload } : {}) });
-  expect(rep.statusCode).toBe(403);
-  expect(appels).toBe(avant);
+  return { statut: rep.statusCode, lectures: appels - avant };
 };
 
 describe("fiche client : mauvais client", () => {
-  it("[C-536] @isolation GET /api/console/v1/clients/:id/fiche", async () => { await refuse("GET", `/api/console/v1/clients/${B}/fiche`); });
-  it("[C-536] @isolation GET /api/console/v1/clients/:id/notes", async () => { await refuse("GET", `/api/console/v1/clients/${B}/notes`); });
-  it("[C-536] @isolation POST /api/console/v1/clients/:id/notes", async () => { await refuse("POST", `/api/console/v1/clients/${B}/notes`, { type: "note", texte: "x" }); });
-  it("[C-536] @isolation POST /api/console/v1/clients/:id/notes/:idNote/epingler", async () => { await refuse("POST", `/api/console/v1/clients/${B}/notes/${N}/epingler`, { epinglee: true }); });
-  it("[C-536] @isolation POST /api/console/v1/clients/:id/notes/appel-et-cloture", async () => { await refuse("POST", `/api/console/v1/clients/${B}/notes/appel-et-cloture`, { texte: "x", alerte_id: N }); });
+  it("[C-536] @isolation GET /api/console/v1/clients/:id/fiche", async () => { expect(await refuse("GET", `/api/console/v1/clients/${B}/fiche`)).toEqual({ statut: 403, lectures: 0 }); });
+  it("[C-536] @isolation GET /api/console/v1/clients/:id/notes", async () => { expect(await refuse("GET", `/api/console/v1/clients/${B}/notes`)).toEqual({ statut: 403, lectures: 0 }); });
+  it("[C-536] @isolation POST /api/console/v1/clients/:id/notes", async () => { expect(await refuse("POST", `/api/console/v1/clients/${B}/notes`, { type: "note", texte: "x" })).toEqual({ statut: 403, lectures: 0 }); });
+  it("[C-536] @isolation POST /api/console/v1/clients/:id/notes/:idNote/epingler", async () => { expect(await refuse("POST", `/api/console/v1/clients/${B}/notes/${N}/epingler`, { epinglee: true })).toEqual({ statut: 403, lectures: 0 }); });
+  it("[C-536] @isolation POST /api/console/v1/clients/:id/notes/appel-et-cloture", async () => { expect(await refuse("POST", `/api/console/v1/clients/${B}/notes/appel-et-cloture`, { texte: "x", alerte_id: N })).toEqual({ statut: 403, lectures: 0 }); });
 });

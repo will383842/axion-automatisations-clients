@@ -17,6 +17,8 @@ import { routeCrm, type DepsCrm } from "./routes/crm.js";
 import { routeExecuteur, type DepsExecuteur } from "./routes/executeur/index.js";
 import { routeWebhooks, type DepsWebhooks } from "./routes/webhooks/entree.js";
 import { routeSante } from "./routes/sante.js";
+import { routeFiche, type DepsFiche } from "./routes/clients/fiche.js";
+import { routeNotes, type DepsNotes } from "./routes/clients/notes.js";
 import { routeImportCatalogue, type DepsImportCatalogue } from "./routes/catalogue/import.js";
 import { routeVersionsCatalogue, type DepsVersionsCatalogue } from "./routes/catalogue/versions.js";
 
@@ -40,7 +42,7 @@ export function creerTravailleurProvisionnement(o: {
 }
 
 // `provisionnement` : routes de reprise fournies par l'appelant ; absent, la route n'existe pas (fermé par défaut).
-export function construireServeur(options: { config?: Config; pool?: pg.Pool; journal?: { write(ligne: string): void }; provisionnement?: DepsRoutesProvisionnement; crm?: DepsCrm; executeur?: DepsExecuteur; donnees?: DepsRoutesDonnees; importCatalogue?: DepsImportCatalogue; versionsCatalogue?: DepsVersionsCatalogue; webhooks?: DepsWebhooks } = {}) {
+export function construireServeur(options: { config?: Config; pool?: pg.Pool; journal?: { write(ligne: string): void }; provisionnement?: DepsRoutesProvisionnement; crm?: DepsCrm; executeur?: DepsExecuteur; donnees?: DepsRoutesDonnees; importCatalogue?: DepsImportCatalogue; versionsCatalogue?: DepsVersionsCatalogue; webhooks?: DepsWebhooks; fiche?: DepsFiche; notes?: DepsNotes } = {}) {
   // id_trace : toujours choisi par le serveur, l'en-tête du client est ignoré.
   const serveur = Fastify({ genReqId: () => randomUUID(), requestIdHeader: false, ...(options.journal ? { logger: { level: "info", stream: options.journal, base: {}, serializers: serialiseursJournal } } : {}) });
   brancherErreurs(serveur);
@@ -60,6 +62,9 @@ export function construireServeur(options: { config?: Config; pool?: pg.Pool; jo
   if (options.versionsCatalogue) routeVersionsCatalogue(serveur, options.versionsCatalogue);
   // Webhooks entrants (T4-24) : la route n'existe que si l'appelant la fournit, et répond 503 tant que `actif()` est faux (WEBHOOKS_OUVERTS, fermé par défaut).
   if (options.webhooks) routeWebhooks(serveur, options.webhooks);
+  // Fiche client et notes (T3-13) : les routes n'existent que si l'appelant les fournit, et répondent 503 tant que `ouvert()` est faux (fermé par défaut).
+  if (options.fiche) routeFiche(serveur, options.fiche);
+  if (options.notes) routeNotes(serveur, options.notes);
   return serveur;
 }
 

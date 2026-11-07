@@ -65,7 +65,7 @@ describe("révocation d'une connexion", () => {
     await revoquerConnexion(g.ports, DEMANDE);
     expect(g.etat.requetes).toHaveLength(1);
     expect(g.etat.requetes[0]?.url).toBe("https://oauth2.googleapis.com/revoke");
-    expect(g.etat.requetes[0]?.corps).toBe(`token=${JETON}`);
+    expect(g.etat.requetes[0]?.corps).toBe(`token=${encodeURIComponent(JETON)}`);
     // Le fournisseur tombe : la révocation, l'effacement et la trace ont lieu quand même.
     const panne = monde("google", { fetch: (async () => { throw new Error(`panne ${JETON}`); }) as typeof fetch });
     expect(await revoquerConnexion(panne.ports, DEMANDE)).toEqual({ etat: "revoquee", effacement: "fait" });
@@ -82,6 +82,38 @@ describe("révocation d'une connexion", () => {
     expect(etat.args["alerter"]).toEqual(["effacement_a_refaire", { tenantId: T, connexionId: C }]);
     expect(JSON.parse(etat.lignes[0]!)).toMatchObject({ evenement: "connexion_revoquee", code: "effacement_a_refaire" });
     expect(etat.lignes.join("")).not.toContain(JETON);
+  });
+
+  it("[A-393] mettreEnPause qui lève : effacerValeur est quand même appelé, l'alerte et la trace sont émises", async () => {
+    const { etat, ports } = monde("google", { mettreEnPause: async () => { throw new Error(`pause ${JETON}`); } });
+    await expect(revoquerConnexion(ports, DEMANDE)).rejects.toThrow();
+    expect(etat.appels).toContain("effacerValeur");
+    expect(etat.args["effacerValeur"]).toEqual([[JETONS, APPLICATION]]);
+    expect(etat.alertes).toEqual(["revocation_incomplete"]);
+    expect(etat.lignes.map((l) => JSON.parse(l))).toEqual([{ evenement: "connexion_revoquee", tenantId: T, connexionId: C, code: "pause_echouee" }]);
+    expect(etat.lignes.join("")).not.toContain(JETON);
+  });
+
+  it("[A-393] fournisseurDe qui lève : l'effacement a lieu, l'échec est journalisé et l'alerte émise", async () => {
+    const { etat, ports } = monde("google", { fournisseurDe: async () => { throw new Error(`base ${JETON}`); } });
+    await expect(revoquerConnexion(ports, DEMANDE)).rejects.toThrow();
+    expect(etat.appels).toContain("effacerValeur");
+    expect(etat.appels).toContain("mettreEnPause");
+    expect(etat.alertes).toEqual(["revocation_incomplete"]);
+    expect(etat.lignes.map((l) => JSON.parse(l))).toEqual([{ evenement: "connexion_revoquee", tenantId: T, connexionId: C, code: "fournisseur_inconnu" }]);
+    expect(etat.lignes.join("")).not.toContain(JETON);
+  });
+
+  it("[A-393] Google qui ne répond jamais : le délai d'abandon laisse l'effacement avoir lieu ; le jeton est encodé dans le corps", async () => {
+    let signal: AbortSignal | undefined;
+    const sansReponse = ((_u: string, init?: { signal?: AbortSignal }) => { signal = init?.signal; return new Promise(() => {}); }) as unknown as typeof fetch;
+    const m = monde("google", { fetch: sansReponse, delaiGoogleMs: 5 });
+    expect(await revoquerConnexion(m.ports, DEMANDE)).toEqual({ etat: "revoquee", effacement: "fait" });
+    expect(signal).toBeDefined();
+    expect(m.etat.appels).toContain("effacerValeur");
+    const g = monde("google", { lireJeton: async () => "a+b&c=d" });
+    await revoquerConnexion(g.ports, DEMANDE);
+    expect(g.etat.requetes[0]?.corps).toBe("token=a%2Bb%26c%3Dd");
   });
 
   it("[A-393] connexion déjà révoquée : aucune seconde révocation, aucun appel au fournisseur ni au coffre", async () => {

@@ -398,7 +398,8 @@ describe("Keycloak réel : invitation d'un membre par l'adaptateur (T3-07c)", { 
     // Créé désactivé, avec le mot de passe et le double facteur en actions requises.
     const brut = (await (await api(`/equipe/users/${id}`)).json()) as { enabled: boolean; requiredActions: string[] };
     expect(brut.enabled).toBe(false);
-    expect([...brut.requiredActions].sort()).toEqual(["CONFIGURE_TOTP", "UPDATE_PASSWORD"]);
+    // Le royaume ajoute lui-même son action par défaut (webauthn-register) : on exige la présence des deux actions de l'invitation, pas l'égalité.
+    expect(brut.requiredActions).toEqual(expect.arrayContaining(["CONFIGURE_TOTP", "UPDATE_PASSWORD"]));
     expect(await kc.chercherParEmail(email)).toEqual({ id, actif: false });
     // L'essai pose un mot de passe généré, jamais affiché, par le compte d'administration du socle (l'API, elle, n'en fixe jamais).
     const motDePasse = randomBytes(12).toString("hex");

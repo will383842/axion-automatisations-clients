@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { bigint, boolean, check, foreignKey, index, integer, jsonb, pgEnum, primaryKey, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
+import { bigint, boolean, check, date, foreignKey, index, integer, jsonb, pgEnum, primaryKey, smallint, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
 import { tableCommune } from "./aides.ts";
 
 // Catalogue commun (C5, lot 2) : la seule partie partagée par tous les clients (ADR 0051). Aucune table n'a de tenant_id.
@@ -107,6 +107,8 @@ export const versionsAutomatisation = tableCommune(
     manifeste: jsonb("manifeste").notNull().default(sql`'{}'::jsonb`),
     migration: text("migration"),
     notes: text("notes"),
+    // Modèles d'IA testés en recette (T4-27a, ADR 0122, C-202) : NULL = rien mesuré (aucun modèle proposé), '{}' = testée sans IA. Figée dès le pilote.
+    modelesTestes: text("modeles_testes").array(),
     statut: statutVersion("statut").notNull().default("brouillon"),
     creeLe: timestamp("cree_le", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -117,6 +119,74 @@ export const versionsAutomatisation = tableCommune(
     check("versions_automatisation_semver_format", sql`${t["semver"]} ~ '${sql.raw(SEMVER)}'`),
     check("versions_automatisation_signature_non_vide", sql`length(btrim(${t["signatureEd25519"]})) > 0`),
     index("versions_automatisation_automatisation_idx").on(cle("automatisationId", t), cle("statut", t)),
+    check(
+      "versions_automatisation_modeles_testes_bornes",
+      sql`${t["modelesTestes"]} IS NULL OR (cardinality(${t["modelesTestes"]}) <= 16 AND array_position(${t["modelesTestes"]}, NULL) IS NULL AND array_to_string(${t["modelesTestes"]}, ',') ~ '^([a-z0-9][a-z0-9._:/-]{0,127}(,[a-z0-9][a-z0-9._:/-]{0,127}){0,15})?$' AND array_to_string(${t["modelesTestes"]}, ',') !~ '\\.\\.')`,
+    ),
+  ],
+);
+
+// Passages d'état d'une version (T4-27a, ADR 0122) : en ajout seul. La base tient déjà le graphe (catalogue_garde) mais une version qui change d'état ne peut
+// modifier aucune autre colonne : la donnée posée AU passage (heure du pilote, date de fin, remplaçante, prévenance) est rangée ici. L'heure est celle du serveur.
+export const passagesVersion = tableCommune(
+  "passages_version",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    versionId: uuid("version_id").notNull().references(() => versionsAutomatisation.id, { onDelete: "restrict" }),
+    statutDepart: statutVersion("statut_depart").notNull(),
+    statutArrivee: statutVersion("statut_arrivee").notNull(),
+    empreinteSha256: text("empreinte_sha256").notNull(),
+    finAnnonceeLe: date("fin_annoncee_le", { mode: "string" }),
+    remplacanteId: uuid("remplacante_id").references(() => versionsAutomatisation.id, { onDelete: "restrict" }),
+    prevenanceLe: date("prevenance_le", { mode: "string" }),
+    auteur: text("auteur").notNull(),
+    passeLe: timestamp("passe_le", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check("passages_version_transition_permise", sql`(${t["statutDepart"]}, ${t["statutArrivee"]}) IN (('brouillon', 'recette'), ('recette', 'brouillon'), ('recette', 'pilote'), ('pilote', 'publiee'), ('publiee', 'depreciee'), ('depreciee', 'retiree'))`),
+    check("passages_version_empreinte_format", sql`${t["empreinteSha256"]} ~ '${sql.raw(HEX64)}'`),
+    check("passages_version_depreciation_datee", sql`(${t["statutArrivee"]} = 'depreciee') = (${t["finAnnonceeLe"]} IS NOT NULL)`),
+    check("passages_version_retrait_complet", sql`(${t["statutArrivee"]} = 'retiree') = (${t["remplacanteId"]} IS NOT NULL) AND (${t["statutArrivee"]} = 'retiree') = (${t["prevenanceLe"]} IS NOT NULL)`),
+    check("passages_version_remplacante_autre", sql`${t["remplacanteId"]} IS NULL OR ${t["remplacanteId"]} <> ${t["versionId"]}`),
+    check(
+      "passages_version_dates_bornees",
+      sql`(${t["finAnnonceeLe"]} IS NULL OR ${t["finAnnonceeLe"]} BETWEEN DATE '2026-01-01' AND DATE '2100-12-31') AND (${t["prevenanceLe"]} IS NULL OR ${t["prevenanceLe"]} BETWEEN DATE '2026-01-01' AND DATE '2100-12-31')`,
+    ),
+    check("passages_version_auteur_borne", sql`length(btrim(${t["auteur"]})) > 0 AND char_length(${t["auteur"]}) <= 200`),
+    index("passages_version_version_idx").on(cle("versionId", t), cle("passeLe", t)),
+    index("passages_version_remplacante_idx").on(cle("remplacanteId", t)),
+  ],
+);
+
+// Preuves des dix étapes d'entrée au catalogue (C-240), en ajout seul, liées à l'empreinte de la version au moment de la preuve : une preuve d'un autre artefact ne compte pas.
+// Document de l'équipe sur un module, jamais une donnée de client (même filtre que prereglages_metier). Les clés du contenu évitent les mots filtrés.
+export const preuvesProcedure = tableCommune(
+  "preuves_procedure",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    versionId: uuid("version_id").notNull().references(() => versionsAutomatisation.id, { onDelete: "restrict" }),
+    etape: smallint("etape").notNull(),
+    empreinteSha256: text("empreinte_sha256").notNull(),
+    reference: text("reference"),
+    mesureMs: integer("mesure_ms"),
+    contenu: jsonb("contenu").notNull().default(sql`'{}'::jsonb`),
+    auteur: text("auteur").notNull(),
+    creeLe: timestamp("cree_le", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique("preuves_procedure_version_etape_empreinte_unique").on(cle("versionId", t), cle("etape", t), cle("empreinteSha256", t)),
+    check("preuves_procedure_etape_bornee", sql`${t["etape"]} BETWEEN 1 AND 10`),
+    check("preuves_procedure_empreinte_format", sql`${t["empreinteSha256"]} ~ '${sql.raw(HEX64)}'`),
+    check("preuves_procedure_reference_forme", sql`${t["reference"]} IS NULL OR (${t["reference"]} ~ '^[A-Za-z0-9][A-Za-z0-9_.:/#-]{0,254}$' AND ${t["reference"]} !~ '\\.\\.')`),
+    check("preuves_procedure_mesure_etape_7", sql`(${t["etape"]} = 7) = (${t["mesureMs"]} IS NOT NULL)`),
+    check("preuves_procedure_mesure_bornee", sql`${t["mesureMs"]} IS NULL OR ${t["mesureMs"]} BETWEEN 1 AND 3600000`),
+    check("preuves_procedure_contenu_objet", sql`jsonb_typeof(${t["contenu"]}) = 'object' AND octet_length(${t["contenu"]}::text) <= 8192`),
+    check(
+      "preuves_procedure_contenu_sans_client",
+      sql`${t["contenu"]}::text !~* '"[^"]*(tenant|client|organisation|instance|mail|courriel|t[eé]l[eé]phone|phone|siren|siret|iban)[^"]*"[[:space:]]*:' AND ${t["contenu"]}::text !~* '[^"[:space:]@]+@[^"[:space:]@]+\\.[a-z]{2,}' AND ${t["contenu"]}::text !~ '(^|[^0-9])([0-9]{9}|[0-9]{14})([^0-9]|$)'`,
+    ),
+    check("preuves_procedure_auteur_borne", sql`length(btrim(${t["auteur"]})) > 0 AND char_length(${t["auteur"]}) <= 200`),
+    index("preuves_procedure_version_idx").on(cle("versionId", t), cle("etape", t)),
   ],
 );
 

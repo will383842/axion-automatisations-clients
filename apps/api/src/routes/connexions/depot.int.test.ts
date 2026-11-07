@@ -71,8 +71,15 @@ describe("dépôt des connexions sur la base réelle", () => {
     const A = randomUUID();
     await creerOrg(A);
     const id = await connexion(A);
-    const instance = await avecClient(app, A, async (c) => (await c.query("INSERT INTO instances (tenant_id, organisation_id, code_automatisation, formule, environnement, etat) VALUES ($1, $1, 'relance-devis', 'abonnement', 'test', 'active') RETURNING id", [A])).rows[0]?.["id"] as string, APPELANT);
-    const autre = await avecClient(app, A, async (c) => (await c.query("INSERT INTO instances (tenant_id, organisation_id, code_automatisation, formule, environnement, etat) VALUES ($1, $1, 'relance-devis', 'abonnement', 'test', 'active') RETURNING id", [A])).rows[0]?.["id"] as string, APPELANT);
+    // Une instance ne s'active qu'avec un contrat de sous-traitance signé (C-030) : contrat d'essai, puis deux instances créées en pause et activées.
+    await avecClient(app, A, (c) => c.query("INSERT INTO contrats (tenant_id, id, organisation_id, type, date_signature, pdf_ref, empreinte_sha256, auteur) VALUES ($1, gen_random_uuid(), $1, 'sous_traitance_art28', '2026-01-15', $2, $3, $4)", [A, `contrats/${A}/art28.pdf`, "a".repeat(64), APPELANT.acteur]), APPELANT);
+    const creerActive = (): Promise<string> => avecClient(app, A, async (c) => {
+      const id = (await c.query("INSERT INTO instances (tenant_id, organisation_id, code_automatisation, formule, environnement, etat) VALUES ($1, $1, 'relance-devis', 'abonnement', 'production', 'pause') RETURNING id", [A])).rows[0]?.["id"] as string;
+      await c.query("UPDATE instances SET etat = 'active' WHERE id = $1", [id]);
+      return id;
+    }, APPELANT);
+    const instance = await creerActive();
+    const autre = await creerActive();
     await avecClient(app, A, (c) => c.query("INSERT INTO connexions_instances (tenant_id, id, connexion_id, instance_id) VALUES ($1, gen_random_uuid(), $2, $3)", [A, id, instance]), APPELANT);
     const avant = Number((await equipe.query("SELECT count(*) AS n FROM organisations WHERE tenant_id = $1", [A])).rows[0]?.["n"]);
 

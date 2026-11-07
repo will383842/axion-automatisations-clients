@@ -12,7 +12,7 @@ function faux(rowCount = 1) {
   const client = { query: async (texte: string, valeurs: unknown[] = []) => (requetes.push({ texte, valeurs }), { rows: [{ ok: 1 }], rowCount }), release: () => undefined };
   return { requetes, pool: { connect: async () => client } as never };
 }
-const metier = (r: { texte: string }[]) => r.filter((q) => !/^(BEGIN|COMMIT|SELECT set_config)/.test(q.texte));
+const metier = (r: { texte: string; valeurs: unknown[] }[]) => r.filter((q) => !/^(BEGIN|COMMIT|SELECT set_config)/.test(q.texte));
 
 describe("dépôt SQL des connexions", () => {
   it("[B-092] la réclamation est un UPDATE conditionnel (a_tester ET jamais testée) qui doit toucher une ligne", async () => {

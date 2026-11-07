@@ -29,8 +29,8 @@ export interface DepsNotes {
   ajouter(clientId: string, acteur: string, note: { type: TypeNote; texte: string }): Promise<Note>;
   epingler(clientId: string, acteur: string, noteId: string, epinglee: boolean): Promise<Note | null>;
   // Une seule transaction côté dépôt : la note d'appel et la clôture de l'alerte réussissent ensemble ou pas du tout. null : alerte inconnue de ce client.
-  noterAppelEtClore(clientId: string, acteur: string, e: { texte: string; alerteId: string }): Promise<{ note: Note; alerte_close: boolean } | null>;
-  tracer(trace: Trace): Promise<void>;
+  // Le dépôt écrit aussi la trace (identifiants seulement) DANS cette transaction : si la trace échoue, tout est annulé (alerte ouverte, aucune note).
+  noterAppelEtClore(clientId: string, acteur: string, e: { texte: string; alerteId: string }, tracer: (note: Note) => Trace): Promise<{ note: Note; alerte_close: boolean } | null>;
 }
 
 const Texte = z.string().trim().min(1).max(2000);
@@ -79,9 +79,8 @@ export function routeNotes(serveur: FastifyInstance, d: DepsNotes): void {
   serveur.post(`${base}/appel-et-cloture`, o, async (req, rep) => {
     const { id, acteur } = await portee(req, Params);
     const e = lire(Appel, req.body);
-    const r = await d.noterAppelEtClore(id, acteur, { texte: e.texte, alerteId: e.alerte_id });
+    const r = await d.noterAppelEtClore(id, acteur, { texte: e.texte, alerteId: e.alerte_id }, (note) => ({ acteur, client: id, action: "noter_appel_clore_alerte", alerte_id: e.alerte_id, note_id: note.id }));
     if (!r) throw new ErreurApi("introuvable", "Ressource introuvable.");
-    await d.tracer({ acteur, client: id, action: "noter_appel_clore_alerte", alerte_id: e.alerte_id, note_id: r.note.id });
     return rep.status(201).send(r);
   });
 }

@@ -112,7 +112,7 @@ export async function listerRoutes(): Promise<RouteListee[]> {
   routeProvisionnement(appli, { exigerEquipe: garde, etatBase: rien, reprendre: rien });
   routeReglages(appli, { exigerEquipe: garde, contexte: rien, historique: rien, modifier: rien, revenir: rien });
   routeFiche(appli, { ouvert: () => false, exigerEquipe: garde, session: rien, lire: rien });
-  routeNotes(appli, { ouvert: () => false, exigerEquipe: garde, session: rien, lister: rien, ajouter: rien, epingler: rien, noterAppelEtClore: rien, tracer: rien });
+  routeNotes(appli, { ouvert: () => false, exigerEquipe: garde, session: rien, lister: rien, ajouter: rien, epingler: rien, noterAppelEtClore: rien });
   routeEntree(appli, { cles: rien, memoire: rien, alertes: rien, connexionNormale: "/connexion" });
   const entrant = { cles: rien, memoire: rien, actif: () => false };
   brancherHub(appli, { entrant, recepteur: { alerter: () => undefined } as never });

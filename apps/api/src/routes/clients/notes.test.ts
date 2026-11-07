@@ -9,9 +9,10 @@ const ALERTE = "44444444-4444-4444-8444-444444444444";
 const N1 = "55555555-5555-4555-8555-555555555555";
 const note = (id: string, cree_le: string, epinglee = false): Note => ({ id, type: "note", texte: "t", auteur: "agent-essai", epinglee, cree_le });
 
-function serveur(o: { ouvert?: boolean; alerteConnue?: boolean } = {}) {
+function serveur(o: { ouvert?: boolean; alerteConnue?: boolean; traceEchoue?: boolean } = {}) {
   const appels: unknown[][] = [];
   const traces: unknown[] = [];
+  const etat = { notes: 0, alerteOuverte: true };
   const app = Fastify();
   brancherErreurs(app);
   const deps: DepsNotes = {
@@ -21,11 +22,20 @@ function serveur(o: { ouvert?: boolean; alerteConnue?: boolean } = {}) {
     async lister(c) { appels.push(["lister", c]); return [note("a", "2026-11-01T10:00:00Z"), note("b", "2026-11-05T10:00:00Z"), note("c", "2026-10-01T10:00:00Z", true)]; },
     async ajouter(c, acteur, e) { appels.push(["ajouter", c, acteur, e]); return { ...note(N1, "2026-11-07T08:00:00Z"), type: e.type }; },
     async epingler(c, acteur, id, v) { appels.push(["epingler", c, acteur, id, v]); return { ...note(id, "2026-11-01T10:00:00Z"), epinglee: v }; },
-    async noterAppelEtClore(c, acteur, e) { appels.push(["appel", c, acteur, e]); return o.alerteConnue === false ? null : { note: { ...note(N1, "2026-11-07T08:00:00Z"), type: "appel" }, alerte_close: true }; },
-    async tracer(t) { traces.push(t); },
+    async noterAppelEtClore(c, acteur, e, tracer) {
+      appels.push(["appel", c, acteur, e]);
+      if (o.alerteConnue === false) return null;
+      const n: Note = { ...note(N1, "2026-11-07T08:00:00Z"), type: "appel" };
+      const t = tracer(n);
+      if (o.traceEchoue) throw new Error("trace_indisponible"); // transaction annulée : ni note ni clôture
+      traces.push(t);
+      etat.notes += 1;
+      etat.alerteOuverte = false;
+      return { note: n, alerte_close: true };
+    },
   };
   routeNotes(app, deps);
-  return { app, appels, traces };
+  return { app, appels, traces, etat };
 }
 const base = (id: string) => `/api/console/v1/clients/${id}/notes`;
 
@@ -53,6 +63,14 @@ describe("notes de la fiche client", () => {
     expect(rep.json()).toMatchObject({ alerte_close: true, note: { type: "appel" } });
     expect(appels.filter((a) => a[0] === "appel")).toHaveLength(1);
     expect(traces).toEqual([{ acteur: "agent-essai", client: A, action: "noter_appel_clore_alerte", alerte_id: ALERTE, note_id: N1 }]);
+  });
+
+  it("[B-103] si tracer échoue, l'alerte reste ouverte et aucune note n'est créée", async () => {
+    const { app, traces, etat } = serveur({ traceEchoue: true });
+    const rep = await app.inject({ method: "POST", url: `${base(A)}/appel-et-cloture`, payload: { texte: "x", alerte_id: ALERTE } });
+    expect(rep.statusCode).toBeGreaterThanOrEqual(500);
+    expect(etat).toEqual({ notes: 0, alerteOuverte: true });
+    expect(traces).toEqual([]);
   });
 
   it("[B-103] une alerte inconnue répond 404 et ne trace rien", async () => {

@@ -249,7 +249,8 @@ describe("base moteur, avec le socle", { timeout: 30_000 }, () => {
       await c.end().catch(() => undefined);
     }
     // Les bases cli_<id> vivent dans l'autre grappe (lot 2b) : aucune n'existe ici, donc rien à ouvrir. Le droit CONNECT est relu sur toutes les bases de cette grappe (ADR 0101, point 6).
-    const { rows } = await migration.query("SELECT datname FROM pg_database WHERE has_database_privilege('moteur_purge', oid, 'CONNECT') AND datname NOT LIKE 'template%' ORDER BY 1");
+    // Exclusion des seules bases jetables essai_<…> : migrer.int.test.ts crée essai_0019_<hasard> (CONNECT laissé à PUBLIC) dans le même fragment du socle d'intégration (ADR 0121), d'où une course. Toute autre base reste contrôlée.
+    const { rows } = await migration.query("SELECT datname FROM pg_database WHERE has_database_privilege('moteur_purge', oid, 'CONNECT') AND datname NOT LIKE 'template%' AND datname NOT LIKE 'essai\\_%' ORDER BY 1");
     expect(rows.map((r) => r.datname)).toEqual(["moteur"]);
     expect((await migration.query("SELECT 1 FROM pg_database WHERE datname LIKE 'cli\\_%'")).rowCount).toBe(0);
   });

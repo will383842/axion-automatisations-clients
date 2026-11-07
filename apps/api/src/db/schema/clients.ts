@@ -109,6 +109,8 @@ export const instances = tableClient(
       check("instances_version_etat_voulu_positive", sql`${t["versionEtatVoulu"]} >= 0`),
       index("instances_id_cellule_idx").on(t["id"] as never, t["celluleCode"] as never),
       uniqueIndex("instances_id_unique").on(t["id"] as never),
+      // T4-28a (0028, ADR 0125), ajout seul : une instance par client, automatisation et environnement (les instances anciennes, sans automatisation_id, sont hors de l'index).
+      uniqueIndex("instances_une_par_automatisation").on(t["tenantId"] as never, t["automatisationId"] as never, t["environnement"] as never).where(sql`${t["automatisationId"]} IS NOT NULL`),
     ],
   },
 );

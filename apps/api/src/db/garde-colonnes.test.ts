@@ -564,9 +564,10 @@ describe("tables du lot 4 : cycle de vie des versions (T4-27a)", () => {
 
 // Migration 0028 (T4-28a, ADR 0125) : tests à blanc et journal des déploiements. Liste fermée propre à ces tables (TEXTE_PERMIS reste à 19) : chaque ajout se relit en 2 tours (zone sécurité).
 const TEXTE_DEPLOIEMENT: Readonly<Record<string, number>> = Object.freeze({
-  "tests_a_blanc.code_erreur": 64,
+  // Motif ^[a-z0-9_.-]{1,64}$ (64 caractères au plus) : la mesure de la garde compte « n + 1 » pour un motif {m,n}$ (convention du premier caractère), d'où 65.
+  "tests_a_blanc.code_erreur": 65,
   "tests_a_blanc.auteur": 200,
-  "deploiements_instance.cause": 64,
+  "deploiements_instance.cause": 65,
   "deploiements_instance.auteur": 200,
 });
 describe("tables du lot 4 : déploiement (T4-28a)", () => {

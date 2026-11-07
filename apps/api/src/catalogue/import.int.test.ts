@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { writeSync } from "node:fs";
 import pg from "pg";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { fileURLToPath } from "node:url";
 import { avecClient } from "../db/client-actif.js";
 import { migrer } from "../db/migrer.js";
@@ -13,6 +13,8 @@ import { creerCycle, depotSqlCycle } from "./preuves.js";
 
 // Dépôt PostgreSQL de l'import (T4-25), sur le socle lancé par ops/socle/lancer.sh (job socle-integration). Pas de Docker en routine : écrit pour la CI.
 // Les échecs sont journalisés sans secret (writeSync sur la sortie d'erreur).
+// Toute écriture de l'équipe passe par le déclencheur d'audit, qui attend le verrou du journal : audit.int.test.ts (même fragment) le tient près de 7 s dans son essai [C-028]. 5 s ne suffisent pas en CI.
+vi.setConfig({ testTimeout: 30_000 });
 const docker = (...args: string[]) => execFileSync("docker", args, { encoding: "utf8" }).trim();
 const conteneur = (service: string) => docker("ps", "-q", "--filter", "label=com.docker.compose.project=socle", "--filter", `label=com.docker.compose.service=${service}`);
 function cible(service: string, port: number, surcharge: string | undefined) {

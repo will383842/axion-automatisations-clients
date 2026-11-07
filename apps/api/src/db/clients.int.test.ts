@@ -404,7 +404,7 @@ describe("déploiement (T4-28a)", { timeout: 30_000 }, () => {
     await expect(inserer("deploiements_instance", A, { tenant_id: A, instance_id: instance, version_cible_id: version, configuration_id: cfgAutre, resultat: "ok", auteur: APPELANT.acteur })).rejects.toMatchObject({ code: "23503", constraint: "deploiements_instance_configuration_fk" });
   });
 
-  it("[A-119] @isolation sous le client A, console_app ne lit ni n'écrit aucune ligne de B dans tests_a_blanc ni deploiements_instance, et ne cite pas une configuration de B", async () => {
+  it("[A-119] @isolation sous le client A, console_app ne lit ni n'écrit aucune ligne de B dans tests_a_blanc ni deploiements_instance, et ne cite pas une configuration de B ; un déploiement de A ne cite ni une instance ni une configuration de B (23503)", async () => {
     const a = await monde();
     const b = await monde();
     await inserer("tests_a_blanc", b.A, ligneTest(b.A, b.instance, b.version, b.cfg));
@@ -415,6 +415,12 @@ describe("déploiement (T4-28a)", { timeout: 30_000 }, () => {
     await expect(inserer("tests_a_blanc", a.A, ligneTest(b.A, b.instance, b.version, b.cfg))).rejects.toMatchObject({ code: "42501" });
     await expect(inserer("deploiements_instance", a.A, { tenant_id: b.A, instance_id: b.instance, version_cible_id: b.version, resultat: "ok", auteur: APPELANT.acteur })).rejects.toMatchObject({ code: "42501" });
     await expect(inserer("tests_a_blanc", a.A, ligneTest(a.A, a.instance, a.version, b.cfg))).rejects.toMatchObject({ code: "23503" });
+    // F1 de l'audit de #234 : même cloisonnement pour deploiements_instance, y compris sous le client B avec la configuration de A (clés étrangères à deux et trois colonnes).
+    const depl = (t: string, i: string, v: string, cfg?: string) => ({ tenant_id: t, instance_id: i, version_cible_id: v, ...(cfg ? { configuration_id: cfg } : {}), resultat: "ok", auteur: APPELANT.acteur });
+    await expect(inserer("deploiements_instance", a.A, depl(a.A, b.instance, a.version))).rejects.toMatchObject({ code: "23503", constraint: "deploiements_instance_instance_fk" });
+    await expect(inserer("deploiements_instance", a.A, depl(a.A, a.instance, a.version, b.cfg))).rejects.toMatchObject({ code: "23503", constraint: "deploiements_instance_configuration_fk" });
+    await expect(inserer("deploiements_instance", b.A, depl(b.A, b.instance, b.version, a.cfg))).rejects.toMatchObject({ code: "23503", constraint: "deploiements_instance_configuration_fk" });
+    await expect(inserer("deploiements_instance", b.A, depl(b.A, a.instance, b.version))).rejects.toMatchObject({ code: "23503", constraint: "deploiements_instance_instance_fk" });
     for (const t of ["tests_a_blanc", "deploiements_instance"]) expect((await app.query(`SELECT count(*)::int AS n FROM ${t}`)).rows[0]?.n, t).toBe(0);
   });
 

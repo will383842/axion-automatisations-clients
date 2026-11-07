@@ -34,7 +34,7 @@ describe("garde des routes « mauvais client »", () => {
       expect(routes.has(route), route).toBe(true);
       expect(raison.trim().length, route).toBeGreaterThan(10);
     }
-    expect(Object.keys(EXEMPTEES).sort()).toEqual(["GET /sante", "GET /sante/pret", "POST /api/catalogue/v1/versions", "POST /api/console/v1/entree", "POST /api/crm/v1/evenements", "POST /api/hub/v1/faits"]);
+    expect(Object.keys(EXEMPTEES).sort()).toEqual(["GET /sante", "GET /sante/pret", "POST /api/catalogue/v1/versions", "POST /api/catalogue/v1/versions/:id/passages", "POST /api/catalogue/v1/versions/:id/preuves", "POST /api/console/v1/entree", "POST /api/crm/v1/evenements", "POST /api/hub/v1/faits"]);
   });
 
   it("[C-536] la garde refuse une déclaration en commentaire, sautée, à écrire ou sans assertion", () => {

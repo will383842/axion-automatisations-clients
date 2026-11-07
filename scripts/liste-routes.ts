@@ -4,6 +4,7 @@ import { brancherErreurs } from "../apps/api/src/plugins/erreurs.js";
 import { routeATrancher } from "../apps/api/src/routes/a-trancher.js";
 import { routeCanaux } from "../apps/api/src/routes/canaux.js";
 import { routeImportCatalogue } from "../apps/api/src/routes/catalogue/import.js";
+import { routeVersionsCatalogue } from "../apps/api/src/routes/catalogue/versions.js";
 import { routeCrm } from "../apps/api/src/routes/crm.js";
 import { routeDonnees } from "../apps/api/src/routes/donnees.js";
 import { routeDonneesModule } from "../apps/api/src/routes/portail/donnees-module.js";
@@ -38,6 +39,8 @@ export const EXEMPTEES: Readonly<Record<string, string>> = {
   "POST /api/hub/v1/faits": "Réception du canal Hub : signature vérifiée, interrupteur fermé par défaut, aucun utilisateur de client.",
   "POST /api/crm/v1/evenements": "Réception du canal CRM : signature vérifiée, interrupteur fermé par défaut, aucun utilisateur de client.",
   "POST /api/catalogue/v1/versions": "Import d'une version (T4-25) : réservé à l'équipe ou au poste de la recette signé, catalogue commun sans donnée de client, interrupteur IMPORT_OUVERT fermé par défaut.",
+  "POST /api/catalogue/v1/versions/:id/passages": "Passage d'état d'une version (T4-27b) : réservé à l'équipe, catalogue commun sans donnée de client, route fermée (503) par défaut.",
+  "POST /api/catalogue/v1/versions/:id/preuves": "Preuve d'une étape de la procédure (T4-27b) : réservé à l'équipe, catalogue commun sans donnée de client, route fermée (503) par défaut.",
 };
 const DECLARATION = /\[C-536\] @isolation (GET|POST|PUT|PATCH|DELETE) (\/[^\s"'`]*)/g;
 
@@ -110,6 +113,7 @@ export async function listerRoutes(): Promise<RouteListee[]> {
   brancherHub(appli, { entrant, recepteur: { alerter: () => undefined } as never });
   routeCrm(appli, { entrant, recepteur: rien, file: rien });
   routeImportCatalogue(appli, { ouvert: false, importeur: rien, authentifier: garde as never });
+  routeVersionsCatalogue(appli, { ouvert: false, cycle: rien, authentifier: garde as never });
   routeExecuteur(appli, { actif: () => false, cles: rien, memoire: rien, depot: rien, evenements: { depot: rien } });
   routeWebhooks(appli, { actif: () => false, depot: rien, secret: rien, instance: rien, memoire: rien, file: rien, sceller: rien, debit: { parWebhook: 1, global: 1, fenetreMs: 1 } });
   await appli.ready();

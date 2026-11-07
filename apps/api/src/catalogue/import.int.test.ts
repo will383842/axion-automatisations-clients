@@ -2,15 +2,19 @@ import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { writeSync } from "node:fs";
 import pg from "pg";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { fileURLToPath } from "node:url";
 import { avecClient } from "../db/client-actif.js";
 import { migrer } from "../db/migrer.js";
 import { journalEchecs } from "../provisionnement/journal-echecs.js";
 import { depotSql } from "./importer.js";
+import { lireDemandePassage, lireDemandePreuve } from "./procedure.js";
+import { creerCycle, depotSqlCycle } from "./preuves.js";
 
 // Dépôt PostgreSQL de l'import (T4-25), sur le socle lancé par ops/socle/lancer.sh (job socle-integration). Pas de Docker en routine : écrit pour la CI.
 // Les échecs sont journalisés sans secret (writeSync sur la sortie d'erreur).
+// Toute écriture de l'équipe passe par le déclencheur d'audit, qui attend le verrou du journal : audit.int.test.ts (même fragment) le tient près de 7 s dans son essai [C-028]. 5 s ne suffisent pas en CI.
+vi.setConfig({ testTimeout: 30_000 });
 const docker = (...args: string[]) => execFileSync("docker", args, { encoding: "utf8" }).trim();
 const conteneur = (service: string) => docker("ps", "-q", "--filter", "label=com.docker.compose.project=socle", "--filter", `label=com.docker.compose.service=${service}`);
 function cible(service: string, port: number, surcharge: string | undefined) {
@@ -127,7 +131,17 @@ const messageErreur = async (p: Promise<unknown>) => {
   }
 };
 // Une transaction de l'équipe : jamais app.tenant_id (audit_ecrire_equipe le refuse), toujours app.acteur.
+// Le verrou du journal d'audit peut être tenu ~7 s par audit.int.test.ts (même fragment) : le lock_timeout du rôle (5 s) annule alors la transaction (55P03). Rien n'a été écrit, on la rejoue.
 async function enEquipe<T>(fn: (c: pg.PoolClient) => Promise<T>, acteur = ACTEUR): Promise<T> {
+  for (let essai = 1; ; essai++) {
+    try {
+      return await enEquipeUneFois(fn, acteur);
+    } catch (e) {
+      if ((e as { code?: string }).code !== "55P03" || essai >= 4) throw e;
+    }
+  }
+}
+async function enEquipeUneFois<T>(fn: (c: pg.PoolClient) => Promise<T>, acteur: string): Promise<T> {
   const c = await equipe.connect();
   try {
     await c.query("BEGIN");
@@ -298,5 +312,108 @@ describe("cycle de vie des versions (migration 0027)", () => {
     expect(c.rows).toEqual([{ convalidated: true }]);
     const v = await creerVersion();
     expect((await enEquipe((c) => c.query("SELECT modeles_testes FROM versions_automatisation WHERE id = $1", [v.id]))).rows).toEqual([{ modeles_testes: null }]);
+  });
+});
+
+// Dépôt SQL du cycle de vie (T4-27b), sur la même base : un seul fichier d'essai pour rester dans le même fragment du socle (ADR 0121).
+describe("cycle de vie des versions : dépôt SQL (T4-27b)", () => {
+  const depotCycle = depotSqlCycle((acteur, fn) => enEquipe((c) => fn(async (texte, valeurs) => (await c.query(texte, valeurs)).rows as Record<string, unknown>[]), acteur));
+  const cycle = (definitives = 0) => creerCycle({ depot: depotCycle, erreursPilote: { compterDefinitives: async () => definitives }, journal: { ecrire: async () => undefined }, interrupteurs: { etape6Exigee: false } });
+  const rapport = { module: "module-essai", version: "1.0.0", cas: [{ id: "cas-1", categorie: "nominal", reussi: true }], determinisme: [{ etape: "relecture", reussi: true }], hostile: { demandes: { refusees: 1, brouillons: 0, automatiques: 0 }, appelsConnecteur: 0, violations: 0 }, totaux: { reussis: 2, echoues: 0 }, codeSortie: 0, modeles: ["modele-essai-1"] };
+  const refuse = async (p: Promise<unknown>) => { try { await p; return ""; } catch (e) { return (e as Error).message; } };
+  async function versionComplete() {
+    const v = await creerVersion();
+    await enEquipe((c) => c.query("UPDATE versions_automatisation SET schema_configuration = '{\"type\":\"object\"}'::jsonb WHERE id = $1", [v.id]));
+    return v;
+  }
+  const prouver = (v: { id: string; empreinte: string }, corps: Record<string, unknown>) => cycle().deposer(v.id, lireDemandePreuve({ empreinte_sha256: v.empreinte, ...corps }), ACTEUR);
+  const passer = (v: { id: string; empreinte: string }, depart: string, vers: string, extra: Record<string, unknown> = {}, cy = cycle()) => cy.passer(v.id, lireDemandePassage({ depart, vers, empreinte_sha256: v.empreinte, ...extra }), ACTEUR);
+  const fiche = { benefice: "Gain de temps", prerequis: "Messagerie reliée", temps_gagne: "Dix minutes", prix: "[montant]" };
+  async function jusquEnRecette(v: { id: string; empreinte: string }) {
+    await prouver(v, { etape: 1, cadrage: { probleme: "Relances oubliées", declencheur: "Devis sans réponse", minutes_par_element: 6, donnees_personnelles: { presentes: false, categories: [] } } });
+    for (const [etape, reference] of [[2, "prototype-essai"], [3, "schema-essai"], [5, "controle-essai"], [8, "signature-recette-essai"]] as const) await prouver(v, { etape, reference });
+    await passer(v, "brouillon", "recette");
+  }
+  // Seule façon de reculer l'heure d'un passage : le propriétaire, RLS le temps de l'opération (jamais le rôle de l'équipe).
+  const antidater = (id: string, jours: number) => enProprietaire(async (c) => {
+    await c.query("SELECT set_config('app.acteur', $1, true)", [ACTEUR]);
+    await c.query("ALTER TABLE passages_version NO FORCE ROW LEVEL SECURITY");
+    await c.query("ALTER TABLE preuves_procedure NO FORCE ROW LEVEL SECURITY");
+    await c.query("UPDATE passages_version SET passe_le = passe_le - make_interval(days => $2) WHERE version_id = $1", [id, jours]);
+    await c.query("UPDATE preuves_procedure SET cree_le = cree_le - make_interval(days => $2) WHERE version_id = $1", [id, jours]);
+    await c.query("ALTER TABLE passages_version FORCE ROW LEVEL SECURITY");
+    await c.query("ALTER TABLE preuves_procedure FORCE ROW LEVEL SECURITY");
+  });
+
+  it("[A-305] @isolation la chaîne brouillon → recette → pilote → publiee passe par la machine du serveur, sur la base", async () => {
+    const v = await versionComplete();
+    expect(await refuse(passer(v, "brouillon", "recette"))).toMatch(/Étapes manquantes : 1, 2, 3, 5, 8/);
+    await jusquEnRecette(v);
+    await prouver(v, { etape: 4, rapport });
+    await prouver(v, { etape: 7, mesure_ms: 900, notes_de_version: "Première version", fiche });
+    expect((await enEquipe((c) => c.query("SELECT modeles_testes FROM versions_automatisation WHERE id = $1", [v.id]))).rows).toEqual([{ modeles_testes: ["modele-essai-1"] }]);
+    await passer(v, "recette", "pilote");
+    const publier = () => passer(v, "pilote", "publiee", { signature_production: "signature-prod-essai" });
+    expect(await refuse(publier())).toMatch(/Étapes manquantes : 9/);
+    await antidater(v.id, 8);
+    await publier();
+    const lignes = await enEquipe((c) => c.query("SELECT statut_depart || '>' || statut_arrivee AS p FROM passages_version WHERE version_id = $1 ORDER BY passe_le, statut_arrivee", [v.id]));
+    expect(lignes.rows.map((r) => r["p"]).sort()).toEqual(["brouillon>recette", "pilote>publiee", "recette>pilote"]);
+    const dix = await enEquipe((c) => c.query("SELECT reference, contenu FROM preuves_procedure WHERE version_id = $1 AND etape = 10", [v.id]));
+    expect(dix.rows).toEqual([{ reference: "signature-prod-essai", contenu: { rapport_mensuel: true } }]);
+    expect((await enEquipe((c) => c.query("SELECT statut FROM versions_automatisation WHERE id = $1", [v.id]))).rows).toEqual([{ statut: "publiee" }]);
+  });
+
+  it("[C-249] @isolation le délai de 7 jours est calculé en SQL sur la dernière ligne recette → pilote de la bonne empreinte", async () => {
+    const v = await versionComplete();
+    await jusquEnRecette(v);
+    await prouver(v, { etape: 4, rapport });
+    await prouver(v, { etape: 7, mesure_ms: 900, notes_de_version: "Première version", fiche });
+    await passer(v, "recette", "pilote");
+    const delai = (empreinte = v.empreinte) => depotCycle.transaction(ACTEUR, (tx) => tx.delaiPilote(v.id, empreinte));
+    expect((await delai())?.ecoule).toBe(false);
+    await antidater(v.id, 8);
+    expect((await delai())?.ecoule).toBe(true);
+    // Une ligne d'une autre empreinte ne compte pas ; une ligne plus récente de la bonne empreinte fait repartir le délai (dernière ligne).
+    expect(await delai(hex())).toBeUndefined();
+    await enEquipe((c) => passage(c, v, "recette", "pilote"));
+    expect((await delai())?.ecoule).toBe(false);
+  });
+
+  it("[C-240] @isolation deux passages simultanés d'une même version : un seul réussit (SELECT … FOR UPDATE)", async () => {
+    const v = await versionComplete();
+    for (const [etape, reference] of [[2, "prototype-essai"], [3, "schema-essai"], [5, "controle-essai"], [8, "signature-recette-essai"]] as const) await prouver(v, { etape, reference });
+    await prouver(v, { etape: 1, cadrage: { probleme: "Relances oubliées", declencheur: "Devis sans réponse", minutes_par_element: 6, donnees_personnelles: { presentes: false, categories: [] } } });
+    const r = await Promise.allSettled([passer(v, "brouillon", "recette"), passer(v, "brouillon", "recette")]);
+    expect(r.filter((x) => x.status === "fulfilled")).toHaveLength(1);
+    expect((await enEquipe((c) => c.query("SELECT count(*)::int AS n FROM passages_version WHERE version_id = $1", [v.id]))).rows).toEqual([{ n: 1 }]);
+  });
+
+  it("[C-240] @isolation une preuve rangée après le passage qu'elle devait permettre ne compte pas, et une autre empreinte non plus", async () => {
+    const v = await versionComplete();
+    await jusquEnRecette(v);
+    await prouver(v, { etape: 4, rapport });
+    const compte = (borne: "recette" | null, empreinte = v.empreinte) => depotCycle.transaction(ACTEUR, (tx) => tx.etapesProuvees(v.id, empreinte, borne));
+    expect((await compte("recette")).sort()).toEqual([1, 2, 3, 5, 8]);
+    expect((await compte(null)).sort()).toEqual([1, 2, 3, 4, 5, 8]);
+    expect(await compte(null, hex())).toEqual([]);
+  });
+
+  it("[B-462] @isolation un retrait vers une remplaçante d'une autre automatisation ou non publiée est refusé, sur la base", async () => {
+    const v = await creerVersion("publiee");
+    const autre = await creerVersion("publiee");
+    await passer(v, "publiee", "depreciee", { fin_annoncee_le: "2027-03-01" });
+    expect(await refuse(passer(v, "depreciee", "retiree", { remplacante_id: autre.id, prevenance_le: "2026-01-02" }))).toMatch(/même automatisation/);
+    const meme = await enEquipe(async (c) => {
+      const a = (await c.query("SELECT automatisation_id FROM versions_automatisation WHERE id = $1", [v.id])).rows[0]?.["automatisation_id"] as string;
+      const e = hex();
+      return { id: (await c.query("INSERT INTO versions_automatisation (automatisation_id, semver, api_moteur, artefact_ref, empreinte_sha256, signature_ed25519, sbom_ref) VALUES ($1, '1.1.0', '^0.1.0', $2, $3, 'c2lnbmF0dXJlLWZpY3RpdmU=', 'sbom/essai') RETURNING id", [a, `modules/${e}/`, e])).rows[0]?.["id"] as string, empreinte: e };
+    });
+    expect(await refuse(passer(v, "depreciee", "retiree", { remplacante_id: meme.id, prevenance_le: "2026-01-02" }))).toMatch(/publiée/);
+    expect(await refuse(passer(v, "depreciee", "retiree", { remplacante_id: meme.id, prevenance_le: "2099-01-02" }))).toMatch(/publiée|prévenance/);
+    for (const s of ["recette", "pilote", "publiee"]) await enEquipe((c) => c.query("UPDATE versions_automatisation SET statut = $2 WHERE id = $1", [meme.id, s]));
+    expect(await refuse(passer(v, "depreciee", "retiree", { remplacante_id: meme.id, prevenance_le: "2099-01-02" }))).toMatch(/prévenance/);
+    await passer(v, "depreciee", "retiree", { remplacante_id: meme.id, prevenance_le: "2026-01-02" });
+    expect((await enEquipe((c) => c.query("SELECT statut FROM versions_automatisation WHERE id = $1", [v.id]))).rows).toEqual([{ statut: "retiree" }]);
   });
 });

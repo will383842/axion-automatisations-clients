@@ -24,7 +24,7 @@ const ports = (rendus: ContenuRapport[] = [], exemple: ExempleRapport = sansExem
 describe("contenu du rapport", () => {
   it("[B-408] le contenu porte heures gagnées, volume, fiabilité, comparaison, prochaine automatisation, et l'exemple ou son omission", () => {
     const c = composerContenu(entree(TA, "MARQUE-A"), calculerMesures(TA, entree(TA, "MARQUE-A").instances, MOIS), {
-      tenantId: TA, titre: "Devis relancé", texte: "Un devis a été relancé.",
+      titre: "Devis relancé", texte: "Un devis a été relancé.",
     });
     expect(c.mesures.heures).toEqual({ etat: "mesure", minutes: 120 });
     expect(c.mesures.volume).toBe(20);

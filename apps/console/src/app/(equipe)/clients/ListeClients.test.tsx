@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import Page from "./page.tsx";
 import { ListeClients } from "./ListeClients.tsx";
 
-const ligne = (nom: string, formule: string, badge_formule: string) => ({ id: nom, nom, formule, badge_formule, sante: "vert", statut: "client", apporteur: null, modele_ia: null, metier: null });
+const ligne = (nom: string, formule: string, badge_formule: string) => ({ id: nom, nom, formule, badge_formule, sante: "bon", statut: "client", apporteur: null, modele_ia: null, metier: null });
 
 describe("page Clients", () => {
   it("[B-319] chaque ligne affiche le badge de sa formule, en mots et en couleur de jeton", () => {

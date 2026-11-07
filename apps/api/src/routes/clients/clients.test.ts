@@ -6,7 +6,7 @@ import { brancherErreurs } from "../../plugins/erreurs.js";
 import { routeClients, type DepsClients, type TraceExport } from "./liste.js";
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
-const L = (n: number, p: Partial<LigneClient>): LigneClient => ({ id: id(n), nom: "Atelier Bertin", formule: "abonnement", sante: "vert", statut: "client", apporteur: null, modeleIa: null, metier: null, ...p });
+const L = (n: number, p: Partial<LigneClient>): LigneClient => ({ id: id(n), nom: "Atelier Bertin", formule: "abonnement", sante: "bon", statut: "client", apporteur: null, modeleIa: null, metier: null, ...p });
 const JEU = [
   L(1, { nom: "Lemoine Rénovation", metier: "batiment" }),
   L(2, { nom: "Boulangerie Rivoire", formule: "achat" }),

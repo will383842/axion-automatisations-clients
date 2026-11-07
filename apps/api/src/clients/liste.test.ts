@@ -3,12 +3,12 @@ import { COLONNES_CSV, empreinteCsv, neutraliser, versCsv } from "./export-csv.j
 import { filtrerClients, paginer, versDto, VUE_PRETE_ABONNEMENTS, type LigneClient } from "./liste.js";
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
-const L = (n: number, p: Partial<LigneClient> = {}): LigneClient => ({ id: id(n), nom: "Lemoine Rénovation", formule: "abonnement", sante: "vert", statut: "client", apporteur: null, modeleIa: null, metier: null, ...p });
+const L = (n: number, p: Partial<LigneClient> = {}): LigneClient => ({ id: id(n), nom: "Lemoine Rénovation", formule: "abonnement", sante: "bon", statut: "client", apporteur: null, modeleIa: null, metier: null, ...p });
 const JEU: LigneClient[] = [
-  L(1, { nom: "Lemoine Rénovation", formule: "abonnement", sante: "vert", metier: "batiment", apporteur: "Immobilière Marceau", modeleIa: "modele-a" }),
-  L(2, { nom: "Boulangerie Rivoire", formule: "achat", sante: "orange", metier: "alimentation", statut: "prospect" }),
-  L(3, { nom: "Garage Fontaine", formule: "installation_maintenance", sante: "rouge", metier: "automobile", modeleIa: "modele-b" }),
-  L(4, { nom: "Atelier Bertin", formule: "abonnement", sante: "vert", metier: "batiment", statut: "ancien_client" }),
+  L(1, { nom: "Lemoine Rénovation", formule: "abonnement", sante: "bon", metier: "batiment", apporteur: "Immobilière Marceau", modeleIa: "modele-a" }),
+  L(2, { nom: "Boulangerie Rivoire", formule: "achat", sante: "a_verifier", metier: "alimentation", statut: "prospect" }),
+  L(3, { nom: "Garage Fontaine", formule: "installation_maintenance", sante: "urgent", metier: "automobile", modeleIa: "modele-b" }),
+  L(4, { nom: "Atelier Bertin", formule: "abonnement", sante: "bon", metier: "batiment", statut: "ancien_client" }),
 ];
 const noms = (l: LigneClient[]) => l.map((x) => x.nom);
 
@@ -18,11 +18,11 @@ describe("liste des clients", () => {
     expect(noms(filtrerClients(JEU, { q: "renovation" }))).toEqual(["Lemoine Rénovation"]);
     expect(noms(filtrerClients(JEU, { q: "MARCEAU" }))).toEqual(["Lemoine Rénovation"]);
     expect(noms(filtrerClients(JEU, { formule: "achat" }))).toEqual(["Boulangerie Rivoire"]);
-    expect(noms(filtrerClients(JEU, { sante: "rouge" }))).toEqual(["Garage Fontaine"]);
+    expect(noms(filtrerClients(JEU, { sante: "urgent" }))).toEqual(["Garage Fontaine"]);
     expect(noms(filtrerClients(JEU, { statut: "ancien_client" }))).toEqual(["Atelier Bertin"]);
     expect(noms(filtrerClients(JEU, { apporteur: "Immobilière Marceau" }))).toEqual(["Lemoine Rénovation"]);
     expect(noms(filtrerClients(JEU, { modele_ia: "modele-b" }))).toEqual(["Garage Fontaine"]);
-    expect(noms(filtrerClients(JEU, { formule: "abonnement", sante: "vert", q: "atelier" }))).toEqual(["Atelier Bertin"]);
+    expect(noms(filtrerClients(JEU, { formule: "abonnement", sante: "bon", q: "atelier" }))).toEqual(["Atelier Bertin"]);
     expect(filtrerClients(JEU, { q: "inconnu" })).toEqual([]);
   });
 

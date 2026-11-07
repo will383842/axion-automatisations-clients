@@ -4,7 +4,7 @@ import type { StatutConsole } from "../crm/statuts.ts";
 
 // Liste des clients de la console (T3-10). Sans base : le dépôt des lignes est un port (adaptateur PostgreSQL = dette T3-10-dette-adaptateur).
 export const FORMULES = ["abonnement", "achat", "installation_maintenance"] as const;
-export const SANTES = ["vert", "orange", "rouge"] as const;
+export const SANTES = ["bon", "a_verifier", "urgent"] as const;
 export const STATUTS = ["prospect", "en_signature", "client", "ancien_client"] as const;
 export type Formule = (typeof FORMULES)[number];
 export interface LigneClient { id: string; nom: string; formule: Formule; sante: (typeof SANTES)[number]; statut: StatutConsole; apporteur: string | null; modeleIa: string | null; metier: string | null }

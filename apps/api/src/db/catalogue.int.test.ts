@@ -512,3 +512,30 @@ describe("catalogue commun, avec le socle", { timeout: 60_000 }, () => {
     expect(rows).toEqual([{ entite_id: `${String(a["id"])}/${pack}` }]);
   });
 });
+
+// Liste du catalogue par métier (T3-31a2) : le dépôt SQL réel lit automatisation_metiers en tant que console_equipe. Jugé par la CI socle-integration.
+describe("liste du catalogue par métier (T3-31a2)", () => {
+  it("[B-342] le filtre par métier lit automatisation_metiers en vraie base", async () => {
+    const [m1, m2] = ["btp_artisans", "cabinets_comptables"];
+    const ids = (await lire("SELECT code, id FROM metiers WHERE code = ANY($1)", [[m1, m2]])).rows as { code: string; id: string }[];
+    const idMetier = (code: string) => ids.find((r) => r.code === code)?.id;
+    const [a, b, c] = [await creerAutomatisation(), await creerAutomatisation(), await creerAutomatisation()];
+    await ecrireEquipe(async (cx) => {
+      for (const [auto, code] of [[a, m1], [b, m2], [c, m1]] as const) await cx.query("INSERT INTO automatisation_metiers (automatisation_id, metier_id) VALUES ($1, $2)", [auto["id"], idMetier(code ?? "")]);
+      await cx.query("INSERT INTO automatisation_metiers (automatisation_id, metier_id) VALUES ($1, $2)", [c["id"], idMetier(m2 ?? "")]);
+    });
+    const { depotSqlListe } = await import("../routes/catalogue/liste.js");
+    const depot = depotSqlListe(async (texte, valeurs) => equipe.query(texte, valeurs));
+    const codes = async (metiers: string[]) => (await depot.lister({ metiers, curseur: null, limite: 100 })).map((l) => l.code);
+    const mien = [String(a["code"]), String(b["code"]), String(c["code"])];
+    const parBtp = (await codes([m1 ?? ""])).filter((x) => mien.includes(x));
+    const parCompta = (await codes([m2 ?? ""])).filter((x) => mien.includes(x));
+    const union = (await codes([m1 ?? "", m2 ?? ""])).filter((x) => mien.includes(x));
+    expect(parBtp).toEqual([String(a["code"]), String(c["code"])].sort());
+    expect(parCompta).toEqual([String(b["code"]), String(c["code"])].sort());
+    expect(union).toEqual([...mien].sort());
+    const ligneC = (await depot.lister({ metiers: [m1 ?? ""], curseur: null, limite: 100 })).find((l) => l.code === c["code"]);
+    expect(ligneC?.metiers).toEqual([m1, m2].sort());
+    expect(await depot.metiersConnus([m1 ?? "", "metier_absent"])).toEqual([m1]);
+  });
+});

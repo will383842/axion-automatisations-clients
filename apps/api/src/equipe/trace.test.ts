@@ -5,7 +5,7 @@ import { creerTraceSessions } from "./trace.ts";
 const M = "11111111-1111-4111-8111-111111111111";
 const S = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 function faux() {
-  const appels: { texte: string; valeurs?: unknown[] }[] = [];
+  const appels: { texte: string; valeurs: unknown[] | undefined }[] = [];
   const client = { query: async (texte: string, valeurs?: unknown[]) => { appels.push({ texte, valeurs }); return { rows: [] }; }, release: () => undefined };
   return { appels, pool: { connect: async () => client } as unknown as Pool };
 }

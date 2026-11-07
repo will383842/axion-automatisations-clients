@@ -10,6 +10,7 @@ import { routeVersionsCatalogue } from "../apps/api/src/routes/catalogue/version
 import { routeClients } from "../apps/api/src/routes/clients/liste.js";
 import { routeDeploiementInstances } from "../apps/api/src/routes/instances/deploiement.js";
 import { routeCrm } from "../apps/api/src/routes/crm.js";
+import { routeSessions } from "../apps/api/src/routes/equipe/sessions.js";
 import { routeDonnees } from "../apps/api/src/routes/donnees.js";
 import { routeDonneesModule } from "../apps/api/src/routes/portail/donnees-module.js";
 import { routeExecuteur } from "../apps/api/src/routes/executeur/index.js";
@@ -116,6 +117,7 @@ export async function listerRoutes(): Promise<RouteListee[]> {
   routeReglages(appli, { exigerEquipe: garde, contexte: rien, historique: rien, modifier: rien, revenir: rien });
   routeFiche(appli, { ouvert: () => false, exigerEquipe: garde, session: rien, lire: rien });
   routeNotes(appli, { ouvert: () => false, exigerEquipe: garde, session: rien, lister: rien, ajouter: rien, epingler: rien, noterAppelEtClore: rien });
+  routeSessions(appli, { ouvert: false, exigerJeton: garde, exigerReauthentification: garde, droits: rien, sessions: rien, acces: rien });
   routeEntree(appli, { cles: rien, memoire: rien, alertes: rien, connexionNormale: "/connexion" });
   const entrant = { cles: rien, memoire: rien, actif: () => false };
   brancherHub(appli, { entrant, recepteur: { alerter: () => undefined } as never });

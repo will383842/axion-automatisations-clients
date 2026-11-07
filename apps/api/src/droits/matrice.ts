@@ -87,4 +87,7 @@ export const ACTION_PAR_ROUTE: Readonly<Record<string, Action>> = {
   "GET /api/console/v1/instances/:id/reglages/versions": "lire",
   "POST /api/console/v1/journal/:id/annuler": "modifier_reglages",
   "GET /equipe/journal": "journal_complet",
+  // T3-07b : sécurité de l'équipe (sessions). Dirigeant seul, route globale.
+  "GET /api/console/v1/equipe/sessions": "utilisateurs_roles",
+  "POST /api/console/v1/equipe/membres/:id/sessions/:session/revoquer": "utilisateurs_roles",
 };

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import Fastify from "fastify";
+import { fastifyVide } from "../../scripts/liste-routes.js";
 import { brancherErreurs } from "../../apps/api/src/plugins/erreurs.js";
 import { routeSessions } from "../../apps/api/src/routes/equipe/sessions.js";
 
@@ -10,7 +10,7 @@ const S_CLIENT = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const S_MEMBRE = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const passe = (async () => undefined) as never;
 function app(appels: string[]) {
-  const a = Fastify();
+  const a = fastifyVide();
   brancherErreurs(a);
   routeSessions(a, {
     ouvert: true, exigerJeton: passe, exigerReauthentification: passe,

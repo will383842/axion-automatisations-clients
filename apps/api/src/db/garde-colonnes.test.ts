@@ -347,7 +347,7 @@ describe("tables du lot 5 : supervision commune (T5-01b)", () => {
     }
     // Les neuf, et aucune autre table de la supervision, entrent dans la liste fermée (elle compte 9 de plus qu'avant la 0023).
     expect(TABLES_COMMUNES.filter((t) => COMMUNES_5B.includes(t.replace("public.", "")))).toHaveLength(9);
-    expect(TABLES_COMMUNES).toHaveLength(30);
+    expect(TABLES_COMMUNES).toHaveLength(32);
     expect(Object.isFrozen(TABLES_COMMUNES)).toBe(true);
   });
 
@@ -469,7 +469,7 @@ describe("tables du lot 4 : modèle d'IA et clé du client (T4-34a)", () => {
   it("[LOT4-ia] garde des colonnes : cles_ia_client n'a aucune colonne de texte sans limite ni colonne de secret", () => {
     expect(TABLES_CLIENT.map((t) => t.nom)).toContain("cles_ia_client");
     expect(TABLES_COMMUNES).not.toContain("public.cles_ia_client");
-    expect(TABLES_COMMUNES).toHaveLength(30);
+    expect(TABLES_COMMUNES).toHaveLength(32);
     const t = tableNommee("cles_ia_client");
     expect(textesSansLimite([t], TEXTE_IA)).toEqual([]);
     expect(colonnesInterdites([t])).toEqual([]);
@@ -516,5 +516,45 @@ describe("tables du lot 4 : modèle d'IA et clé du client (T4-34a)", () => {
     expect(texte).not.toMatch(/GRANT[^;]*console_lecture/);
     expect(texte).not.toMatch(/GRANT UPDATE[^;]*"(reference_coffre|fournisseur|organisation_id|cree_par)"/);
     expect(texte).toMatch(/ALTER TABLE "organisations" VALIDATE CONSTRAINT "organisations_modele_ia_defaut_forme"/);
+  });
+});
+
+// Migration 0027 (T4-27a, ADR 0122) : cycle de vie des versions et preuves de la procédure.
+// Liste fermée propre à ces deux tables (TEXTE_PERMIS, à compte exact, reste inchangé) : chaque ajout se relit en 2 tours (zone données).
+const TEXTE_CYCLE: Readonly<Record<string, number>> = Object.freeze({
+  "passages_version.empreinte_sha256": 65,
+  "passages_version.auteur": 200,
+  "preuves_procedure.empreinte_sha256": 65,
+  "preuves_procedure.reference": 255,
+  "preuves_procedure.auteur": 200,
+});
+describe("tables du lot 4 : cycle de vie des versions (T4-27a)", () => {
+  const dossier = new URL("../../drizzle/", import.meta.url);
+  const texte0027 = () => readFileSync(new URL("0027_cycle_de_vie_des_versions.sql", dossier), "utf8");
+
+  it("[LOT4-cycle] garde des colonnes 0027 : textes bornés, aucune colonne de secret, TABLES_COMMUNES compte 32", () => {
+    const tables = ["passages_version", "preuves_procedure"].map(tableNommee);
+    expect(TABLES_COMMUNES).toHaveLength(32);
+    for (const nom of ["passages_version", "preuves_procedure"]) {
+      expect(TABLES_COMMUNES, nom).toContain(`public.${nom}`);
+      expect(getTableConfig(tableNommee(nom)).columns.map((c) => c.name), nom).not.toContain("tenant_id");
+    }
+    expect(textesSansLimite(tables, TEXTE_CYCLE)).toEqual([]);
+    expect(colonnesInterdites(tables)).toEqual([]);
+    expect(Object.keys(TEXTE_CYCLE)).toHaveLength(5);
+    expect(Object.keys(TEXTE_PERMIS)).toHaveLength(19);
+    // La colonne text[] ajoutée à versions_automatisation est bornée en nombre et en forme.
+    expect(tableauxSansBorne([tableNommee("versions_automatisation")])).toEqual([]);
+    expect(getTableConfig(tableNommee("versions_automatisation")).columns.map((c) => c.name)).toContain("modeles_testes");
+  });
+
+  it("[LOT4-cycle] garde-migrations : migration 0027 additive seulement, sans fonction ni valeur d'énumération", () => {
+    const texte = texte0027();
+    expect(analyserSql("0027_cycle_de_vie_des_versions.sql", texte)).toEqual([]);
+    const code = texte.replace(/--[^\n]*/g, "");
+    expect(code).not.toMatch(/\b(DROP|TRUNCATE|RENAME)\b|\bDELETE\s+FROM\b/i);
+    expect(code).not.toMatch(/\bALTER\s+TYPE\b|ALTER\s+COLUMN[^;]*\bTYPE\b|ADD\s+VALUE/i);
+    expect(code).not.toMatch(/\bCREATE\s+(OR\s+REPLACE\s+)?FUNCTION\b|SECURITY\s+DEFINER|^\s*DO\b|\bCONCURRENTLY\b/im);
+    expect(code).not.toMatch(/GRANT[^;]*\b(DELETE|TRUNCATE)\b/i);
   });
 });

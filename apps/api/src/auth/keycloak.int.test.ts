@@ -366,7 +366,8 @@ describe("Keycloak réel : compte de service console-sessions (LOT3-securite)", 
   it("[LOT3-securite] le compte de service obtient un jeton par client_credentials malgré minimum.acr.value", async () => {
     const jeton = await jetonService();
     const roles = (decodeJwt(jeton) as { resource_access?: Record<string, { roles?: string[] }> }).resource_access?.["realm-management"]?.roles ?? [];
-    expect([...roles].sort()).toEqual(["manage-users", "view-users"]);
+    // query-users et query-groups sont les rôles composites de view-users et manage-users : Keycloak les ajoute au jeton. Aucun rôle d'administration.
+    expect([...roles].sort()).toEqual(["manage-users", "query-groups", "query-users", "view-users"]);
     expect((await avec(jeton, "/equipe/users?max=1")).status).toBe(200);
   });
   it("[LOT3-securite] le compte de service n'a aucun droit sur le royaume clients", async () => {

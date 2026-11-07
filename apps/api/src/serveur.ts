@@ -23,6 +23,8 @@ import { routeNotes, type DepsNotes } from "./routes/clients/notes.js";
 import { routeImportCatalogue, type DepsImportCatalogue } from "./routes/catalogue/import.js";
 import { routeVersionsCatalogue, type DepsVersionsCatalogue } from "./routes/catalogue/versions.js";
 import { routeDeploiementInstances, type DepsDeploiementInstances } from "./routes/instances/deploiement.js";
+import { routeVueClient, type DepsVueClient } from "./routes/equipe/vue-client.js";
+import { brancherGardeLectureSeule } from "./vue-client/garde-lecture-seule.js";
 
 // journal : flux qui masque les secrets (plugins/journal.ts) ; les sérialiseurs (journal/serialiseur-req.ts) retirent la partie « ?… » de l'adresse, l'hôte et l'IP (base: {} retire aussi le nom de la machine). Sans flux, aucun journal n'est écrit (interrupteur fermé).
 // exigerEquipe de la route de reprise du provisionnement (A-224) : une session d'équipe est exigée, et les rôles « lecteur » et « qualifieur » sont refusés même dans l'équipe.
@@ -44,11 +46,13 @@ export function creerTravailleurProvisionnement(o: {
 }
 
 // `provisionnement` : routes de reprise fournies par l'appelant ; absent, la route n'existe pas (fermé par défaut).
-export function construireServeur(options: { config?: Config; pool?: pg.Pool; journal?: { write(ligne: string): void }; provisionnement?: DepsRoutesProvisionnement; crm?: DepsCrm; executeur?: DepsExecuteur; donnees?: DepsRoutesDonnees; importCatalogue?: DepsImportCatalogue; versionsCatalogue?: DepsVersionsCatalogue; deploiementInstances?: DepsDeploiementInstances; webhooks?: DepsWebhooks; fiche?: DepsFiche; notes?: DepsNotes; importPersonnes?: DepsImport } = {}) {
+export function construireServeur(options: { config?: Config; pool?: pg.Pool; journal?: { write(ligne: string): void }; provisionnement?: DepsRoutesProvisionnement; crm?: DepsCrm; executeur?: DepsExecuteur; donnees?: DepsRoutesDonnees; importCatalogue?: DepsImportCatalogue; versionsCatalogue?: DepsVersionsCatalogue; deploiementInstances?: DepsDeploiementInstances; webhooks?: DepsWebhooks; fiche?: DepsFiche; notes?: DepsNotes; importPersonnes?: DepsImport; vueClient?: DepsVueClient } = {}) {
   // id_trace : toujours choisi par le serveur, l'en-tête du client est ignoré.
   const serveur = Fastify({ genReqId: () => randomUUID(), requestIdHeader: false, ...(options.journal ? { logger: { level: "info", stream: options.journal, base: {}, serializers: serialiseursJournal } } : {}) });
   brancherErreurs(serveur);
   brancherBase(serveur, options.pool);
+  // Vue « comme le client » (T3-08a) : la garde de lecture seule est posée EN PREMIER, avant toute route ; absente sans `vueClient` (fermé par défaut).
+  if (options.vueClient) { brancherGardeLectureSeule(serveur, options.vueClient.garde); routeVueClient(serveur, options.vueClient); }
   routeSante(serveur);
   if (options.provisionnement) routeProvisionnement(serveur, options.provisionnement);
   // Récepteur C3 : branché seulement si le dépôt, la file et l'entrant sont fournis ; la porte du canal reste fermée par défaut (503).

@@ -20,6 +20,7 @@ import { routeAnnulation, routeJournal } from "../apps/api/src/routes/journal.js
 import { routeProvisionnement } from "../apps/api/src/routes/provisionnement.js";
 import { routeReglages } from "../apps/api/src/routes/reglages.js";
 import { routeSante } from "../apps/api/src/routes/sante.js";
+import { routeVueClient } from "../apps/api/src/routes/equipe/vue-client.js";
 import { routeWebhooks } from "../apps/api/src/routes/webhooks/entree.js";
 
 // Liste des routes de l'API (C-536) : l'application Fastify est construite SANS listen et SANS base, avec des dépendances vides ; seul le tableau des routes sort.
@@ -114,6 +115,7 @@ export async function listerRoutes(): Promise<RouteListee[]> {
   routeReglages(appli, { exigerEquipe: garde, contexte: rien, historique: rien, modifier: rien, revenir: rien });
   routeFiche(appli, { ouvert: () => false, exigerEquipe: garde, session: rien, lire: rien });
   routeNotes(appli, { ouvert: () => false, exigerEquipe: garde, session: rien, lister: rien, ajouter: rien, epingler: rien, noterAppelEtClore: rien });
+  routeVueClient(appli, { garde: rien, exigerDroit: garde, equipe: rien, vue: rien, maintenant: rien, envois: rien, trace: rien });
   routeEntree(appli, { cles: rien, memoire: rien, alertes: rien, connexionNormale: "/connexion" });
   const entrant = { cles: rien, memoire: rien, actif: () => false };
   brancherHub(appli, { entrant, recepteur: { alerter: () => undefined } as never });

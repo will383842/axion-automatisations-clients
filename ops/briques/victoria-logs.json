@@ -1,0 +1,11 @@
+{
+  "nom": "victoria-logs",
+  "image": "victoriametrics/victoria-logs",
+  "version": "v1.53.0",
+  "empreinte": "sha256:251121fa882af99b95ba0c230a4a2f412ea602d2698c64a96c58dc9842bb755d",
+  "licence": "Apache-2.0",
+  "livree": false,
+  "lieu": "local",
+  "source": "https://github.com/VictoriaMetrics/VictoriaLogs",
+  "verifie_le": "2026-11-07"
+}

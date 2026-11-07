@@ -11,19 +11,8 @@ import { brancherErreurs } from "./plugins/erreurs.js";
 import { ErreurApi } from "./plugins/erreurs.js";
 import { PREFIXE } from "./files/files.js";
 import { executerTache, type Resultat } from "./provisionnement/machine.js";
-import { routeProvisionnement, type DepsRoutesProvisionnement } from "./routes/provisionnement.js";
-import { routeDonnees, type DepsRoutesDonnees } from "./routes/donnees.js";
-import { routeCrm, type DepsCrm } from "./routes/crm.js";
-import { routeExecuteur, type DepsExecuteur } from "./routes/executeur/index.js";
-import { routeWebhooks, type DepsWebhooks } from "./routes/webhooks/entree.js";
-import { routeImport, type DepsImport } from "./routes/import.js";
-import { routeSante } from "./routes/sante.js";
-import { routeFiche, type DepsFiche } from "./routes/clients/fiche.js";
-import { routeNotes, type DepsNotes } from "./routes/clients/notes.js";
-import { routeImportCatalogue, type DepsImportCatalogue } from "./routes/catalogue/import.js";
-import { routeListeCatalogue, type DepsListeCatalogue } from "./routes/catalogue/liste.js";
-import { routeVersionsCatalogue, type DepsVersionsCatalogue } from "./routes/catalogue/versions.js";
-import { routeDeploiementInstances, type DepsDeploiementInstances } from "./routes/instances/deploiement.js";
+import type { OptionsBranchements } from "./routes/branchement.js";
+import { BRANCHEMENTS } from "./routes/registre-branchements.js";
 
 // journal : flux qui masque les secrets (plugins/journal.ts) ; les sérialiseurs (journal/serialiseur-req.ts) retirent la partie « ?… » de l'adresse, l'hôte et l'IP (base: {} retire aussi le nom de la machine). Sans flux, aucun journal n'est écrit (interrupteur fermé).
 // exigerEquipe de la route de reprise du provisionnement (A-224) : une session d'équipe est exigée, et les rôles « lecteur » et « qualifieur » sont refusés même dans l'équipe.
@@ -44,36 +33,24 @@ export function creerTravailleurProvisionnement(o: {
   return o.fabrique("provisionnement", async (job) => executerTache(o.machine, String((job.data as { tenantId?: unknown } | null)?.tenantId ?? "")), { connection: o.connexion, prefix: PREFIXE, concurrency: 1 });
 }
 
-// `provisionnement` : routes de reprise fournies par l'appelant ; absent, la route n'existe pas (fermé par défaut).
-export function construireServeur(options: { config?: Config; pool?: pg.Pool; journal?: { write(ligne: string): void }; provisionnement?: DepsRoutesProvisionnement; crm?: DepsCrm; executeur?: DepsExecuteur; donnees?: DepsRoutesDonnees; importCatalogue?: DepsImportCatalogue; versionsCatalogue?: DepsVersionsCatalogue; listeCatalogue?: DepsListeCatalogue; deploiementInstances?: DepsDeploiementInstances; webhooks?: DepsWebhooks; fiche?: DepsFiche; notes?: DepsNotes; importPersonnes?: DepsImport } = {}) {
+// Une route s'inscrit par un fichier neuf dans routes/branchements/ (ADR 0139) : sa clé et ses dépendances viennent de là, fermées par défaut.
+// Une clé absente (ou fausse) ne branche rien : la route n'existe pas.
+export type OptionsServeur = { config?: Config; pool?: pg.Pool; journal?: { write(ligne: string): void } } & Partial<OptionsBranchements>;
+export function construireServeur(options: OptionsServeur = {}) {
   // id_trace : toujours choisi par le serveur, l'en-tête du client est ignoré.
   const serveur = Fastify({ genReqId: () => randomUUID(), requestIdHeader: false, ...(options.journal ? { logger: { level: "info", stream: options.journal, base: {}, serializers: serialiseursJournal } } : {}) });
   brancherErreurs(serveur);
   brancherBase(serveur, options.pool);
-  routeSante(serveur);
-  if (options.provisionnement) routeProvisionnement(serveur, options.provisionnement);
-  // Récepteur C3 : branché seulement si le dépôt, la file et l'entrant sont fournis ; la porte du canal reste fermée par défaut (503).
-  // Le démarrage réel (Valkey, travailleur) reste la dette LOT2-dette-T2-14-cablage (propriétaire T2-21).
-  if (options.crm) routeCrm(serveur, options.crm);
-  // API de l'exécuteur (C4) : absente sans dépendances ; fournie, la porte reste fermée tant que actif() rend faux (EXECUTEUR_API_OUVERTE, fermé par défaut).
-  if (options.executeur) routeExecuteur(serveur, options.executeur);
-  // Service des données (T2-37c) : branché seulement si l'appelant fournit la session, le rôle d'équipe et le service ; absent, la route n'existe pas.
-  if (options.donnees) routeDonnees(serveur, options.donnees);
-  // Import des versions (T4-25) : la route n'existe que si l'appelant la fournit, et répond 503 tant que `ouvert` est faux (IMPORT_OUVERT, fermé par défaut).
-  if (options.importCatalogue) routeImportCatalogue(serveur, options.importCatalogue);
-  // Cycle de vie des versions (T4-27b) : la route n'existe que si l'appelant la fournit, réservée à l'équipe, et répond 503 tant que `ouvert` est faux (fermé par défaut).
-  if (options.versionsCatalogue) routeVersionsCatalogue(serveur, options.versionsCatalogue);
-  // Liste du catalogue de l'équipe (T3-31a2) : fermée par défaut, branchée seulement si l'appelant la fournit.
-  if (options.listeCatalogue) routeListeCatalogue(serveur, options.listeCatalogue);
-  // Déploiement d'une instance (T4-28b1) : la route n'existe que si l'appelant la fournit, réservée à l'équipe, 503 tant que `ouvert` est faux (fermé par défaut).
-  if (options.deploiementInstances) routeDeploiementInstances(serveur, options.deploiementInstances);
-  // Webhooks entrants (T4-24) : la route n'existe que si l'appelant la fournit, et répond 503 tant que `actif()` est faux (WEBHOOKS_OUVERTS, fermé par défaut).
-  if (options.webhooks) routeWebhooks(serveur, options.webhooks);
-  // Fiche client et notes (T3-13) : les routes n'existent que si l'appelant les fournit, et répondent 503 tant que `ouvert()` est faux (fermé par défaut).
-  if (options.fiche) routeFiche(serveur, options.fiche);
-  if (options.notes) routeNotes(serveur, options.notes);
-  // Import de personnes (T2-47b) : la route n'existe que si l'appelant la fournit, et répond 503 tant que `ouvert` est faux (fermé par défaut).
-  if (options.importPersonnes) routeImport(serveur, options.importPersonnes);
+  // Le registre est lu une fois, trié par nom de fichier ; `toujours` = branché d'office (santé), sinon seulement si l'appelant fournit la clé.
+  for (const b of BRANCHEMENTS) {
+    const sv = b.serveur;
+    if (!sv) continue;
+    if ("toujours" in sv) sv.brancher(serveur);
+    else {
+      const d = options[sv.cle];
+      if (d) sv.brancher(serveur, d);
+    }
+  }
   return serveur;
 }
 

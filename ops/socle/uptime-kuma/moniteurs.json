@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "commentaire": "Un moniteur par brique. hote = nom du service sur le réseau interne ; presence = compose (déjà au socle) ou lot-8a (posé avec le serveur). composant = nom générique de la page d'état publique.",
+  "moniteurs": [
+    { "service": "traefik", "nom": "Mandataire", "type": "tcp", "hote": "traefik", "port": 8443, "presence": "compose", "intervalle_s": 60 },
+    { "service": "postgres", "nom": "Base de données", "type": "tcp", "hote": "postgres", "port": 5432, "presence": "compose", "intervalle_s": 60 },
+    { "service": "pgbouncer", "nom": "PgBouncer", "type": "tcp", "hote": "pgbouncer", "port": 6432, "presence": "compose", "intervalle_s": 60 },
+    { "service": "donnees", "nom": "Base des données clients", "type": "tcp", "hote": "donnees", "port": 5432, "presence": "compose", "intervalle_s": 60 },
+    { "service": "pgbouncer-donnees", "nom": "PgBouncer des données clients", "type": "tcp", "hote": "pgbouncer-donnees", "port": 6432, "presence": "compose", "intervalle_s": 60 },
+    { "service": "valkey", "nom": "Valkey", "type": "tcp", "hote": "valkey", "port": 6379, "presence": "compose", "intervalle_s": 60 },
+    { "service": "openbao", "nom": "OpenBao (scellé ou non)", "type": "http", "hote": "openbao", "port": 8200, "chemin": "/v1/sys/health?sealedcode=200&uninitcode=200&standbyok=true", "presence": "compose", "intervalle_s": 60 },
+    { "service": "stockage", "nom": "Stockage", "type": "http", "hote": "stockage", "port": 8333, "chemin": "/healthz", "presence": "compose", "intervalle_s": 60 },
+    { "service": "keycloak", "nom": "Connexion", "type": "tcp", "hote": "keycloak", "port": 9000, "presence": "compose", "intervalle_s": 60 },
+    { "service": "greenmail", "nom": "Messagerie d'essai", "type": "tcp", "hote": "greenmail", "port": 3993, "presence": "compose", "composant": "Messagerie", "intervalle_s": 60 },
+    { "service": "api", "nom": "API", "type": "http", "hote": "api", "port": 3000, "chemin": "/sante", "presence": "lot-8a", "composant": "Automatisations", "intervalle_s": 60 },
+    { "service": "console", "nom": "Console", "type": "http", "hote": "console", "port": 3000, "chemin": "/", "presence": "lot-8a", "composant": "Console", "intervalle_s": 60 },
+    { "service": "portail", "nom": "Portail", "type": "http", "hote": "portail", "port": 3000, "chemin": "/", "presence": "lot-8a", "composant": "Portail", "intervalle_s": 60 },
+    { "service": "courtier", "nom": "Courtier de messages", "type": "tcp", "hote": "courtier", "port": 1883, "presence": "lot-8a", "intervalle_s": 60 },
+    { "service": "passerelle-ia", "nom": "Passerelle d'IA", "type": "http", "hote": "passerelle-ia", "port": 4000, "chemin": "/health/liveliness", "presence": "lot-8a", "intervalle_s": 60 }
+  ],
+  "exclus": [
+    { "service": "uptime-kuma", "raison": "Le moniteur ne se surveille pas lui-même : la sonde extérieure (T5-12b) s'en charge." },
+    { "service": "wal-init", "raison": "Tâche d'initialisation qui s'arrête seule, sans port à surveiller." },
+    { "service": "cle-essai", "raison": "Service d'essai des sauvegardes, absent de la production." },
+    { "service": "sftp-essai", "raison": "Service d'essai des sauvegardes, absent de la production." },
+    { "service": "cle-essai-donnees", "raison": "Service d'essai des sauvegardes, absent de la production." },
+    { "service": "sftp-essai-donnees", "raison": "Service d'essai des sauvegardes, absent de la production." }
+  ]
+}

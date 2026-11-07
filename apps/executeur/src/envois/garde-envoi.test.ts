@@ -108,11 +108,11 @@ describe("garde d'envoi : isolation entre clients", () => {
   });
 
   it("[C-534] @isolation la forme canonique ne contourne pas le carnet (majuscules, « + » gardé, domaine IDN en punycode, nom affiché, deux @, espaces)", async () => {
-    expect(adresseCanonique("  Marie+Devis@CAFÉ.Exemple.fr ")).toBe("marie+devis@xn--caf-dma.exemple.fr");
-    const b = banc({ carnets: { [A]: ["marie+devis@xn--caf-dma.exemple.fr"] } });
-    await b.envoyer("  Marie+Devis@CAFÉ.Exemple.fr ");
+    expect(adresseCanonique("  Marie+Devis@CAFÉ.Exemple.test ")).toBe("marie+devis@xn--caf-dma.exemple.test");
+    const b = banc({ carnets: { [A]: ["marie+devis@xn--caf-dma.exemple.test"] } });
+    await b.envoyer("  Marie+Devis@CAFÉ.Exemple.test ");
     expect(b.connecteur.appels).toHaveLength(1);
-    await expect(b.envoyer("marie@café.exemple.fr")).rejects.toMatchObject({ code: "destinataire_hors_client" }); // sans le « + » : autre adresse
+    await expect(b.envoyer("marie@café.exemple.test")).rejects.toMatchObject({ code: "destinataire_hors_client" }); // sans le « + » : autre adresse
     for (const mauvais of ["Marie <marie+devis@exemple.fr>", "<marie@exemple.fr>", "a@b@exemple.fr", "marie devis@exemple.fr", '"x"@exemple.fr', "sans-arobase", "", 42, null]) {
       await expect(b.envoyer(mauvais)).rejects.toMatchObject({ classe: "definitive", code: "destinataire_illisible" });
     }

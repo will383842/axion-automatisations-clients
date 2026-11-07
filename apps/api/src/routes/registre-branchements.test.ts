@@ -43,12 +43,13 @@ describe("registre des branchements de routes", () => {
     expect(avec.hasRoute({ method: "GET", url: "/api/console/v1/clients/:id/fiche" })).toBe(true);
   });
 
-  it("[C-536] chaque clé du serveur appartient à un fichier dont lister enregistre au moins une route", () => {
+  it("[C-536] chaque clé du serveur appartient à un fichier dont lister enregistre au moins une route", async () => {
     for (const [i, b] of BRANCHEMENTS.entries()) {
       const appli = Fastify();
       let n = 0;
       appli.addHook("onRoute", () => { n += 1; });
       b.lister(appli);
+      await appli.ready();
       expect(n, NOMS_BRANCHEMENTS[i]).toBeGreaterThan(0);
     }
   });

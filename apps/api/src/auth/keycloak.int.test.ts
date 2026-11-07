@@ -341,3 +341,42 @@ describe("Keycloak réel : en-têtes de sécurité et essais répétés (C-681)"
     expect(jeton, "le blocage devait se lever seul").toBeTypeOf("string");
   });
 });
+
+// T3-07a : compte de service console-sessions du royaume equipe (droits minimaux). Le secret vient de l'environnement du conteneur, jamais affiché.
+describe("Keycloak réel : compte de service console-sessions (LOT3-securite)", { timeout: 60_000 }, () => {
+  async function jetonService(): Promise<string> {
+    const r = await fetch(`${OIDC("equipe")}/token`, {
+      method: "POST",
+      body: formulaire({ grant_type: "client_credentials", client_id: "console-sessions", client_secret: lireEnv("KC_SECRET_CONSOLE_SESSIONS") }),
+    });
+    expect(r.status, "client_credentials du compte de service").toBe(200);
+    return ((await r.json()) as { access_token: string }).access_token;
+  }
+  const avec = (jeton: string, chemin: string, init: RequestInit & { json?: unknown } = {}) =>
+    fetch(`${BASE}/admin/realms${chemin}`, {
+      method: init.method ?? "GET",
+      headers: { authorization: `Bearer ${jeton}`, ...(init.json === undefined ? {} : { "content-type": "application/json" }) },
+      ...(init.json === undefined ? {} : { body: JSON.stringify(init.json) }),
+    });
+
+  it("[LOT3-securite] le compte de service obtient un jeton par client_credentials malgré minimum.acr.value", async () => {
+    const jeton = await jetonService();
+    const roles = (decodeJwt(jeton) as { resource_access?: Record<string, { roles?: string[] }> }).resource_access?.["realm-management"]?.roles ?? [];
+    expect([...roles].sort()).toEqual(["manage-users", "view-users"]);
+    expect((await avec(jeton, "/equipe/users?max=1")).status).toBe(200);
+  });
+  it("[LOT3-securite] le compte de service n'a aucun droit sur le royaume clients", async () => {
+    const jeton = await jetonService();
+    expect((await avec(jeton, "/clients/users")).status).toBe(403);
+    expect((await avec(jeton, "/clients")).status).toBe(403);
+  });
+  it("[LOT3-securite] le compte de service ne peut ni attribuer un rôle d'administration ni usurper ni lire les clients", async () => {
+    const jeton = await jetonService();
+    const u = await creerUtilisateur();
+    const gestion = ((await (await api("/equipe/clients?clientId=realm-management")).json()) as { id: string }[])[0]!.id;
+    const role = (await (await api(`/equipe/clients/${gestion}/roles/realm-admin`)).json()) as Json;
+    expect((await avec(jeton, `/equipe/users/${u.id}/role-mappings/clients/${gestion}`, { method: "POST", json: [role] })).status).toBe(403);
+    expect((await avec(jeton, `/equipe/users/${u.id}/impersonation`, { method: "POST" })).status).toBe(403);
+    expect((await avec(jeton, "/equipe/clients")).status).toBe(403);
+  });
+});

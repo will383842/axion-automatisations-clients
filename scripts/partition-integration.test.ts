@@ -37,6 +37,14 @@ describe("partition du socle d'intégration", () => {
     expect(new Set(createurs).size).toBe(Math.min(3, parts.length));
     expect(fragmentDe((groupe ?? [])[3] ?? "")).not.toBe(fragmentDe((groupe ?? [])[1] ?? ""));
   });
+  it("[A-066] chaque groupe « separes » assez petit pour tenir est réparti dans des fragments tous différents", () => {
+    const groupes = (poids.separes ?? []).filter((g) => g.length <= parts.length);
+    expect(groupes.length).toBeGreaterThanOrEqual(1);
+    for (const g of groupes) {
+      for (const f of g) expect(fichiers, f).toContain(f);
+      expect(new Set(g.map((f) => parts.findIndex((p) => p.includes(f)))).size, g.join(" ")).toBe(g.length);
+    }
+  });
   it("[A-066] la partition est stable : même entrée, même résultat, quel que soit l'ordre des fichiers", () => {
     expect(partitionner([...fichiers].reverse(), FRAGMENTS_INTEGRATION, poids)).toEqual(parts);
   });

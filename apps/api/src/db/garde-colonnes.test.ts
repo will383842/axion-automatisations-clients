@@ -561,3 +561,27 @@ describe("tables du lot 4 : cycle de vie des versions (T4-27a)", () => {
     expect(code).not.toMatch(/GRANT[^;]*\b(DELETE|TRUNCATE)\b/i);
   });
 });
+
+// Migration 0028 (T4-28a, ADR 0125) : tests à blanc et journal des déploiements. Liste fermée propre à ces tables (TEXTE_PERMIS reste à 19) : chaque ajout se relit en 2 tours (zone sécurité).
+const TEXTE_DEPLOIEMENT: Readonly<Record<string, number>> = Object.freeze({
+  // Motif ^[a-z0-9_.-]{1,64}$ (64 caractères au plus) : la mesure de la garde compte « n + 1 » pour un motif {m,n}$ (convention du premier caractère), d'où 65.
+  "tests_a_blanc.code_erreur": 65,
+  "tests_a_blanc.auteur": 200,
+  "deploiements_instance.cause": 65,
+  "deploiements_instance.auteur": 200,
+});
+describe("tables du lot 4 : déploiement (T4-28a)", () => {
+  it("[LOT4-deploiement] garde des colonnes 0028 : textes bornés (TEXTE_DEPLOIEMENT compte 4), aucune colonne de secret, TABLES_COMMUNES compte toujours 32", () => {
+    const tables = ["tests_a_blanc", "deploiements_instance"].map(tableNommee);
+    expect(TABLES_CLIENT.map((t) => t.nom)).toEqual(expect.arrayContaining(["tests_a_blanc", "deploiements_instance"]));
+    expect(TABLES_COMMUNES).not.toContain("public.tests_a_blanc");
+    expect(TABLES_COMMUNES).not.toContain("public.deploiements_instance");
+    expect(TABLES_COMMUNES).toHaveLength(32);
+    expect(Object.keys(TEXTE_DEPLOIEMENT)).toHaveLength(4);
+    expect(textesSansLimite(tables, TEXTE_DEPLOIEMENT)).toEqual([]);
+    expect(colonnesInterdites(tables)).toEqual([]);
+    expect(Object.keys(TEXTE_PERMIS)).toHaveLength(19);
+    const brute = pgTable("tests_a_blanc", { rapport: text("rapport") });
+    expect(textesSansLimite([brute], TEXTE_DEPLOIEMENT)).toEqual(["tests_a_blanc.rapport : hors de la liste fermée"]);
+  });
+});

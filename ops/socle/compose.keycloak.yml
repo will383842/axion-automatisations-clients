@@ -26,6 +26,7 @@ services:
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${SOCLE_KEYCLOAK_ADMIN_MOT_DE_PASSE:?mot de passe de test absent}
       # Substitués par l'import dans les fichiers de royaume (forme « dollar, accolade, nom »).
       KC_SECRET_CONSOLE: ${SOCLE_KEYCLOAK_SECRET_CONSOLE:?secret de test absent}
+      KC_SECRET_CONSOLE_SESSIONS: ${SOCLE_KEYCLOAK_SECRET_CONSOLE_SESSIONS:?secret de test absent}
       KC_SECRET_PORTAIL: ${SOCLE_KEYCLOAK_SECRET_PORTAIL:?secret de test absent}
       KC_ORIGINE_CONSOLE: https://console.exemple.test
     volumes:

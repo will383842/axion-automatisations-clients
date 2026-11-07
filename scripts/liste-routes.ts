@@ -1,35 +1,16 @@
 import { createRequire } from "node:module";
 import ts from "typescript";
 import { brancherErreurs } from "../apps/api/src/plugins/erreurs.js";
-import { routeATrancher } from "../apps/api/src/routes/a-trancher.js";
-import { routeFiche } from "../apps/api/src/routes/clients/fiche.js";
-import { routeNotes } from "../apps/api/src/routes/clients/notes.js";
-import { routeConnexions } from "../apps/api/src/routes/clients/connexions.js";
-import { routeCanaux } from "../apps/api/src/routes/canaux.js";
-import { routeImportCatalogue } from "../apps/api/src/routes/catalogue/import.js";
-import { routeVersionsCatalogue } from "../apps/api/src/routes/catalogue/versions.js";
-import { routeDeploiementInstances } from "../apps/api/src/routes/instances/deploiement.js";
-import { routeCrm } from "../apps/api/src/routes/crm.js";
-import { routeDonnees } from "../apps/api/src/routes/donnees.js";
-import { routeDonneesModule } from "../apps/api/src/routes/portail/donnees-module.js";
-import { routeExecuteur } from "../apps/api/src/routes/executeur/index.js";
-import { routeEntree } from "../apps/api/src/routes/entree.js";
-import { routeImport } from "../apps/api/src/routes/import.js";
-import { routeGel } from "../apps/api/src/routes/gel.js";
-import { brancherHub } from "../apps/api/src/routes/hub.js";
-import { routeAnnulation, routeJournal } from "../apps/api/src/routes/journal.js";
-import { routeProvisionnement } from "../apps/api/src/routes/provisionnement.js";
-import { routeReglages } from "../apps/api/src/routes/reglages.js";
-import { routeSante } from "../apps/api/src/routes/sante.js";
-import { routeWebhooks } from "../apps/api/src/routes/webhooks/entree.js";
+import { BRANCHEMENTS } from "../apps/api/src/routes/registre-branchements.js";
 
 // Liste des routes de l'API (C-536) : l'application Fastify est construite SANS listen et SANS base, avec des dépendances vides ; seul le tableau des routes sort.
-// Une route absente d'ici est vue par la garde (scripts/garde-mauvais-client.test.ts), qui compte aussi les enregistrements dans le code source.
+// Une route s'inscrit par un fichier neuf dans apps/api/src/routes/branchements/ (ADR 0139), jamais ici.
+// Une route absente de la liste est vue par la garde (scripts/garde-mauvais-client.test.ts), qui compte aussi les enregistrements dans le code source.
 export interface RouteListee {
   methode: string;
   chemin: string;
 }
-type Appli = Parameters<typeof routeSante>[0];
+type Appli = Parameters<(typeof BRANCHEMENTS)[number]["lister"]>[0];
 
 // Le paquet fastify n'appartient qu'à apps/api : on le charge depuis là, comme le ferait l'API.
 const fastify = createRequire(new URL("../apps/api/package.json", import.meta.url))("fastify") as () => Appli & { ready(): Promise<unknown>; close(): Promise<unknown> };
@@ -92,9 +73,6 @@ export function routesSansTest(routes: RouteListee[], declares: Set<string>): st
     .map((r) => `${r} : aucun test « [C-536] @isolation ${r} »`);
 }
 
-const rien = {} as never;
-const garde = (async () => undefined) as never;
-
 export async function listerRoutes(): Promise<RouteListee[]> {
   const appli = fastify();
   const vues = new Map<string, RouteListee>();
@@ -103,29 +81,7 @@ export async function listerRoutes(): Promise<RouteListee[]> {
     for (const m of [r.method].flat()) if (m !== "HEAD" && m !== "OPTIONS") vues.set(`${m} ${r.url}`, { methode: m, chemin: r.url });
   });
   brancherErreurs(appli);
-  routeSante(appli);
-  routeDonnees(appli, rien);
-  routeDonneesModule(appli, rien);
-  routeGel(appli, { exigerEquipe: garde, exigerReauthentification: garde, session: rien, gel: rien });
-  routeATrancher(appli, { exigerEquipe: garde, appelant: rien, reauthentifie: rien, appliquer: rien, ecarter: rien });
-  routeCanaux(appli, { exigerEquipe: garde, magasin: rien });
-  routeJournal(appli, { exigerEquipe: garde, lire: rien });
-  routeAnnulation(appli, { exigerEquipe: garde, contexte: rien, annuler: rien });
-  routeProvisionnement(appli, { exigerEquipe: garde, etatBase: rien, reprendre: rien });
-  routeReglages(appli, { exigerEquipe: garde, contexte: rien, historique: rien, modifier: rien, revenir: rien });
-  routeFiche(appli, { ouvert: () => false, exigerEquipe: garde, session: rien, lire: rien });
-  routeNotes(appli, { ouvert: () => false, exigerEquipe: garde, session: rien, lister: rien, ajouter: rien, epingler: rien, noterAppelEtClore: rien });
-  routeConnexions(appli, { ouvert: () => false, exigerEquipe: garde, droits: rien, session: rien, lire: rien });
-  routeEntree(appli, { cles: rien, memoire: rien, alertes: rien, connexionNormale: "/connexion" });
-  const entrant = { cles: rien, memoire: rien, actif: () => false };
-  brancherHub(appli, { entrant, recepteur: { alerter: () => undefined } as never });
-  routeCrm(appli, { entrant, recepteur: rien, file: rien });
-  routeImport(appli, { ouvert: false, session: rien, ports: rien });
-  routeImportCatalogue(appli, { ouvert: false, importeur: rien, authentifier: garde as never });
-  routeVersionsCatalogue(appli, { ouvert: false, cycle: rien, authentifier: garde as never });
-  routeDeploiementInstances(appli, { ouvert: false, authentifier: garde as never, creer: rien, tester: rien, activer: rien });
-  routeExecuteur(appli, { actif: () => false, cles: rien, memoire: rien, depot: rien, evenements: { depot: rien } });
-  routeWebhooks(appli, { actif: () => false, depot: rien, secret: rien, instance: rien, memoire: rien, file: rien, sceller: rien, debit: { parWebhook: 1, global: 1, fenetreMs: 1 } });
+  for (const b of BRANCHEMENTS) b.lister(appli);
   await appli.ready();
   await appli.close();
   return [...vues.values()].sort((a, b) => `${a.chemin} ${a.methode}`.localeCompare(`${b.chemin} ${b.methode}`));

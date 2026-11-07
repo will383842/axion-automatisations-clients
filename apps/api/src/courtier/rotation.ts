@@ -3,6 +3,7 @@ import type { SessionEquipe } from "../gel/gel.js";
 import { nomBaseDe, nomsRoles, type Sql } from "../provisionnement/etapes-base.js";
 import type { LigneBase, Verrou } from "../provisionnement/machine.js";
 import { ErreurCourtier, type Journal } from "./identifiants-base.js";
+import { ESSAIS_REVOCATION, type BilanRevocation } from "./acces-humain.js";
 
 // Rotation du mot de passe de cli_<id>_app puis de cli_<id>_lecture (A-169, A-209). Choix de l'ADR 0046 (« Rotation ») : un seul rôle fixe, VALID UNTIL comme filet, jamais deux rôles alternés.
 // Ordre : le coffre reçoit le nouveau mot de passe (nouvelle version KV), PUIS le rôle reçoit l'empreinte et la version notée. Le rôle n'est jamais recréé (A-417).
@@ -37,7 +38,11 @@ export async function deposerRotation(file: FileRotation, tenantId: string, main
 }
 
 export interface AdminRotation { changerMotDePasse(role: string, empreinte: string, version: number, validJusqua: Date): Promise<void> }
-export interface SessionsBase { couper(nomBase: string, role: string): Promise<void> }
+export interface SessionsBase {
+  couper(nomBase: string, role: string): Promise<void>;
+  // Filet, lecture seule : membres de cli_<id>_lecture encore capables de se connecter et sessions ouvertes de ces membres. Il observe, il n'agit pas.
+  restants(nomBase: string): Promise<{ membres: number; sessions: number }>;
+}
 export interface PortsRotation {
   // Coupe les sessions ouvertes de la base (PgBouncer puis base), pour la rotation immédiate.
   sessions(grappe: string): SessionsBase;
@@ -48,6 +53,8 @@ export interface PortsRotation {
   coffre: { ranger(chemin: string, valeur: string): Promise<number> };
   bouncer(grappe: string): { reconnecter(nomBase: string): Promise<void> };
   verrou: Verrou;
+  // Rotation immédiate : révoque tous les baux humains de CE client (revoquerTousBauxHumains, jeton HUMAINS). Obligatoire : jamais d'oubli silencieux.
+  humains: { revoquerTous(tenantId: string): Promise<BilanRevocation> };
   motDePasse(): string;
   empreinte(motDePasse: string): string;
   journal: Journal;
@@ -77,15 +84,30 @@ export function sessionsPg(grappe: Pick<Sql, "requete">, bouncer: Pick<Sql, "req
   return {
     async couper(nomBase, role) {
       if (!NOM_BASE.test(nomBase) || role !== `${nomBase}_app`) throw new Error("nom refusé");
-      await bouncer.requete(`KILL ${nomBase}`);
+      // Les deux coupures sont toujours tentées et RESUME aussi (la base n'est jamais laissée en pause) ; la première erreur remonte.
+      let echec: { e: unknown } | undefined;
+      try { await bouncer.requete(`KILL ${nomBase}`); } catch (e) { echec = { e }; }
       try {
         await grappe.requete(
           "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE pid <> pg_backend_pid() AND (usename = $1 OR usename = $2 OR usename IN (SELECT m.rolname FROM pg_auth_members a JOIN pg_roles r ON r.oid = a.roleid JOIN pg_roles m ON m.oid = a.member WHERE r.rolname = $2))",
           [role, `${nomBase}_lecture`],
         );
+      } catch (e) {
+        echec ??= { e };
       } finally {
-        await bouncer.requete(`RESUME ${nomBase}`);
+        try { await bouncer.requete(`RESUME ${nomBase}`); } catch (e) { echec ??= { e }; }
       }
+      if (echec) throw echec.e;
+    },
+    // Lecture seule, requête paramétrée. Seuls comptent les membres qui peuvent hériter ou prendre le rôle : un membre ADMIN seul (gestionnaire d'OpenBao, provisionneur) n'ouvre aucun accès aux données.
+    async restants(nomBase) {
+      if (!NOM_BASE.test(nomBase)) throw new Error("nom refusé");
+      const membres = "SELECT m.rolname FROM pg_auth_members a JOIN pg_roles r ON r.oid = a.roleid JOIN pg_roles m ON m.oid = a.member WHERE r.rolname = $1 AND m.rolcanlogin AND (a.inherit_option OR a.set_option)";
+      const lignes = await grappe.requete<{ membres: number | string; sessions: number | string }>(
+        `SELECT (SELECT count(*) FROM (${membres}) x)::int AS membres, (SELECT count(*) FROM pg_stat_activity WHERE pid <> pg_backend_pid() AND usename IN (${membres}))::int AS sessions`,
+        [`${nomBase}_lecture`],
+      );
+      return { membres: Number(lignes[0]?.membres ?? 0), sessions: Number(lignes[0]?.sessions ?? 0) };
     },
   };
 }
@@ -107,8 +129,37 @@ export function creerRotation(p: PortsRotation) {
     p.journal.tracer({ evenement: "sessions_coupees", tenantId: id, acteur });
     return true;
   }
+  // Rotation immédiate, SOUS LE VERROU : révocation de tous les baux humains du client (seule voie d'action : le coffre ; NOLOGIN et REVOKE sur un rôle dynamique demandent l'option ADMIN), puis filet en lecture seule.
+  // Rend vrai si quelque chose reste ouvert ou n'a pu être vérifié : trace (nombres seulement) et alerte (code seul, ni nom de rôle ni bail). Le pivot n'est jamais annulé.
+  async function fermerAccesHumains(id: string, grappe: string): Promise<boolean> {
+    const nomBase = nomBaseDe(id);
+    let bilan: BilanRevocation;
+    try {
+      bilan = await p.humains.revoquerTous(id);
+    } catch {
+      bilan = { revoques: 0, etrangers: 0, echecs: 1, complet: false };
+    }
+    let restants = 0;
+    let verifie = true;
+    try {
+      const r = await p.sessions(grappe).restants(nomBase);
+      restants = r.membres + r.sessions;
+    } catch {
+      verifie = false;
+    }
+    const incomplet = !bilan.complet || !verifie || restants > 0;
+    if (incomplet) {
+      p.journal.tracer({ evenement: "roles_dynamiques_restants", tenantId: id, nombre: restants, echecs: bilan.echecs });
+      try {
+        await p.alerte.envoyer({ evenement: "roles_dynamiques_restants", tenantId: id, base: nomBase, essais: ESSAIS_REVOCATION, code: "revocation_incomplete" });
+      } catch {
+        p.journal.tracer({ evenement: "alerte_non_envoyee", tenantId: id });
+      }
+    }
+    return incomplet;
+  }
   // `incident` : rotation immédiate. Si un rôle échoue après que _app a été touché, les sessions ouvertes sont coupées quand même, sous le verrou, puis l'échec d'origine remonte.
-  async function pivoter(tenantId: string, file: Pick<FileRotation, "add">, incident?: { acteur: string }): Promise<"faite" | "occupe"> {
+  async function executer(tenantId: string, file: Pick<FileRotation, "add">, incident?: { acteur: string }): Promise<"occupe" | { coupee: boolean; incomplet: boolean }> {
     const id = tenantId.toLowerCase();
     const nomBase = nomBaseDe(id);
     const ligne = await p.base(id);
@@ -139,20 +190,26 @@ export function creerRotation(p: PortsRotation) {
         if (incident && appTouche) {
           // Échec partiel : les sessions portent peut-être l'ancien identifiant. Coupure et reconnexion en file, puis l'échec d'origine remonte (la base n'est jamais laissée en pause).
           await couper(id, ligne.grappe, incident.acteur);
+          await fermerAccesHumains(id, ligne.grappe);
           await file.add("reconnecter", { tenantId: id }, { jobId: `reconnect-${nomBase}-${version}`, delay: DELAI_GRACE_MS, removeOnComplete: true }).catch(() => undefined);
         }
         throw e;
       }
+      // Incident, toujours sous le verrou : coupure des sessions (échec visible, jamais silencieux), puis baux humains, puis filet. Un bail émis entre-temps est refusé par ouvrirAccesHumain (même verrou).
+      // Rotation planifiée : rien de tout cela. Les baux humains d'une heure expirent seuls, et la planifiée n'a pas de motif d'incident.
+      const apres = incident ? { coupee: await couper(id, ligne.grappe, incident.acteur), incomplet: await fermerAccesHumains(id, ligne.grappe) } : { coupee: true, incomplet: false };
       // Grâce : les connexions déjà ouvertes durent 10 minutes, puis PgBouncer reconnecte la base (tâche différée, une par version).
       await file.add("reconnecter", { tenantId: id }, { jobId: `reconnect-${nomBase}-${version}`, delay: DELAI_GRACE_MS, removeOnComplete: true });
       p.journal.tracer({ evenement: "rotation_faite", tenantId: id, base: nomBase, version });
-      return "faite";
+      return apres;
     } finally {
       await rendre().catch(() => undefined);
     }
   }
   return {
-    pourBase: pivoter,
+    async pourBase(tenantId: string, file: Pick<FileRotation, "add">, incident?: { acteur: string }): Promise<"faite" | "occupe"> {
+      return (await executer(tenantId, file, incident)) === "occupe" ? "occupe" : "faite";
+    },
     async reconnecter(tenantId: string): Promise<void> {
       const id = tenantId.toLowerCase();
       const ligne = await p.base(id);
@@ -160,7 +217,7 @@ export function creerRotation(p: PortsRotation) {
       await p.bouncer(ligne.grappe).reconnecter(nomBaseDe(id));
     },
     // Incident : équipe réauthentifiée (T1A-08), client actif de la session, personne identifiée, motif écrit. La trace ne porte aucune valeur.
-    async immediate(tenantId: string, motif: string, s: SessionEquipe, file: Pick<FileRotation, "add">): Promise<"faite" | "occupe"> {
+    async immediate(tenantId: string, motif: string, s: SessionEquipe, file: Pick<FileRotation, "add">): Promise<"faite" | "occupe" | "revocation_incomplete"> {
       if (!s.reauthentifie) throw new ErreurApi("reauthentification_requise", "Reconnectez-vous pour continuer.");
       if (s.role !== "administrateur") throw new ErreurApi("action_interdite", "Action réservée à l'administrateur.");
       const acteur = s.acteur.trim();
@@ -168,7 +225,7 @@ export function creerRotation(p: PortsRotation) {
       const m = typeof motif === "string" ? motif.trim() : "";
       if (m === "" || m.length > 500) throw new ErreurApi("schema_invalide", "Requête invalide.");
       p.journal.tracer({ evenement: "rotation_immediate", tenantId: tenantId.toLowerCase(), acteur, motif: m });
-      const r = await pivoter(tenantId, file, { acteur });
+      const r = await executer(tenantId, file, { acteur });
       if (r === "occupe") {
         // Une rotation planifiée tient le verrou : rien n'a changé, donc couper maintenant ne servirait à rien (l'ancien mot de passe reste valable). La demande échoue de façon visible : trace, alerte, code.
         const id = tenantId.toLowerCase();
@@ -180,11 +237,9 @@ export function creerRotation(p: PortsRotation) {
         }
         throw new ErreurCourtier("rotation_occupee");
       }
-      // Les sessions ouvertes avant le changement portent encore l'ancien mot de passe : on les coupe (échec visible, jamais silencieux).
-      const id = tenantId.toLowerCase();
-      const ligne = await p.base(id);
-      if (!(await couper(id, ligne!.grappe, acteur))) throw new ErreurCourtier("coupure_echouee");
-      return r;
+      // Les sessions ouvertes avant le changement ont été coupées et les baux humains révoqués sous le verrou (échec de coupure : visible, jamais silencieux).
+      if (!r.coupee) throw new ErreurCourtier("coupure_echouee");
+      return r.incomplet ? "revocation_incomplete" : "faite";
     },
     // Écouteur « failed » de la file : après le dernier essai, une alerte part (code seul). Une alerte qui échoue est tracée et lève : la panne reste visible.
     async surEchec(tache: { name?: string; data?: { tenantId?: unknown }; attemptsMade: number; opts: { attempts?: number } }, erreur: unknown): Promise<void> {

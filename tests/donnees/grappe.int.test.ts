@@ -476,3 +476,94 @@ describe("règle d'architecture (C-497)", () => {
     expect(adr).toMatch(/socket/);
   });
 });
+
+// T4-39b-3 : limite partagée A-170 (CONNECTION LIMIT 2 de cli_<id>_lecture, max_db_connections = 2 de PgBouncer), sur les clients A et B déjà créés.
+// En mode transaction, une connexion serveur n'est tenue que pendant une transaction ouverte : chaque client ouvre BEGIN pour occuper une place. Chaque connexion est fermée dans un finally.
+describe("limite partagée A-170 (T4-39b-3)", () => {
+  const retomber = () => attendre(() => toutesLesConnexions() === 0, 80);
+  const tenir = async (id: string, nombre: number) => {
+    const h = adresse("pgbouncer-donnees");
+    const clients = Array.from({ length: nombre }, () => clientPg(h, 6432, role(id, "lecture"), `cli_${id}`, mdpDe(role(id, "lecture"))));
+    for (const c of clients) {
+      await c.connect();
+      await c.query("begin");
+      await c.query("select 1 as v");
+    }
+    return clients;
+  };
+
+  it("[A-170] via PgBouncer, lecture exécuteur + lecture console tiennent sous CONNECTION LIMIT 2", async () => {
+    await retomber();
+    let clients: ClientPg[] = [];
+    try {
+      // Deux lectures du même client en même temps : celle de l'exécuteur (session dédiée) et celle de la console (pool de taille 1).
+      clients = await tenir(A, 2);
+      expect(serveurs(A)).toBeLessThanOrEqual(2);
+      for (const c of clients) expect((await c.query("select count(*) as v from essai")).rows[0]?.v).toBeDefined();
+    } finally {
+      await Promise.allSettled(clients.map((c) => c.end()));
+      await retomber();
+    }
+  }, 180_000);
+
+  it("[A-170] via PgBouncer, une 3e lecture attend au plus query_wait_timeout puis échoue, jamais sans fin", async () => {
+    await retomber();
+    expect(ini()).toMatch(/^query_wait_timeout\s*=\s*10$/m);
+    let clients: ClientPg[] = [];
+    const troisieme = clientPg(adresse("pgbouncer-donnees"), 6432, role(A, "lecture"), `cli_${A}`, mdpDe(role(A, "lecture")));
+    try {
+      clients = await tenir(A, 2);
+      const depart = Date.now();
+      const issue = await troisieme.connect().then(() => troisieme.query("select 1 as v")).then(() => "acceptee", (e: Error) => e.message);
+      const duree = Date.now() - depart;
+      expect(issue).not.toBe("acceptee");
+      expect(duree).toBeLessThan(15_000);
+      expect(serveurs(A)).toBeLessThanOrEqual(2);
+    } finally {
+      await Promise.allSettled([troisieme.end(), ...clients.map((c) => c.end())]);
+      await retomber();
+    }
+  }, 180_000);
+
+  it("[A-170] en connexion directe, une 3e connexion _lecture du même client est refusée tout de suite", async () => {
+    await retomber();
+    // Deux sessions directes de 4 s (moins que le délai du rôle), puis une troisième qui doit être refusée sans attendre.
+    const garder = () => new Promise<void>((fin) => {
+      execFile("docker", ["exec", "-e", `PGPASSWORD=${mdpDe(role(A, "lecture"))}`, conteneur("donnees"), "psql", "-w", "-U", role(A, "lecture"), "-d", `cli_${A}`, "-tAXc", "select pg_sleep(4)"], () => fin());
+    });
+    const deux = [garder(), garder()];
+    try {
+      await attendre(() => Number(superu("postgres", `select count(*) from pg_stat_activity where usename='${role(A, "lecture")}'`).sortie) >= 2, 3);
+      const depart = Date.now();
+      const r = direct(role(A, "lecture"), `cli_${A}`, "select 1");
+      expect(r.ok).toBe(false);
+      expect(r.erreur).toMatch(/too many connections for role/);
+      expect(Date.now() - depart).toBeLessThan(4_000);
+    } finally {
+      await Promise.allSettled(deux);
+      await retomber();
+    }
+  }, 120_000);
+
+  it("[A-170] @isolation la limite d'un client ne prend aucune place à un autre client", async () => {
+    await retomber();
+    let clients: ClientPg[] = [];
+    try {
+      clients = await tenir(A, 2);
+      // A est saturé : B lit quand même, par PgBouncer et en direct.
+      const h = adresse("pgbouncer-donnees");
+      const b = clientPg(h, 6432, role(B, "lecture"), `cli_${B}`, mdpDe(role(B, "lecture")));
+      try {
+        await b.connect();
+        expect((await b.query("select count(*) as v from essai")).rows[0]?.v).toBeDefined();
+      } finally {
+        await b.end().catch(() => undefined);
+      }
+      expect(direct(role(B, "lecture"), `cli_${B}`, "select count(*) from essai").ok).toBe(true);
+      expect(parPgBouncer(role(B, "lecture"), `cli_${B}`, "select count(*) from essai").ok).toBe(true);
+    } finally {
+      await Promise.allSettled(clients.map((c) => c.end()));
+      await retomber();
+    }
+  }, 180_000);
+});

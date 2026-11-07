@@ -152,6 +152,22 @@ describe("gardes d'activation", () => {
     expect(accord.appels[0]?.valeurs).toEqual([A, INSTANCE]);
   });
 
+  it("[C-628] une instance livree ou en erreur n'est pas activée, motif etat_depart, activerInstance n'est pas appelée", async () => {
+    for (const etat of ["livree", "erreur"]) {
+      const appels: string[] = [];
+      const client = {
+        async query(texte: string) {
+          appels.push(texte);
+          if (texte.includes("FOR UPDATE")) return { rows: [{ id: INSTANCE, etat, statut: "publiee" }], rowCount: 1 };
+          if (texte.includes("tests_a_blanc")) return { rows: [{ resultat: "reussi" }], rowCount: 1 };
+          return { rows: [{ un: 1, jour: "2026-11-07" }], rowCount: 1 };
+        },
+      };
+      await expect(activerAvecGardes(client as never, A, INSTANCE, [oui])).rejects.toMatchObject({ code: "regle_metier", motif: "etat_depart" });
+      expect(appels.some((t) => t.startsWith("UPDATE"))).toBe(false);
+    }
+  });
+
   it("[C-628] une instance inconnue pour ce client est refusée avant toute garde", async () => {
     const { client } = fauxActivation({ instance: false });
     let appelee = false;

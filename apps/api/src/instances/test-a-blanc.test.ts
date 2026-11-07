@@ -139,3 +139,36 @@ describe("test à blanc", () => {
     expect(apres.filter((t) => t === "BEGIN" || t === "COMMIT")).toEqual(["BEGIN", "COMMIT"]);
   });
 });
+
+// Socle des gardes d'activation (E1 de l'audit de #235) : faux client dont la ligne verrouillée porte l'état et le statut de la version courante.
+function fauxSocle(o: { etat?: string; statut?: string; dernierTest?: string | null }) {
+  const appels: string[] = [];
+  const client = {
+    async query(texte: string) {
+      appels.push(texte);
+      if (texte.includes("FOR UPDATE")) return { rows: [{ id: INSTANCE, etat: o.etat ?? "pause", statut: o.statut ?? "publiee" }], rowCount: 1 };
+      if (texte.includes("tests_a_blanc")) return o.dernierTest ? { rows: [{ resultat: o.dernierTest }], rowCount: 1 } : { rows: [], rowCount: 0 };
+      if (texte.includes("FROM contrats")) return { rows: [{ un: 1 }], rowCount: 1 };
+      if (texte.startsWith("UPDATE instances")) return { rows: [{ jour: "2026-11-07" }], rowCount: 1 };
+      return { rows: [], rowCount: 0 };
+    },
+  };
+  return { client: client as never, appels };
+}
+
+describe("gardes de socle de l'activation", () => {
+  it("[B-093] activerAvecGardes avec une liste vide refuse sans test à blanc réussi (gardes de socle toujours appliquées)", async () => {
+    const { client, appels } = fauxSocle({ dernierTest: null });
+    await expect(activerAvecGardes(client, A, INSTANCE, [])).rejects.toMatchObject({ code: "regle_metier", motif: "test_a_blanc_absent" });
+    expect(appels.some((t) => t.startsWith("UPDATE"))).toBe(false);
+  });
+
+  it("[B-093] une version retirée ou dépréciée depuis le test à blanc n'est pas activée, motif version_non_publiee", async () => {
+    for (const statut of ["retiree", "depreciee"]) {
+      const { client, appels } = fauxSocle({ statut, dernierTest: "reussi" });
+      await expect(activerAvecGardes(client, A, INSTANCE, [])).rejects.toMatchObject({ code: "regle_metier", motif: "version_non_publiee" });
+      expect(appels.some((t) => t.startsWith("UPDATE"))).toBe(false);
+    }
+  });
+});
+

@@ -5,7 +5,7 @@ import { TABLES_COMMUNES } from "../../../../packages/contrats/src/c5/invariants
 import { analyserSql } from "../../../../scripts/garde-migrations.ts";
 import { passagesVersion, preuvesProcedure, versionsAutomatisation } from "../db/schema/catalogue.ts";
 
-// Migration 0027 (T4-27a, ADR 0122) : cycle de vie des versions et preuves de la procédure. Les essais contre PostgreSQL sont dans cycle-de-vie.int.test.ts.
+// Migration 0027 (T4-27a, ADR 0122) : cycle de vie des versions et preuves de la procédure. Les essais contre PostgreSQL sont dans import.int.test.ts.
 const dossier = new URL("../../drizzle/", import.meta.url);
 const NOM = "0027_cycle_de_vie_des_versions.sql";
 const migration = () => readFileSync(new URL(NOM, dossier), "utf8");

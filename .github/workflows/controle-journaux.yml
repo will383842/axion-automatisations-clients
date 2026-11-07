@@ -9,14 +9,9 @@ on:
       - audit-dependances
       - Couverture des exigences
       - garde-briques
-      - Garde des couleurs
-      - Garde des données réelles
-      - Garde des migrations
-      - Harnais
       - images-derivees
       - Sécurité
       - Socle intégration
-      - Squelettes web
       - Tests visuels du design
     types: [completed]
 permissions:

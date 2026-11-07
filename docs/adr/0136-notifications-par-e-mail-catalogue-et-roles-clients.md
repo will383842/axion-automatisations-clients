@@ -1,4 +1,4 @@
-# 0133 · Notifications par e-mail : catalogue, garde « texte validé » et rôles clients
+# 0136 · Notifications par e-mail : catalogue, garde « texte validé » et rôles clients
 
 Date : 07/11/2026 · Statut : proposé (T6-24a), à accepter par l'architecte · Contrat touché : aucun (la table des envois n'est pas empreintée ; seules les 18 valeurs `cleTexte` changent) · Migration : aucune · S'appuie sur : ADR 0119 (tables du portail)
 

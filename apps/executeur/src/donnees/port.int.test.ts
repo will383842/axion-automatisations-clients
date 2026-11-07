@@ -12,10 +12,10 @@ import { creerFabriquePort, type ConnexionLecture, type PortsLecture } from "./p
 journalEchecs(import.meta.url);
 
 // Essai réel (job socle-integration, Docker) : lancé seulement en CI, aucun résultat inventé hors CI. Données générées.
-// Un seul PostgreSQL, deux bases (deux « clients ») : cli_aaaaaaaaaaaa et cli_bbbbbbbbbbbb, chacune avec son rôle _lecture (SELECT seul).
+// Un seul PostgreSQL, deux bases (deux « clients ») : cli_111111111111 et cli_222222222222 (noms DÉRIVÉS de l'UUID du client, comme le courtier), chacune avec son rôle _lecture (SELECT seul).
 const racine = (chemin: string) => fileURLToPath(new URL(`../../../../${chemin}`, import.meta.url));
 const docker = (...args: string[]) => execFileSync("docker", args, { encoding: "utf8" }).trim();
-const IDS = { a: "cli_" + "a".repeat(12), b: "cli_" + "b".repeat(12) } as const;
+const IDS = { a: "cli_" + "1".repeat(12), b: "cli_" + "2".repeat(12) } as const;
 const T = { a: "11111111-1111-4111-8111-111111111111", b: "22222222-2222-4222-8222-222222222222" } as const;
 const ETAB = { a: "44444444-4444-4444-8444-444444444444", b: "55555555-5555-4555-8555-555555555555" } as const;
 const INST = "33333333-3333-4333-8333-333333333333";
@@ -79,7 +79,7 @@ function portsReels(trace: { ouvertes: string[]; detruites: boolean[]; verrou?: 
 describe("port données sur de vraies bases", () => {
   it("[C-624] @isolation le port n'exécute une requête que dans la base du client de l'exécution (identifiant forgé), avec le rôle _lecture", async () => {
     const trace = { ouvertes: [] as string[], detruites: [] as boolean[] };
-    const f = creerFabriquePort(portsReels(trace), { delaiMs: 2000, maxLignes: 50, hotes: [hote] }, MODELE);
+    const f = creerFabriquePort(portsReels(trace), { delaiMs: 2000, delaiTotalMs: 10_000, maxLignes: 50, hotes: [hote] }, MODELE);
     expect(await f({ tenantId: T.a, instanceId: INST, idTache: "tache-1", correlation: COR }).lire("liste-factures", { motif: "facture-a" })).toEqual([{ libelle: "facture-a" }]);
     // La ligne du client B n'est visible ni par le client A ni par un identifiant glissé dans les paramètres.
     const a = f({ tenantId: T.a, instanceId: INST, idTache: "tache-1", correlation: COR });
@@ -105,7 +105,7 @@ describe("port données sur de vraies bases", () => {
     await proprio.query("BEGIN; LOCK TABLE commun.factures_essai IN ACCESS EXCLUSIVE MODE");
     try {
       const trace = { ouvertes: [] as string[], detruites: [] as boolean[] };
-      const f = creerFabriquePort(portsReels(trace), { delaiMs: 300, maxLignes: 50, hotes: [hote] }, MODELE);
+      const f = creerFabriquePort(portsReels(trace), { delaiMs: 300, delaiTotalMs: 10_000, maxLignes: 50, hotes: [hote] }, MODELE);
       const debut = Date.now();
       const lenteA = f({ tenantId: T.a, instanceId: INST, idTache: "tache-1", correlation: COR }).lire("liste-factures", { motif: "facture-a" }).catch((e) => e);
       const rapideB = await f({ tenantId: T.b, instanceId: INST, idTache: "tache-1", correlation: COR }).lire("liste-factures", { motif: "facture-b" });
@@ -114,6 +114,17 @@ describe("port données sur de vraies bases", () => {
       expect(await lenteA).toMatchObject({ code: "indisponible" });
       expect(Date.now() - debut).toBeLessThan(3000);
     } finally { await proprio.query("ROLLBACK").catch(() => undefined); await proprio.end(); }
+  }, 60_000);
+});
+
+describe("remise d'un courtier fautif", () => {
+  it("[C-624] @isolation une remise dont la base n'est pas celle du client de l'exécution est refusée", async () => {
+    const trace = { ouvertes: [] as string[], detruites: [] as boolean[] };
+    const p = portsReels(trace);
+    p.baseLecture = async () => ({ hote, base: IDS.b, role: `${IDS.b}_lecture`, motDePasse: mdpLecture, expire: new Date(Date.now() + 60_000), valideJusqua: null } satisfies BaseLecture); // la base de B pour une exécution de A
+    const f = creerFabriquePort(p, { delaiMs: 2000, delaiTotalMs: 10_000, maxLignes: 50, hotes: [hote] }, MODELE);
+    await expect(f({ tenantId: T.a, instanceId: INST, idTache: "tache-1", correlation: COR }).lire("liste-factures", { motif: "facture-b" })).rejects.toMatchObject({ code: "indisponible" });
+    expect(trace.ouvertes).toEqual([]);
   }, 60_000);
 });
 

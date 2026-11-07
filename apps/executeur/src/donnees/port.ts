@@ -46,6 +46,8 @@ const BASE = /^cli_[0-9a-f]{12}$/;
 const CACHE_MAX = 64;
 const SQL_ETABLISSEMENTS = "SELECT current_user::text AS u, current_database()::text AS d, e.id::text AS id FROM (SELECT 1) s LEFT JOIN commun.etablissements e ON true LIMIT $1::int";
 const MAX_ETABLISSEMENTS = 1000;
+// Même dérivation que le courtier (ADR 0046) : 12 premiers caractères hexadécimaux de l'UUID du client.
+const nomBaseDe = (tenantId: string): string => `cli_${tenantId.replaceAll("-", "").slice(0, 12).toLowerCase()}`;
 type Requete = z.infer<typeof Donnees>["requetes"][number];
 
 export function creerFabriquePort(ports: PortsLecture, limites: LimitesDonnees, modele: Modele = MODELE_BASE_CLIENT): (ctx: ContexteLecture) => PortDonnees {
@@ -59,6 +61,14 @@ export function creerFabriquePort(ports: PortsLecture, limites: LimitesDonnees, 
     const marque = suite.catch(() => undefined);
     files.set(tenantId, marque);
     try { return await suite; } finally { if (files.get(tenantId) === marque) files.delete(tenantId); }
+  }
+
+  // Délai TOTAL (file, courtier, ouverture, lecture) : au-delà, l'appelant reçoit « indisponible » ; l'appel en cours libère sa connexion à sa propre fin.
+  function avecDelaiTotal<T>(travail: Promise<T>): Promise<T> {
+    let minuteur: NodeJS.Timeout | undefined;
+    const limite = new Promise<never>((_, rejeter) => { minuteur = setTimeout(() => rejeter(new ErreurDonnees("indisponible")), limites.delaiTotalMs); });
+    travail.catch(() => undefined);
+    return Promise.race([travail, limite]).finally(() => clearTimeout(minuteur));
   }
 
   function verifie(cle: string, donnees: unknown): ReadonlyMap<string, Requete> | null {
@@ -93,14 +103,15 @@ export function creerFabriquePort(ports: PortsLecture, limites: LimitesDonnees, 
       let connexion: ConnexionLecture;
       try {
         base = await ports.baseLecture(tenantId, idTache);
-        if (!BASE.test(base.base) || base.role !== `${base.base}_lecture` || !limites.hotes.includes(base.hote)) throw new Error("remise_illisible");
+        if (!BASE.test(base.base) || base.base !== nomBaseDe(tenantId) || base.role !== `${nomBaseDe(tenantId)}_lecture` || !limites.hotes.includes(base.hote)) throw new Error("remise_illisible");
         connexion = await ports.ouvrir(base);
       } catch { throw new ErreurDonnees("indisponible"); }
       let perdue: Error | undefined; // défini sur toute erreur
       try {
         // Établissements : tous ceux de la base lus par la connexion de lecture ; la même lecture revérifie l'identité de la session ouverte.
-        const sonde = await executerLecture(connexion, { texte: SQL_ETABLISSEMENTS, valeurs: [MAX_ETABLISSEMENTS] }, { delaiMs: limites.delaiMs });
+        const sonde = await executerLecture(connexion, { texte: SQL_ETABLISSEMENTS, valeurs: [MAX_ETABLISSEMENTS + 1] }, { delaiMs: limites.delaiMs });
         if (sonde.length === 0 || sonde.some((l) => l["u"] !== base.role || l["d"] !== base.base)) throw new Error("identite_session");
+        if (sonde.length > MAX_ETABLISSEMENTS) throw new Error("trop_d_etablissements"); // jamais une lecture partielle
         const etablissements = sonde.map((l) => l["id"]).filter((i): i is string => typeof i === "string");
         const g = genererSql(r.forme, r.parametres, valeurs.data, etablissements, modele);
         const lignes = await executerLecture(connexion, g, { delaiMs: limites.delaiMs });
@@ -116,7 +127,7 @@ export function creerFabriquePort(ports: PortsLecture, limites: LimitesDonnees, 
     return {
       async lire(nom, parametres) {
         try {
-          const { lignes } = await enSerie(tenantId, () => appel(nom, parametres));
+          const { lignes } = await avecDelaiTotal(enSerie(tenantId, () => appel(nom, parametres)));
           try { ports.tracer({ correlation, requete: nom, statut: "ok", lignes: lignes.length }); } catch { /* la trace ne change pas la réponse */ }
           return lignes;
         } catch (e) {

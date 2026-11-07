@@ -7,7 +7,7 @@ import { readFileSync, readdirSync } from "node:fs";
 /** Nombre de fragments du socle d'intégration : un job `fragment-N` par valeur dans .github/workflows/socle-integration.yml. */
 export const FRAGMENTS_INTEGRATION = 3;
 
-export type Poids = { defaut: number; fichiers: Record<string, number> };
+export type Poids = { defaut: number; fichiers: Record<string, number>; separes?: string[][] };
 
 const IGNORES = new Set(["node_modules", ".git", "dist", ".next", "__fixtures__"]);
 
@@ -29,20 +29,26 @@ export function fichiersIntegration(racine = "."): string[] {
 export function lirePoids(chemin = "ops/socle/poids-integration.json"): Poids {
   const brut = JSON.parse(readFileSync(chemin, "utf8")) as Partial<Poids>;
   if (typeof brut.defaut !== "number" || !(brut.defaut > 0)) throw new Error(`${chemin} : poids par défaut absent ou non positif`);
-  return { defaut: brut.defaut, fichiers: brut.fichiers ?? {} };
+  return { defaut: brut.defaut, fichiers: brut.fichiers ?? {}, separes: brut.separes ?? [] };
 }
 
 export const poidsDe = (f: string, p: Poids): number => p.fichiers[f] ?? p.defaut;
 export const charge = (fichiers: string[], p: Poids): number => fichiers.reduce((s, f) => s + poidsDe(f, p), 0);
 
-/** Glouton : le fichier le plus lourd d'abord, toujours dans le fragment le moins chargé. Déterministe (égalités départagées par le chemin). */
+/** Glouton : le fichier le plus lourd d'abord, dans le fragment le moins chargé. Déterministe (égalités : ordre du groupe « separes », puis chemin).
+ *  Un fichier d'un groupe « separes » évite, tant que possible, les fragments qui contiennent déjà un autre fichier du même groupe. */
 export function partitionner(fichiers: string[], n: number, p: Poids): string[][] {
   const parts: string[][] = Array.from({ length: n }, () => []);
   const charges: number[] = Array(n).fill(0);
-  const ordre = [...fichiers].sort((a, b) => poidsDe(b, p) - poidsDe(a, p) || (a < b ? -1 : 1));
+  const groupes = p.separes ?? [];
+  const rang = (f: string): number => Math.max(...groupes.map((g) => g.indexOf(f)));
+  const ordre = [...fichiers].sort((a, b) => poidsDe(b, p) - poidsDe(a, p) || rang(a) - rang(b) || (a < b ? -1 : 1));
   for (const f of ordre) {
-    let k = 0;
-    for (let i = 1; i < n; i++) if ((charges[i] ?? 0) < (charges[k] ?? 0)) k = i;
+    const freres = groupes.filter((g) => g.includes(f)).flat();
+    const libres = parts.map((x, i) => i).filter((i) => !parts[i]?.some((g) => freres.includes(g)));
+    const candidats = libres.length ? libres : parts.map((_, i) => i);
+    let k = candidats[0] ?? 0;
+    for (const i of candidats) if ((charges[i] ?? 0) < (charges[k] ?? 0)) k = i;
     parts[k]?.push(f);
     charges[k] = (charges[k] ?? 0) + poidsDe(f, p);
   }

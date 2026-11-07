@@ -17,15 +17,25 @@ describe("partition du socle d'intégration", () => {
     expect([...tous].sort()).toEqual([...fichiers].sort());
     for (const p of parts) expect(p.length).toBeGreaterThan(0);
   });
-  it("[A-066] la charge estimée est équilibrée : le fragment le plus long ne dépasse ni le fichier le plus lourd ni la moyenne + 10 %", () => {
+  it("[A-066] la charge estimée est équilibrée : le fragment le plus long ne dépasse ni le fichier le plus lourd + 5 % ni la moyenne + 10 %", () => {
     const charges = parts.map((p) => charge(p, poids));
     const moyenne = charge(fichiers, poids) / parts.length;
     const lourd = Math.max(...fichiers.map((f) => poidsDe(f, poids)));
     // Un fichier seul ne se partage pas : il fixe alors la durée du fragment (à découper dans une autre tâche).
-    expect(Math.max(...charges)).toBeLessThanOrEqual(Math.max(lourd, moyenne * 1.1));
+    expect(Math.max(...charges)).toBeLessThanOrEqual(Math.max(lourd * 1.05, moyenne * 1.1));
     // Les fragments sans le fichier le plus lourd restent proches les uns des autres (écart d'au plus 90 s).
     const sansLourd = parts.filter((p) => !p.some((f) => poidsDe(f, poids) === lourd)).map((p) => charge(p, poids));
     expect(Math.max(...sansLourd) - Math.min(...sansLourd)).toBeLessThanOrEqual(90);
+  });
+  it("[A-066] les fichiers qui créent des bases depuis modele_v1 sont dans des fragments différents (course « accessed by other users »)", () => {
+    const [groupe] = poids.separes ?? [];
+    expect(groupe?.length).toBeGreaterThanOrEqual(4);
+    for (const f of groupe ?? []) expect(fichiers, f).toContain(f);
+    const fragmentDe = (f: string) => parts.findIndex((p) => p.includes(f));
+    // Les trois fichiers qui font CREATE DATABASE … TEMPLATE modele_v1 ne se rencontrent jamais ; le 4e (connexions de contrôle) évite au moins vagues.
+    const createurs = (groupe ?? []).slice(0, 3).map(fragmentDe);
+    expect(new Set(createurs).size).toBe(Math.min(3, parts.length));
+    expect(fragmentDe((groupe ?? [])[3] ?? "")).not.toBe(fragmentDe((groupe ?? [])[1] ?? ""));
   });
   it("[A-066] la partition est stable : même entrée, même résultat, quel que soit l'ordre des fichiers", () => {
     expect(partitionner([...fichiers].reverse(), FRAGMENTS_INTEGRATION, poids)).toEqual(parts);

@@ -1,5 +1,5 @@
 {
-  "commentaire": "Poids en secondes de tests, déduits des durées par fragment du run 1145 de la PR 229 (ADR 0121) ; aucune mesure par fichier n'existe encore. Seuls les fichiers lourds sont listés, les autres valent « defaut ». À réviser quand l'écart entre le fragment le plus long et le plus court dépasse 90 s.",
+  "commentaire": "Poids en secondes de tests, déduits des durées par fragment du run 1145 de la PR 229 (ADR 0121) ; aucune mesure par fichier n'existe encore. Seuls les fichiers lourds sont listés, les autres valent « defaut ». À réviser quand l'écart entre le fragment le plus long et le plus court dépasse 90 s. « separes » : groupes de fichiers qui partagent une ressource exclusive du socle (CREATE DATABASE … TEMPLATE modele_v1 exige zéro connexion sur le modèle) ; la partition les répartit dans des fragments différents autant que possible, dans l'ordre donné.",
   "defaut": 1.5,
   "fichiers": {
     "tests/socle/sauvegardes.int.test.ts": 318,
@@ -8,5 +8,13 @@
     "tests/audit-1a/passerelle.int.test.ts": 63,
     "apps/api/src/db/bases-client.int.test.ts": 25,
     "apps/api/src/provisionnement/migrer-module.int.test.ts": 20
-  }
+  },
+  "separes": [
+    [
+      "apps/api/src/provisionnement/migrer-module.int.test.ts",
+      "apps/api/src/donnees/vagues.int.test.ts",
+      "apps/api/src/provisionnement/isolation-roles.int.test.ts",
+      "tests/donnees/grappe.int.test.ts"
+    ]
+  ]
 }

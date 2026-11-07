@@ -12,6 +12,7 @@
     { "service": "stockage", "nom": "Stockage", "type": "http", "hote": "stockage", "port": 8333, "chemin": "/healthz", "presence": "compose", "intervalle_s": 60 },
     { "service": "keycloak", "nom": "Connexion", "type": "tcp", "hote": "keycloak", "port": 9000, "presence": "compose", "intervalle_s": 60 },
     { "service": "greenmail", "nom": "Messagerie d'essai", "type": "tcp", "hote": "greenmail", "port": 3993, "presence": "compose", "composant": "Messagerie", "intervalle_s": 60 },
+    { "service": "victoria-logs", "nom": "Journaux regroupés", "type": "http", "hote": "victoria-logs", "port": 9428, "chemin": "/health", "presence": "compose", "intervalle_s": 60 },
     { "service": "api", "nom": "API", "type": "http", "hote": "api", "port": 3000, "chemin": "/sante", "presence": "lot-8a", "composant": "Automatisations", "intervalle_s": 60 },
     { "service": "console", "nom": "Console", "type": "http", "hote": "console", "port": 3000, "chemin": "/", "presence": "lot-8a", "composant": "Console", "intervalle_s": 60 },
     { "service": "portail", "nom": "Portail", "type": "http", "hote": "portail", "port": 3000, "chemin": "/", "presence": "lot-8a", "composant": "Portail", "intervalle_s": 60 },

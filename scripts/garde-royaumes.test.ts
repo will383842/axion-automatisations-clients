@@ -317,3 +317,74 @@ describe("garde-royaumes : niveau d'authentification (acr)", () => {
     expect(c.webOrigins ?? []).toEqual([]);
   });
 });
+
+// Compte de service de l'API (A1, ADR 0129) : seule entrée « users » permise, au client de service du même fichier.
+const SERVICE = () => ({
+  clientId: "console-sessions", publicClient: false, standardFlowEnabled: false, serviceAccountsEnabled: true,
+  directAccessGrantsEnabled: false, implicitFlowEnabled: false, secret: "${KC_SECRET_CONSOLE_SESSIONS}",
+  attributes: { "pkce.code.challenge.method": "S256" }, defaultClientScopes: [], optionalClientScopes: [], redirectUris: [], webOrigins: [],
+});
+const COMPTE = () => ({
+  username: "service-account-console-sessions", enabled: true, serviceAccountClientId: "console-sessions",
+  clientRoles: { "realm-management": ["view-users", "manage-users"] },
+});
+function avecService(): Royaume {
+  const r = equipe();
+  r.clients.push(SERVICE());
+  r.users = [COMPTE()];
+  return r;
+}
+
+describe("garde-royaumes : compte de service console-sessions (A1)", () => {
+  it("[LOT3-securite] le fichier réel du royaume equipe passe la garde avec console-sessions", () => {
+    const texte = lire("royaume-equipe.json");
+    const r = JSON.parse(texte) as Royaume;
+    expect(r.clients.map((c: Royaume) => c.clientId)).toContain("console-sessions");
+    expect(r.users).toEqual([COMPTE()]);
+    expect(verifierRoyaume("royaume-equipe.json", texte)).toEqual([]);
+  });
+  it("[LOT3-securite] la garde accepte le compte de service aux deux seuls rôles permis", () => expect(verifier(avecService())).toEqual([]));
+  it.each(["realm-admin", "manage-realm", "impersonation", "view-clients", "manage-clients"])(
+    "[LOT3-securite] la garde refuse un compte de service avec le rôle %s",
+    (role) => {
+      const r = avecService();
+      r.users[0].clientRoles["realm-management"].push(role);
+      expect(verifier(r).join()).toContain(role);
+    },
+  );
+  it("[LOT3-securite] la garde refuse des rôles d'un autre client ou du royaume", () => {
+    const r = avecService();
+    r.users[0].clientRoles.account = ["manage-account"];
+    expect(verifier(r).join()).toMatch(/clientRoles/);
+    const s = avecService();
+    s.users[0].realmRoles = ["admin"];
+    expect(verifier(s).join()).toContain("realmRoles");
+  });
+  it("[LOT3-securite] la garde refuse une entrée users sans serviceAccountClientId, ou avec credentials ou realmRoles", () => {
+    const sans = avecService();
+    delete sans.users[0].serviceAccountClientId;
+    expect(verifier(sans).join()).toMatch(/serviceAccountClientId/);
+    const mdp = avecService();
+    mdp.users[0].credentials = [{ type: "password", value: "x" }];
+    expect(verifier(mdp).join()).toContain("credentials");
+    const humain = avecService();
+    humain.users.push({ username: "quelqu-un", enabled: true });
+    expect(verifier(humain).join()).toMatch(/serviceAccountClientId/);
+  });
+  it("[LOT3-securite] la garde refuse un compte de service dans le royaume clients", () => {
+    const r = avecService();
+    r.realm = "clients";
+    expect(verifier(r, "royaume-clients.json").join()).toMatch(/compte de service/);
+  });
+  it("[LOT3-securite] la garde refuse un client serviceAccountsEnabled avec standardFlowEnabled ou sans entrée users", () => {
+    const flux = avecService();
+    flux.clients[1].standardFlowEnabled = true;
+    expect(verifier(flux).join()).toMatch(/standardFlowEnabled/);
+    const orphelin = avecService();
+    orphelin.users = [];
+    expect(verifier(orphelin).join()).toMatch(/entrée users/);
+    const fantome = avecService();
+    fantome.users[0].serviceAccountClientId = "console";
+    expect(verifier(fantome).join()).toMatch(/serviceAccountsEnabled/);
+  });
+});

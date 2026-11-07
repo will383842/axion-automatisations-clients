@@ -1,4 +1,4 @@
-import { type Application, avantEnvoi, type EvenementNettoye } from "./nettoyage.ts";
+import { type Application, avantEnvoi, type ContexteNettoyage, type EvenementNettoye } from "./nettoyage.ts";
 
 // Initialisation commune de Sentry pour l'API, l'exécuteur et la console (A-113, C-025).
 // Le client Sentry est injecté : le paquet ne dépend d'aucune bibliothèque tierce tant que le choix du SDK n'est pas tranché (voir les dettes de la PR).
@@ -10,7 +10,11 @@ export interface OptionsSentry {
   tracesSampleRate: number;
   replaysSessionSampleRate: 0;
   replaysOnErrorSampleRate: 0;
+  integrations: never[];
+  maxBreadcrumbs: 0;
   beforeSend: (evenement: unknown) => EvenementNettoye | null;
+  beforeSendTransaction: (transaction: unknown) => null;
+  beforeSendSpan: (span: unknown) => null;
   beforeBreadcrumb: (fil: unknown) => null;
 }
 
@@ -24,6 +28,7 @@ export interface ConfigSentry {
   version: string;
   sentry: ClientSentry;
   echantillonnage?: number;
+  masquerSecrets?: (texte: string) => string;
 }
 
 // Adresses de collecte de la région européenne de Sentry : <clé>@<organisation>.ingest.de.sentry.io, ou un hôte auto-hébergé inscrit à l'ADR (hôtes se terminant par .de.sentry.io seulement ici).
@@ -39,6 +44,7 @@ function estEuropeen(dsn: string): boolean {
 export function configurerSentry(config: ConfigSentry): void {
   if (config.dsn.trim() === "") throw new Error("Sentry : DSN absent de la configuration. Renseignez-le avant de démarrer " + config.application + ".");
   if (!estEuropeen(config.dsn)) throw new Error("Sentry : l'adresse n'est pas dans la région européenne (*.de.sentry.io). Démarrage refusé pour " + config.application + " ; voir l'ADR du choix de région.");
+  const contexte: ContexteNettoyage = { application: config.application, ...(config.masquerSecrets ? { masquerSecrets: config.masquerSecrets } : {}) };
   config.sentry.init({
     dsn: config.dsn,
     release: config.version,
@@ -46,7 +52,11 @@ export function configurerSentry(config: ConfigSentry): void {
     tracesSampleRate: config.echantillonnage ?? 0,
     replaysSessionSampleRate: 0,
     replaysOnErrorSampleRate: 0,
-    beforeSend: (evenement) => avantEnvoi(evenement, { application: config.application }),
+    integrations: [],
+    maxBreadcrumbs: 0,
+    beforeSend: (evenement) => avantEnvoi(evenement, contexte),
+    beforeSendTransaction: () => null,
+    beforeSendSpan: () => null,
     beforeBreadcrumb: () => null,
   });
 }

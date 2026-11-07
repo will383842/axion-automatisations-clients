@@ -303,14 +303,14 @@ describe("garde-licences : liste blanche des workflows", () => {
     const UL = `actions/upload-artifact@${SHA_CONNUS[2]}`;
     const telecharger = { pattern: "rapport-integration-*", path: "rapports-vitest", "merge-multiple": true };
     const envoyer = (i: number | string, chemin = `rapports-vitest/blob-${i}-3.json`) => ({ name: `rapport-integration-${i}`, path: chemin, "if-no-files-found": "error", "retention-days": 1 });
-    const fragment = (i: number | string) => `pnpm exec vitest run --project integration --reporter=blob --outputFile=rapports-vitest/blob-${i}-3.json`;
+    const fragment = (i: number | string) => `pnpm exec vitest run --project integration --reporter=default --reporter=blob --outputFile.blob=rapports-vitest/blob-${i}-3.json`;
     const fusion = "pnpm exec vitest --merge-reports rapports-vitest --reporter=json --outputFile=rapport-integration.json";
     const controle = 'test "$RESULTATS_FRAGMENTS" = "success success success"';
     const acceptes: Obj[] = [...[1, 2, 3].flatMap((i): Obj[] => [{ run: fragment(i) }, { uses: UL, with: envoyer(i) }]), { uses: DL, with: telecharger }, { run: fusion }, { run: controle }, { run: fragment(1), env: { SOCLE_INTEGRATION: "1", FRAGMENT_INTEGRATION: "1/3" } }];
     for (const e of acceptes) expect(verifierInstallationsFigees(fich(wf([e], { env: { RESULTATS_FRAGMENTS: "${{ join(needs.*.result, ' ') }}" } }))), JSON.stringify(e)).toEqual([]);
     const refuses: Obj[] = [
       { run: fragment(4) }, { run: fragment("0") }, { run: `${fragment(1)} --shard=1/3` }, { run: fragment(1).replace("blob-1-3", "blob-1-4") }, { run: "pnpm exec vitest run --project integration --shard=1/3 --reporter=blob --outputFile=rapports-vitest/blob-1-3.json" }, { run: `${fragment(1)} --passWithNoTests` },
-      { run: fragment(1).replace("--reporter=blob", "--reporter=json") }, { run: fragment(1).replace("rapports-vitest/", "/tmp/") },
+      { run: fragment(1).replace("--reporter=blob", "--reporter=json") }, { run: fragment(1).replace("rapports-vitest/", "/tmp/") }, { run: fragment(1).replace(" --reporter=default", "") }, { run: fragment(1).replace("--outputFile.blob", "--outputFile") },
       { run: "pnpm exec vitest run --project integration --reporter=json --outputFile=rapport-integration.json" },
       { run: `${fusion} || true` }, { run: fusion.replace("rapports-vitest", ".") }, { run: 'test "$RESULTATS_FRAGMENTS" = "success success"' }, { run: 'test "$RESULTATS_FRAGMENTS" = "success success success success"' }, { run: `${controle} || true` },
       { uses: UL, with: envoyer(4) }, { uses: UL, with: envoyer(1, "rapports-vitest/") }, { uses: UL, with: { ...envoyer(1), "retention-days": 90 } }, { uses: UL, with: { ...envoyer(1), "include-hidden-files": true } },

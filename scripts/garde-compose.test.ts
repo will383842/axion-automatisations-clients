@@ -175,7 +175,7 @@ describe("tests d'intégration et lancement", () => {
       expect(j.name).toBe(`socle-integration-fragment-${i}`);
       expect(j.if, id).toBeUndefined();
       const tests = j.steps.filter((e) => run(e)?.includes("vitest"));
-      expect(tests.map(run), id).toEqual([`pnpm exec vitest run --project integration --reporter=blob --outputFile=rapports-vitest/blob-${i}-${n}.json`]);
+      expect(tests.map(run), id).toEqual([`pnpm exec vitest run --project integration --reporter=default --reporter=blob --outputFile.blob=rapports-vitest/blob-${i}-${n}.json`]);
       const etapeTests = j.steps.find((e) => run(e)?.includes("vitest"));
       expect(etapeTests?.env, id).toEqual({ SOCLE_INTEGRATION: "1", FRAGMENT_INTEGRATION: `${i}/${n}` });
       expect(run(etapeTests ?? { run: "" }), id).not.toMatch(/--shard/);

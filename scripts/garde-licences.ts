@@ -153,7 +153,7 @@ const RUN_OK = new Set([
   "node scripts/compter-tests.ts rapport-tests.json", "node scripts/compter-tests.ts --projet integration --rapport rapport-integration.json",
   "node scripts/couverture-req.ts rapport-vitest.json rapport-playwright.json", "node scripts/garde-couleurs.ts", "node scripts/garde-donnees-reelles.ts", "node scripts/garde-migrations.ts",
   'node scripts/scanner-journaux.ts "$RUNNER_TEMP/texte"', "ops/socle/lancer.sh", "ops/socle/arreter.sh", "node scripts/garde-briques.ts",
-  ...FRAGMENTS.map((i) => `pnpm exec vitest run --project integration --reporter=blob --outputFile=rapports-vitest/blob-${i}-3.json`),
+  ...FRAGMENTS.map((i) => `pnpm exec vitest run --project integration --reporter=default --reporter=blob --outputFile.blob=rapports-vitest/blob-${i}-3.json`),
   "pnpm exec vitest --merge-reports rapports-vitest --reporter=json --outputFile=rapport-integration.json", 'test "$RESULTATS_FRAGMENTS" = "success success success"',
 ]);
 // Blocs de plusieurs lignes : empreinte SHA-256 du texte (controle-journaux ×2, nuit, socle-integration, squelettes-web).

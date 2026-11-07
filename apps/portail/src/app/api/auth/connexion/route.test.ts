@@ -67,6 +67,20 @@ describe("routes de connexion du portail", () => {
     expect(appels).toEqual([]);
   });
 
+  it("[LOT6-connexion] rappel : un state rejoué après un échec est refusé, la transaction est détruite dès la première lecture", async () => {
+    const etat = ouvrir();
+    nonce = "autre-nonce"; // le jeton d'identité reçu porte un nonce différent : la suite échoue
+    const echec = await appelRappel(etat);
+    expect(echec.status).toBe(403);
+    expect(appels).toHaveLength(1);
+    expect(echec.headers.getSetCookie().join("\n")).not.toContain("__Host-session=");
+    nonce = "N"; // même avec le bon nonce et le même cookie, le state ne sert plus
+    const rejeu = await appelRappel(etat);
+    expect(rejeu.status).toBe(403);
+    expect(appels).toHaveLength(1); // aucun nouvel échange de code
+    expect(magasin.consommerTransaction(etat)).toBeUndefined();
+  });
+
   it("[LOT6-connexion] déconnexion : POST seul, Origin exigé, refresh_token envoyé au point logout de Keycloak, session détruite, cookie effacé, 303 vers la fin de session", async () => {
     const s = magasin.ouvrirSession({ sub: "u1", role: "comptable", organisation: "o", jetonIdentite: "id-de-test", jetonAcces: "a", jetonRafraichissement: "r-de-test", accesExpireA: Date.now() + 300_000 });
     const requete = (origine?: string) => new Request("https://portail.exemple.test/api/auth/deconnexion", { method: "POST", headers: { cookie: `__Host-session=${s.id}`, ...(origine ? { origin: origine } : {}) } });

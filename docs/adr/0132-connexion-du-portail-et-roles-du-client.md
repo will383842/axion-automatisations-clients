@@ -1,6 +1,6 @@
 # 0132 · Connexion du portail et rôles du client
 
-Date : 07/11/2026 · Statut : proposé (T6-02a), à accepter par l'architecte · Contrat touché : aucun · Migration : aucune · S'appuie sur : ADR 0056 (connexion de la console), décision d'architecte E1 du 07/11/2026
+Date : 07/11/2026 · Statut : proposé (T6-02a), à accepter par l'architecte · Contrat touché : aucun · Migration : aucune · S'appuie sur : ADR 0056 (connexion de la console), accord de l'architecte attendu (cas de refus E1 du plan de T6-02 : rôle et organisation dans les revendications signées)
 
 ## Contexte
 - Le portail des clients n'avait pas de connexion : le client OIDC `portail` du royaume `clients` n'avait ni adresse de rappel, ni rôle, ni revendication d'organisation.

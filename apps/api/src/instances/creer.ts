@@ -81,7 +81,7 @@ export interface ContexteGarde { client: Requeteur; tenantId: string; instanceId
 export type ResultatGarde = { ok: true } | { ok: false; motif: string };
 export type GardeActivation = (ctx: ContexteGarde) => Promise<ResultatGarde>;
 
-// Gardes de socle (E1 de l'audit de #235) : toujours appliquées, avant celles de l'appelant, sans moyen de les retirer. Le paramètre `gardes` n'ajoute que des gardes EN PLUS.
+// Gardes de socle (E1 de l'audit de la PR 235) : toujours appliquées, avant celles de l'appelant, sans moyen de les retirer. Le paramètre `gardes` n'ajoute que des gardes EN PLUS.
 const GARDES_SOCLE: readonly GardeActivation[] = [gardeTestABlanc];
 
 export async function activerAvecGardes(client: Requeteur, tenantId: string, instanceId: string, gardesEnPlus: readonly GardeActivation[], emetteur?: Pick<EmetteurC3, "automatisationActivee">): Promise<void> {

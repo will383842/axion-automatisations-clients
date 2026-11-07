@@ -125,6 +125,42 @@ function verifierDoubleFacteur(r: Objet, echec: (m: string) => void): void {
   if (!configure) echec("action requise : la configuration du double facteur doit être activée par défaut à la première connexion");
 }
 
+// Compte de service de l'API (A1, ADR 0129) : seule entrée « users » permise, royaume equipe seulement, aux deux seuls rôles de gestion des utilisateurs.
+// Aucun identifiant, mot de passe, rôle de royaume ni rôle d'administration (realm-admin, manage-realm, impersonation, view-clients, manage-clients…).
+const CLES_COMPTE = new Set(["username", "enabled", "serviceAccountClientId", "clientRoles"]);
+const ROLES_COMPTE = new Set(["view-users", "manage-users"]);
+
+function verifierComptesDeService(r: Objet, echec: (m: string) => void): void {
+  const equipe = r["realm"] === "equipe";
+  const clients = liste(r["clients"]);
+  const comptes = liste(r["users"]);
+  if (Array.isArray(r["users"]) && comptes.length !== r["users"].length) echec("users : entrée illisible");
+  for (const c of clients.filter((x) => x["serviceAccountsEnabled"] === true)) {
+    const id = String(c["clientId"]);
+    if (!equipe) echec(`client « ${id} » : aucun compte de service dans ce royaume`);
+    if (c["standardFlowEnabled"] === true) echec(`client « ${id} » : un compte de service n'a pas de standardFlowEnabled`);
+    if (!comptes.some((u) => u["serviceAccountClientId"] === id)) echec(`client « ${id} » : serviceAccountsEnabled sans entrée users du compte de service`);
+  }
+  for (const u of comptes) {
+    const cible = u["serviceAccountClientId"];
+    if (typeof cible !== "string") {
+      echec("users : seule une entrée avec serviceAccountClientId (compte de service) est permise, jamais un utilisateur");
+      continue;
+    }
+    if (!equipe) echec("users : aucun compte de service dans ce royaume");
+    for (const cle of Object.keys(u)) if (!CLES_COMPTE.has(cle)) echec(`users « ${cle} » interdit dans un compte de service (clés permises : ${[...CLES_COMPTE].join(", ")})`);
+    if (u["username"] !== `service-account-${cible}`) echec(`compte de service « ${cible} » : username attendu service-account-${cible}`);
+    if (!clients.some((c) => c["clientId"] === cible && c["serviceAccountsEnabled"] === true)) echec(`compte de service « ${cible} » : serviceAccountsEnabled doit être vrai sur un client du même fichier`);
+    const roles = u["clientRoles"];
+    if (!estObjet(roles) || Object.keys(roles).some((k) => k !== "realm-management")) echec(`compte de service « ${cible} » : clientRoles ne porte que realm-management`);
+    else {
+      const permis = roles["realm-management"];
+      const rolesDuClient = Array.isArray(permis) ? permis : [];
+      for (const role of rolesDuClient) if (typeof role !== "string" || !ROLES_COMPTE.has(role)) echec(`compte de service « ${cible} » : rôle « ${String(role)} » interdit (permis : ${[...ROLES_COMPTE].join(", ")})`);
+    }
+  }
+}
+
 export function verifierRoyaume(nom: string, texte: string): string[] {
   let r: unknown;
   try {
@@ -139,7 +175,7 @@ export function verifierRoyaume(nom: string, texte: string): string[] {
   verifierForceBrute(r, echec);
   verifierClients(r, echec);
   if (liste(r["identityProviders"]).length > 0) echec("identityProviders : aucun courtier d'identité (hors du flux de connexion contrôlé)");
-  if (liste(r["users"]).length > 0) echec("users : aucun utilisateur ni identifiant dans un fichier de royaume");
+  verifierComptesDeService(r, echec);
   if (r["realm"] === "equipe") {
     if (r["registrationAllowed"] !== false) echec("registrationAllowed doit être false dans le royaume de l'équipe");
     verifierDoubleFacteur(r, echec);

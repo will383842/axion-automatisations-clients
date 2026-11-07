@@ -72,7 +72,7 @@ export interface EvenementNettoye {
 
 export interface ContexteNettoyage {
   application: Application;
-  // Masque les valeurs de secrets réellement lues (OpenBao) ; appliqué après les motifs.
+  // Masque les valeurs de secrets réellement lues (OpenBao) ; appliqué avant les motifs.
   masquerSecrets?: (texte: string) => string;
 }
 
@@ -83,7 +83,8 @@ const objet = (v: unknown): Objet => (v !== null && typeof v === "object" && !Ar
 
 export function avantEnvoi(brut: unknown, contexte: ContexteNettoyage): EvenementNettoye {
   const secrets = contexte.masquerSecrets ?? ((t: string) => t);
-  const nettoyer = (t: string): string => secrets(masquer(t));
+  // Le masqueur des secrets réellement lus passe AVANT les motifs : un motif ne doit pas couper un secret en deux et en laisser la suite en clair.
+  const nettoyer = (t: string): string => masquer(secrets(t));
   const texte = (v: unknown): string => (typeof v === "string" ? nettoyer(v).slice(0, BORNE_MESSAGE) : "");
   // Identifiants opaques et noms de cellule : forme restreinte, sinon vides.
   const identifiant = (v: unknown): string => (typeof v === "string" && /^[A-Za-z0-9._-]{1,64}$/.test(v) && nettoyer(v) === v ? v : "");

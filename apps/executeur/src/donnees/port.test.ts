@@ -1,6 +1,9 @@
+import { randomUUID } from "node:crypto";
 import { analyserModele } from "@axion-auto/donnees-module";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { nomBaseDe as nomBaseProvisionnement, nomsRoles as nomsRolesProvisionnement } from "../../../api/src/provisionnement/etapes-base.ts";
 import type { BaseLecture } from "../courtier/client.ts";
+import { PROFONDEUR_FILE } from "./limites.ts";
 import { creerFabriquePort, type ConnexionLecture, type InstanceInstallee, type PortsLecture } from "./port.ts";
 
 // Données générées : aucun vrai client, aucun secret réel.
@@ -17,17 +20,21 @@ const nomBase = (tenant: string): string => `cli_${tenant.replaceAll("-", "").sl
 const baseDe = (tenant: string): BaseLecture => ({ hote: "pgbouncer-donnees.test", base: nomBase(tenant), role: `${nomBase(tenant)}_lecture`, motDePasse: "mdp-d-essai", expire: new Date("2030-01-01"), valideJusqua: null });
 
 interface Espion { ouvertures: BaseLecture[]; liberees: (Error | undefined)[]; demandes: [string, string][]; traces: Record<string, unknown>[]; textes: string[]; instances: string[] }
-function ports(o: { instances?: Record<string, InstanceInstallee | undefined>; base?: (t: string) => BaseLecture; identite?: (b: BaseLecture) => { u: string; d: string }; lignes?: Record<string, unknown>[]; echec?: Error } = {}): { p: PortsLecture; e: Espion } {
+function ports(o: { instances?: Record<string, InstanceInstallee | undefined>; base?: (t: string) => BaseLecture; identite?: (b: BaseLecture) => { u: string; d: string }; lignes?: Record<string, unknown>[]; echec?: Error; retardInstance?: number; retardBase?: number; retardOuvrir?: number; retardRequete?: (b: BaseLecture) => number; etablissements?: number } = {}): { p: PortsLecture; e: Espion } {
   const e: Espion = { ouvertures: [], liberees: [], demandes: [], traces: [], textes: [], instances: [] };
   const p: PortsLecture = {
-    instance: async (t, i) => { e.instances.push(`${t}|${i}`); return (o.instances ?? { [A]: instance() })[t]; },
-    baseLecture: async (t, id) => { e.demandes.push([t, id]); return (o.base ?? ((x) => baseDe(x)))(t); },
+    instance: async (t, i) => { e.instances.push(`${t}|${i}`); if (o.retardInstance) await attendre(o.retardInstance); return (o.instances ?? { [A]: instance() })[t]; },
+    baseLecture: async (t, id) => { e.demandes.push([t, id]); if (o.retardBase) await attendre(o.retardBase); return (o.base ?? ((x) => baseDe(x)))(t); },
     ouvrir: async (b) => {
       e.ouvertures.push(b);
+      if (o.retardOuvrir) await attendre(o.retardOuvrir);
       const id = o.identite?.(b) ?? { u: b.role, d: b.base };
       const c: ConnexionLecture = {
-        query: async (texte) => {
+        query: async (texte, valeurs) => {
           e.textes.push(texte);
+          if (o.retardRequete && (texte.includes("etablissements") || texte.includes("factures_essai"))) await attendre(o.retardRequete(b));
+          // Simulacre qui RESPECTE `LIMIT $1` : il ne rend jamais plus de lignes que demandé.
+          if (o.etablissements !== undefined && texte.includes("etablissements")) return { rows: Array.from({ length: Math.min(o.etablissements, Number(valeurs?.[0])) }, (_, i) => ({ u: id.u, d: id.d, id: `44444444-4444-4444-8444-${String(i).padStart(12, "0")}` })) };
           if (texte === "SAVEPOINT axion_sonde") throw Object.assign(new Error("x"), { code: "25P01" });
           if (texte.startsWith("SELECT current_setting")) return { rows: [{ ro: "on" }] };
           if (texte.includes("current_user")) return { rows: [{ u: id.u, d: id.d, id: ETAB }] };
@@ -42,8 +49,11 @@ function ports(o: { instances?: Record<string, InstanceInstallee | undefined>; b
   };
   return { p, e };
 }
+const attendre = (ms: number): Promise<void> => new Promise((ok) => setTimeout(ok, ms));
 const ctx = (t = A) => ({ tenantId: t, instanceId: INST, idTache: "tache-1", correlation: COR });
 const port = (o: Parameters<typeof ports>[0] = {}, t = A) => { const x = ports(o); return { ...x, lire: creerFabriquePort(x.p, LIMITES, MODELE)(ctx(t)).lire }; };
+
+afterEach(() => { vi.useRealTimers(); });
 
 describe("port données de l'exécuteur", () => {
   it("[C-624] un nom de requête non déclaré est refusé par le port", async () => {
@@ -199,14 +209,116 @@ describe("port données de l'exécuteur", () => {
   });
 
   it("[A-170] une lecture dépasse au plus le délai total configuré, attente en file comprise", async () => {
-    const x = ports();
-    const ouvrir = x.p.ouvrir;
-    x.p.ouvrir = async (b) => { const c = await ouvrir(b); return { liberer: c.liberer, query: async (t, v) => { await new Promise((ok) => setTimeout(ok, 60)); return c.query(t, v); } }; };
+    vi.useFakeTimers();
+    const x = ports({ retardRequete: () => 60 });
     const lire = creerFabriquePort(x.p, { ...LIMITES, delaiTotalMs: 150 }, MODELE)(ctx()).lire;
-    const debut = Date.now();
-    const res = await Promise.allSettled([lire("liste-factures", { motif: "a" }), lire("liste-factures", { motif: "b" }), lire("liste-factures", { motif: "c" })]);
-    expect(Date.now() - debut).toBeLessThan(400);
-    expect(res.filter((r) => r.status === "rejected").every((r) => (r as PromiseRejectedResult).reason?.code === "indisponible")).toBe(true);
-    expect(res.some((r) => r.status === "rejected")).toBe(true);
+    const fin: ("ok" | "indisponible" | "autre")[] = [];
+    for (const m of ["a", "b", "c"]) lire("liste-factures", { motif: m }).then(() => fin.push("ok"), (r) => fin.push(r?.code === "indisponible" ? "indisponible" : "autre"));
+    await vi.advanceTimersByTimeAsync(149);
+    expect(fin).toEqual(["ok"]); // la première lecture (120 ms) a fini, les deux autres attendent encore
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fin).toEqual(["ok", "indisponible", "indisponible"]); // pile au délai total : rien ne dépasse 150 ms
+  });
+
+  it("[A-170] une lecture abandonnée au délai total ne demande plus de remise et n'ouvre aucune session", async () => {
+    vi.useFakeTimers();
+    const lancer = async (o: Parameters<typeof ports>[0], n: number) => {
+      const x = ports(o);
+      const lire = creerFabriquePort(x.p, { ...LIMITES, delaiTotalMs: 150 }, MODELE)(ctx()).lire;
+      const fins = Array.from({ length: n }, (_, i) => lire("liste-factures", { motif: String(i) }).catch((r) => r));
+      await vi.advanceTimersByTimeAsync(5000);
+      expect((await Promise.all(fins)).filter((r) => r instanceof Error)).toHaveLength(n); // les appelants ont tous reçu une erreur
+      return x.e;
+    };
+    // 6 lectures en parallèle : la 1re dépasse le délai total pendant la remise ; les 5 suivantes sortent de la file sans rien demander ni ouvrir.
+    const e1 = await lancer({ retardBase: 200 }, 6);
+    expect(e1.demandes).toHaveLength(1);
+    expect(e1.ouvertures).toEqual([]); // abandonnée pendant la remise : pas d'ouverture une fois la remise arrivée
+    // Abandon pendant la recherche de l'instance : ni remise ni ouverture.
+    const e0 = await lancer({ retardInstance: 200 }, 6);
+    expect(e0.instances).toHaveLength(1);
+    expect(e0.demandes).toEqual([]);
+    expect(e0.ouvertures).toEqual([]);
+    // Abandon pendant la lecture : la 1re finit sa sonde après le délai ; aucune autre lecture ne démarre.
+    const e2 = await lancer({ retardRequete: () => 200 }, 6);
+    expect(e2.demandes).toHaveLength(1);
+    expect(e2.ouvertures).toHaveLength(1);
+    expect(e2.textes.some((t) => t.includes("factures_essai"))).toBe(false); // entre la sonde et la requête : abandon
+  });
+
+  it("[A-170] une session ouverte après l'abandon est rendue aussitôt avec une erreur, sans aucune lecture", async () => {
+    vi.useFakeTimers();
+    const x = ports({ retardOuvrir: 200 });
+    const lire = creerFabriquePort(x.p, { ...LIMITES, delaiTotalMs: 150 }, MODELE)(ctx()).lire;
+    const fin = lire("liste-factures", { motif: "x" }).catch((r) => r);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(await fin).toMatchObject({ code: "indisponible" });
+    expect(x.e.ouvertures).toHaveLength(1);
+    expect(x.e.textes).toEqual([]); // ni sonde ni requête
+    expect(x.e.liberees).toHaveLength(1);
+    expect(x.e.liberees[0]).toBeInstanceOf(Error); // détruite, jamais remise
+  });
+
+  it("[A-170] au-delà de la profondeur de file par client, une lecture est refusée tout de suite (indisponible)", async () => {
+    vi.useFakeTimers();
+    const x = ports({ retardRequete: () => 50 });
+    const lire = creerFabriquePort(x.p, LIMITES, MODELE)(ctx()).lire;
+    const issues: string[] = [];
+    const res = Array.from({ length: 12 }, (_, i) => lire("liste-factures", { motif: String(i) }).then(() => issues.push("ok"), (r) => issues.push(r?.code)));
+    await vi.advanceTimersByTimeAsync(0); // aucune horloge ne tourne : le refus est immédiat
+    expect(issues).toEqual(["indisponible", "indisponible", "indisponible", "indisponible"]);
+    expect(x.e.traces.filter((t) => t["motif"] === "file_pleine")).toHaveLength(4);
+    await vi.advanceTimersByTimeAsync(10_000);
+    await Promise.all(res);
+    expect(issues.filter((i) => i === "ok")).toHaveLength(PROFONDEUR_FILE);
+    expect(x.e.ouvertures).toHaveLength(PROFONDEUR_FILE);
+  });
+
+  it("[C-624] @isolation la file pleine d'un client ne retarde pas la lecture d'un autre client", async () => {
+    vi.useFakeTimers();
+    const x = ports({ instances: { [A]: instance(), [B]: instance() }, retardRequete: (b) => (b.base === nomBase(A) ? 500 : 5) });
+    const f = creerFabriquePort(x.p, LIMITES, MODELE);
+    const lireA = f(ctx(A)).lire;
+    const fA = Array.from({ length: 12 }, (_, i) => lireA("liste-factures", { motif: String(i) }).catch((r) => r));
+    let b: unknown;
+    f(ctx(B)).lire("liste-factures", { motif: "x" }).then((r) => { b = r; });
+    await vi.advanceTimersByTimeAsync(50);
+    expect(b).toEqual([{ libelle: "un" }, { libelle: "deux" }]); // B est servi pendant que la file de A est pleine et lente
+    await vi.advanceTimersByTimeAsync(60_000);
+    await Promise.all(fA);
+  });
+
+  it("[A-170] la sonde des établissements demande une ligne de plus que le plafond", async () => {
+    const x = ports({ etablissements: 5000 }); // plus de 1000 : le simulacre respecte LIMIT $1
+    const sondes: unknown[] = [];
+    const ouvrir = x.p.ouvrir;
+    x.p.ouvrir = async (b) => { const c = await ouvrir(b); return { liberer: c.liberer, query: async (t, v) => { if (t.includes("etablissements")) sondes.push(v?.[0]); return c.query(t, v); } }; };
+    await expect(creerFabriquePort(x.p, LIMITES, MODELE)(ctx()).lire("liste-factures", { motif: "x" })).rejects.toMatchObject({ code: "indisponible" });
+    expect(sondes).toEqual([1001]);
+    expect(x.e.textes.some((t) => t.includes("factures_essai"))).toBe(false); // 1001 lignes rendues : refusé, jamais lu en partie
+  });
+
+  it("[A-170] un client d'exactement 1000 établissements est lu en entier", async () => {
+    const x = ports({ etablissements: 1000 });
+    expect(await creerFabriquePort(x.p, LIMITES, MODELE)(ctx()).lire("liste-factures", { motif: "x" })).toHaveLength(2);
+    expect(x.e.textes.some((t) => t.includes("factures_essai"))).toBe(true);
+  });
+
+  it("[A-170] un client de plus de 1000 établissements est tracé avec le motif trop_d_etablissements", async () => {
+    const x = ports({ etablissements: 1001 });
+    await expect(creerFabriquePort(x.p, LIMITES, MODELE)(ctx()).lire("liste-factures", { motif: "x" })).rejects.toMatchObject({ code: "indisponible" });
+    expect(x.e.traces).toEqual([{ correlation: COR, requete: "liste-factures", statut: "erreur", lignes: 0, motif: "trop_d_etablissements" }]);
+  });
+
+  it("[C-624] la base attendue par l'exécuteur est celle que dérive le provisionnement pour le même UUID", async () => {
+    const uuids = [...Array.from({ length: 50 }, () => randomUUID()), "ABCDEF12-3456-4789-8ABC-DEF123456789"];
+    for (const u of uuids) {
+      const bas = u.toLowerCase();
+      // Une remise construite par la dérivation du provisionnement doit être acceptée (même longueur d'identifiant, même suffixe) ; l'UUID en majuscules est mis en minuscules à l'entrée.
+      const x = ports({ instances: { [bas]: instance() }, base: () => ({ ...baseDe(bas), base: nomBaseProvisionnement(bas), role: nomsRolesProvisionnement(bas).lecture }) });
+      const lire = creerFabriquePort(x.p, LIMITES, MODELE)({ ...ctx(), tenantId: u }).lire;
+      expect(await lire("liste-factures", { motif: "x" }), u).toHaveLength(2);
+      expect(x.e.demandes[0]?.[0]).toBe(bas); // les ports reçoivent le client en minuscules
+    }
   });
 });

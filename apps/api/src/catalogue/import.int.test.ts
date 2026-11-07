@@ -326,8 +326,11 @@ describe("cycle de vie des versions : dépôt SQL (T4-27b)", () => {
   const antidater = (id: string, jours: number) => enProprietaire(async (c) => {
     await c.query("SELECT set_config('app.acteur', $1, true)", [ACTEUR]);
     await c.query("ALTER TABLE passages_version NO FORCE ROW LEVEL SECURITY");
+    await c.query("ALTER TABLE preuves_procedure NO FORCE ROW LEVEL SECURITY");
     await c.query("UPDATE passages_version SET passe_le = passe_le - make_interval(days => $2) WHERE version_id = $1", [id, jours]);
+    await c.query("UPDATE preuves_procedure SET cree_le = cree_le - make_interval(days => $2) WHERE version_id = $1", [id, jours]);
     await c.query("ALTER TABLE passages_version FORCE ROW LEVEL SECURITY");
+    await c.query("ALTER TABLE preuves_procedure FORCE ROW LEVEL SECURITY");
   });
 
   it("[A-305] @isolation la chaîne brouillon → recette → pilote → publiee passe par la machine du serveur, sur la base", async () => {

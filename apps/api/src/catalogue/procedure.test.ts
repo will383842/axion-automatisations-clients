@@ -13,6 +13,7 @@ const refuse = (f: () => unknown) => {
   }
   return "accepte";
 };
+const sans = (o: Record<string, unknown>, cle: string) => Object.fromEntries(Object.entries(o).filter(([k]) => k !== cle));
 const cadrage = { probleme: "Relances de devis oubliées", declencheur: "Devis envoyé sans réponse", minutes_par_element: 6, donnees_personnelles: { presentes: true, categories: ["contact professionnel"] } };
 const fiche = { benefice: "Moins de relances oubliées", prerequis: "Boîte de messagerie reliée", temps_gagne: "Dix minutes par devis", prix: "[montant]" };
 const etape7 = { etape: 7, empreinte_sha256: EMPREINTE, mesure_ms: 1800, notes_de_version: "Première version", fiche };
@@ -29,8 +30,8 @@ const rapportVert = {
 describe("procédure : schémas stricts par étape", () => {
   it("[C-241] cadrage sans minutes par élément ou sans réponse sur les données personnelles : refusé", () => {
     expect(lireDemandePreuve({ etape: 1, empreinte_sha256: EMPREINTE, cadrage }).etape).toBe(1);
-    const { minutes_par_element: _m, ...sansMinutes } = cadrage;
-    const { donnees_personnelles: _d, ...sansDonnees } = cadrage;
+    const sansMinutes = sans(cadrage, "minutes_par_element");
+    const sansDonnees = sans(cadrage, "donnees_personnelles");
     expect(refuse(() => lireDemandePreuve({ etape: 1, empreinte_sha256: EMPREINTE, cadrage: sansMinutes }))).toBe("schema_invalide");
     expect(refuse(() => lireDemandePreuve({ etape: 1, empreinte_sha256: EMPREINTE, cadrage: sansDonnees }))).toBe("schema_invalide");
     expect(refuse(() => lireDemandePreuve({ etape: 1, empreinte_sha256: EMPREINTE, cadrage: { ...cadrage, minutes_par_element: -1 } }))).toBe("schema_invalide");
@@ -40,14 +41,14 @@ describe("procédure : schémas stricts par étape", () => {
   it("[C-247] fiche catalogue sans bénéfice, prérequis ou temps gagné : refusée ; un prix autre que « [montant] » : refusé", () => {
     expect(lireDemandePreuve(etape7).mesureMs).toBe(1800);
     for (const cle of ["benefice", "prerequis", "temps_gagne"]) {
-      const { [cle]: _x, ...incomplete } = fiche as Record<string, string>;
+      const incomplete = sans(fiche, cle);
       expect(refuse(() => lireDemandePreuve({ ...etape7, fiche: incomplete }))).toBe("schema_invalide");
     }
-    for (const prix of ["49", 49, "49 € HT", "[Montant]", ""]) expect(refuse(() => lireDemandePreuve({ ...etape7, fiche: { ...fiche, prix } }))).toBe("schema_invalide");
+    for (const prix of ["gratuit", 0, "sur devis", "[Montant]", ""]) expect(refuse(() => lireDemandePreuve({ ...etape7, fiche: { ...fiche, prix } }))).toBe("schema_invalide");
   });
 
   it("[B-499] le temps de réponse mesuré est obligatoire à l'étape 7 et borné, et il n'existe que là", () => {
-    const { mesure_ms: _m, ...sansMesure } = etape7;
+    const sansMesure = sans(etape7, "mesure_ms");
     expect(refuse(() => lireDemandePreuve(sansMesure))).toBe("schema_invalide");
     expect(refuse(() => lireDemandePreuve({ ...etape7, mesure_ms: 0 }))).toBe("schema_invalide");
     expect(refuse(() => lireDemandePreuve({ ...etape7, mesure_ms: 3_600_001 }))).toBe("schema_invalide");
@@ -68,10 +69,10 @@ describe("procédure : schémas stricts par étape", () => {
     for (const reference of ["123456789", "12345678901234", "a..b", "-debut", "x@exemple.fr", "a b"]) {
       expect(refuse(() => lireDemandePreuve({ etape: 2, empreinte_sha256: EMPREINTE, reference }))).toBe("schema_invalide");
     }
-    for (const probleme of ["Appeler le 06 12 34 56 78", "Joindre 123 456 789", "Écrire à lucie@exemple.fr", "Numéro 06.12.34.56.78"]) {
+    for (const probleme of ["Appeler le 06 39 98 01 02", "Joindre 123 456 789", "Écrire à lucie@exemple.fr", "Numéro 06.39.98.01.02"]) {
       expect(refuse(() => lireDemandePreuve({ etape: 1, empreinte_sha256: EMPREINTE, cadrage: { ...cadrage, probleme } }))).toBe("schema_invalide");
     }
-    expect(refuse(() => lireDemandePreuve({ ...etape7, notes_de_version: "Contact 01 02 03 04 05" }))).toBe("schema_invalide");
+    expect(refuse(() => lireDemandePreuve({ ...etape7, notes_de_version: "Contact 01 99 00 01 02" }))).toBe("schema_invalide");
   });
 
   it("[C-202] l'étape 4 ne prend que le rapport du harnais : modeles_testes saisi à la main est refusé, la liste vient du rapport", () => {
@@ -98,8 +99,8 @@ describe("procédure : demande de passage stricte", () => {
   const base = { depart: "recette", vers: "pilote", empreinte_sha256: EMPREINTE };
   it("[A-305] la demande de passage dit l'état de départ et l'empreinte ; aucune clé libre", () => {
     expect(lireDemandePassage(base)).toMatchObject({ depart: "recette", vers: "pilote", empreinte: EMPREINTE, finAnnonceeLe: null, remplacanteId: null, prevenanceLe: null, signatureProduction: null });
-    const { depart: _d, ...sansDepart } = base;
-    const { empreinte_sha256: _e, ...sansEmpreinte } = base;
+    const sansDepart = sans(base, "depart");
+    const sansEmpreinte = sans(base, "empreinte_sha256");
     expect(refuse(() => lireDemandePassage(sansDepart))).toBe("schema_invalide");
     expect(refuse(() => lireDemandePassage(sansEmpreinte))).toBe("schema_invalide");
     expect(refuse(() => lireDemandePassage({ ...base, statut: "publiee" }))).toBe("schema_invalide");

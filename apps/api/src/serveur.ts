@@ -18,6 +18,7 @@ import { routeExecuteur, type DepsExecuteur } from "./routes/executeur/index.js"
 import { routeWebhooks, type DepsWebhooks } from "./routes/webhooks/entree.js";
 import { routeSante } from "./routes/sante.js";
 import { routeImportCatalogue, type DepsImportCatalogue } from "./routes/catalogue/import.js";
+import { routeVersionsCatalogue, type DepsVersionsCatalogue } from "./routes/catalogue/versions.js";
 
 // journal : flux qui masque les secrets (plugins/journal.ts) ; les sérialiseurs (journal/serialiseur-req.ts) retirent la partie « ?… » de l'adresse, l'hôte et l'IP (base: {} retire aussi le nom de la machine). Sans flux, aucun journal n'est écrit (interrupteur fermé).
 // exigerEquipe de la route de reprise du provisionnement (A-224) : une session d'équipe est exigée, et les rôles « lecteur » et « qualifieur » sont refusés même dans l'équipe.
@@ -39,7 +40,7 @@ export function creerTravailleurProvisionnement(o: {
 }
 
 // `provisionnement` : routes de reprise fournies par l'appelant ; absent, la route n'existe pas (fermé par défaut).
-export function construireServeur(options: { config?: Config; pool?: pg.Pool; journal?: { write(ligne: string): void }; provisionnement?: DepsRoutesProvisionnement; crm?: DepsCrm; executeur?: DepsExecuteur; donnees?: DepsRoutesDonnees; importCatalogue?: DepsImportCatalogue; webhooks?: DepsWebhooks } = {}) {
+export function construireServeur(options: { config?: Config; pool?: pg.Pool; journal?: { write(ligne: string): void }; provisionnement?: DepsRoutesProvisionnement; crm?: DepsCrm; executeur?: DepsExecuteur; donnees?: DepsRoutesDonnees; importCatalogue?: DepsImportCatalogue; versionsCatalogue?: DepsVersionsCatalogue; webhooks?: DepsWebhooks } = {}) {
   // id_trace : toujours choisi par le serveur, l'en-tête du client est ignoré.
   const serveur = Fastify({ genReqId: () => randomUUID(), requestIdHeader: false, ...(options.journal ? { logger: { level: "info", stream: options.journal, base: {}, serializers: serialiseursJournal } } : {}) });
   brancherErreurs(serveur);
@@ -55,6 +56,8 @@ export function construireServeur(options: { config?: Config; pool?: pg.Pool; jo
   if (options.donnees) routeDonnees(serveur, options.donnees);
   // Import des versions (T4-25) : la route n'existe que si l'appelant la fournit, et répond 503 tant que `ouvert` est faux (IMPORT_OUVERT, fermé par défaut).
   if (options.importCatalogue) routeImportCatalogue(serveur, options.importCatalogue);
+  // Cycle de vie des versions (T4-27b) : la route n'existe que si l'appelant la fournit, réservée à l'équipe, et répond 503 tant que `ouvert` est faux (fermé par défaut).
+  if (options.versionsCatalogue) routeVersionsCatalogue(serveur, options.versionsCatalogue);
   // Webhooks entrants (T4-24) : la route n'existe que si l'appelant la fournit, et répond 503 tant que `actif()` est faux (WEBHOOKS_OUVERTS, fermé par défaut).
   if (options.webhooks) routeWebhooks(serveur, options.webhooks);
   return serveur;

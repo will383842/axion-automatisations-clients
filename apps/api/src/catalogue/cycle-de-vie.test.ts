@@ -377,7 +377,8 @@ describe("cycle de vie : passages côté serveur", () => {
     const id = m.ajouter("publiee");
     const preuve = lireDemandePreuve({ etape: 2, empreinte_sha256: m.empreinte(id), reference: "prototype-essai" });
     expect(await message(m.cycle.deposer(id, preuve, "equipe-essai"))).toContain("figée");
-    for (const vers of ["recette", "brouillon", "pilote", "retiree"] as Statut[]) expect(await message(m.passer(id, "publiee", vers))).toContain("Passage non permis");
+    for (const vers of ["recette", "brouillon", "pilote"] as Statut[]) expect(await message(m.passer(id, "publiee", vers))).toContain("Passage non permis");
+    expect(await message(m.passer(id, "publiee", "retiree", { remplacante_id: randomUUID(), prevenance_le: "2026-11-01" }))).toContain("Passage non permis");
     expect(m.preuves).toHaveLength(0);
     expect(m.passages).toHaveLength(0);
   });

@@ -6,9 +6,13 @@
   "type": "module",
   "exports": {
     "./nettoyage": "./src/nettoyage.ts",
-    "./sentry": "./src/sentry.ts"
+    "./sentry": "./src/sentry.ts",
+    "./transport": "./src/transport.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json --allowImportingTsExtensions"
+  },
+  "dependencies": {
+    "@sentry/core": "11.11.0"
   }
 }

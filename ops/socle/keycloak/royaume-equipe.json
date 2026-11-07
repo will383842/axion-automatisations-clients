@@ -93,6 +93,30 @@
           "config": { "included.custom.audience": "api-equipe", "access.token.claim": "true", "id.token.claim": "false" }
         }
       ]
+    },
+    {
+      "clientId": "console-sessions",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "${KC_SECRET_CONSOLE_SESSIONS}",
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": true,
+      "defaultClientScopes": [],
+      "optionalClientScopes": [],
+      "redirectUris": [],
+      "webOrigins": [],
+      "attributes": { "pkce.code.challenge.method": "S256", "minimum.acr.value": "mfa" }
+    }
+  ],
+  "users": [
+    {
+      "username": "service-account-console-sessions",
+      "enabled": true,
+      "serviceAccountClientId": "console-sessions",
+      "clientRoles": { "realm-management": ["view-users", "manage-users"] }
     }
   ]
 }

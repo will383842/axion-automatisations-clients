@@ -21,7 +21,7 @@ function monter(repondre: (a: Appel) => Reponse | undefined = () => undefined, d
     appels.push(a);
     if (a.url.endsWith("/realms/equipe/protocol/openid-connect/token")) return Response.json({ access_token: JETON, expires_in: 300 });
     const r = repondre(a) ?? {};
-    return new Response(r.json === undefined ? null : JSON.stringify(r.json), { status: r.statut ?? (r.json === undefined ? 204 : 200), headers: r.entetes });
+    return new Response(r.json === undefined ? null : JSON.stringify(r.json), { status: r.statut ?? (r.json === undefined ? 204 : 200), headers: r.entetes ?? {} });
   };
   const kc = creerKeycloakAdmin({
     base: BASE, secrets: new LecteurSecretsMemoire({ KC_SECRET_CONSOLE_SESSIONS: SECRET }), fetch: f, maintenant: () => temps, journaliser: (l) => journal.push(l),
@@ -32,7 +32,7 @@ const admin = (appels: Appel[]) => appels.filter((a) => !a.url.includes("/protoc
 
 describe("keycloak-admin : adresses et identifiants", () => {
   it("[LOT3-securite] l'adaptateur n'appelle que /admin/realms/equipe et refuse un identifiant hors motif UUID", async () => {
-    const m = monter();
+    const m = monter(() => ({ json: [] }));
     const faux = ["../clients/users", "%2e%2e", "", "a".repeat(36), "3f2b8c1e-9a47-4d65-b0e2-7c5a1d9e4f6g", `${ID}/../${AUTRE}`];
     for (const id of faux) {
       for (const appel of [m.kc.sessionsDe, m.kc.facteursDe, m.kc.fermerSession, m.kc.activer, m.kc.desactiver, m.kc.envoyerActions]) {

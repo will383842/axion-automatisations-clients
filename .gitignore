@@ -15,3 +15,4 @@ artefact/
 packages/axion-dev/.essai-*
 docs/adr/index.md
 rapport-couverture.json
+rapports-vitest/

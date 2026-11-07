@@ -12,6 +12,7 @@ import { routeDonnees } from "../apps/api/src/routes/donnees.js";
 import { routeDonneesModule } from "../apps/api/src/routes/portail/donnees-module.js";
 import { routeExecuteur } from "../apps/api/src/routes/executeur/index.js";
 import { routeEntree } from "../apps/api/src/routes/entree.js";
+import { routeImport } from "../apps/api/src/routes/import.js";
 import { routeGel } from "../apps/api/src/routes/gel.js";
 import { brancherHub } from "../apps/api/src/routes/hub.js";
 import { routeAnnulation, routeJournal } from "../apps/api/src/routes/journal.js";
@@ -116,6 +117,7 @@ export async function listerRoutes(): Promise<RouteListee[]> {
   const entrant = { cles: rien, memoire: rien, actif: () => false };
   brancherHub(appli, { entrant, recepteur: { alerter: () => undefined } as never });
   routeCrm(appli, { entrant, recepteur: rien, file: rien });
+  routeImport(appli, { ouvert: false, session: rien, ports: rien });
   routeImportCatalogue(appli, { ouvert: false, importeur: rien, authentifier: garde as never });
   routeVersionsCatalogue(appli, { ouvert: false, cycle: rien, authentifier: garde as never });
   routeExecuteur(appli, { actif: () => false, cles: rien, memoire: rien, depot: rien, evenements: { depot: rien } });

@@ -1,0 +1,20 @@
+# Uptime Kuma 1 : disponibilité de chaque brique et page d'état (A-065, A-114). Réseau interne seulement, aucun port publié.
+# Seule la page d'état sera publiée, par le mandataire (routage ajouté en T5-12b) ; l'interface d'administration reste interne.
+# Aucun mot de passe ici : Uptime Kuma garde ses propres comptes, créés au premier lancement.
+# La sonde extérieure (instance séparée, hors du serveur) n'est PAS ce service : voir ops/procedures/sonde-exterieure.md (T5-12b, lot 8a).
+services:
+  uptime-kuma:
+    image: louislam/uptime-kuma:1.23.16@sha256:431fee3be822b04861cf0e35daf4beef6b7cb37391c5f26c3ad6e12ce280fe18
+    restart: "no"
+    volumes:
+      - uptime-kuma-donnees:/app/data
+    networks: [interne]
+    # Sonde fournie par l'image (extra/healthcheck) : interroge le port 3001 de l'instance.
+    healthcheck:
+      test: ["CMD", "extra/healthcheck"]
+      interval: 5s
+      timeout: 5s
+      start_period: 30s
+      retries: 30
+volumes:
+  uptime-kuma-donnees: {}

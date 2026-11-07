@@ -3,11 +3,14 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { importerPersonnes, type TransactionImport } from "../../apps/api/src/import/importer.ts";
+import type { TransactionImport } from "../../apps/api/src/import/importer.ts";
+import { brancherErreurs } from "../../apps/api/src/plugins/erreurs.js";
+import { routeImport } from "../../apps/api/src/routes/import.js";
+import { fastifyVide } from "../../scripts/liste-routes.js";
 
 // T2-47 : sonde de minimisation. Un marqueur unique par essai est déposé dans la base d'un client fictif ; la sonde vérifie qu'on le retrouve dans cette base et nulle part ailleurs.
 // ATTENTION : ce n'est PAS la garde de bout en bout. Le dépôt se fait ici directement en SQL, sans passer par la plateforme (pas de route d'import dans apps/api/src à ce jour).
-// Fiche T2-47b : les nouveaux essais ci-dessous font entrer le marqueur par le code d'import de l'API.
+// Fiche T2-47b : les essais ci-dessous font entrer le marqueur par la route HTTP d'import de l'API (POST /api/v1/import/personnes), ouverte pour l'essai seulement.
 // Cibles (grappe jetable, jamais de vraies données) : six variables de cible, voir « pret » ci-dessous. Toutes sont obligatoires.
 // Sans elles ces essais sautent ; critère de la dette : le job « socle-integration » ÉCHOUE si l'une d'elles manque.
 const E = process.env;
@@ -117,12 +120,21 @@ describe.skipIf(!pret)("sonde de minimisation (pas la garde de bout en bout : de
     }
   }, 60_000);
 
-  // Entrée par le code d'import de l'API (importerPersonnes) et non par du SQL direct. Pas encore de route HTTP ni d'exécution d'essai / lot de nuit dans le dépôt : voir ESCALADE de la fiche T2-47b.
+  // Entrée par la route HTTP d'import (inject, sans écouter de port) ; la transaction est ouverte dans la base du client. Pas d'exécution d'essai ni de lot de nuit dans le dépôt : dette ouverte dans spec/preuves/lot-2-t2-47b.md.
   const transaction = (client: Requeteur) => async (): Promise<TransactionImport> => {
     await client.query("BEGIN");
     return { client: client as never, valider: async () => void (await client.query("COMMIT")), annuler: async () => void (await client.query("ROLLBACK")) };
   };
-  const session = (etablissementId: unknown) => ({ acteur: "equipe-bertin", etablissementId: String(etablissementId) });
+  async function importerParRoute(client: Requeteur, etablissementId: unknown, corps: { colonnes: string[]; lignes: Record<string, string>[] }) {
+    const appli = fastifyVide();
+    brancherErreurs(appli);
+    routeImport(appli, { ouvert: true, session: async () => ({ acteur: "equipe-bertin", etablissementId: String(etablissementId) }), ports: () => ({ ouvrir: transaction(client) }) });
+    try {
+      return await appli.inject({ method: "POST", url: "/api/v1/import/personnes", payload: corps });
+    } finally {
+      await appli.close();
+    }
+  }
 
   it("[C-060] un marqueur importé par le code d'import est dans la base du client et absent de console, moteur, Valkey, journaux et compartiments communs", async () => {
     const marqueur = nouveauMarqueur();
@@ -131,7 +143,7 @@ describe.skipIf(!pret)("sonde de minimisation (pas la garde de bout en bout : de
     const moteur = await ouvrir(E[nom("MOTEUR_URL")] as string);
     try {
       const etab = await client.query("INSERT INTO commun.etablissements (nom) VALUES ('Atelier Bertin') RETURNING id");
-      await importerPersonnes({ ouvrir: transaction(client) }, session(etab.rows[0]?.["id"]), { colonnes: ["nom"], lignes: [{ nom: marqueur }] });
+      expect((await importerParRoute(client, etab.rows[0]?.["id"], { colonnes: ["nom"], lignes: [{ nom: marqueur }] })).statusCode).toBe(200);
       expect(await ouTrouverEnBase(client, marqueur)).toContain("commun.personnes.nom");
       expect(await ouTrouverEnBase(console_, marqueur)).toEqual([]);
       expect(await ouTrouverEnBase(moteur, marqueur)).toEqual([]);
@@ -148,7 +160,7 @@ describe.skipIf(!pret)("sonde de minimisation (pas la garde de bout en bout : de
     const client = await ouvrir(E[nom("CLIENT_URL")] as string);
     try {
       const etab = await client.query("INSERT INTO commun.etablissements (nom) VALUES ('Atelier Bertin') RETURNING id");
-      for (let i = 0; i < 2; i++) await importerPersonnes({ ouvrir: transaction(client) }, session(etab.rows[0]?.["id"]), { colonnes: ["nom"], lignes: [{ nom: marqueur }] });
+      for (let i = 0; i < 2; i++) expect((await importerParRoute(client, etab.rows[0]?.["id"], { colonnes: ["nom"], lignes: [{ nom: marqueur }] })).statusCode).toBe(200);
       expect((await client.query("SELECT id FROM commun.personnes WHERE nom = $1", [marqueur])).rows).toHaveLength(1);
     } finally {
       await client.end();
@@ -160,7 +172,7 @@ describe.skipIf(!pret)("sonde de minimisation (pas la garde de bout en bout : de
     const client = await ouvrir(E[nom("CLIENT_URL")] as string);
     try {
       const etab = await client.query("INSERT INTO commun.etablissements (nom) VALUES ('Atelier Bertin') RETURNING id");
-      await expect(importerPersonnes({ ouvrir: transaction(client) }, session(etab.rows[0]?.["id"]), { colonnes: ["nom", "IBAN"], lignes: [{ nom: marqueur, IBAN: "x" }] })).rejects.toMatchObject({ motif: "donnees_interdites" });
+      expect((await importerParRoute(client, etab.rows[0]?.["id"], { colonnes: ["nom", "IBAN"], lignes: [{ nom: marqueur, IBAN: "x" }] })).statusCode).toBe(422);
       // Lue après la fin de la transaction : la trace est bien validée.
       const trace = await client.query("SELECT 1 FROM trace.evenements WHERE qui = 'equipe-bertin' AND objet = 'refus:donnees_interdites:bancaire'");
       expect(trace.rows.length).toBeGreaterThan(0);

@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { writeSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { avecClient } from "./client-actif.js";
@@ -55,22 +56,22 @@ const codeErreur = async (p: Promise<unknown>) => {
   }
 };
 async function creerInstance(tenant: string, extra = "", valeurs: unknown[] = []): Promise<string> {
-  const id = randomUUID();
-  await ecrire(app, tenant, async (c) => {
+  // L'id est tiré par la base : console_app ne le fournit jamais (ADR 0111).
+  return ecrire(app, tenant, async (c) => {
     await c.query("INSERT INTO organisations (id, tenant_id, console_client_id, raison_sociale) VALUES ($1, $1, $1, 'Atelier Bertin') ON CONFLICT DO NOTHING", [tenant]);
-    await c.query(
-      `INSERT INTO instances (id, tenant_id, organisation_id, code_automatisation, formule, environnement${extra}) VALUES ($1, $2, $2, 'relances-devis', 'assistee', 'production'${valeurs.map((_, i) => `, $${i + 3}`).join("")})`,
-      [id, tenant, ...valeurs],
+    const r = await c.query(
+      `INSERT INTO instances (tenant_id, organisation_id, code_automatisation, formule, environnement, etat${extra}) VALUES ($1, $1, 'relance-devis', 'abonnement', 'test', 'pause'${valeurs.map((_, i) => `, $${i + 2}`).join("")}) RETURNING id`,
+      [tenant, ...valeurs],
     );
+    return r.rows[0]?.["id"] as string;
   }, APPELANT);
-  return id;
 }
 const lireMode = (tenant: string, id: string) =>
   ecrire(app, tenant, async (c) => (await c.query("SELECT mode_ia FROM instances WHERE id = $1", [id])).rows[0]?.["mode_ia"] as string | undefined, APPELANT);
 
 beforeAll(async () => {
   try {
-    await migrer(migration);
+    await migrer({ url: `postgres://console_migration:${motDePasseDe("console_migration")}@${DIRECT.host}:${DIRECT.port}/console`, dossier: fileURLToPath(new URL("../../drizzle", import.meta.url)) });
   } catch (e) {
     writeSync(2, `mode-ia.int : migration impossible : ${(e as Error).message}\n`);
     throw e;

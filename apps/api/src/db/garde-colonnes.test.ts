@@ -585,3 +585,22 @@ describe("tables du lot 4 : déploiement (T4-28a)", () => {
     expect(textesSansLimite([brute], TEXTE_DEPLOIEMENT)).toEqual(["tests_a_blanc.rapport : hors de la liste fermée"]);
   });
 });
+
+// Migration 0029 (T5-04a, ADR 0126) : file d'alertes (occurrences et clôtures). Liste fermée propre à ces tables (TEXTE_PERMIS reste à 19) : chaque ajout se relit en 2 tours (zone données).
+const TEXTE_FILE_ALERTES: Readonly<Record<string, number>> = Object.freeze({
+  "clotures_alertes.raison": 64,
+  "clotures_alertes.auteur": 200,
+});
+describe("tables du lot 5 : file d'alertes (T5-04a)", () => {
+  it("[LOT5-alertes] garde des colonnes 0029 : textes bornés (TEXTE_FILE_ALERTES compte 2), aucune colonne de secret, TABLES_COMMUNES compte toujours 32, TEXTE_PERMIS toujours 19", () => {
+    const tables = ["occurrences_alertes", "clotures_alertes"].map(tableNommee);
+    expect(TABLES_CLIENT.map((t) => t.nom)).toEqual(expect.arrayContaining(["occurrences_alertes", "clotures_alertes"]));
+    expect(TABLES_COMMUNES).not.toContain("public.occurrences_alertes");
+    expect(TABLES_COMMUNES).not.toContain("public.clotures_alertes");
+    expect(TABLES_COMMUNES).toHaveLength(32);
+    expect(Object.keys(TEXTE_FILE_ALERTES)).toHaveLength(2);
+    expect(textesSansLimite(tables, TEXTE_FILE_ALERTES)).toEqual([]);
+    expect(colonnesInterdites(tables)).toEqual([]);
+    expect(Object.keys(TEXTE_PERMIS)).toHaveLength(19);
+  });
+});

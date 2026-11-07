@@ -1,5 +1,5 @@
-import Fastify from "fastify";
 import { describe, expect, it } from "vitest";
+import { fastifyVide } from "../../scripts/liste-routes.js";
 import { depotVuesEnMemoire } from "../../apps/api/src/clients/liste.js";
 import { brancherErreurs } from "../../apps/api/src/plugins/erreurs.js";
 import { routeClients } from "../../apps/api/src/routes/clients/liste.js";
@@ -8,7 +8,7 @@ const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")
 const ligne = (n: number) => ({ id: id(n), nom: `Atelier Bertin ${n}`, formule: "abonnement" as const, sante: "vert" as const, statut: "client" as const, apporteur: null, modeleIa: null, metier: null });
 // Un second administrateur limité au client 1 : le client 2 n'apparaît dans aucune réponse de la liste, des vues ni de l'export.
 function app() {
-  const a = Fastify();
+  const a = fastifyVide();
   brancherErreurs(a);
   routeClients(a, {
     ouvert: () => true, exigerEquipe: (async () => undefined) as never,

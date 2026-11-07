@@ -5,6 +5,7 @@ import { routeATrancher } from "../apps/api/src/routes/a-trancher.js";
 import { routeCanaux } from "../apps/api/src/routes/canaux.js";
 import { routeImportCatalogue } from "../apps/api/src/routes/catalogue/import.js";
 import { routeVersionsCatalogue } from "../apps/api/src/routes/catalogue/versions.js";
+import { routeClients } from "../apps/api/src/routes/clients/liste.js";
 import { routeCrm } from "../apps/api/src/routes/crm.js";
 import { routeDonnees } from "../apps/api/src/routes/donnees.js";
 import { routeDonneesModule } from "../apps/api/src/routes/portail/donnees-module.js";
@@ -102,6 +103,7 @@ export async function listerRoutes(): Promise<RouteListee[]> {
   routeDonnees(appli, rien);
   routeDonneesModule(appli, rien);
   routeGel(appli, { exigerEquipe: garde, exigerReauthentification: garde, session: rien, gel: rien });
+  routeClients(appli, { ouvert: () => false, exigerEquipe: garde, membre: rien, clients: rien, vues: rien, tracerExport: rien });
   routeATrancher(appli, { exigerEquipe: garde, appelant: rien, reauthentifie: rien, appliquer: rien, ecarter: rien });
   routeCanaux(appli, { exigerEquipe: garde, magasin: rien });
   routeJournal(appli, { exigerEquipe: garde, lire: rien });

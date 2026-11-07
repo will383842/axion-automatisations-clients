@@ -58,33 +58,3 @@ export function changementMembreAutorise(o: {
   if (o.nouveau === "retrait" && o.cible.role === "dirigeant" && o.dirigeantsActifs <= 1) return false;
   return true;
 }
-
-// Action de chaque route de la console (garde scripts/garde-droits.ts). La route « entrée » est exemptée par la garde, avec sa raison.
-export const ACTION_PAR_ROUTE: Readonly<Record<string, Action>> = {
-  "POST /api/console/v1/a-trancher/:id/appliquer": "modifier_reglages",
-  "POST /api/console/v1/a-trancher/:id/ecarter": "modifier_reglages",
-  "GET /api/console/v1/canaux/echecs": "lire",
-  "POST /api/console/v1/canaux/echecs/:tenantId/:id/renvoyer": "relancer",
-  "POST /api/console/v1/clients/:id/base/reprendre": "relancer",
-  "GET /api/console/v1/clients": "lire",
-  "GET /api/console/v1/clients/vues": "lire",
-  "POST /api/console/v1/clients/vues": "lire",
-  "POST /api/console/v1/clients/export": "lire",
-  // T4-28b1 : déploiement d'une instance (routes fermées par défaut). Action provisoire « modifier_reglages » ; une action dédiée reste à décider (dette T4-28b1-dette-matrice-droits).
-  "POST /api/console/v1/clients/:tenantId/instances": "modifier_reglages",
-  "POST /api/console/v1/clients/:tenantId/instances/:id/activation": "modifier_reglages",
-  "POST /api/console/v1/clients/:tenantId/instances/:id/tests-a-blanc": "modifier_reglages",
-  "GET /api/console/v1/clients/:id/fiche": "lire",
-  "GET /api/console/v1/clients/:id/gel": "lire",
-  "GET /api/console/v1/clients/:id/notes": "lire",
-  "POST /api/console/v1/clients/:id/notes": "modifier_reglages",
-  "POST /api/console/v1/clients/:id/notes/:idNote/epingler": "modifier_reglages",
-  "POST /api/console/v1/clients/:id/notes/appel-et-cloture": "modifier_reglages",
-  "POST /api/console/v1/clients/:id/gel": "disjoncteur",
-  "POST /api/console/v1/clients/:id/gel/:idGel/lever": "disjoncteur",
-  "POST /api/console/v1/instances/:id/reglages": "modifier_reglages",
-  "POST /api/console/v1/instances/:id/reglages/revenir": "modifier_reglages",
-  "GET /api/console/v1/instances/:id/reglages/versions": "lire",
-  "POST /api/console/v1/journal/:id/annuler": "modifier_reglages",
-  "GET /equipe/journal": "journal_complet",
-};

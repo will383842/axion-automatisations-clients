@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { Queue, Worker } from "bullmq";
-import { Redis } from "ioredis";
+import { createServer, type Server } from "node:net";
 import { afterAll, describe, expect, it } from "vitest";
 import { analyserInfo, ouvrirConnexion } from "./connexion.js";
 import { creerFile, deposer, idTache, PREFIXE } from "./files.js";
@@ -33,6 +33,25 @@ async function attendreSante() {
   throw new Error("Valkey n'est pas redevenu sain");
 }
 
+// Faux serveur RESP minimal : répond à AUTH, INFO et CONFIG GET maxmemory-policy.
+async function demarrerFauxServeur(politique: string): Promise<{ serveur: Server; port: number }> {
+  const serveur = createServer((socket) => {
+    socket.on("data", (donnees) => {
+      const info = "# Server\r\nserver_name:valkey\r\n";
+      for (const commande of donnees.toString("utf8").match(/\*\d+\r\n(?:\$\d+\r\n[^\r]*\r\n)+/g) ?? []) {
+        const mots = [...commande.matchAll(/\$\d+\r\n([^\r]*)\r\n/g)].map((m) => (m[1] ?? "").toLowerCase());
+        if (mots[0] === "info") socket.write(`$${Buffer.byteLength(info)}\r\n${info}\r\n`);
+        else if (mots[0] === "config") socket.write(`*2\r\n$16\r\nmaxmemory-policy\r\n$${politique.length}\r\n${politique}\r\n`);
+        else socket.write("+OK\r\n");
+      }
+    });
+    socket.on("error", () => undefined);
+  });
+  await new Promise<void>((ok) => serveur.listen(0, "127.0.0.1", ok));
+  const adresse = serveur.address();
+  return { serveur, port: typeof adresse === "object" && adresse ? adresse.port : 0 };
+}
+
 // Les files et les workers se ferment avant les connexions qu'ils utilisent.
 const ouverts: { quit: () => Promise<unknown> | unknown }[] = [];
 const connexions: { quit: () => Promise<unknown> | unknown }[] = [];
@@ -60,13 +79,12 @@ describe("Valkey du socle", () => {
   });
 
   it("[A-051] la connexion refuse de démarrer si maxmemory-policy n'est pas noeviction", async () => {
-    const admin = new Redis(parametres());
-    connexions.push(admin);
-    await admin.config("SET", "maxmemory-policy", "allkeys-lru");
+    // Faux serveur TCP local qui répond « allkeys-lru » : aucun CONFIG SET sur le Valkey partagé, donc aucune course avec les autres fichiers.
+    const faux = await demarrerFauxServeur("allkeys-lru");
     try {
-      await expect(ouvrirConnexion(parametres())).rejects.toThrow(/maxmemory-policy/);
+      await expect(ouvrirConnexion({ host: "127.0.0.1", port: faux.port, password: "essai" })).rejects.toThrow(/maxmemory-policy/);
     } finally {
-      await admin.config("SET", "maxmemory-policy", "noeviction");
+      await new Promise((ok) => faux.serveur.close(ok));
     }
     const bonne = await ouvrirConnexion(parametres());
     connexions.push(bonne);

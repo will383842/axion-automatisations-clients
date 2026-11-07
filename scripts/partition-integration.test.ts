@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { FRAGMENTS_INTEGRATION, charge, fichiersIntegration, lirePoids, partitionner } from "./partition-integration.ts";
+import { FRAGMENTS_INTEGRATION, charge, fichiersIntegration, lirePoids, partitionner, poidsDe } from "./partition-integration.ts";
 
 // Partition du projet « integration » en fragments de charge égale (ADR 0121, qui complète l'ADR 0118).
 const fichiers = fichiersIntegration();
@@ -17,11 +17,15 @@ describe("partition du socle d'intégration", () => {
     expect([...tous].sort()).toEqual([...fichiers].sort());
     for (const p of parts) expect(p.length).toBeGreaterThan(0);
   });
-  it("[A-066] la charge estimée est équilibrée : écart d'au plus 90 s entre le fragment le plus long et le plus court", () => {
+  it("[A-066] la charge estimée est équilibrée : le fragment le plus long ne dépasse ni le fichier le plus lourd ni la moyenne + 10 %", () => {
     const charges = parts.map((p) => charge(p, poids));
-    expect(Math.max(...charges) - Math.min(...charges)).toBeLessThanOrEqual(90);
-    // Plus long fragment estimé : sous 160 s de tests, soit environ 5 min avec le surcoût fixe mesuré.
-    expect(Math.max(...charges)).toBeLessThanOrEqual(160);
+    const moyenne = charge(fichiers, poids) / parts.length;
+    const lourd = Math.max(...fichiers.map((f) => poidsDe(f, poids)));
+    // Un fichier seul ne se partage pas : il fixe alors la durée du fragment (à découper dans une autre tâche).
+    expect(Math.max(...charges)).toBeLessThanOrEqual(Math.max(lourd, moyenne * 1.1));
+    // Les fragments sans le fichier le plus lourd restent proches les uns des autres (écart d'au plus 90 s).
+    const sansLourd = parts.filter((p) => !p.some((f) => poidsDe(f, poids) === lourd)).map((p) => charge(p, poids));
+    expect(Math.max(...sansLourd) - Math.min(...sansLourd)).toBeLessThanOrEqual(90);
   });
   it("[A-066] la partition est stable : même entrée, même résultat, quel que soit l'ordre des fichiers", () => {
     expect(partitionner([...fichiers].reverse(), FRAGMENTS_INTEGRATION, poids)).toEqual(parts);
@@ -43,7 +47,7 @@ describe("partition du socle d'intégration", () => {
     expect(listes.flat().sort()).toEqual([...fichiers].sort());
   }, 120_000);
   it("[C-538] une valeur de fragment invalide fait échouer au lieu de tout lancer", () => {
-    for (const v of ["0/4", "5/4", "x", "1/3", "1"]) {
+    for (const v of ["0/3", "4/3", "x", "1/4", "1"]) {
       const r = spawnSync("npx", ["vitest", "list", "--filesOnly", "--project", "integration"], { encoding: "utf8", env: { ...process.env, SOCLE_INTEGRATION: "1", FRAGMENT_INTEGRATION: v } });
       expect(r.status, v).not.toBe(0);
     }

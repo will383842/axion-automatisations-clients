@@ -45,7 +45,6 @@ export function normaliserTerme(brut: string): string | undefined {
 // Barre oblique inverse d'abord, puis pourcent et souligné.
 export const echapperLike = (texte: string): string => texte.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_");
 
-export interface MembreRecherche extends MembrePortee {}
 // La portée ne vient JAMAIS de la requête. « * » = tous les clients ; sinon les seuls identifiants au motif UUID, dédoublonnés. Liste vide ou rôle inconnu = rien (échec fermé).
 export function porteeDe(m: MembrePortee): PorteeRecherche {
   if (m.role === "dirigeant") return { tous: true, clients: [] };

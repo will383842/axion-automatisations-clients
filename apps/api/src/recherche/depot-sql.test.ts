@@ -18,7 +18,7 @@ function fauxPool() {
   const pool = { connect: async () => { connexions.push("connect"); return client; } };
   return { pool: pool as never, requetes, connexions };
 }
-const lectures = (r: { texte: string }[]) => r.filter((q) => /\bFROM\b/i.test(q.texte));
+const lectures = <T extends { texte: string }>(r: T[]) => r.filter((q) => /\bFROM\b/i.test(q.texte));
 const racine = new URL("../", import.meta.url);
 
 describe("dépôt SQL de la recherche", () => {

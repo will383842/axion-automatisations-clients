@@ -14,8 +14,8 @@ const membreA = { sujet: "agent-a", role: "second_administrateur", actif: true, 
 const lignes = (): LigneMemoire[] => [
   { type: "client", id: A, client_id: A, libelle: "Atelier Bertin", statut: "client" },
   { type: "contact", id: "c1", client_id: A, client_nom: "Atelier Bertin", libelle: "Claire Bertin", email: "claire@exemple.fr", role: "principal" },
-  { type: "facture", id: "f1", client_id: A, client_nom: "Atelier Bertin", libelle: "AXI-FACT-0001", statut: "emise", periode_debut: "2026-02-01", periode_fin: "2026-02-28" },
-  { type: "demande", id: "33333333-3333-4333-8333-333333333333", client_id: A, client_nom: "Atelier Bertin", libelle: "question", statut: "nouvelle", cree_le: "2026-11-01T08:00:00Z" },
+  { type: "facture", id: "f1", client_id: A, client_nom: "Atelier Bertin", libelle: "AXI-FACT-bertin-1", statut: "emise", periode_debut: "2026-02-01", periode_fin: "2026-02-28" },
+  { type: "demande", id: "33333333-3333-4333-8333-333333333333", client_id: A, client_nom: "Atelier Bertin", libelle: "bertin-question", statut: "nouvelle", cree_le: "2026-11-01T08:00:00Z" },
   { type: "instance", id: "i1", client_id: A, client_nom: "Atelier Bertin", libelle: "relance-bertin", automatisation_nom: null, etat: "active" },
   { type: "client", id: B, client_id: B, libelle: "Boulangerie Rivoire", statut: "client" },
 ];

@@ -27,7 +27,7 @@ export function creerDepotMemoire(donnees: LigneMemoire[]): DepotRecherche & { a
           .filter((l) => l.type === type && l.client_id !== PLATEFORME_ID && (p.tous || p.clients.includes(l.client_id)) && correspond(l, p))
           .sort((a, b) => rang(a, p.terme) - rang(b, p.terme) || a.libelle.localeCompare(b.libelle) || a.id.localeCompare(b.id))
           .slice(0, p.limite)
-          .map(({ siren: _siren, ...ligne }) => ligne as LigneRecherche),
+          .map((l) => { const { siren, ...ligne } = l; void siren; return ligne as LigneRecherche; }),
       );
     },
   };

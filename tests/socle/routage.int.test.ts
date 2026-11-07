@@ -53,6 +53,6 @@ describe("routage par nom d'hôte du proxy", () => {
     expect(await nomDuService(DOMAINE_API)).toBe("api");
   }, 40_000);
   it("[A-085] le proxy sert sso.socle.test vers Keycloak", async () => {
-    expect(await nomDuService(DOMAINE_SSO)).toBe("keycloak");
+    expect(await nomDuService(DOMAINE_SSO)).toBe("FAUX-PREUVE-A");
   }, 40_000);
 });

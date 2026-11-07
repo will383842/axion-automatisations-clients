@@ -8,6 +8,8 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { controlerInvariants, type Requete } from "../../../../packages/contrats/src/c5/invariants.js";
 import { avecClient, avecEquipe } from "./client-actif.js";
 import { migrer } from "./migrer.js";
+import { creerDepotRechercheSql } from "../recherche/depot-sql.js";
+import { rechercher } from "../recherche/index.js";
 
 // Tables clients, contacts, instances et journal d'audit branché (T2-01b), contre le socle lancé par ops/socle/lancer.sh (job socle-integration).
 // Les essais tournent en parallèle sur une base partagée : identifiants de client tirés au hasard.
@@ -465,5 +467,78 @@ describe("déploiement (T4-28a)", { timeout: 30_000 }, () => {
     const B = randomUUID();
     await creerOrg(B, { raison_sociale: "Garage Fontaine" });
     await creerInstance(B, { etat: "pause", automatisation_id: automatisation });
+  });
+});
+
+// Recherche globale (T3-09a) : pool console_equipe réel (lecture seule), données insérées par console_app. Les identifiants et les mots cherchés sont tirés au hasard : la base est partagée.
+describe("recherche (T3-09a), avec le socle", { timeout: 30_000 }, () => {
+  const sel = () => randomUUID().replaceAll("-", "").slice(0, 10);
+  const inserer = (tenant: string, table: string, valeurs: Record<string, unknown>) => {
+    const v = { id: randomUUID(), tenant_id: tenant, ...valeurs };
+    const cles = Object.keys(v);
+    return ecrire(app, tenant, async (c) => (await c.query(`INSERT INTO ${table} (${cles.join(", ")}) VALUES (${cles.map((_, i) => `$${i + 1}`).join(", ")}) RETURNING id`, Object.values(v))).rows[0] as { id: string }, APPELANT);
+  };
+  const contact = (tenant: string, nom: string, email: string) => inserer(tenant, "contacts", { organisation_id: tenant, nom, email });
+  const dirigeant = { role: "dirigeant", portee: { clients: [] as string[], automatisations: [] as string[] } };
+  const secondDe = (...clients: string[]) => ({ role: "second_administrateur", portee: { clients, automatisations: [] as string[] } });
+  const tout = (r: Awaited<ReturnType<typeof rechercher>>) => r.groupes.flatMap((g) => g.resultats);
+
+  it("[B-126] @isolation la recherche réelle ne rend que la portée du second administrateur", async () => {
+    const A = randomUUID();
+    const B = randomUUID();
+    const mot = sel();
+    await creerOrg(A, { raison_sociale: `Atelier ${mot}` });
+    await creerOrg(B, { raison_sociale: `Garage ${mot}` });
+    await contact(B, `Bruno ${mot}`, `bruno.${mot}@exemple.fr`);
+    const depot = creerDepotRechercheSql(equipe);
+    const vue = await rechercher(depot, secondDe(A), mot, 20);
+    expect(tout(vue).map((r) => r.client_id)).toEqual([A]);
+    expect(JSON.stringify(vue)).not.toContain(B);
+    expect(tout(await rechercher(depot, secondDe(), mot, 20))).toEqual([]);
+    expect(new Set(tout(await rechercher(depot, dirigeant, mot, 20)).map((r) => r.client_id))).toEqual(new Set([A, B]));
+    // La portée est dans le WHERE, avant la limite : dix contacts hors portée ne cachent pas celui du client permis.
+    const mot2 = sel();
+    for (let i = 0; i < 10; i++) await contact(B, `Aa${i} ${mot2}`, `b${i}.${mot2}@exemple.fr`);
+    await contact(A, `Zz ${mot2}`, `z.${mot2}@exemple.fr`);
+    expect(tout(await rechercher(depot, secondDe(A), mot2, 5)).map((r) => r.client_id)).toEqual([A]);
+  });
+
+  it("[LOT3-recherche] la recherche réelle ignore accents et casse, traite les jokers comme du texte et écarte la plateforme", async () => {
+    const A = randomUUID();
+    const mot = sel();
+    await creerOrg(A, { raison_sociale: `Rénovation Éclair ${mot}` });
+    await creerOrg(randomUUID(), { raison_sociale: `Autre ${mot}x` });
+    const depot = creerDepotRechercheSql(equipe);
+    expect(tout(await rechercher(depot, dirigeant, `RENOVATION eclair ${mot.toUpperCase()}`, 5)).map((r) => r.client_id)).toEqual([A]);
+    // Un terme fait de pourcents ne trouve qu'un pourcent littéral ; le souligné ne remplace pas une lettre.
+    expect(tout(await rechercher(depot, dirigeant, "%%", 5)).filter((r) => r.type === "client")).toEqual([]);
+    expect(tout(await rechercher(depot, dirigeant, `_${mot.slice(1)}`, 5))).toEqual([]);
+    expect(tout(await rechercher(depot, dirigeant, `'; DROP TABLE organisations; -- ${mot}`, 5))).toEqual([]);
+    // L'organisation réservée de la plateforme n'est jamais un résultat.
+    await migration.query("INSERT INTO organisations (id, tenant_id, console_client_id, raison_sociale) VALUES ($1, $1, $1, $2) ON CONFLICT DO NOTHING", [PLATEFORME, `Plateforme ${mot}`]).catch(() => undefined);
+    expect(tout(await rechercher(depot, dirigeant, "Plateforme", 20)).map((r) => r.client_id)).not.toContain(PLATEFORME);
+  });
+
+  it("[B-074] la recherche réelle trouve un client, un contact par e-mail, une facture par numéro, une demande par catégorie et une instance par code", async () => {
+    const A = randomUUID();
+    const mot = sel();
+    await creerOrg(A, { raison_sociale: `Boulangerie ${mot}`, siren: "123456782" });
+    await contact(A, "Claire Rivoire", `claire.${mot}@exemple.fr`);
+    const instance = (await creerInstance(A, { etat: "pause", code_automatisation: `relance-${mot}` })).rows[0]?.["id"] as string;
+    const numero = `AXI-FACT-${mot}`;
+    await inserer(A, "factures", { organisation_id: A, numero, hub_id: randomUUID(), nature: "abonnement", plan: "essentiel", periode_debut: "2026-02-01", periode_fin: "2026-02-28", montant_ht_centimes: 10000, taux_tva_points_de_base: 2000, montant_tva_centimes: 2000, montant_ttc_centimes: 12000, statut: "emise", pdf_ref: "factures/a.pdf", empreinte_sha256: "a".repeat(64), auteur: APPELANT.acteur, instance_id: instance });
+    const idDemande = randomUUID();
+    await inserer(A, "demandes", { id: idDemande, organisation_id: A, canal: "courriel", categorie: `litige-${mot}`, priorite: "normale", reference_texte: `demande:${idDemande}` });
+    const depot = creerDepotRechercheSql(equipe);
+    const trouve = async (terme: string, type: string) => tout(await rechercher(depot, secondDe(A), terme, 5)).filter((r) => r.type === type && r.client_id === A);
+    expect(await trouve(`boulangerie ${mot}`, "client")).toHaveLength(1);
+    expect(await trouve("123456782", "client")).toHaveLength(1);
+    expect(await trouve(`claire.${mot}@exemple.fr`, "contact")).toMatchObject([{ client_id: A, email: `claire.${mot}@exemple.fr` }]);
+    expect(await trouve(numero, "facture")).toMatchObject([{ libelle: numero, periode_debut: "2026-02-01" }]);
+    expect(JSON.stringify(await trouve(numero, "facture"))).not.toMatch(/montant|centimes/);
+    expect(await trouve(`litige-${mot}`, "demande")).toHaveLength(1);
+    expect(await trouve(idDemande, "demande")).toHaveLength(1);
+    expect(JSON.stringify(await trouve(idDemande, "demande"))).not.toContain("reference_texte");
+    expect(await trouve(`relance-${mot}`, "instance")).toMatchObject([{ libelle: `relance-${mot}`, etat: "pause" }]);
   });
 });

@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { getTableConfig, type PgTable } from "drizzle-orm/pg-core";
+import { getTableConfig, PgDialect, type PgTable } from "drizzle-orm/pg-core";
 import { describe, expect, it } from "vitest";
 import { TABLES_COMMUNES } from "../../../../../packages/contrats/src/c5/invariants.ts";
 import { analyserSql } from "../../../../../scripts/garde-migrations.ts";
@@ -35,9 +35,9 @@ describe("portail : schéma et migration 0025", () => {
   it("[C-604] la base console n'a aucune colonne capable de ranger le texte d'une demande", () => {
     for (const t of tables()) {
       const { name, columns, checks } = getTableConfig(t);
-      const verifs = checks.map((c) => JSON.stringify(c.value));
+      const verifs = checks.map((c) => new PgDialect().sqlToQuery(c.value).sql);
       for (const c of columns.filter((x) => x.getSQLType() === "text")) {
-        const borne = verifs.some((v) => v.includes(`"${c.name}"`) && /\{\d+,(\d+)\}/.test(v) && Number(/\{\d+,(\d+)\}/.exec(v)?.[1]) <= 128);
+        const borne = verifs.some((v) => v.includes(`"${c.name}"`) && /\{(?:\d+,)?(\d+)\}/.test(v) && Number(/\{(?:\d+,)?(\d+)\}/.exec(v)?.[1]) <= 128);
         expect(borne, `${name}.${c.name} : texte non borné à 129 caractères au plus`).toBe(true);
       }
       expect(columns.filter((c) => /json|bytea|\[\]/.test(c.getSQLType())), name).toEqual([]);

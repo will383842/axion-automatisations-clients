@@ -43,7 +43,7 @@ describe("route de déploiement d'une instance", () => {
     const fermee = deps({ ouvert: false });
     const s = construireServeur({ deploiementInstances: fermee.d });
     for (const url of [CREATION, `${CREATION}/${INSTANCE}/tests-a-blanc`, `${CREATION}/${INSTANCE}/activation`]) {
-      const r = await poster(s, url, "n'importe quoi");
+      const r = await poster(s, url, { corps: "n'importe quoi" });
       expect(r.statusCode, url).toBe(503);
       expect(r.json().erreur.code, url).toBe("porte_fermee");
     }
@@ -63,7 +63,7 @@ describe("route de déploiement d'une instance", () => {
     expect(appels).toEqual(["authentifier", `creer:${A}:equipe-essai:${CORPS.version_id}`]);
     expect((await poster(s, CREATION, { ...CORPS, tenant_id: A })).statusCode).toBe(400);
     expect((await poster(s, "/api/console/v1/clients/pas-un-uuid/instances")).statusCode).toBe(400);
-    expect(appels.length).toBe(2);
+    expect(appels.filter((a) => a.startsWith("creer:")).length).toBe(1);
   });
 
   it("[B-093] la route du test à blanc rend un rapport fermé (compteurs et code) pour l'instance du client du chemin", async () => {

@@ -22,6 +22,10 @@ Les secrets de l'équipe vivent dans Bitwarden ou sous `technique/` d'OpenBao, J
 | `BACKOFFICE_URL` | aucun | environnement cloud (A-104) | sans objet |
 | `MIGRATION_DATABASE_URL` | production | environnement cloud, le temps d'une migration (le mot de passe du rôle qui modifie le schéma vient d'OpenBao) | à chaque départ d'un administrateur |
 | `APP_VERSION` | aucun | environnement de construction | sans objet |
+| `SENTRY_DSN` | equipe | OpenBao `technique/` (adresse d'envoi des erreurs, région européenne seulement ; absente : aucun signalement, la console démarre sans) | à chaque changement de projet Sentry |
+| `SENTRY_ECHANTILLONNAGE` | aucun | environnement cloud (taux de 0 à 1, 0 par défaut ; les transactions sont de toute façon retirées avant l'envoi) | sans objet |
+| `SENTRY_CELLULE` | aucun | environnement cloud (nom de la cellule, étiquette des erreurs) | sans objet |
+| `NEXT_RUNTIME` | aucun | posée par Next lui-même (moteur nodejs ou edge) ; lue par l'instrumentation de la console | sans objet |
 | `HUB_URL` | aucun | environnement cloud | sans objet |
 | `WEBHOOKS_OUVERTS` | aucun | environnement cloud (interrupteur, fermé par défaut) | sans objet |
 | `GMAIL_URL` | aucun | environnement cloud | sans objet |

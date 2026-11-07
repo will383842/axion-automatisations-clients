@@ -116,12 +116,12 @@ const concurrenceOk = (doc: Obj) => doc.concurrency === undefined || canon(doc.c
 const PERSIST = { "persist-credentials": false };
 const NODE = { "node-version-file": ".nvmrc" };
 // « uses » : texte EXACT connu (jamais de motif : un SHA inconnu peut venir d'un fork, « commit imposteur »).
-// Fragments du job socle-integration (ADR 0118) : 3 jobs, chacun avec son socle, rassemblés par le job requis.
-const FRAGMENTS = [1, 2, 3];
+// Fragments du job socle-integration (ADR 0118, ADR 0121) : 4 jobs, chacun avec son socle, rassemblés par le job requis.
+const FRAGMENTS = [1, 2, 3, 4];
 const ACTIONS: [string, unknown[]][] = [
   ["actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1", [undefined, PERSIST, { ...PERSIST, "fetch-depth": 0 }, { ...PERSIST, "fetch-depth": 2 }, { ...PERSIST, ref: "${{ github.event.repository.default_branch }}" }]],
   ["actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1", [NODE]],
-  ["actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a", [{ name: "rapport-couverture", path: "rapport-couverture.json" }, { name: "captures-reference", path: "packages/design/tests/__captures__/", "if-no-files-found": "error" }, ...FRAGMENTS.map((i) => ({ name: `rapport-integration-${i}`, path: `rapports-vitest/blob-${i}-3.json`, "if-no-files-found": "error", "retention-days": 1 }))]],
+  ["actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a", [{ name: "rapport-couverture", path: "rapport-couverture.json" }, { name: "captures-reference", path: "packages/design/tests/__captures__/", "if-no-files-found": "error" }, ...FRAGMENTS.map((i) => ({ name: `rapport-integration-${i}`, path: `rapports-vitest/blob-${i}-4.json`, "if-no-files-found": "error", "retention-days": 1 }))]],
   // ADR 0118 : rapports des fragments de socle-integration, tag v8.0.2 du dépôt officiel (MIT), même exécution seulement.
   ["actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333", [{ pattern: "rapport-integration-*", path: "rapports-vitest", "merge-multiple": true }]],
   ["github/codeql-action/init@8498dc4c2b27cdd99baf0f87955b29ebbf30c78d", [{ languages: "javascript-typescript", "build-mode": "none" }]],
@@ -153,8 +153,8 @@ const RUN_OK = new Set([
   "node scripts/compter-tests.ts rapport-tests.json", "node scripts/compter-tests.ts --projet integration --rapport rapport-integration.json",
   "node scripts/couverture-req.ts rapport-vitest.json rapport-playwright.json", "node scripts/garde-couleurs.ts", "node scripts/garde-donnees-reelles.ts", "node scripts/garde-migrations.ts",
   'node scripts/scanner-journaux.ts "$RUNNER_TEMP/texte"', "ops/socle/lancer.sh", "ops/socle/arreter.sh", "node scripts/garde-briques.ts",
-  ...FRAGMENTS.map((i) => `pnpm exec vitest run --project integration --shard=${i}/3 --reporter=blob --outputFile=rapports-vitest/blob-${i}-3.json`),
-  "pnpm exec vitest --merge-reports rapports-vitest --reporter=json --outputFile=rapport-integration.json", 'test "$RESULTATS_FRAGMENTS" = "success success success"',
+  ...FRAGMENTS.map((i) => `pnpm exec vitest run --project integration --reporter=blob --outputFile=rapports-vitest/blob-${i}-4.json`),
+  "pnpm exec vitest --merge-reports rapports-vitest --reporter=json --outputFile=rapport-integration.json", 'test "$RESULTATS_FRAGMENTS" = "success success success success"',
 ]);
 // Blocs de plusieurs lignes : empreinte SHA-256 du texte (controle-journaux ×2, nuit, socle-integration, squelettes-web).
 const BLOCS = new Set([
@@ -170,7 +170,7 @@ const BLOCS_IMAGES = new Set([
   "668bc1cd1c3f9cf87bbb799911b0839c3d0addfe804d840d4979b978a47ed6c7", "9139d805fe20a8cd38599f90af5d787089a60055efbd99dbed6071e9638f4bab", "cecf1891da06cd0c97652db0656ef7b12e5e75df0f9988ed986e9b7f89e4273a", "4af8f781253d648981d1bb01f72cb2b67a77173a1b94abecf84918847d6679b4", "9904653be6709787daf7d81edc6b9784cace85d9cf5daf19fa02541d3c5a1099",
   "08bc1008c1849271584a95d92d537a990e0f2ca50ce8ac46eed2a80b51cd1432", "debe09e7795e63fa14200ca95dc01d2311541c75b9f2a9e98ba142fe46cb01bf", "3f127b352339069dfbf729f7e7ed45f320258d86545ef6233c83f765d2de4bb2", "a89b8f7e46ac6384b0eca8eb67e56015067968d7c9738003091ba3ae5958a563", "f2fd0ea8574bc5ad3791d3cb9d23d2fe6c4ad0d48e67d4711a05682da3580702",
 ]);
-const ENV_OK = ["GH_TOKEN", "DEPOT", "RUN_ID", "CORPS_PR", "GITHUB_TOKEN", "SOCLE_INTEGRATION", "NODE_ENV", "MAILPIT_API", "MAILPIT_SMTP_HOTE", "MAILPIT_SMTP_PORT", "NEXT_TELEMETRY_DISABLED", "MISE_A_JOUR", "RESULTATS_FRAGMENTS"];
+const ENV_OK = ["GH_TOKEN", "DEPOT", "RUN_ID", "CORPS_PR", "GITHUB_TOKEN", "SOCLE_INTEGRATION", "NODE_ENV", "MAILPIT_API", "MAILPIT_SMTP_HOTE", "MAILPIT_SMTP_PORT", "NEXT_TELEMETRY_DISABLED", "MISE_A_JOUR", "RESULTATS_FRAGMENTS", "FRAGMENT_INTEGRATION"];
 const envOk = (o: unknown) => o === undefined || (estObj(o) && cles(o, ENV_OK));
 
 function etapeConnue(e: Obj, composite: boolean, fichier: string): string | undefined {

@@ -1,6 +1,7 @@
 import { existsSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { configDefaults, defineConfig } from "vitest/config";
+import { fichiersDuFragment } from "./scripts/partition-integration.ts";
 
 // retry: 0 — aucune relance automatique (C-538), pour chaque projet.
 const retry = 0;
@@ -12,6 +13,9 @@ const excludeDefaut = [...exclude, "**/*.int.test.ts"];
 // Tests qui modifient le dépôt : projet « serie », lancé seul après les autres (groupOrder), jamais en parallèle de la garde qui le parcourt.
 const serie = "**/*-bin.test.ts";
 const integration = process.env.SOCLE_INTEGRATION === "1";
+// Fragment du socle d'intégration (« i/n », ADR 0121) : liste de fichiers à poids fixes, au lieu de --shard. Sans la variable : tous les fichiers.
+const fragment = process.env.FRAGMENT_INTEGRATION;
+const fichiersIntegration = fragment === undefined ? ["**/*.int.test.ts"] : fichiersDuFragment(fragment);
 const dossiers = (racine: string) =>
   readdirSync(racine, { withFileTypes: true })
     .filter((d) => d.isDirectory() && existsSync(`${racine}/${d.name}/package.json`))
@@ -41,7 +45,7 @@ export default defineConfig({
       { test: { name: "tests/mauvais-client", root: "./tests/mauvais-client", retry, exclude: excludeDefaut } },
       { test: { name: "tests/comportement", root: "./tests/comportement", retry, exclude: excludeDefaut, passWithNoTests: true } },
       // Vide sans SOCLE_INTEGRATION=1, pour que « vitest run » ne lance jamais ces tests faute de services.
-      { test: { name: "integration", root: ".", retry, exclude, include: integration ? ["**/*.int.test.ts"] : [] } },
+      { test: { name: "integration", root: ".", retry, exclude, include: integration ? fichiersIntegration : [] } },
     ],
   },
 });

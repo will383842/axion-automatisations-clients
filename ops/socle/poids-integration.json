@@ -1,0 +1,12 @@
+{
+  "commentaire": "Poids estimés en secondes de tests (ADR 0121). Seuls les fichiers lourds nommés par la mesure du 07/11 sont listés, tous les autres valent « defaut ». À réviser quand l'écart entre le fragment le plus long et le plus court dépasse 90 s.",
+  "defaut": 4,
+  "fichiers": {
+    "tests/socle/sauvegardes.int.test.ts": 90,
+    "apps/api/src/db/catalogue.int.test.ts": 60,
+    "apps/api/src/db/bases-client.int.test.ts": 50,
+    "apps/api/src/hub/depot-pg.int.test.ts": 45,
+    "tests/audit-1a/passerelle.int.test.ts": 40,
+    "apps/api/src/provisionnement/migrer-module.int.test.ts": 30
+  }
+}

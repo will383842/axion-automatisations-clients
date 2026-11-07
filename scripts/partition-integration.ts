@@ -5,7 +5,7 @@ import { readFileSync, readdirSync } from "node:fs";
 // Chaque fichier va dans UN seul fragment ; l'ensemble des fragments est exactement l'ensemble des fichiers *.int.test.ts.
 
 /** Nombre de fragments du socle d'intégration : un job `fragment-N` par valeur dans .github/workflows/socle-integration.yml. */
-export const FRAGMENTS_INTEGRATION = 3;
+export const FRAGMENTS_INTEGRATION = 4;
 
 export type Poids = { defaut: number; fichiers: Record<string, number>; separes?: string[][] };
 

@@ -116,12 +116,12 @@ const concurrenceOk = (doc: Obj) => doc.concurrency === undefined || canon(doc.c
 const PERSIST = { "persist-credentials": false };
 const NODE = { "node-version-file": ".nvmrc" };
 // « uses » : texte EXACT connu (jamais de motif : un SHA inconnu peut venir d'un fork, « commit imposteur »).
-// Fragments du job socle-integration (ADR 0118, ADR 0121) : 3 jobs, chacun avec son socle, rassemblés par le job requis.
-const FRAGMENTS = [1, 2, 3];
+// Fragments du job socle-integration (ADR 0118, ADR 0121) : 4 jobs, chacun avec son socle, rassemblés par le job requis.
+const FRAGMENTS = [1, 2, 3, 4];
 const ACTIONS: [string, unknown[]][] = [
   ["actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1", [undefined, PERSIST, { ...PERSIST, "fetch-depth": 0 }, { ...PERSIST, "fetch-depth": 2 }, { ...PERSIST, ref: "${{ github.event.repository.default_branch }}" }]],
   ["actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1", [NODE]],
-  ["actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a", [{ name: "rapport-couverture", path: "rapport-couverture.json" }, { name: "captures-reference", path: "packages/design/tests/__captures__/", "if-no-files-found": "error" }, ...FRAGMENTS.map((i) => ({ name: `rapport-integration-${i}`, path: `rapports-vitest/blob-${i}-3.json`, "if-no-files-found": "error", "retention-days": 1 }))]],
+  ["actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a", [{ name: "rapport-couverture", path: "rapport-couverture.json" }, { name: "captures-reference", path: "packages/design/tests/__captures__/", "if-no-files-found": "error" }, ...FRAGMENTS.map((i) => ({ name: `rapport-integration-${i}`, path: `rapports-vitest/blob-${i}-4.json`, "if-no-files-found": "error", "retention-days": 1 }))]],
   // ADR 0118 : rapports des fragments de socle-integration, tag v8.0.2 du dépôt officiel (MIT), même exécution seulement.
   ["actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333", [{ pattern: "rapport-integration-*", path: "rapports-vitest", "merge-multiple": true }]],
   ["github/codeql-action/init@8498dc4c2b27cdd99baf0f87955b29ebbf30c78d", [{ languages: "javascript-typescript", "build-mode": "none" }]],
@@ -153,8 +153,8 @@ const RUN_OK = new Set([
   "node scripts/compter-tests.ts rapport-tests.json", "node scripts/compter-tests.ts --projet integration --rapport rapport-integration.json",
   "node scripts/couverture-req.ts rapport-vitest.json rapport-playwright.json", "node scripts/garde-couleurs.ts", "node scripts/garde-donnees-reelles.ts", "node scripts/garde-migrations.ts",
   'node scripts/scanner-journaux.ts "$RUNNER_TEMP/texte"', "ops/socle/lancer.sh", "ops/socle/arreter.sh", "node scripts/garde-briques.ts",
-  ...FRAGMENTS.map((i) => `pnpm exec vitest run --project integration --reporter=default --reporter=blob --outputFile.blob=rapports-vitest/blob-${i}-3.json`),
-  "pnpm exec vitest --merge-reports rapports-vitest --reporter=json --outputFile=rapport-integration.json", 'test "$RESULTATS_FRAGMENTS" = "success success success"',
+  ...FRAGMENTS.map((i) => `pnpm exec vitest run --project integration --reporter=default --reporter=blob --outputFile.blob=rapports-vitest/blob-${i}-4.json`),
+  "pnpm exec vitest --merge-reports rapports-vitest --reporter=json --outputFile=rapport-integration.json", 'test "$RESULTATS_FRAGMENTS" = "success success success success"',
 ]);
 // Blocs de plusieurs lignes : empreinte SHA-256 du texte (controle-journaux ×2, nuit, socle-integration, squelettes-web).
 const BLOCS = new Set([

@@ -65,7 +65,7 @@ describe("partition du socle d'intégration", () => {
     expect(listes.flat().sort()).toEqual([...fichiers].sort());
   }, 120_000);
   it("[C-538] une valeur de fragment invalide fait échouer au lieu de tout lancer", () => {
-    for (const v of ["0/3", "4/3", "x", "1/4", "1"]) {
+    for (const v of ["0/4", "5/4", "x", "1/3", "1"]) {
       const r = spawnSync("npx", ["vitest", "list", "--filesOnly", "--project", "integration"], { encoding: "utf8", env: { ...process.env, SOCLE_INTEGRATION: "1", FRAGMENT_INTEGRATION: v } });
       expect(r.status, v).not.toBe(0);
     }

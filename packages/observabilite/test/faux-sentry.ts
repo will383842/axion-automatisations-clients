@@ -3,6 +3,9 @@ import type { AddressInfo } from "node:net";
 
 // Faux Sentry HTTP réel sur 127.0.0.1 (port libre) : il garde le corps BRUT de chaque requête reçue,
 // pour chercher un marqueur dans l'enveloppe entière. Aucun DSN réel, aucun réseau externe.
+// Le fetch réel est gardé à part : un essai peut remplacer globalThis.fetch par le fetch du faux serveur.
+const fetchReel = globalThis.fetch;
+
 export interface FauxSentry {
   readonly corps: string[];
   readonly adresses: string[];
@@ -29,7 +32,7 @@ export async function demarrerFauxSentry(): Promise<FauxSentry> {
     corps,
     adresses,
     fermer: () => new Promise<void>((ok) => { serveur.closeAllConnections(); serveur.close(() => ok()); }),
-    fetch: (url, init) => globalThis.fetch(url.replace(/^https?:\/\/[^/]+/, base), init),
+    fetch: (url, init) => fetchReel(url.replace(/^https?:\/\/[^/]+/, base), init),
   };
 }
 

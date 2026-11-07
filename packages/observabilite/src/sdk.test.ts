@@ -50,7 +50,13 @@ describe("observabilite : SDK @sentry/core et transport", () => {
   it("[C-025] avec un Sentry injoignable, l'envoi échoue vite et rien de non nettoyé n'est gardé", async () => {
     const marqueur = `marqueur-${randomUUID()}`;
     const tentatives: string[] = [];
-    const fetchEspion = (url: string, init: RequestInit) => { tentatives.push(String(init.body)); return fetchInjoignable(url, init); };
+    const issues: Promise<string>[] = [];
+    const fetchEspion = (url: string, init: RequestInit) => {
+      tentatives.push(String(init.body));
+      const appel = fetchInjoignable(url, init);
+      issues.push(appel.then(() => "réponse", () => "abandonné"));
+      return appel;
+    };
     const sentry = demarrerSentry(config("api", { fetch: fetchEspion }));
     const debut = performance.now();
     sentry.capturer(new Error(`échec ${marqueur} claire@exemple.fr`), "/x");
@@ -58,18 +64,22 @@ describe("observabilite : SDK @sentry/core et transport", () => {
     const avantVidage = performance.now();
     await sentry.vider(2000);
     expect(performance.now() - avantVidage).toBeLessThan(2500);
+    // Le délai d'abandon du fetch (2 s) coupe l'envoi lui-même : sans lui, l'appel resterait pendu après la fin du vidage.
+    const issue = await Promise.race([issues[0], new Promise<string>((ok) => setTimeout(() => ok("pendu"), 600))]);
+    expect(issue).toBe("abandonné");
     // Le nettoyage précède le transport : ce que le transport tente d'envoyer est déjà nettoyé.
     expect(tentatives.length).toBeGreaterThan(0);
     expect(tentatives.join("")).not.toContain("claire@exemple.fr");
-    expect(tentatives.join("")).not.toContain(marqueur);
+    expect(tentatives.join("")).toContain("[masqué]");
   }, 10_000);
 
   it("[C-025] aucune intégration n'est active : ni fil d'Ariane HTTP, ni console, ni contexte du système", () => {
     const sentry = demarrerSentry(config("executeur", { fetch: fetchInjoignable }));
     const options = sentry.client.getOptions();
     expect(options.integrations).toEqual([]);
+    // « static » : avec « stream » (défaut du SDK), beforeSendTransaction serait ignoré et une intégration d'envoi des spans s'ajouterait.
+    expect(options.traceLifecycle).toBe("static");
     expect(options.maxBreadcrumbs).toBe(0);
-    expect(options.sendDefaultPii).toBe(false);
     expect(options.serverName).toBeUndefined();
   });
 

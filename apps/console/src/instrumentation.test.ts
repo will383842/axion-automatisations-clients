@@ -16,7 +16,7 @@ describe("instrumentation de la console (Next)", () => {
     vi.stubEnv("SENTRY_DSN", DSN);
     vi.stubEnv("NEXT_RUNTIME", "edge");
     await register();
-    await onRequestError(new Error("échec"), { path: "/x", method: "GET", headers: {} }, {} as never);
+    await onRequestError(new Error("échec"), { path: "/x", method: "GET", headers: {} });
     expect(espion).not.toHaveBeenCalled();
   });
 
@@ -27,7 +27,7 @@ describe("instrumentation de la console (Next)", () => {
     vi.stubEnv("SENTRY_CELLULE", "cellule-1");
     vi.stubEnv("NEXT_RUNTIME", "nodejs");
     await register();
-    await onRequestError(new Error("échec"), { path: "/equipe/clients/3f2b8c1e?jeton=abc", method: "GET", headers: {} }, {} as never);
+    await onRequestError(new Error("échec"), { path: "/equipe/clients/3f2b8c1e?jeton=abc", method: "GET", headers: {} });
     expect(faux.corps).toHaveLength(1);
     expect(faux.corps[0]).toContain('"application":"console"');
     expect(faux.corps[0]).not.toContain("jeton=abc");

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { CATALOGUE_EMAILS, type TexteEmail } from "../../../../packages/contrats/src/messages/catalogue.js";
 import { TABLE_ENVOIS } from "../../../../packages/contrats/src/notifications/table.js";
 import { creerExpediteur, type Message, type Trace } from "../courriel/expediteur.js";
-import { DESACTIVABLES, NON_DESACTIVABLES, cleStockee, doitLirePreferences } from "./notifications.js";
+import { DESACTIVABLES, NON_DESACTIVABLES, cleStockee, doitLirePreferences, ecrirePreference, ecrireResume, lirePreferences, type Requeteur } from "./notifications.js";
 
 const ORIGINE = "https://portail.exemple.test";
 const CLIENT = "11111111-1111-4111-8111-111111111111";
@@ -86,5 +86,39 @@ describe("préférences de notification (partie pure et branchement)", () => {
     await expediteur.envoyerAuClient("rapportMensuel", { tenantId: CLIENT, role: "administrateur_client" }, variablesDe(t));
     expect(envoyes).toHaveLength(0);
     expect(traces.map((x) => x.resultat)).toEqual(["echec", "echec"]);
+  });
+});
+
+function faux() {
+  const appels: { texte: string; valeurs: unknown[] }[] = [];
+  const c: Requeteur = { async query(texte, valeurs = []) { appels.push({ texte, valeurs }); return { rows: [{ cle_envoi: "brouillon_en_attente", activee: false, resume_hebdomadaire: false }, { cle_envoi: "resume_hebdomadaire", activee: true, resume_hebdomadaire: true }, { cle_envoi: "cle_inconnue", activee: false, resume_hebdomadaire: false }], rowCount: 1 }; } };
+  return { c, appels };
+}
+
+describe("lecture et écriture SQL des préférences", () => {
+  it("[B-141] la lecture filtre par client ET par utilisateur et traduit les clés stockées", async () => {
+    const { c, appels } = faux();
+    const lu = await lirePreferences(c, CLIENT, U1);
+    expect(appels[0]!.texte).toMatch(/WHERE tenant_id = \$1 AND utilisateur = \$2/);
+    expect(appels[0]!.valeurs).toEqual([CLIENT, U1]);
+    expect(lu).toEqual({ desactivees: ["brouillonEnAttente"], resumeHebdomadaire: true });
+  });
+
+  it("[B-186] l'écriture d'une préférence met à jour la même ligne (ON CONFLICT), avec une clé minuscule et un id aléatoire", async () => {
+    const { c, appels } = faux();
+    await ecrirePreference(c, CLIENT, U1, "brouillonEnAttente", false);
+    await ecrirePreference(c, CLIENT, U1, "brouillonEnAttente", true);
+    expect(appels[0]!.texte).toMatch(/ON CONFLICT \(tenant_id, utilisateur, cle_envoi\) DO UPDATE SET activee = EXCLUDED.activee, maj_le = now\(\)/);
+    expect(appels[0]!.valeurs.slice(0, 1).concat(appels[0]!.valeurs.slice(2))).toEqual([CLIENT, U1, "brouillon_en_attente", false]);
+    expect(appels[0]!.valeurs[1]).toMatch(/^[0-9a-f-]{36}$/);
+    await expect(ecrirePreference(c, CLIENT, U1, "palier100Client", false)).rejects.toThrow();
+    expect(appels).toHaveLength(2);
+  });
+
+  it("[B-186] le résumé hebdomadaire s'écrit sur la ligne réservée, colonne resume_hebdomadaire", async () => {
+    const { c, appels } = faux();
+    await ecrireResume(c, CLIENT, U1, true);
+    expect(appels[0]!.texte).toMatch(/DO UPDATE SET resume_hebdomadaire = EXCLUDED.resume_hebdomadaire/);
+    expect(appels[0]!.valeurs).toContain("resume_hebdomadaire");
   });
 });

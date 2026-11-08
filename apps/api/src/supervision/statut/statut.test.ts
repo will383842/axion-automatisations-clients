@@ -107,8 +107,6 @@ const signer = (horodatage: string, corps: string, cle = CLE) => createHmac("sha
 function monterSonde(ouvert = true) {
   const app = Fastify();
   brancherErreurs(app);
-  app.removeAllContentTypeParsers();
-  app.addContentTypeParser("application/json", { parseAs: "string" }, (_r, corps, fait) => fait(null, corps));
   const incidents: unknown[] = [];
   const d: DepsSonde = {
     ouvert: () => ouvert,

@@ -1,6 +1,6 @@
 # 0127 · Sentry : SDK, région européenne, aucune intégration automatique
 
-Date : 07/11/2026 · Statut : proposé (T5-13b-2), à accepter par l'architecte · Contrat touché : aucun · Migration : aucune · S'appuie sur : fiche T5-13, exigences A-113, A-065, C-025
+Date : 07/11/2026 · Statut : accepté (accord de l'architecte, 08/11/2026 ; proposé par T5-13b-2) · Contrat touché : aucun · Migration : aucune · S'appuie sur : fiche T5-13, exigences A-113, A-065, C-025
 
 ## Contexte
 - Les erreurs des trois applications (API, exécuteur, console) doivent arriver à Sentry sans donnée de client, sans secret et sans sortir de l'Union européenne.

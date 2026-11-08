@@ -1,6 +1,6 @@
 # 0129 · Compte de service console-sessions et adaptateur Keycloak aux méthodes fermées
 
-Date : 07/11/2026 · Statut : proposé (T3-07a), à accepter par l'architecte · Décision A1 de l'architecte : acceptée · Contrat touché : aucun · Migration : aucune · S'appuie sur : T1A-08 (royaumes), T3-06 (droits)
+Date : 07/11/2026 · Statut : accepté (accord de l'architecte, 08/11/2026 ; proposé par T3-07a) · Décision A1 de l'architecte : acceptée · Contrat touché : aucun · Migration : aucune · S'appuie sur : T1A-08 (royaumes), T3-06 (droits)
 
 ## Contexte
 - L'écran « Sécurité et accès » doit lire les sessions et le double facteur des membres, fermer une session, inviter et désactiver un membre : il faut un accès à l'API d'administration de Keycloak, limité au royaume `equipe`.

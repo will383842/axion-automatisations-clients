@@ -1,6 +1,6 @@
 # 0139 · Registres par fiche : un fichier neuf par route, par action de route et par table
 
-Date : 07/11/2026 · Statut : proposé (T-REG-1), à accepter par l'architecte · Contrat touché : aucun · Migration : aucune · S'appuie sur : ADR 0029 (index des ADR lu dans le dossier)
+Date : 07/11/2026 · Statut : accepté (accord de l'architecte, 08/11/2026 ; proposé par T-REG-1) · Contrat touché : aucun · Migration : aucune · S'appuie sur : ADR 0029 (index des ADR lu dans le dossier)
 
 ## Contexte
 - Chaque fiche qui ajoute une route modifie 3 ou 4 lignes voisines de fichiers communs (apps/api/src/serveur.ts, scripts/liste-routes.ts, la matrice des droits, la garde des colonnes). Chaque fusion met donc les PR voisines en conflit : une session de développement et 10 à 15 minutes de CI à chaque fois.
@@ -26,4 +26,4 @@ Date : 07/11/2026 · Statut : proposé (T-REG-1), à accepter par l'architecte �
 ## Conséquences
 - Limite : la découverte se fait par le disque. L'image d'exécution est immuable ; un fichier parasite fait échouer le démarrage et les tests, jamais le comportement.
 - Une route neuve = un fichier dans routes/branchements/ (et, après T-REG-2, un dans droits/par-route/) ; une table neuve = un fichier dans db/colonnes/fragments/ (après T-REG-3). Ces fichiers neufs sont autorisés d'office pour les fiches ; la règle est à ajouter aux règles des routines par le chef d'orchestre.
-- Restent communs, hors périmètre : packages/contrats/src/c5/invariants.ts (contrat gelé), apps/api/src/db/schema.ts, la liste des routes exemptées, la liste des exemptions des droits, le journal des migrations.
+- Restent communs, hors périmètre : packages/contrats/src/c5/invariants.ts (contrat versionné, révisé par ADR ; C5 n'est pas gelé, ADR 0031), apps/api/src/db/schema.ts, la liste des routes exemptées, la liste des exemptions des droits, le journal des migrations.

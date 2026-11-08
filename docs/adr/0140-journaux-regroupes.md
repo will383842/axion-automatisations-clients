@@ -1,6 +1,6 @@
 # 0140 · Journaux regroupés : VictoriaLogs alimenté par l'envoi des applications
 
-Date : 07/11/2026 · Statut : proposé (T5-13b-3), à accepter par l'architecte · Contrat touché : aucun · Migration : aucune · S'appuie sur : fiche T5-13, exigences A-080, C-022, C-025, ADR 0127
+Date : 07/11/2026 · Statut : accepté (accord de l'architecte, 08/11/2026 ; proposé par T5-13b-3) · Contrat touché : aucun · Migration : aucune · S'appuie sur : fiche T5-13, exigences A-080, C-022, C-025, ADR 0127
 
 ## Contexte
 - Les journaux des trois applications (API, exécuteur, console) doivent se lire en un seul endroit, sans donnée de client ni secret.

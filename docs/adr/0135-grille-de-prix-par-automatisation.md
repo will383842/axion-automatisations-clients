@@ -1,6 +1,6 @@
 # 0135 · Grille de prix par automatisation
 
-Date : 07/11/2026 · Statut : proposé (T3-31a1), à accepter par l'architecte · Contrat touché : aucun · Migration : aucune · S'appuie sur : ADR 0051 (catalogue commun), 0052 et 0058 (plan commercial, héritage des valeurs), 0115 (historique des grilles)
+Date : 07/11/2026 · Statut : accepté (accord de l'architecte, 08/11/2026 ; proposé par T3-31a1 ; le refus d'un prix mensuel nul (W1) reste posé par défaut et à décider par Williams) · Contrat touché : aucun · Migration : aucune · S'appuie sur : ADR 0051 (catalogue commun), 0052 et 0058 (plan commercial, héritage des valeurs), 0115 (historique des grilles)
 
 ## Contexte
 - `grilles_prix` n'accorde à `console_equipe` que SELECT et INSERT : on ne modifie jamais une grille.

@@ -1,6 +1,6 @@
 import { ErreurConnecteur } from "../noyau/politique-erreurs.ts";
 import { gardeIndisponible, type ValkeyEnvois } from "./arret-urgence.ts";
-import { cleAbaisse, cleDernier, cleJour, cleMinute, clePremier, cleReportes, decrementer, incrementer, lire, lireNombre, poser, type BoiteCle } from "./compteurs.ts";
+import { cleAbaisse, cleDernier, cleJour, cleMinute, clePremier, cleReportes, decrementer, incrementer, lire, lireNombre, poser, poserDurable, type BoiteCle } from "./compteurs.ts";
 import { jourParis, minuitSuivant, ecartJours, plafondDeMontee, premierJourEffectif } from "./montee.ts";
 
 // Plafonds d'envoi par boîte (T4-45, A-206 mutualisé, A-274, A-275, B-193, C-085).
@@ -29,6 +29,8 @@ export interface Reservation { cleJour: string; cleMinute?: string }
 
 const report = (attente: number) => new ErreurConnecteur("quota", "plafond_atteint", attente);
 const entierPositif = (v: unknown): number | undefined => (typeof v === "number" && Number.isInteger(v) && v > 0 ? v : undefined);
+// Un plafond du client à 0 est valide (aucun envoi) : il ne doit pas être pris pour « pas de plafond ».
+const entierPositifOuNul = (v: unknown): number | undefined => (typeof v === "number" && Number.isInteger(v) && v >= 0 ? v : undefined);
 const marge = (v: number | undefined) => (v === undefined ? undefined : Math.max(Math.floor(v * MARGE_FOURNISSEUR), 0));
 
 function suivreDemandeClient(c: ContextePlafonds, plafond: number): void {
@@ -42,14 +44,14 @@ export async function reserverEnvoi(c: ContextePlafonds): Promise<Reservation> {
   const cle: BoiteCle = { tenantId: c.tenantId, boite: c.boite };
   const limite = c.config.limites[c.fournisseur];
   try {
-    await poser(c.valkey, clePremier(cle), jour, true);
+    await poserDurable(c.valkey, clePremier(cle), jour, true);
     const premier = (await lire(c.valkey, clePremier(cle))) ?? jour;
     const dernier = await lire(c.valkey, cleDernier(cle));
     const effectif = premierJourEffectif(premier, dernier, jour);
-    if (effectif !== premier) await poser(c.valkey, clePremier(cle), effectif);
+    if (effectif !== premier) await poserDurable(c.valkey, clePremier(cle), effectif);
     const montee = plafondDeMontee(ecartJours(effectif, jour) + 1);
     const abaisse = await lireNombre(c.valkey, cleAbaisse(cle, jour));
-    const plafond = Math.min(montee, marge(entierPositif(limite?.parJour)) ?? Infinity, entierPositif(c.plafondClient) ?? Infinity, abaisse ?? Infinity);
+    const plafond = Math.min(montee, marge(entierPositif(limite?.parJour)) ?? Infinity, entierPositifOuNul(c.plafondClient) ?? Infinity, abaisse ?? Infinity);
     suivreDemandeClient(c, plafond);
     const minuteMax = marge(entierPositif(limite?.parMinute));
 
@@ -69,7 +71,7 @@ export async function reserverEnvoi(c: ContextePlafonds): Promise<Reservation> {
         throw report(Math.floor(maintenant.getTime() / 60_000) * 60_000 + 60_000);
       }
     }
-    await poser(c.valkey, cleDernier(cle), jour);
+    await poserDurable(c.valkey, cleDernier(cle), jour);
     return { cleJour: kJour, ...(kMinute === undefined ? {} : { cleMinute: kMinute }) };
   } catch (e) {
     throw e instanceof ErreurConnecteur ? e : gardeIndisponible();

@@ -2,7 +2,7 @@ import { gardeIndisponible, type ValkeyEnvois } from "./arret-urgence.ts";
 
 // Compteurs d'envois par boîte (T4-45) dans Valkey. INCR et DECR sont atomiques : la place se RÉSERVE avant l'envoi et se rend si l'envoi n'a pas eu lieu.
 // Un identifiant de boîte ou de client est validé avant de former une clé (aucune clé forgée).
-const IDENTIFIANT = /^[A-Za-z0-9_.@:-]{1,128}$/;
+const IDENTIFIANT = /^[A-Za-z0-9_.@-]{1,128}$/;
 const DEUX_JOURS_S = 2 * 86_400;
 const QUATRE_VINGT_DIX_JOURS_S = 90 * 86_400;
 
@@ -30,6 +30,10 @@ export async function lireNombre(valkey: ValkeyEnvois, cle: string): Promise<num
 }
 export async function poser(valkey: ValkeyEnvois, cle: string, valeur: string, seulementSiAbsent = false): Promise<void> {
   await valkey.call("SET", cle, valeur, ...(seulementSiAbsent ? ["NX"] : []), "EX", String(QUATRE_VINGT_DIX_JOURS_S));
+}
+// Sans durée de vie : la date du premier envoi et celle du dernier envoi servent de repère à la montée, elles ne doivent jamais expirer pendant que la boîte envoie (ni, pour le silence, avant d'être comparées).
+export async function poserDurable(valkey: ValkeyEnvois, cle: string, valeur: string, seulementSiAbsent = false): Promise<void> {
+  await valkey.call("SET", cle, valeur, ...(seulementSiAbsent ? ["NX"] : []));
 }
 // Incrémente puis, au premier passage, donne une durée de vie au compteur.
 export async function incrementer(valkey: ValkeyEnvois, cle: string, dureeS = DEUX_JOURS_S): Promise<number> {

@@ -2,13 +2,15 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { ErreurRegleMetier } from "../../instances/activer.js";
 import { lireDemandeCreation, type DemandeCreation, type ResultatCreation } from "../../instances/creer.js";
+import type { ResultatMiseAJour } from "../../instances/mettre-a-jour.js";
 import type { RapportTest } from "../../instances/test-a-blanc.js";
 import { ErreurApi } from "../../plugins/erreurs.js";
 
-// Déploiement d'une instance chez un client (T4-28b1, ADR 0125) : réservé à l'équipe, trois routes, aucune lecture, aucun PUT, PATCH ni DELETE.
+// Déploiement d'une instance chez un client (T4-28b1 et T4-28b2, ADR 0125) : réservé à l'équipe, quatre routes, aucune lecture, aucun PUT, PATCH ni DELETE.
 //   POST /api/console/v1/clients/:tenantId/instances                     : créer une instance (en pause) et sa première configuration ;
 //   POST /api/console/v1/clients/:tenantId/instances/:id/tests-a-blanc   : lancer un test à blanc ;
-//   POST /api/console/v1/clients/:tenantId/instances/:id/activation      : activer, si toutes les gardes disent oui.
+//   POST /api/console/v1/clients/:tenantId/instances/:id/activation      : activer, si toutes les gardes disent oui ;
+//   POST /api/console/v1/clients/:tenantId/instances/:id/mises-a-jour    : passer à une autre version publiée de la même automatisation (corps : version_id).
 // Fermée (503) tant que `ouvert` est faux ; branchée dans serveur.ts seulement si l'appelant la fournit (absente par défaut). `authentifier` (session d'équipe) est fourni par l'appelant
 // et refuse en levant une ErreurApi ; une session de client reçoit 403. Une instance d'un autre client répond 404 : on ne confirme jamais son existence.
 export interface DepsDeploiementInstances {
@@ -17,6 +19,7 @@ export interface DepsDeploiementInstances {
   creer(tenantId: string, acteur: string, demande: DemandeCreation): Promise<ResultatCreation>;
   tester(tenantId: string, acteur: string, instanceId: string): Promise<RapportTest>;
   activer(tenantId: string, acteur: string, instanceId: string): Promise<void>;
+  mettreAJour(tenantId: string, acteur: string, instanceId: string, versionId: string): Promise<ResultatMiseAJour>;
 }
 
 const MESSAGES_MOTIFS: Record<string, string> = {
@@ -37,6 +40,7 @@ function traduire(e: unknown): never {
 
 const Client = z.strictObject({ tenantId: z.uuid() });
 const Instance = z.strictObject({ tenantId: z.uuid(), id: z.uuid() });
+const CorpsMiseAJour = z.strictObject({ version_id: z.uuid() });
 const CorpsVide = z.strictObject({});
 const lire = <T>(schema: z.ZodType<T>, valeur: unknown): T => {
   const r = schema.safeParse(valeur);
@@ -70,6 +74,14 @@ export function routeDeploiementInstances(serveur: FastifyInstance, d: DepsDeplo
       lire(CorpsVide, requete.body ?? {});
       await d.activer(tenantId, acteur, id).catch(traduire);
       return reponse.status(200).send({ instance_id: id, etat: "active" });
+    });
+    // L'issue d'une mise à jour qui échoue est une réponse 200 : le motif est un code fermé (reglages, tables, test_a_blanc, bascule…), l'instance est restée sur l'ancienne version.
+    s.post("/api/console/v1/clients/:tenantId/instances/:id/mises-a-jour", async (requete, reponse) => {
+      const acteur = await preparer(requete);
+      const { tenantId, id } = lire(Instance, requete.params);
+      const { version_id } = lire(CorpsMiseAJour, requete.body);
+      const r = await d.mettreAJour(tenantId, acteur, id, version_id);
+      return reponse.status(200).send({ instance_id: id, ...r });
     });
   });
 }

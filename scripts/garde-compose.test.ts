@@ -190,9 +190,9 @@ describe("compteur de tests mesuré par la CI", () => {
   it("[C-538] aucun total de tests n'est plus écrit dans le dépôt", () => {
     for (const f of ["spec/compte-tests.json", "spec/compte-tests-integration.json"]) expect(existsSync(fileURLToPath(new URL(`../${f}`, import.meta.url))), f).toBe(false);
   });
-  it("[C-538] le job compter-tests mesure la base dans le même job, sans --reference ni origin/main", () => {
+  it("[C-538] le job tests mesure la base dans le même job, sans --reference ni origin/main", () => {
     const t = lire(".github/workflows/ci.yml");
-    const job = t.slice(t.indexOf("  compter-tests:"), t.indexOf("  licences:"));
+    const job = t.slice(t.indexOf("  tests:"), t.indexOf("  garde-workflows:"));
     expect(job).toMatch(/fetch-depth: 2/);
     expect(job).toMatch(/node scripts\/compter-tests\.ts rapport-tests\.json/);
     expect(job).not.toMatch(/--reference|origin\/main|fetch-depth: 0/);

@@ -3,6 +3,7 @@ import { avecClient } from "../../db/client-actif.js";
 import { cleRegroupement, depuisSante, type CauseAlerte } from "./regrouper.js";
 import type { DepotCycle } from "./cycle.js";
 import { retablirAlerte } from "./cycle.js";
+import { GRAVITE, type EtatSante } from "../sante/etat.js";
 
 // Ouverture et comptage dans la file d'alertes (T5-04b, ADR 0126). Une alerte en cours par (client, clé) ; chaque occurrence ajoute une ligne ; compteur = nombre de lignes.
 // Types « service » (C-097, C-217) : une alerte est un message de service, jamais commercial. Cette file n'importe rien de envois/exclusions.
@@ -61,12 +62,13 @@ export async function surChangementSante(
   evt: { tenantId: string; instanceId: string | null; avant: string; apres: string; raisons: readonly string[]; connecteur?: string; version?: string },
 ): Promise<void> {
   const cause = depuisSante(evt);
-  if (evt.apres === "vert") {
+  const niveau = GRAVITE[evt.apres as EtatSante];
+  if (niveau === 0) {
     await retablirAlerte(depot, notifications, evt.tenantId, cause);
     return;
   }
-  if (evt.apres !== "orange" && evt.apres !== "rouge") return;
-  const rouge = evt.apres === "rouge";
+  if (niveau === undefined) return;
+  const rouge = niveau >= GRAVITE.rouge;
   await ouvrirAlerte(depot, notifications, evt.tenantId, { type: "sante_instance", gravite: rouge ? "critique" : "avertissement", regle: rouge ? "sante_rouge" : "sante_orange", cause, instanceId: evt.instanceId });
 }
 

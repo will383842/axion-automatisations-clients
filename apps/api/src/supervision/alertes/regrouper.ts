@@ -41,9 +41,10 @@ export function depuisMesure(m: { cause: string; raison: string }): CauseAlerte 
   return { cause: code(m.cause) };
 }
 
-// Changement de santé de T5-03 : la cause est la première raison par ordre alphabétique (stable d'un relevé à l'autre).
+// Changement de santé de T5-03 : UNE cause stable par (connecteur, version), quel que soit l'état. Les raisons (liste vide au retour au vert) sont vérifiées
+// comme codes mais ne font pas la clé : sinon orange (succes_sous_95) et rouge (succes_sous_80) ouvriraient deux alertes, et le vert n'aurait plus de clé à fermer.
+export const CAUSE_SANTE = "sante_instance";
 export function depuisSante(s: { raisons: readonly string[]; connecteur?: string; version?: string }): CauseAlerte {
-  const premiere = [...s.raisons].map(code).sort()[0];
-  if (premiere === undefined) throw new ErreurRegroupement("cle_invalide");
-  return { cause: premiere, ...(s.connecteur !== undefined ? { connecteur: s.connecteur } : {}), ...(s.version !== undefined ? { version: s.version } : {}) };
+  s.raisons.forEach(code);
+  return { cause: CAUSE_SANTE, ...(s.connecteur !== undefined ? { connecteur: s.connecteur } : {}), ...(s.version !== undefined ? { version: s.version } : {}) };
 }

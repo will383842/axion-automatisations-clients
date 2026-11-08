@@ -16,15 +16,16 @@ export class ErreurCycle extends Error {
 }
 
 export interface DepotCycle {
-  retablir(tenantId: string, cle: string): Promise<{ alerteId: string } | null>;
+  retablir(tenantId: string, cle: string, instanceId?: string | null): Promise<{ alerteId: string } | null>;
   attribuer(tenantId: string, alerteId: string, acteur: string): Promise<boolean>;
   commenter(tenantId: string, alerteId: string, texte: string, acteur: string): Promise<void>;
   clore(tenantId: string, alerteId: string, raison: string, acteur: string): Promise<boolean>;
 }
 
-// Retour au vert : au plus UNE notification, envoyée après la validation de la transaction ; un rejeu ne trouve plus d'alerte en cours et n'envoie rien.
-export async function retablirAlerte(depot: DepotCycle, notifications: Notifications, tenantId: string, cause: CauseAlerte): Promise<void> {
-  const r = await depot.retablir(tenantId, cleRegroupement(cause));
+// Retour au vert d'une instance : l'alerte commune ne se ferme que quand TOUTES ses instances sont vertes (le dépôt rend null sinon, sans notification).
+// Au plus UNE notification, envoyée après la validation de la transaction ; un rejeu ne trouve plus d'alerte en cours et n'envoie rien.
+export async function retablirAlerte(depot: DepotCycle, notifications: Notifications, tenantId: string, cause: CauseAlerte, instanceId: string | null = null): Promise<void> {
+  const r = await depot.retablir(tenantId, cleRegroupement(cause), instanceId);
   if (r) await notifications.retabli(tenantId, r.alerteId);
 }
 
@@ -53,13 +54,20 @@ export function depotSqlCycle(pool: Pool): DepotCycle {
     return true;
   };
   return {
-    async retablir(tenantId, cle) {
+    async retablir(tenantId, cle, instanceId = null) {
       return avecClient(
         pool,
         tenantId,
         async (c) => {
           const a = (await c.query(`SELECT id FROM alertes WHERE tenant_id = $1 AND cle_regroupement = $2 AND ${EN_COURS} FOR UPDATE`, [tenantId, cle])).rows[0] as { id: string } | undefined;
           if (!a) return null;
+          // Une autre instance de l'alerte encore dégradée ou en panne (santé lue en base, l'instance qui revient au vert est exclue) : on laisse ouverte.
+          const autre = await c.query(
+            "SELECT 1 FROM occurrences_alertes o JOIN sante_instances s ON s.tenant_id = o.tenant_id AND s.instance_id = o.instance_id " +
+              "WHERE o.tenant_id = $1 AND o.alerte_id = $2 AND ($3::uuid IS NULL OR o.instance_id <> $3::uuid) AND s.etat IN ('degradee','en_panne') LIMIT 1",
+            [tenantId, a.id, instanceId],
+          );
+          if (autre.rows.length > 0) return null;
           await c.query("INSERT INTO clotures_alertes (tenant_id, alerte_id, raison, auteur) VALUES ($1, $2, 'retabli', 'supervision')", [tenantId, a.id]);
           await c.query("UPDATE alertes SET etat = 'close' WHERE tenant_id = $1 AND id = $2", [tenantId, a.id]);
           return { alerteId: a.id };

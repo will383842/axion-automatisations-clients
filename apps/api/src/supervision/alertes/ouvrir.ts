@@ -64,7 +64,7 @@ export async function surChangementSante(
   const cause = depuisSante(evt);
   const niveau = GRAVITE[evt.apres as EtatSante];
   if (niveau === 0) {
-    await retablirAlerte(depot, notifications, evt.tenantId, cause);
+    await retablirAlerte(depot, notifications, evt.tenantId, cause, evt.instanceId);
     return;
   }
   if (niveau === undefined) return;

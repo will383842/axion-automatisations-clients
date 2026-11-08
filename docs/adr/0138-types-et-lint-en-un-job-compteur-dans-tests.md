@@ -1,6 +1,6 @@
 # 0138 · Types et lint en un job, compteur de tests dans le job tests
 
-Date : 07/11/2026 · Statut : proposé, à accepter par l'architecte · Contrat touché : aucun · Migration : aucune · S'appuie sur : 0137
+Date : 07/11/2026 · Statut : accepté (accord de l'architecte, 08/11/2026) · Contrat touché : aucun · Migration : aucune · S'appuie sur : 0137
 
 ## Décision
 1. Les jobs `types` et `lint` de `ci.yml` deviennent un seul job `types-lint` ; le lint a `if: always()`.

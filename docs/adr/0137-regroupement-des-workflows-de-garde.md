@@ -1,6 +1,6 @@
 # 0137 · Regroupement des workflows de garde
 
-Date : 07/11/2026 · Statut : proposé, à accepter par l'architecte · Contrat touché : aucun · Migration : aucune
+Date : 07/11/2026 · Statut : accepté (accord de l'architecte, 08/11/2026) · Contrat touché : aucun · Migration : aucune
 
 ## Contexte
 - Chaque push de PR lançait 33 jobs ; la file GitHub est partagée par toutes les sessions et les petites gardes coûtaient chacune une installation complète.

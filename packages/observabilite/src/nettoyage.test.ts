@@ -107,3 +107,21 @@ describe("observabilite : nettoyage complet (solde des dettes de 13a)", () => {
     expect(sortie).not.toContain(b64);
   });
 });
+
+describe("observabilite : dettes de la PR 13b-1 reportées en 13b-2", () => {
+  it("[LOT5-secret] le masqueur injecté passe avant les motifs : un secret que les motifs couperaient en deux est masqué en entier", () => {
+    // Un secret qui contient un espace : le motif « s.… » en prendrait la première moitié et laisserait la suite en clair.
+    const suite = randomUUID();
+    const mdp = `s.${jetonOpaque()} suite-${suite}`;
+    const masquerSecrets = (t: string) => t.replaceAll(mdp, "[masqué]");
+    const sortie = JSON.stringify(nettoyer({ message: `échec ${mdp}`, exception: { values: [{ type: "E", value: `échec ${mdp}` }] } }, { masquerSecrets }));
+    expect(sortie).not.toContain(suite);
+  });
+
+  it("[C-025] une adresse illisible est coupée au premier ? ou # avant tout découpage en segments", () => {
+    const jeton = jetonOpaque();
+    expect(routeDe(`http://[illisible/api/x?jeton=${jeton}`)).toBe("http://[illisible/api/x");
+    expect(routeDe(`http://[illisible/api/x#${jeton}`)).toBe("http://[illisible/api/x");
+    expect(routeDe(`/api/x?a=/reinit/${jeton}#f`)).toBe("/api/x");
+  });
+});

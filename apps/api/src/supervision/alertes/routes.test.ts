@@ -2,7 +2,7 @@ import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import { beforeEach, describe, expect, it } from "vitest";
 import { ErreurApi, brancherErreurs } from "../../plugins/erreurs.js";
 import { routeFileAlertes, type DepsFileAlertes, type LigneAlerte } from "./routes.js";
-import { ErreurCycle, type DepotCycle } from "./cycle.js";
+import type { DepotCycle } from "./cycle.js";
 import type { DepsDroits, MembreDroits } from "../../droits/exiger-droit.js";
 
 const T1 = "11111111-1111-4111-8111-111111111111";

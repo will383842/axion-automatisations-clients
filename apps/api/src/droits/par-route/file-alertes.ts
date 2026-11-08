@@ -1,6 +1,6 @@
 import type { Action } from "../matrice.js";
 
-// T5-04c : file d'alertes de l'équipe (routes fermées par défaut). Le rôle « lecteur » est refusé en écriture par la route elle-même.
+// T5-04c : file d'alertes de l'équipe (routes fermées par défaut). Chaque route pose exigerDroit : la portée du second administrateur est vérifiée (hors portée = 404).
 export default {
   "GET /api/console/v1/alertes": "lire",
   "POST /api/console/v1/alertes/:id/attribuer": "modifier_reglages",

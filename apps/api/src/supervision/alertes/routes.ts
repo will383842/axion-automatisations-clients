@@ -2,12 +2,16 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { Pool } from "pg";
 import { z } from "zod";
 import { avecEquipe } from "../../db/client-actif.js";
+import { exigerDroit, type DepsDroits, type MembreDroits } from "../../droits/exiger-droit.js";
+import type { Action } from "../../droits/matrice.js";
+import { couvreTousLesClients, dansPortee } from "../../droits/portee.js";
 import { ErreurApi } from "../../plugins/erreurs.js";
 import { attribuer, clore, commenter, ErreurCycle, type DepotCycle } from "./cycle.js";
 import { ErreurRegles, GRAVITES_REGLE, reglerRegle, type DepotRegles } from "./regles.js";
 
 // File d'alertes de l'équipe (T5-04c, B-030, B-031) : cinq routes, équipe SEULE, fermées (503) tant que `ouvert` est faux (SUPERVISION_ALERTES_OUVERTE).
-// Ordre fixe : porte (503), équipe (403), rôle d'écriture (403), paramètres (400), alerte inconnue (404), puis le métier (422).
+// Ordre fixe : porte (503), équipe (403), droit de la matrice (403), portée du client (404), paramètres (400), alerte inconnue (404), puis le métier (422).
+// Droits : « lire » pour la liste, « modifier_reglages » pour attribuer, commenter, clore et régler (droits/par-route/file-alertes.ts). Le second administrateur ne lit et n'agit que sur les clients de sa portée ; hors portée = 404, comme une alerte inconnue.
 // Le client d'une alerte est TOUJOURS lu en base (tenantDe), jamais pris du corps, d'un en-tête ou de l'adresse. Aucune ligne ne porte de contenu : codes, compteur, dates.
 export interface LigneAlerte {
   id: string;
@@ -30,6 +34,7 @@ export interface FiltreAlertes {
   client?: string | undefined;
   responsable?: string | undefined;
   etat?: string | undefined;
+  clients?: string[] | undefined; // portée du second administrateur : absent = tous les clients
   limite: number;
   curseur?: CurseurAlerte;
 }
@@ -40,12 +45,12 @@ export interface LectureAlertes {
 export interface DepsFileAlertes {
   ouvert: boolean;
   authentifier(requete: FastifyRequest): Promise<{ acteur: string; role: string }>;
+  droits: DepsDroits;
   lire: LectureAlertes;
   cycle: DepotCycle;
   regles: DepotRegles;
 }
 
-const ROLES_LECTURE_SEULE = new Set(["lecteur"]);
 const Gravite = z.enum(GRAVITES_REGLE);
 const Requete = z.strictObject({
   gravite: Gravite.optional(),
@@ -88,17 +93,40 @@ const regleMetier = (e: unknown): never => {
 
 export function routeFileAlertes(serveur: FastifyInstance, d: DepsFileAlertes): void {
   void serveur.register(async (s) => {
-    const preparer = async (requete: FastifyRequest, ecriture: boolean) => {
+    // Le client visé est lu en base AVANT le crochet de droit (qui le lit par `client`), mais sans jamais répondre : le crochet décide (403 avant 404).
+    const cibles = new WeakMap<FastifyRequest, string>();
+    const membres = new WeakMap<FastifyRequest, MembreDroits | undefined>();
+    const porte = async () => {
       if (!d.ouvert) throw new ErreurApi("porte_fermee", "Service indisponible.");
-      const session = await d.authentifier(requete);
-      if (ecriture && ROLES_LECTURE_SEULE.has(session.role)) throw new ErreurApi("action_interdite", "Action interdite.");
-      return session.acteur;
     };
+    const equipe = async (requete: FastifyRequest) => {
+      const session = await d.authentifier(requete);
+      membres.set(requete, await d.droits.membre(requete).catch(() => undefined));
+      sessions.set(requete, session.acteur);
+    };
+    const sessions = new WeakMap<FastifyRequest, string>();
+    const alerte = async (requete: FastifyRequest) => {
+      const id = Id.safeParse(requete.params);
+      const tenant = id.success ? await d.lire.tenantDe(id.data.id).catch(() => null) : null;
+      cibles.set(requete, tenant ?? "");
+    };
+    // Liste : le client demandé, sinon un client de la portée (le filtre par portée est posé dans la lecture elle-même).
+    const liste = async (requete: FastifyRequest) => {
+      const demande = (requete.query as Record<string, unknown> | undefined)?.["client"];
+      cibles.set(requete, typeof demande === "string" ? demande : (membres.get(requete)?.portee.clients[0] ?? ""));
+    };
+    const droit = (action: Action, o: { globale: string } | { client: (r: FastifyRequest) => unknown }) => exigerDroit(action, d.droits, o);
+    const parClient = { client: (r: FastifyRequest) => cibles.get(r) };
+    const avant = [porte, equipe] as const;
+    const lectureListe = { preHandler: [...avant, liste, droit("lire", parClient)] };
+    const surAlerteRoute = { preHandler: [...avant, alerte, droit("modifier_reglages", parClient)] };
+    const regle = { preHandler: [...avant, droit("modifier_reglages", { globale: "Règles d'alerte communes à tous les clients." })] };
+    const acteurDe = (requete: FastifyRequest): string => sessions.get(requete) ?? "";
     // Une écriture sur une alerte : identifiant valide, client lu en base (404 sinon), corps vérifié, puis le métier.
     const surAlerte = async <C>(requete: FastifyRequest, corps: z.ZodType<C>, fn: (o: { tenantId: string; id: string; acteur: string; corps: C }) => Promise<unknown>) => {
-      const acteur = await preparer(requete, true);
+      const acteur = acteurDe(requete);
       const { id } = lire(Id, requete.params);
-      const tenantId = await d.lire.tenantDe(id);
+      const tenantId = cibles.get(requete);
       if (!tenantId) throw new ErreurApi("introuvable", "Ressource introuvable.");
       const c = lire(corps, requete.body ?? {});
       try {
@@ -109,28 +137,30 @@ export function routeFileAlertes(serveur: FastifyInstance, d: DepsFileAlertes): 
       return id;
     };
 
-    s.get("/api/console/v1/alertes", async (requete) => {
-      await preparer(requete, false);
+    s.get("/api/console/v1/alertes", lectureListe, async (requete) => {
       const q = lire(Requete, requete.query);
       const { curseur, ...reste } = q;
-      const lignes = await d.lire.liste({ ...reste, limite: q.limite + 1, ...(curseur ? { curseur: decoder(curseur) } : {}) });
+      const membre = membres.get(requete);
+      const clients = membre && !couvreTousLesClients(membre) ? membre.portee.clients : undefined; // second administrateur : seulement ses clients
+      const lues = await d.lire.liste({ ...reste, ...(clients ? { clients } : {}), limite: q.limite + 1, ...(curseur ? { curseur: decoder(curseur) } : {}) });
+      const lignes = membre && clients ? lues.filter((l) => dansPortee(membre, l.client)) : lues; // ceinture : une ligne hors portée ne sort jamais, quoi que rende la lecture
       const page = lignes.slice(0, q.limite);
       return { alertes: page.map(projeter), curseur_suivant: lignes.length > q.limite ? encoder(page[page.length - 1]!) : null };
     });
-    s.post("/api/console/v1/alertes/:id/attribuer", async (requete) => {
+    s.post("/api/console/v1/alertes/:id/attribuer", surAlerteRoute, async (requete) => {
       const id = await surAlerte(requete, CorpsVide, (o) => attribuer(d.cycle, o.tenantId, o.id, o.acteur)); // l'acteur vient de la session, jamais du corps
       return { alerte_id: id, etat: "acquittee" };
     });
-    s.post("/api/console/v1/alertes/:id/commenter", async (requete, reponse) => {
+    s.post("/api/console/v1/alertes/:id/commenter", surAlerteRoute, async (requete, reponse) => {
       const id = await surAlerte(requete, CorpsCommentaire, (o) => commenter(d.cycle, o.tenantId, o.id, o.corps.texte as string, o.acteur));
       return reponse.status(201).send({ alerte_id: id });
     });
-    s.post("/api/console/v1/alertes/:id/clore", async (requete) => {
+    s.post("/api/console/v1/alertes/:id/clore", surAlerteRoute, async (requete) => {
       const id = await surAlerte(requete, CorpsClore, (o) => clore(d.cycle, o.tenantId, o.id, o.corps.raison ?? "", o.acteur)); // sans motif : refusé par clore (422)
       return { alerte_id: id, etat: "close" };
     });
-    s.put("/api/console/v1/regles-alertes/:id", async (requete) => {
-      const acteur = await preparer(requete, true);
+    s.put("/api/console/v1/regles-alertes/:id", regle, async (requete) => {
+      const acteur = acteurDe(requete);
       const { id } = lire(Id, requete.params);
       const reglage = lire(CorpsRegle, requete.body);
       try {
@@ -155,6 +185,7 @@ export function depotSqlLecture(poolEquipe: Pool): LectureAlertes {
         const ajoute = (cond: string, ...v: unknown[]) => (ou.push(cond.replace(/\?/g, () => `$${p.push(v.shift()) }`)));
         if (f.gravite) ajoute("a.gravite = ?", f.gravite);
         if (f.client) ajoute("a.tenant_id = ?", f.client);
+        if (f.clients) ajoute("a.tenant_id = ANY(?::uuid[])", f.clients.filter((c) => /^[0-9a-f-]{36}$/i.test(c)));
         if (f.responsable) ajoute("a.assignee_a = ?", f.responsable);
         if (f.etat) ajoute("a.etat = ?", f.etat);
         if (f.curseur) ajoute("(a.cree_le, a.tenant_id, a.id) > (?::timestamptz, ?::uuid, ?::uuid)", f.curseur.creeLe, f.curseur.tenantId, f.curseur.id);

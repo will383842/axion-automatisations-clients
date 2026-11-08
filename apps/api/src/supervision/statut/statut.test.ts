@@ -1,8 +1,8 @@
 import { createHmac } from "node:crypto";
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify from "fastify";
 import { describe, expect, it } from "vitest";
 import { brancherErreurs } from "../../plugins/erreurs.js";
-import { exigerEquipeParRole } from "../../serveur.js";
+import type { DepsDroits, MembreDroits } from "../../droits/exiger-droit.js";
 import { routeStatut, type DepsStatut } from "./routes.js";
 import { routeSonde, type DepsSonde } from "./sonde.js";
 import type { Incident, MessageStatut } from "./page.js";
@@ -10,6 +10,16 @@ import type { Incident, MessageStatut } from "./page.js";
 // T5-12b : page d'état publique, routes de gestion et signal de la sonde extérieure. Aucun Docker, aucun réseau.
 const MAINTENANT = Date.parse("2026-11-08T10:00:00Z");
 type Session = { equipe: boolean; role: string };
+// Droits de la matrice (T3-06) : seul le dirigeant a « page_etat » ; un client n'est pas un membre de l'équipe (aucun membre).
+const droitsDe = (session: Session): DepsDroits => ({
+  async membre() {
+    if (session.role === "dirigeant") return { sujet: "membre-1", role: "dirigeant", actif: true, portee: { clients: [], automatisations: [] } } satisfies MembreDroits;
+    if (session.role === "second_administrateur") return { sujet: "membre-2", role: "second_administrateur", actif: true, portee: { clients: ["*"], automatisations: [] } } satisfies MembreDroits;
+    return undefined;
+  },
+  async absenceOuverte() { return false; },
+  async tracer() {},
+});
 
 function monterStatut(session: Session, extra: { incidents?: Incident[]; ouvert?: boolean } = {}) {
   const app = Fastify();
@@ -17,9 +27,7 @@ function monterStatut(session: Session, extra: { incidents?: Incident[]; ouvert?
   let message: MessageStatut | null = null;
   const d: DepsStatut = {
     ouvert: () => extra.ouvert ?? true,
-    exigerEquipe: async function (this: FastifyInstance, requete, reponse) {
-      await exigerEquipeParRole(async () => session).call(this, requete, reponse);
-    },
+    droits: droitsDe(session),
     etatsBriques: async () => ({ api: "haut", console: "haut", portail: "haut", greenmail: "haut", "passerelle-ia": "bas", "wal-test-bertin": "bas" }),
     incidents: async () => extra.incidents ?? [],
     depot: { lire: async () => message, ecrire: async (m) => { message = m; } },
@@ -78,6 +86,28 @@ describe("page d'état publique", () => {
     expect((await client.inject({ method: "GET", url: "/api/console/v1/statut" })).statusCode).toBe(403);
   });
 
+  it("[B-016] le second administrateur, même sur tous les clients, n'a pas le droit page_etat : GET et PUT console → 403", async () => {
+    const second = monterStatut({ equipe: true, role: "second_administrateur" });
+    expect((await second.inject({ method: "GET", url: "/api/console/v1/statut" })).statusCode).toBe(403);
+    const refus = await second.inject({ method: "PUT", url: "/api/console/v1/statut", payload: { type: "maintenance", texte: "Maintenance ce soir à 22 h." } });
+    expect(refus.statusCode).toBe(403);
+    const lu = await second.inject({ method: "GET", url: "/api/public/v1/statut" });
+    expect(lu.json().message).toBeNull();
+  });
+
+  it("[C-565] un incident sans composant public n'est pas publié (ni heure de début, ni gravité)", async () => {
+    const app = monterStatut({ equipe: false, role: "client" }, {
+      incidents: [
+        { id: "i1", gravite: "critique", debut: "2026-11-08T09:12:00Z" },
+        { id: "i2", gravite: "majeure", debut: "2026-11-08T09:13:00Z", composant: "passerelle-ia" },
+        { id: "i3", gravite: "mineure", debut: "2026-11-08T09:30:00Z", composant: "Messagerie" },
+      ],
+    });
+    const r = await app.inject({ method: "GET", url: "/api/public/v1/statut" });
+    expect(r.json().incidents).toEqual([{ composant: "Messagerie", debut: "2026-11-08T09:30:00Z", gravite: "mineure" }]);
+    for (const interdit of ["09:12", "09:13", "passerelle-ia", "critique"]) expect(r.body).not.toContain(interdit);
+  });
+
   it("[B-016] le message refuse une adresse IP, un nom d'hôte interne, un texte vide ou trop long, et la route est fermée par défaut", async () => {
     const app = monterStatut({ equipe: true, role: "dirigeant" });
     for (const texte of ["Panne sur 10.0.0.12", "Voir api.interne", "", "a".repeat(281)]) {
@@ -93,7 +123,7 @@ function monterDeps(): DepsStatut {
   let message: MessageStatut | null = null;
   return {
     ouvert: () => true,
-    exigerEquipe: (async () => undefined) as never,
+    droits: droitsDe({ equipe: true, role: "dirigeant" }),
     etatsBriques: async () => ({}),
     incidents: async () => [],
     depot: { lire: async () => message, ecrire: async (m) => { message = m; } },

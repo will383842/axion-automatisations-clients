@@ -13,6 +13,7 @@ import { PREFIXE } from "./files/files.js";
 import { executerTache, type Resultat } from "./provisionnement/machine.js";
 import type { OptionsBranchements } from "./routes/branchement.js";
 import { BRANCHEMENTS } from "./routes/registre-branchements.js";
+import { brancherGardePortail, type DepsGardePortail } from "./portail/garde.js";
 
 // journal : flux qui masque les secrets (plugins/journal.ts) ; les sérialiseurs (journal/serialiseur-req.ts) retirent la partie « ?… » de l'adresse, l'hôte et l'IP (base: {} retire aussi le nom de la machine). Sans flux, aucun journal n'est écrit (interrupteur fermé).
 // exigerEquipe de la route de reprise du provisionnement (A-224) : une session d'équipe est exigée, et les rôles « lecteur » et « qualifieur » sont refusés même dans l'équipe.
@@ -35,12 +36,14 @@ export function creerTravailleurProvisionnement(o: {
 
 // Une route s'inscrit par un fichier neuf dans routes/branchements/ (ADR 0139) : sa clé et ses dépendances viennent de là, fermées par défaut.
 // Une clé absente (ou fausse) ne branche rien : la route n'existe pas.
-export type OptionsServeur = { config?: Config; pool?: pg.Pool; journal?: { write(ligne: string): void } } & Partial<OptionsBranchements>;
+export type OptionsServeur = { config?: Config; pool?: pg.Pool; journal?: { write(ligne: string): void }; portail?: DepsGardePortail } & Partial<OptionsBranchements>;
 export function construireServeur(options: OptionsServeur = {}) {
   // id_trace : toujours choisi par le serveur, l'en-tête du client est ignoré.
   const serveur = Fastify({ genReqId: () => randomUUID(), requestIdHeader: false, ...(options.journal ? { logger: { level: "info", stream: options.journal, base: {}, serializers: serialiseursJournal } } : {}) });
   brancherErreurs(serveur);
   brancherBase(serveur, options.pool);
+  // Garde de l'API du portail (T6-02b) : posée AVANT toute route (les crochets ne couvrent que les routes inscrites après) ; fermée par défaut, absente sans `portail`.
+  if (options.portail) brancherGardePortail(serveur, options.portail);
   // Le registre est lu une fois, trié par nom de fichier ; `toujours` = branché d'office (santé), sinon seulement si l'appelant fournit la clé.
   for (const b of BRANCHEMENTS) {
     const sv = b.serveur;

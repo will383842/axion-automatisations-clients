@@ -190,6 +190,13 @@
       "when": 1794079943324,
       "tag": "0030_fin_de_contrat_une_par_client",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1794083543324,
+      "tag": "0041_rapports_mensuels_ecriture",
+      "breakpoints": true
     }
   ]
 }

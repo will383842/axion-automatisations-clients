@@ -4,7 +4,6 @@ import { fastifyVide } from "../../../../../scripts/liste-routes.js";
 import { routeListeCatalogue, type DepsListeCatalogue } from "./liste.js";
 
 // Routes de la liste du catalogue (T3-40a) : fermées par défaut, droit « lire » pour l'équipe, synonymes réservés au dirigeant.
-const AUTO = "00000000-0000-4000-8000-000000000001";
 let role = "dirigeant";
 const traces: string[] = [];
 const appels: string[] = [];

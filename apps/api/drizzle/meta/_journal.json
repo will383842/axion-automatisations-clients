@@ -183,6 +183,13 @@
       "when": 1794039292475,
       "tag": "0029_file_d_alertes",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1794079943324,
+      "tag": "0030_fin_de_contrat_une_par_client",
+      "breakpoints": true
     }
   ]
 }

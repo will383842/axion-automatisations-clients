@@ -11,6 +11,7 @@ const MAINTENANT = Date.parse("2026-11-08T10:00:00Z");
 const CLE = Buffer.from("cle-de-sonde-pour-essai-seulement");
 const SESSIONS: Record<string, string> = { "sid-equipe": "dirigeant" };
 let appels = 0;
+let incidentsOuverts = 0;
 let appli: ReturnType<typeof fastifyVide>;
 
 beforeAll(async () => {
@@ -36,7 +37,7 @@ beforeAll(async () => {
   routeSonde(appli, {
     ouvert: () => true,
     cles: async () => compte([{ secret: CLE }]),
-    ouvrirIncident: async () => compte({ id: "inc-1", nouveau: true }),
+    ouvrirIncident: async () => { incidentsOuverts++; return { id: "inc-1", nouveau: true }; },
     maintenant: () => MAINTENANT,
   });
   await appli.ready();
@@ -77,7 +78,6 @@ describe("mauvais client : page d'état et sonde", () => {
   it("[C-536] @isolation POST /api/public/v1/sonde", async () => {
     // Publique mais signée : sans signature valide, la même réponse 401 pour tous, et aucun incident n'est ouvert.
     const corps = JSON.stringify({ etat: "injoignable" });
-    const avant = appels;
     const h = String(Math.floor(MAINTENANT / 1000));
     const faux = createHmac("sha256", Buffer.from("autre")).update(`${h}.${corps}`).digest("hex");
     const rep = [];
@@ -86,6 +86,6 @@ describe("mauvais client : page d'état et sonde", () => {
       rep.push(r.statusCode);
     }
     expect(rep).toEqual([401, 401, 401]);
-    expect(appels - avant).toBe(3); // seule la lecture des clés (jamais l'ouverture d'un incident)
+    expect(incidentsOuverts).toBe(0); // aucun incident ouvert sans signature valide
   });
 });

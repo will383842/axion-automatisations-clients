@@ -13,7 +13,7 @@ export interface DepotStatut {
 export interface PagePublique {
   composants: Array<{ nom: ComposantPublic; etat: EtatComposant }>;
   message: MessageStatut | null;
-  incidents: Array<{ composant: ComposantPublic | null; debut: string; gravite: Incident["gravite"] }>;
+  incidents: Array<{ composant: ComposantPublic; debut: string; gravite: Incident["gravite"] }>;
 }
 
 // Le message est écrit par l'équipe puis publié : on refuse tout ce qui ressemble à une adresse IP ou à un hôte interne.
@@ -30,9 +30,12 @@ export function validerMessage(corps: unknown): MessageStatut {
 
 export function construirePage(briques: Readonly<Record<string, EtatBrique>>, incidents: readonly Incident[], message: MessageStatut | null): PagePublique {
   const etats = etatsComposants(briques);
-  const visibles = incidents.map((i) => ({ composant: estComposantPublic(i.composant) ? i.composant : null, debut: i.debut, gravite: i.gravite }));
-  for (const i of visibles) {
-    if (i.composant) etats[i.composant] = pire(etats[i.composant], i.gravite === "critique" ? "panne" : "degrade");
+  // Un incident sans composant public (brique interne, composant inconnu) n'est PAS publié : ni son heure de début ni sa gravité ne sortent.
+  const visibles: PagePublique["incidents"] = [];
+  for (const i of incidents) {
+    if (!estComposantPublic(i.composant)) continue;
+    visibles.push({ composant: i.composant, debut: i.debut, gravite: i.gravite });
+    etats[i.composant] = pire(etats[i.composant], i.gravite === "critique" ? "panne" : "degrade");
   }
   return { composants: COMPOSANTS_PUBLICS.map((nom) => ({ nom, etat: etats[nom] })), message, incidents: visibles };
 }

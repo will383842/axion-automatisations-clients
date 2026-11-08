@@ -7,6 +7,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { controlerInvariants, type Requete } from "../../../../packages/contrats/src/c5/invariants.js";
 import { avecClient } from "./client-actif.js";
 import { migrer } from "./migrer.js";
+import { ecrirePreference, lirePreferences } from "../portail/notifications.js";
 
 // Migration 0025 (T6-01a) : tables du portail dans console. Socle lancé par ops/socle/lancer.sh (job socle-integration).
 // Les essais tournent en parallèle sur une base partagée : identifiants tirés au hasard.
@@ -141,5 +142,25 @@ describe("migration 0025 : tables du portail, avec le socle", { timeout: 120_000
   it("[LOT6-tables] invariants C5 sans écart après la migration", async () => {
     const ecarts = await controlerInvariants(requete, "console", OPTIONS);
     expect(ecarts.filter((e) => /progression_premiers_pas|preferences_notifications|invitations|accords_logo|compteurs_ecrans/.test(e.objet))).toEqual([]);
+  });
+
+  it("[B-186] l'écriture d'une préférence pose acteur et maj_le, et une seconde écriture met à jour la même ligne", async () => {
+    const A = randomUUID();
+    const utilisateur = randomUUID();
+    await creerOrg(A);
+    await ecrire(app, A, (c) => ecrirePreference(c, A, utilisateur, "brouillonEnAttente", false), { acteur: utilisateur });
+    await ecrire(app, A, (c) => ecrirePreference(c, A, utilisateur, "brouillonEnAttente", true), { acteur: utilisateur });
+    const lignes = await ecrire(app, A, async (c) => (await c.query("SELECT activee FROM preferences_notifications WHERE utilisateur = $1 AND cle_envoi = 'brouillon_en_attente'", [utilisateur])).rows);
+    expect(lignes).toEqual([{ activee: true }]);
+  });
+
+  it("[B-141] un utilisateur ne lit pas les préférences d'un collègue du même client", async () => {
+    const A = randomUUID();
+    const u1 = randomUUID();
+    const u2 = randomUUID();
+    await creerOrg(A);
+    await ecrire(app, A, (c) => ecrirePreference(c, A, u2, "rapportMensuel", false), { acteur: u2 });
+    expect(await ecrire(app, A, (c) => lirePreferences(c, A, u1))).toEqual({ desactivees: [], resumeHebdomadaire: false });
+    expect((await ecrire(app, A, (c) => lirePreferences(c, A, u2))).desactivees).toEqual(["rapportMensuel"]);
   });
 });

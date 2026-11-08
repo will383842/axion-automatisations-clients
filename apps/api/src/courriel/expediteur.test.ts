@@ -1,7 +1,9 @@
 import { randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { TABLE_ENVOIS, type Envoi } from "../../../../packages/contrats/src/notifications/table.js";
-import { creerExpediteur, type Message, type Trace, type Transport } from "./expediteur.js";
+import { CATALOGUE_EMAILS, type TexteEmail } from "../../../../packages/contrats/src/messages/catalogue.js";
+import { creerClicEquipe } from "./clic-equipe.js";
+import { creerExpediteur, EnvoiRefuse, type Message, type Trace, type Transport } from "./expediteur.js";
 import { creerTransportZeptoMail } from "./zeptomail.js";
 import { chargerConfig } from "../config.js";
 import { createHmac } from "node:crypto";
@@ -110,7 +112,7 @@ describe("adresse du destinataire (attaque 3)", () => {
     expect(envoyes.map((m) => m.a)).toEqual([ADRESSES.will]);
   });
 
-  it("[A-116] un rôle client est refusé jusqu'au lot 6, même avec une clé qui le prévoit", async () => {
+  it("[A-116] le rôle client reste refusé par envoyer (chemin de l'équipe)", async () => {
     const { expediteur, envoyes } = monterConfigure(["envoi.rapportMensuel"]);
     await expect(expediteur.envoyer("rapportMensuel", "administrateur_client", {})).rejects.toThrow(/destinataire/);
     expect(envoyes).toHaveLength(0);
@@ -168,5 +170,119 @@ describe("clé d'envoi ZeptoMail", () => {
     const lecteur = { async lire(nom: string) { lus.push(nom); return marqueur; } };
     await creerTransportZeptoMail({ lecteur, fetch, de: "service@exemple.fr" });
     expect(lus).toEqual(["plateforme/zeptomail"]);
+  });
+});
+
+// Chemin des clients (envoyerAuClient) : ports en mémoire, adresses @exemple.fr, copie du catalogue (jamais le vrai modifié).
+describe("expéditeur des clients", () => {
+  const ORIGINE = "https://portail.exemple.test";
+  const CLIENT = "11111111-1111-4111-8111-111111111111";
+  const AUTRE_CLIENT = "22222222-2222-4222-8222-222222222222";
+  const U1 = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const ROLE = { tenantId: CLIENT, role: "administrateur_client" as const };
+  const valide = (cle: string, validation: TexteEmail["validation"] = { will: "2000-01-01" }): TexteEmail => ({ ...CATALOGUE_EMAILS[`email.${cle}` as keyof typeof CATALOGUE_EMAILS], validation });
+  const vars = (t: TexteEmail) => Object.fromEntries(t.variables.map((v) => [v, v.startsWith("lien") ? `${ORIGINE}/x` : "valeur"]));
+
+  function monterClient(o: { ouverts?: string[]; adresses?: { utilisateur: string; adresse: string }[] | null; conditions?: boolean | null; validation?: TexteEmail["validation"]; domainesRefuses?: string[] } = {}) {
+    const envoyes: Message[] = [];
+    const traces: Trace[] = [];
+    const appels: string[] = [];
+    const adresses = o.adresses === undefined ? [{ utilisateur: U1, adresse: "client@exemple.fr" }] : o.adresses;
+    const textes = Object.fromEntries(Object.keys(CATALOGUE_EMAILS).map((k) => [k, valide(k.slice(6), o.validation ?? { will: "2000-01-01" })]));
+    const expediteur = creerExpediteur({
+      table: TABLE,
+      transport: { async envoyer(m) { envoyes.push(m); } },
+      interrupteurs: { ouvert: (nom) => (o.ouverts ?? ["envoi.relanceImpaye", "envoi.lienReconnexion", "envoi.cestParti", "envoi.notificationViolation"]).includes(nom) },
+      trace: { ecrire: (t) => void traces.push(t) },
+      adresses: {},
+      cleTrace: CLE_TRACE_TEST,
+      textes,
+      originePortail: ORIGINE,
+      preferences: { async coupee() { return false; } },
+      ...(o.domainesRefuses ? { domainesRefuses: o.domainesRefuses } : {}),
+      ...(adresses ? { annuaire: { async destinataires() { appels.push("annuaire"); return adresses; } } } : {}),
+      ...(o.conditions === null ? {} : { conditions: { async verifier() { return o.conditions ?? true; } } }),
+    });
+    return { expediteur, envoyes, traces, appels };
+  }
+  const envoyerClient = (e: ReturnType<typeof monterClient>["expediteur"], cle: string, ...reste: [clic?: ReturnType<typeof creerClicEquipe>]) =>
+    e.envoyerAuClient(cle, ROLE, vars(valide(cle)), ...reste);
+
+  it("[C-557] un envoi « d'un clic de Will » appelé par une tâche automatique (sans preuve de clic) est refusé, 0 envoi", async () => {
+    const { expediteur, envoyes } = monterClient();
+    await expect(envoyerClient(expediteur, "relanceImpaye")).rejects.toBeInstanceOf(EnvoiRefuse);
+    expect(envoyes).toHaveLength(0);
+    await envoyerClient(expediteur, "relanceImpaye", creerClicEquipe({ role: "will", acteur: "acteur-1" }, "relanceImpaye"));
+    expect(envoyes).toHaveLength(1);
+    await expect(envoyerClient(expediteur, "relanceImpaye", creerClicEquipe({ role: "will", acteur: "acteur-1" }, "nonPaiement30Jours"))).rejects.toThrow();
+    expect(envoyes).toHaveLength(1);
+  });
+
+  it("[C-557] un texte « a_valider » est refusé même interrupteur ouvert, trace refuse, 0 envoi", async () => {
+    const { expediteur, envoyes, traces } = monterClient({ validation: "a_valider" });
+    await expect(envoyerClient(expediteur, "cestParti")).rejects.toThrow(/non validé/);
+    expect(envoyes).toHaveLength(0);
+    expect(traces.at(-1)?.resultat).toBe("refuse");
+  });
+
+  it("[C-557] interrupteur fermé : trace coupe, l'annuaire n'est pas interrogé", async () => {
+    const { expediteur, envoyes, traces, appels } = monterClient({ ouverts: [] });
+    await envoyerClient(expediteur, "cestParti");
+    expect(envoyes).toHaveLength(0);
+    expect(appels).toEqual([]);
+    expect(traces.map((t) => t.resultat)).toEqual(["coupe"]);
+  });
+
+  it("[C-557] annuaire absent ou vide : refus, 0 envoi", async () => {
+    for (const adresses of [null, []]) {
+      const { expediteur, envoyes } = monterClient({ adresses });
+      await expect(envoyerClient(expediteur, "cestParti")).rejects.toBeInstanceOf(EnvoiRefuse);
+      expect(envoyes).toHaveLength(0);
+    }
+  });
+
+  it("[C-557] l'adresse vient de l'annuaire du client demandé, jamais de l'appelant (objet forgé à la place du rôle : refus)", async () => {
+    const { expediteur, envoyes } = monterClient();
+    const forge = { tenantId: CLIENT, role: { role: "administrateur_client", adresse: "pirate@exemple.fr" } } as never;
+    await expect(expediteur.envoyerAuClient("cestParti", forge, vars(valide("cestParti")))).rejects.toThrow();
+    await expect(expediteur.envoyerAuClient("cestParti", { tenantId: "pas-un-uuid", role: "administrateur_client" }, vars(valide("cestParti")))).rejects.toThrow();
+    await expect(expediteur.envoyerAuClient("cestParti", { tenantId: CLIENT, role: "collegue_invite" }, vars(valide("cestParti")))).rejects.toThrow();
+    expect(envoyes).toHaveLength(0);
+    await expediteur.envoyerAuClient("cestParti", { tenantId: AUTRE_CLIENT, role: "administrateur_client" }, vars(valide("cestParti")));
+    expect(envoyes.map((m) => m.a)).toEqual(["client@exemple.fr"]);
+  });
+
+  it("[C-557] un domaine de la liste de refus n'est jamais servi (exemple-refuse.test)", async () => {
+    const { expediteur, envoyes } = monterClient({ adresses: [{ utilisateur: U1, adresse: "a@exemple-refuse.test" }, { utilisateur: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", adresse: "b@exemple.fr" }], domainesRefuses: ["exemple-refuse.test"] });
+    await envoyerClient(expediteur, "cestParti");
+    expect(envoyes.map((m) => m.a)).toEqual(["b@exemple.fr"]);
+  });
+
+  it("[C-557] lienReconnexion avec un incident ouvert sur le connecteur : 0 envoi", async () => {
+    const { expediteur, envoyes } = monterClient({ conditions: false });
+    await envoyerClient(expediteur, "lienReconnexion");
+    expect(envoyes).toHaveLength(0);
+  });
+
+  it("[C-557] lienReconnexion sans port Conditions : refus", async () => {
+    const { expediteur, envoyes } = monterClient({ conditions: null });
+    await expect(envoyerClient(expediteur, "lienReconnexion")).rejects.toBeInstanceOf(EnvoiRefuse);
+    expect(envoyes).toHaveLength(0);
+  });
+
+  it("[C-557] la trace porte le client et l'adresse hachée, jamais l'adresse ni le texte", async () => {
+    const { expediteur, traces } = monterClient();
+    await envoyerClient(expediteur, "cestParti");
+    const ligne = JSON.stringify(traces);
+    expect(traces[0]).toMatchObject({ cle: "cestParti", client: CLIENT, resultat: "envoye" });
+    expect(ligne).not.toContain("client@exemple.fr");
+    expect(ligne).not.toContain("AXION IA");
+    expect(traces[0]!.destinataireHache).toBe(createHmac("sha256", CLE_TRACE_TEST).update("client@exemple.fr").digest("hex"));
+  });
+
+  it("[C-557] la clé d'un envoi sans texte au catalogue est refusée", async () => {
+    const { expediteur, envoyes } = monterClient();
+    await expect(expediteur.envoyerAuClient("alerteOrange", { tenantId: CLIENT, role: "administrateur_client" }, {})).rejects.toThrow();
+    expect(envoyes).toHaveLength(0);
   });
 });

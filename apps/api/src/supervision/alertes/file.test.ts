@@ -13,6 +13,7 @@ function memoire(horloge: { t: number }) {
   type A = { id: string; tenant: string; cle: string; cree: number; etat: "ouverte" | "acquittee" | "close"; occ: { instance: string | null; relance: boolean; t: number }[]; cloture?: { raison: string; auteur: string } };
   const alertes: A[] = [];
   const echoue = { valeur: false };
+  const verts = new Set<string>(); // instances revenues au vert depuis leur dernière occurrence
   const depot: DepotFile & DepotCycle = {
     async ouvrirOuCompter(tenant, e) {
       if (echoue.valeur) throw new Error("transaction annulée");
@@ -21,13 +22,17 @@ function memoire(horloge: { t: number }) {
       if (!a) alertes.push((a = { id: `a${alertes.length + 1}`, tenant, cle: e.cle, cree: horloge.t, etat: "ouverte", occ: [] }));
       const repere = Math.max(a.cree, ...a.occ.filter((o) => o.relance).map((o) => o.t));
       const relance = !nouvelle && relanceDue(repere, horloge.t);
+      if (e.instanceId !== null) verts.delete(e.instanceId);
       a.occ.push({ instance: e.instanceId, relance, t: horloge.t });
       return { alerteId: a.id, nouvelle, relance };
     },
-    async retablir(tenant, cle) {
+    async retablir(tenant, cle, instanceId = null) {
       if (echoue.valeur) throw new Error("transaction annulée");
       const a = alertes.find((x) => x.tenant === tenant && x.cle === cle && x.etat !== "close");
       if (!a) return null;
+      if (instanceId !== null) verts.add(instanceId);
+      // Comme la base : on ne ferme que si toutes les instances de l'alerte sont vertes.
+      if (a.occ.some((o) => o.instance !== null && !verts.has(o.instance))) return null;
       a.etat = "close";
       a.cloture = { raison: "retabli", auteur: "supervision" };
       return { alerteId: a.id };
@@ -143,8 +148,36 @@ describe("file d'alertes : retour au vert", () => {
     await surChangementSante(depot, n, { ...base, avant: "vert", apres: "orange" });
     await surChangementSante(depot, n, { ...base, avant: "orange", apres: "rouge" });
     expect(vu).toEqual(["avertissement", "critique"]);
-    await surChangementSante(depot, n, { ...base, avant: "rouge", apres: "vert" });
+    // T5-03 envoie l'état vert avec raisons: [] (sante/etat.ts) : le retour au vert doit aboutir.
+    await surChangementSante(depot, n, { ...base, raisons: [], avant: "rouge", apres: "vert" });
     expect(m.alertes[0]!.etat).toBe("close");
+    expect(envoyees).toEqual(["retabli:a1"]);
+  });
+});
+
+describe("file d'alertes : santé, clé stable et plusieurs instances", () => {
+  it("[B-395] orange (succes_sous_95) puis rouge (succes_sous_80) → une seule alerte ; le vert sans raison la ferme avec une seule notification", async () => {
+    const { alertes, depot } = memoire({ t: 0 });
+    const { n, envoyees } = notifs();
+    const base = { tenantId: T1, instanceId: null, connecteur: "mail" };
+    await surChangementSante(depot, n, { ...base, raisons: ["succes_sous_95"], avant: "vert", apres: "orange" });
+    await surChangementSante(depot, n, { ...base, raisons: ["succes_sous_80"], avant: "orange", apres: "rouge" });
+    expect(alertes).toHaveLength(1);
+    await surChangementSante(depot, n, { ...base, raisons: [], avant: "rouge", apres: "vert" });
+    expect(alertes[0]!.etat).toBe("close");
+    expect(envoyees).toEqual(["retabli:a1"]);
+  });
+  it("[B-395] alerte commune à deux instances : une instance verte ne ferme rien tant que l'autre est rouge ; la dernière verte ferme, une seule notification", async () => {
+    const { alertes, depot } = memoire({ t: 0 });
+    const { n, envoyees } = notifs();
+    const base = { tenantId: T1, connecteur: "mail" };
+    await surChangementSante(depot, n, { ...base, instanceId: "i1", raisons: ["succes_sous_80"], avant: "vert", apres: "rouge" });
+    await surChangementSante(depot, n, { ...base, instanceId: "i2", raisons: ["succes_sous_80"], avant: "vert", apres: "rouge" });
+    await surChangementSante(depot, n, { ...base, instanceId: "i1", raisons: [], avant: "rouge", apres: "vert" });
+    expect(alertes[0]!.etat).toBe("ouverte");
+    expect(envoyees).toEqual([]);
+    await surChangementSante(depot, n, { ...base, instanceId: "i2", raisons: [], avant: "rouge", apres: "vert" });
+    expect(alertes[0]!.etat).toBe("close");
     expect(envoyees).toEqual(["retabli:a1"]);
   });
 });

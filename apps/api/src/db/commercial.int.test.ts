@@ -6,7 +6,7 @@ import pg from "pg";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { controlerInvariants, EXCEPTIONS_UNICITE, type Requete } from "../../../../packages/contrats/src/c5/invariants.js";
 import { cleDIntention } from "../../../../packages/contrats/src/commun/idempotence.js";
-import { deposerCloreEnBase, plansEnBase } from "../fin-de-contrat/adaptateurs-pg.js";
+import { deposerCloreEnBase, plansEnBase, type Avec } from "../fin-de-contrat/adaptateurs-pg.js";
 import { ecrireEchec } from "../provisionnement/journal-echecs.js";
 import { avecClient } from "./client-actif.js";
 import { migrer } from "./migrer.js";
@@ -493,7 +493,7 @@ describe("clôture réelle des plans (T2-44b-b)", { timeout: 40_000 }, () => {
   afterEach((contexte) => {
     if (contexte.task.result?.state === "fail") ecrireEchec("commercial.int.test.ts", contexte.task.name, contexte.task.result.errors?.[0]?.message);
   });
-  const avec = ((t: string, fn: never, a?: never) => ecrire(app, t, fn, a)) as never;
+  const avec: Avec = (t, fn, a) => ecrire(app, t, fn, a);
 
   it("[A-250] @argent clôture réelle : la clé calculée par plansEnBase est celle écrite par deposer ; après reporter (comme un 5xx) le plan n'est pas clos ; après conclure envoye il l'est", async () => {
     const A = randomUUID();

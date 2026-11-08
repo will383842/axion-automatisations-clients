@@ -3,7 +3,7 @@ import { cleDIntention } from "../../../../packages/contrats/src/commun/idempote
 import { creerExpediteur, magasinEnMemoire } from "../canaux/expediteur.js";
 import { alerterEnBase, dossierEnBase, enregistrerAccuseEnBase, enregistrerExportEnBase, gelEnBase, lancerEnBase, marquerPreavisEnBase, planDepuisLignes, plansEnBase, type Avec, type Requeteur } from "./adaptateurs-pg.js";
 import { etapeClore } from "./clore-plans.js";
-import { creerMachineFin, idTacheFin, planifierTaches, REESSAI_REPONSES_MS, type Dossier } from "./machine.js";
+import { creerMachineFin, planifierTaches, REESSAI_REPONSES_MS, type Dossier } from "./machine.js";
 import { deposerTachesFin } from "./ordonnanceur.js";
 
 const T = "11111111-1111-4111-8111-111111111111";

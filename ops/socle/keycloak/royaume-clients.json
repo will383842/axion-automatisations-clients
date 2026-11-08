@@ -21,17 +21,80 @@
       "directAccessGrantsEnabled": false,
       "implicitFlowEnabled": false,
       "serviceAccountsEnabled": false,
-      "defaultClientScopes": ["basic", "profile"],
+      "defaultClientScopes": [
+        "basic",
+        "profile"
+      ],
       "optionalClientScopes": [],
-      "attributes": { "pkce.code.challenge.method": "S256" },
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "${KC_ORIGINE_PORTAIL}/"
+      },
       "protocolMappers": [
         {
           "name": "audience-api-clients",
           "protocol": "openid-connect",
           "protocolMapper": "oidc-audience-mapper",
-          "config": { "included.custom.audience": "api-clients", "access.token.claim": "true", "id.token.claim": "false" }
+          "config": {
+            "included.custom.audience": "api-clients",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        },
+        {
+          "name": "roles-portail",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-client-role-mapper",
+          "config": {
+            "usermodel.clientRoleMapping.clientId": "portail",
+            "claim.name": "roles_portail",
+            "jsonType.label": "String",
+            "multivalued": "true",
+            "access.token.claim": "true",
+            "id.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "organisations",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "config": {
+            "claim.name": "organisations",
+            "full.path": "true",
+            "access.token.claim": "true",
+            "id.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
+      ],
+      "redirectUris": [
+        "${KC_ORIGINE_PORTAIL}/api/auth/rappel"
+      ],
+      "webOrigins": []
+    }
+  ],
+  "roles": {
+    "client": {
+      "portail": [
+        {
+          "name": "administrateur"
+        },
+        {
+          "name": "utilisateur"
+        },
+        {
+          "name": "lecture_seule"
+        },
+        {
+          "name": "comptable"
         }
       ]
+    }
+  },
+  "groups": [
+    {
+      "name": "organisations"
     }
   ]
 }

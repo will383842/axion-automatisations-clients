@@ -209,7 +209,7 @@ function formeConnue(f: Fichier, doc: Obj): string[] {
 const SCRIPTS_OK = new Set([
   "tsc --noEmit -p tsconfig.json", "tsc --noEmit -p tsconfig.json --allowImportingTsExtensions", "tsc --noEmit -p tsconfig.json --jsx react-jsx --lib ES2023,DOM,DOM.Iterable",
   "NEXT_TELEMETRY_DISABLED=1 next dev", "NEXT_TELEMETRY_DISABLED=1 next build", "NEXT_TELEMETRY_DISABLED=1 node .next/standalone/apps/console/server.js", "NEXT_TELEMETRY_DISABLED=1 node .next/standalone/apps/portail/server.js",
-  "pnpm -r typecheck && pnpm lint && pnpm test", "eslint .", "vitest run", "vitest run --reporter=json --outputFile=rapport-tests.json",
+  "pnpm -r typecheck && pnpm lint && pnpm test", "eslint .", "vitest run", "vitest run --reporter=default --reporter=json --outputFile.json=rapport-tests.json",
   "git rev-parse --git-dir >/dev/null 2>&1 && git config core.hooksPath .githooks || true", "cd ../.. && vitest run --project packages/contrats", "cd ../.. && vitest run --project packages/sdk-module",
   "node scripts/signer-fixtures.ts && node scripts/empreinte.ts", "node scripts/generer-css.ts",
   "tsx packages/create-axion-module/src/index.ts",

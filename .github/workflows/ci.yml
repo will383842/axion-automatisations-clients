@@ -1,8 +1,6 @@
 name: CI
 on:
   pull_request:
-  push:
-    branches: [main]
 permissions:
   contents: read
 # Une PR qui reçoit un nouveau commit annule ses exécutions devenues inutiles (la file GitHub est partagée par toutes les sessions).

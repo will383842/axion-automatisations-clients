@@ -46,3 +46,28 @@ jobs:
           languages: javascript-typescript
           build-mode: none
       - uses: github/codeql-action/analyze@8498dc4c2b27cdd99baf0f87955b29ebbf30c78d # v4.39.1
+  # Filet de nuit sur main (plan CI allégée E1) : ci.yml et securite.yml ne se lancent plus sur push ; schedule et workflow_dispatch lisent la branche par défaut ; le contrôle du résultat fusionné reste fait par Socle intégration.
+  gardes-main:
+    name: gardes-main
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -r typecheck
+      - if: always()
+        run: pnpm lint
+      - if: always()
+        run: node scripts/garde-workflows.ts .github/workflows
+      - if: always()
+        run: node scripts/garde-licences.ts
+      - if: always()
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

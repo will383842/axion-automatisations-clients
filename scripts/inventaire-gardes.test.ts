@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { load } from "js-yaml";
 import { describe, expect, it } from "vitest";
@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 type Obj = Record<string, unknown>;
 type Etape = { name?: string; run?: string; uses?: string; if?: string };
 const lire = (chemin: string) => readFileSync(fileURLToPath(new URL(`../${chemin}`, import.meta.url)), "utf8");
-const workflow = (f: string) => load(lire(`.github/workflows/${f}`)) as { on?: Obj; true?: Obj; jobs: Record<string, { name?: string; if?: string; needs?: unknown; steps: Etape[] }> };
+const workflow = (f: string) => load(lire(`.github/workflows/${f}`)) as { name?: string; on?: Obj; true?: Obj; concurrency?: unknown; jobs: Record<string, { name?: string; if?: string; needs?: unknown; concurrency?: unknown; steps: Etape[] }> };
 const declencheurs = (f: string): Obj => {
   const w = workflow(f);
   return (w.on ?? w.true ?? {}) as Obj;
@@ -77,5 +77,28 @@ describe("inventaire des gardes sur chaque pull_request", () => {
 
   it("[C-530] le nom du job Gitleaks est exactement celui exigé par main", () => {
     expect(workflow("securite.yml").jobs["secrets"]?.name).toBe("Aucun secret dans le dépôt (Gitleaks)");
+  });
+
+  it("[C-531] chaque workflow du dépôt figure dans la liste de controle-journaux (aucun journal public sans contrôle)", () => {
+    const liste = ((workflow("controle-journaux.yml").on ?? workflow("controle-journaux.yml").true) as { workflow_run: { workflows: string[] } }).workflow_run.workflows;
+    const fichiers = readdirSync(fileURLToPath(new URL("../.github/workflows", import.meta.url))).filter((f) => /\.ya?ml$/.test(f) && f !== "controle-journaux.yml");
+    const absents = fichiers.map((f) => workflow(f).name ?? f).filter((nom) => !liste.includes(nom));
+    expect(absents).toEqual([]);
+  });
+
+  it("[C-531] controle-journaux ne saute que les runs sautés : ni concurrency, ni autre condition que ce filtre", () => {
+    const w = workflow("controle-journaux.yml");
+    const job = w.jobs["controle-journaux"];
+    expect(w.concurrency).toBeUndefined();
+    expect(job?.concurrency).toBeUndefined();
+    expect(job?.if).toBe("github.event.workflow_run.conclusion != 'skipped'");
+    const avecCondition = (job?.steps ?? []).filter((e) => e.if !== undefined).map((e) => e.name ?? e.run ?? e.uses);
+    expect(avecCondition).toHaveLength(2);
+  });
+
+  it("[C-531] l'étape de suppression garde sa condition : suppression si le téléchargement ou le scan n'a pas réussi", () => {
+    const etapes = workflow("controle-journaux.yml").jobs["controle-journaux"]?.steps ?? [];
+    const suppression = etapes.find((e) => e.name?.startsWith("Supprimer"));
+    expect(suppression?.if).toBe("always() && (steps.telecharger.outcome != 'success' || steps.scan.outcome != 'success')");
   });
 });

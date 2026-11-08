@@ -20,6 +20,8 @@ permissions:
 jobs:
   controle-journaux:
     name: controle-journaux
+    # Un run sauté n'a ni journal ni pièce jointe ; les runs annulés restent scannés. Ni concurrency ici : un groupe ne garde qu'un run en attente.
+    if: github.event.workflow_run.conclusion != 'skipped'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

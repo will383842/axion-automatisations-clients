@@ -5,6 +5,11 @@ import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { controlerInvariants, EXCEPTIONS_UNICITE, type Requete } from "../../../../packages/contrats/src/c5/invariants.js";
+import type { FastifyRequest } from "fastify";
+import { alerterEnBase, depuisPool, lancerEnBase } from "../fin-de-contrat/adaptateurs-pg.js";
+import { planifierTaches } from "../fin-de-contrat/machine.js";
+import { gestionnairesFinDeContrat } from "../routes/fin-de-contrat.js";
+import { ecrireEchec } from "../provisionnement/journal-echecs.js";
 import { avecClient } from "./client-actif.js";
 import { migrer } from "./migrer.js";
 
@@ -416,6 +421,43 @@ describe("une fin de contrat par client (T2-44b-a)", { timeout: 40_000 }, () => 
     expect(x.date).toBe("2027-03-31");
     expect(y.date).toBe("2027-03-31");
     const n = await ecrire(app, A, async (c) => (await c.query("SELECT count(*)::int AS n FROM fins_de_contrat WHERE tenant_id = $1", [A])).rows[0]?.n as number, APPELANT);
+    expect(n).toBe(1);
+  });
+});
+
+// Essais pour la CI socle-integration (aucun démon Docker sur le poste de rédaction : jamais lancés ici). Échecs journalisés par journal-echecs.ts.
+describe("adaptateurs de la fin de contrat (T2-44b-b)", { timeout: 40_000 }, () => {
+  afterEach((contexte) => {
+    if (contexte.task.result?.state === "fail") ecrireEchec("bases-client.int.test.ts", contexte.task.name, contexte.task.result.errors?.[0]?.message);
+  });
+  // Même rejeu que ecrire() : 55P03 et 40P01 du verrou du journal sont rejoués.
+  const avec = (t: string, fn: Parameters<ReturnType<typeof depuisPool>>[1], a?: Parameters<ReturnType<typeof depuisPool>>[2]) => ecrire(app, t, fn as never, a) as never;
+
+  it("[C-035] deux lancements simultanés par la route avec lancerEnBase réel : une ligne, une planification, réponses 202 lancee et deja_lancee", async () => {
+    const A = await nouveauClient();
+    const fixe = new Date("2027-01-04T10:00:00Z");
+    const planifiees: string[][] = [];
+    const lancer = lancerEnBase({ avec: avec as never, maintenant: () => fixe, planifier: async (t, d) => void planifiees.push(planifierTaches(t, d, fixe).map((x) => x.jobId)) });
+    const g = gestionnairesFinDeContrat({ session: async () => ({ acteur: "agent-essai", role: "administrateur", clientActifId: A, reauthentifie: true }), lancer, maintenant: () => fixe, demanderEffacement: async () => undefined, confirmer: async () => false });
+    const appeler = async () => {
+      const statuts: number[] = [];
+      const corps = (await g.lancer({ params: { id: A }, body: { dateFin: "2027-03-31" } } as unknown as FastifyRequest, { status: (n: number) => void statuts.push(n) })) as { etat: string };
+      return { statuts, etat: corps.etat };
+    };
+    const [x, y] = await Promise.all([appeler(), appeler()]);
+    expect([x.etat, y.etat].sort()).toEqual(["deja_lancee", "lancee"]);
+    expect([x.statuts, y.statuts]).toEqual([[202], [202]]);
+    expect(planifiees).toHaveLength(1);
+    expect(planifiees[0]).toHaveLength(4);
+    const n = await ecrire(app, A, async (c) => (await c.query("SELECT count(*)::int AS n FROM fins_de_contrat WHERE tenant_id = $1", [A])).rows[0]?.n as number, APPELANT);
+    expect(n).toBe(1);
+  });
+
+  it("[C-035] deux alertes de même clé pour le même client en même temps : une seule alerte ouverte", async () => {
+    const A = await nouveauClient();
+    const alerter = alerterEnBase(avec as never);
+    await Promise.all([alerter({ type: "fin_de_contrat", clientId: A, code: "preavis_j1_en_retard" }), alerter({ type: "fin_de_contrat", clientId: A, code: "preavis_j1_en_retard" })]);
+    const n = await ecrire(app, A, async (c) => (await c.query("SELECT count(*)::int AS n FROM alertes WHERE tenant_id = $1 AND cle_regroupement = 'fin_de_contrat:preavis_j1_en_retard' AND etat = 'ouverte'", [A])).rows[0]?.n as number, APPELANT);
     expect(n).toBe(1);
   });
 });

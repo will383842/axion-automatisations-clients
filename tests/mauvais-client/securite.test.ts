@@ -1,42 +1,43 @@
-import { beforeAll, describe, expect, it } from "vitest";
-import { ErreurApi, brancherErreurs } from "../../apps/api/src/plugins/erreurs.js";
-import { routeMembres } from "../../apps/api/src/routes/equipe/membres.js";
+import { describe, expect, it } from "vitest";
 import { fastifyVide } from "../../scripts/liste-routes.js";
+import { brancherErreurs } from "../../apps/api/src/plugins/erreurs.js";
+import { routeSessions } from "../../apps/api/src/routes/equipe/sessions.js";
 
-// Routes de sécurité de l'équipe (T3-07c) : membres. Un utilisateur d'un client présente un jeton qui n'est pas celui de l'équipe : réponse identique quel que soit
-// l'identifiant visé (membre ou client de la portée), et AUCUNE dépendance n'est appelée, donc rien d'un autre client n'est lu (C-536).
-const B = "22222222-2222-4222-8222-222222222222";
-const ABSENT = "33333333-3333-4333-8333-333333333333";
-let appels = 0;
-const espion = (): never =>
-  new Proxy(function () {}, { get: (_c, p) => (p === "then" ? undefined : espion()), apply: () => { appels++; return undefined; } }) as never;
-const refuseTout = async () => { throw new ErreurApi("action_interdite", "Action interdite."); };
-let appli: ReturnType<typeof fastifyVide>;
-
-beforeAll(async () => {
-  appli = fastifyVide();
-  brancherErreurs(appli);
-  routeMembres(appli, { ouvert: true, exigerJeton: refuseTout as never, exigerReauthentification: refuseTout as never, droits: espion(), service: espion() });
-  await appli.ready();
-});
-
-async function jouer(methode: "GET" | "POST", url: string, cible: string) {
-  const avant = appels;
-  const r = await appli.inject({ method: methode, url: url.replace(":id", cible), headers: { authorization: "Bearer jeton-de-client" }, payload: methode === "POST" ? { client: cible } : undefined });
-  const corps = (r.body ? r.json() : {}) as { erreur?: { id_trace?: string } };
-  if (corps.erreur) delete corps.erreur.id_trace;
-  return { statut: r.statusCode, corps, appels: appels - avant };
+// Routes de sécurité de l'équipe : aucune donnée de client en entrée. Une session de client (ou d'un autre royaume) est refusée comme une session absente,
+// et aucune dépendance de fermeture n'est appelée.
+const M = "11111111-1111-4111-8111-111111111111";
+const S_CLIENT = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+const S_MEMBRE = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const passe = (async () => undefined) as never;
+function app(appels: string[]) {
+  const a = fastifyVide();
+  brancherErreurs(a);
+  routeSessions(a, {
+    ouvert: true, exigerJeton: passe, exigerReauthentification: passe,
+    droits: { membre: async () => ({ sujet: "dirigeant-test", role: "dirigeant" as const, actif: true, portee: { clients: [], automatisations: [] } }), absenceOuverte: async () => false, tracer: async () => undefined },
+    sessions: {
+      maintenant: () => 0,
+      membres: { actifs: async () => [], actif: async () => ({ id: M, sujet: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", role: "dirigeant" }) },
+      keycloak: { sessionsDe: async () => [{ id: S_MEMBRE, ouverteLe: 0, derniereActivite: 0 }], facteursDe: async () => [], fermerSession: async (s) => { appels.push(`fermer ${s}`); } },
+      trace: { revocation: async () => { appels.push("trace"); } },
+    },
+    acces: { lister: async () => [] },
+  });
+  return a;
 }
-async function verifier(methode: "GET" | "POST", chemin: string) {
-  const autre = await jouer(methode, chemin, B);
-  const absent = await jouer(methode, chemin, ABSENT);
-  expect(autre).toEqual(absent);
-  expect(autre.appels).toBe(0);
-  return autre.statut;
-}
-
-describe("mauvais client : routes de sécurité de l'équipe (membres)", () => {
-  it("[C-536] @isolation GET /api/console/v1/equipe/membres", async () => expect(await verifier("GET", "/api/console/v1/equipe/membres")).toBe(403));
-  it("[C-536] @isolation POST /api/console/v1/equipe/membres", async () => expect(await verifier("POST", "/api/console/v1/equipe/membres")).toBe(403));
-  it("[C-536] @isolation POST /api/console/v1/equipe/membres/:id/desactiver", async () => expect(await verifier("POST", "/api/console/v1/equipe/membres/:id/desactiver")).toBe(403));
+describe("sécurité de l'équipe : mauvais client", () => {
+  it("[C-536] @isolation GET /api/console/v1/equipe/sessions", async () => {
+    const r = await app([]).inject({ url: "/api/console/v1/equipe/sessions" });
+    expect(r.statusCode).toBe(200);
+    expect(r.body).not.toContain(S_CLIENT);
+  });
+  it("[C-536] @isolation POST /api/console/v1/equipe/membres/:id/sessions/:session/revoquer", async () => {
+    const appels: string[] = [];
+    const inconnue = await app(appels).inject({ method: "POST", url: `/api/console/v1/equipe/membres/${M}/sessions/${S_CLIENT}/revoquer` });
+    const absente = await app(appels).inject({ method: "POST", url: `/api/console/v1/equipe/membres/${S_CLIENT}/sessions/${S_CLIENT}/revoquer` });
+    expect(inconnue.statusCode).toBe(404);
+    const sansTrace = (t: string) => t.replace(/"id_trace":"[^"]*"/, "");
+    expect(sansTrace(absente.body)).toBe(sansTrace(inconnue.body));
+    expect(appels).toEqual([]);
+  });
 });

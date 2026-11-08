@@ -84,7 +84,7 @@ describe("file d'alertes : routes d'équipe (T5-04c)", () => {
     const vues: string[] = [];
     let curseur: string | null = null;
     for (let tour = 0; tour < 5; tour++) {
-      const r = (await appli.inject({ method: "GET", url: `/api/console/v1/alertes?limite=1${curseur ? `&curseur=${curseur}` : ""}`, headers: h("equipe") })).json();
+      const r: { alertes: LigneAlerte[]; curseur_suivant: string | null } = (await appli.inject({ method: "GET", url: `/api/console/v1/alertes?limite=1${curseur ? `&curseur=${curseur}` : ""}`, headers: h("equipe") })).json();
       vues.push(...r.alertes.map((a: LigneAlerte) => a.id));
       curseur = r.curseur_suivant;
       if (!curseur) break;
@@ -163,7 +163,7 @@ describe("file d'alertes : routes d'équipe (T5-04c)", () => {
   it("[B-031] @isolation une session client reçoit 403 sur toutes les routes d'alertes", async () => {
     const b = `/api/console/v1/alertes/${id(1)}`;
     for (const [m, u] of [["GET", "/api/console/v1/alertes"], ["POST", `${b}/attribuer`], ["POST", `${b}/commenter`], ["POST", `${b}/clore`], ["PUT", `/api/console/v1/regles-alertes/${id(900)}`]] as const) {
-      const r = await appli.inject({ method: m, url: u, headers: h("client"), payload: m === "GET" ? undefined : {} });
+      const r = await appli.inject({ method: m, url: u, headers: h("client"), ...(m === "GET" ? {} : { payload: {} }) });
       expect(r.statusCode).toBe(403);
     }
     expect((await appli.inject({ method: "GET", url: "/api/console/v1/alertes" })).statusCode).toBe(403);
@@ -176,7 +176,7 @@ describe("file d'alertes : routes d'équipe (T5-04c)", () => {
     expect((await sans.inject({ method: "GET", url: "/api/console/v1/alertes" })).statusCode).toBe(404);
     await monter(false);
     for (const [m, u] of [["GET", "/api/console/v1/alertes"], ["POST", `/api/console/v1/alertes/${id(1)}/clore`], ["PUT", `/api/console/v1/regles-alertes/${id(900)}`]] as const) {
-      expect((await appli.inject({ method: m, url: u, headers: h("equipe"), payload: m === "GET" ? undefined : { raison: "traitee" } })).statusCode).toBe(503);
+      expect((await appli.inject({ method: m, url: u, headers: h("equipe"), ...(m === "GET" ? {} : { payload: { raison: "traitee" } }) })).statusCode).toBe(503);
     }
     expect(appels).toEqual([]);
   });

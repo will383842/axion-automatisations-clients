@@ -1,6 +1,6 @@
 # 0125 · Déploiement d'un module chez un client
 
-Date : 07/11/2026 · Statut : proposé (T4-28a), à accepter par l'architecte · Contrat touché : aucun (deux tables de client ; `TABLES_COMMUNES` inchangée ; C4 et C5 inchangés) · Migration : `0028_deploiement_instances.sql` · S'appuie sur : ADR 0051 (catalogue, `instances_garde`), 0053 (activation), 0054 (configurations), 0111 (instances), 0122 (cycle de vie des versions)
+Date : 07/11/2026 · Statut : accepté (accord de l'architecte, 08/11/2026 ; proposé par T4-28a) · Contrat touché : aucun (deux tables de client ; `TABLES_COMMUNES` inchangée ; C4 et C5 inchangés) · Migration : `0028_deploiement_instances.sql` · S'appuie sur : ADR 0051 (catalogue, `instances_garde`), 0053 (activation), 0054 (configurations), 0111 (instances), 0122 (cycle de vie des versions)
 
 ## Contexte
 - Une instance (client, automatisation, version, formule, environnement, état) et ses réglages versionnés existent déjà ; la base exige une version publiée et un contrat de sous-traitance pour l'activation.

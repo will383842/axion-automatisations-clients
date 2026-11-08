@@ -1,6 +1,6 @@
 # 0130 · Arrêt d'urgence et délai d'annulation des envois
 
-Date : 07/11/2026 · Statut : proposé (T4-18), à accepter par l'architecte · Contrat touché : aucun (C4 inchangé) · Migration : aucune · S'appuie sur : ADR 0102 (reprise des travaux), 0125 (instances)
+Date : 07/11/2026 · Statut : accepté (accord de l'architecte, 08/11/2026 ; proposé par T4-18) · Contrat touché : aucun (C4 inchangé) · Migration : aucune · S'appuie sur : ADR 0102 (reprise des travaux), 0125 (instances)
 
 ## Contexte
 - Le seul point d'envoi est l'appel du port `Connecteurs` dans le noyau, après l'écriture de l'intention. L'arrêt des envois existant (T4-22) vaut par instance et n'est relu qu'avant l'exécution.

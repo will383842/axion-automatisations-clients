@@ -1,6 +1,6 @@
 # 0126 · File d'alertes : occurrences et clôtures
 
-Date : 07/11/2026 · Statut : proposé (T5-04a), à accepter par l'architecte · Contrat touché : aucun (deux tables de client ; TABLES_COMMUNES inchangée ; C5 inchangé) · Migration : 0029 · S'appuie sur : ADR 0054 (alertes, décision 7, dette M9), 0116 (tables de la supervision, décision 9 et son ESCALADE)
+Date : 07/11/2026 · Statut : accepté (accord de l'architecte, 08/11/2026 ; proposé par T5-04a) · Contrat touché : aucun (deux tables de client ; TABLES_COMMUNES inchangée ; C5 inchangé) · Migration : 0029 · S'appuie sur : ADR 0054 (alertes, décision 7, dette M9), 0116 (tables de la supervision, décision 9 et son ESCALADE)
 
 ## Contexte
 - La politique transitions_alerte (0010) refuse toute mise à jour d'une alerte qui garde l'état « ouverte ». Le compteur, la relance et le rattachement à une alerte ouverte étaient donc impossibles (ESCALADE de T5-01b, défaut M4 de l'audit de #215).

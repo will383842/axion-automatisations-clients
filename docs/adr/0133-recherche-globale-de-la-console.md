@@ -1,6 +1,6 @@
 # 0133 · Recherche globale de la console
 
-Date : 07/11/2026 · Statut : proposé (T3-09a), à accepter par l'architecte · Contrat touché : aucun · Migration : aucune · ADR 0063 rendu (jamais utilisé), 0133 pris · S'appuie sur : ADR 0111 (rôle console_equipe), T3-06 (droits et portée)
+Date : 07/11/2026 · Statut : accepté (accord de l'architecte, 08/11/2026 ; proposé par T3-09a) · Contrat touché : aucun · Migration : aucune · ADR 0063 rendu (jamais utilisé), 0133 pris · S'appuie sur : ADR 0111 (rôle console_equipe), T3-06 (droits et portée)
 
 ## Contexte
 - La console doit trouver un client, un contact, une facture, une demande ou une instance depuis un seul champ (B-074, B-099), sans jamais montrer un client hors de la portée du membre (B-126) et sans lire une base de client (B-070).

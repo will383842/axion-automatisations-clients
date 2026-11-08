@@ -1,6 +1,6 @@
 # 0141 · Écriture des rapports mensuels : droits de console_app sur rapports_mensuels
 
-Date : 08/11/2026 · Statut : proposé (T5-22a), à accepter par l'architecte · Contrat touché : aucun · Migration : 0041 (droits seulement) · S'appuie sur : ADR 0116 (tables de la supervision, décision laissée ouverte), 0022 (table rapports_mensuels)
+Date : 08/11/2026 · Statut : accepté (accord de l'architecte, 08/11/2026 ; proposé par T5-22a) · Contrat touché : aucun · Migration : 0041 (droits seulement) · S'appuie sur : ADR 0116 (tables de la supervision, décision laissée ouverte), 0022 (table rapports_mensuels)
 
 ## Contexte
 - La table rapports_mensuels existe depuis la migration 0022, avec la sécurité par client activée et forcée, mais console_app, console_equipe et console_lecture n'ont que le droit de lecture : aucun rôle ne peut préparer ni envoyer un rapport.
@@ -22,5 +22,6 @@ Date : 08/11/2026 · Statut : proposé (T5-22a), à accepter par l'architecte ·
 
 ## Conséquences
 - T5-22c (préparer, envoyer, routes) peut écrire sous console_app, dans des transactions courtes. L'envoi réel reste derrière un port et un interrupteur fermé.
-- Retour arrière : REVOKE des deux droits et DROP POLICY des deux politiques, par une migration de contraction décidée par l'architecte (jamais par la chaîne).
+- Retour arrière : REVOKE des deux droits seulement ; les politiques restrictives restent, sans effet sans droit (la garde des migrations refuse `DROP POLICY`, même en contraction).
+- Numérotation : les migrations `console` 0031 à 0040 sont perdues (règle 6 : un numéro sauté ne se réutilise pas) ; la suivante est 0042.
 - Les essais en base (droits-rapports.int.test.ts) tournent dans le job socle-integration ; ils n'ont pas été lancés sur le poste de développement (pas de démon Docker).

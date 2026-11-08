@@ -1,4 +1,4 @@
-import Fastify from "fastify";
+import Fastify, { type FastifyInstance } from "fastify";
 import { describe, expect, it } from "vitest";
 import { exigerEquipeParRole } from "../../serveur.js";
 import { exigerReauthentification } from "../../auth/exiger-reauthentification.js";
@@ -16,9 +16,9 @@ function monter(session: Session, ouvert = true) {
   const appels: unknown[] = [];
   const d: DepsJournaux = {
     ouvert: () => ouvert,
-    exigerEquipe: async (requete, reponse) => {
+    exigerEquipe: async function (this: FastifyInstance, requete, reponse) {
       (requete as { identite?: unknown }).identite = { auth_time: session.auth_time, acr: session.acr };
-      await exigerEquipeParRole(async () => session)(requete, reponse);
+      await exigerEquipeParRole(async () => session).call(this, requete, reponse);
     },
     exigerReauthentification: exigerReauthentification(() => MAINTENANT),
     lecture: { url: "http://collecteur.test:9428", fetch: async (_u, init) => { appels.push(init.body); return { status: 200, text: async () => JSON.stringify({ _time: "2026-11-08T09:00:00Z", _msg: "démarré", application: "api" }) }; }, maintenant: () => MAINTENANT },

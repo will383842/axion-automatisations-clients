@@ -2,4 +2,4 @@ B-042 → T3-17a : tests « [B-042] chaque connexion rend outil, connecteur, ét
 B-044 → T3-17a : test « [B-044] une ligne brute qui porte contenu, reference_coffre ou organisation_id ne fait sortir aucune de ces clés » (vue.test.ts), 2026-11-07
 C-013 → T3-17a : tests « [C-013] la requête de la vue nomme ses colonnes… », « [C-013] chaque table de la requête est filtrée par le client demandé » (vue.test.ts), « [C-013] le marqueur posé au coffre de test ne sort ni de la réponse ni du journal » (routes/clients/connexions.test.ts) ; essai réel écrit pour la CI socle-integration, non lancé ici (pas de Docker) : « [C-013] la requête réelle de la vue sous console_equipe… » (db/exploitation.int.test.ts), 2026-11-07
 B-126 (suite) → T3-17a : test « [B-126] @isolation la liste des connexions d'un client hors portée répond 404 sans lecture » (connexions.test.ts), 2026-11-07
-C-536 (suite) → T3-17a : test « [C-536] @isolation GET /api/console/v1/clients/:id/connexions » (tests/mauvais-client/outils.test.ts), 2026-11-07
+C-536 (suite) → T3-17a : test « [C-536] @isolation GET /api/console/v1/clients/:id/connexions » (tests/mauvais-client/outils-connexions.test.ts), 2026-11-07

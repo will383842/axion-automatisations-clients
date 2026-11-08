@@ -2,7 +2,8 @@ import { domainToASCII } from "node:url";
 import { ErreurConnecteur } from "../noyau/politique-erreurs.ts";
 import type { Connecteurs } from "../noyau/ports.ts";
 import { ArretEnvoisPose, DELAI_LECTURE_MS, gardeIndisponible, lireArret, type ValkeyEnvois } from "./arret-urgence.ts";
-import { reserverDepart } from "./delai-annulation.ts";
+import { EnvoiAnnule, reserverDepart } from "./delai-annulation.ts";
+import { noterLimiteAtteinte, rendreEnvoi, reserverEnvoi, type ContextePlafonds } from "./plafonds.ts";
 
 // Liste fermée : seules ces actions passent par la garde ; lire, étiqueter et créer un brouillon passent telles quelles.
 export const ACTIONS_ENVOI: readonly string[] = ["envoyer"];
@@ -25,6 +26,8 @@ export interface ContexteGarde {
   proprietaireJeton?: ProprietaireJeton;
   carnet?: Carnet;
   delaiLectureMs?: number;
+  // Plafonds d'envoi (T4-45) : absent = fonction fermée, comportement inchangé. Câblage réel = dette T4-50e.
+  plafonds?: ContextePlafonds;
 }
 
 // Forme canonique : une seule arobase, ni nom affiché ni chevrons ni guillemets ni espace ; domaine en minuscules puis punycode ;
@@ -55,8 +58,19 @@ export function garderConnecteurs(connecteurs: Connecteurs, c: ContexteGarde): C
       if (adresse === undefined) throw refus("destinataire_illisible");
       const connue = await c.carnet.connait(c.tenantId, adresse).catch(() => { throw gardeIndisponible(); });
       if (!connue) throw refus("destinataire_hors_client");
-      if (c.annulable) await reserverDepart(c.valkey, c.executionId);
-      return connecteurs.appeler(action, demande);
+      // Plafond (T4-45) : place réservée AVANT l'envoi, rendue si l'envoi n'a pas eu lieu ; au-delà, report au lendemain (classe quota).
+      const place = c.plafonds ? await reserverEnvoi(c.plafonds) : undefined;
+      try {
+        if (c.annulable) await reserverDepart(c.valkey, c.executionId);
+        return await connecteurs.appeler(action, demande);
+      } catch (e) {
+        if (c.plafonds && place) {
+          if (e instanceof ErreurConnecteur && e.classe === "quota") await noterLimiteAtteinte(c.plafonds).catch(() => undefined);
+          else if (e instanceof ErreurConnecteur && e.classe === "definitive") await rendreEnvoi(c.plafonds, place);
+          else if (e instanceof EnvoiAnnule) await rendreEnvoi(c.plafonds, place);
+        }
+        throw e;
+      }
     },
   };
 }

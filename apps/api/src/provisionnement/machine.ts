@@ -14,12 +14,12 @@ export function idTacheProvisionnement(tenantId: string): string {
 // Verrou par client tenu pendant toute l'exécution : une tâche « stalled » reprise par un autre travailleur ne chevauche pas la première.
 export interface Verrou { prendre(tenantId: string): Promise<(() => Promise<void>) | undefined> }
 // Adaptateur PostgreSQL : verrou consultatif de SESSION sur une connexion dédiée (jamais PgBouncer en mode transaction), rendu par pg_advisory_unlock ou à la mort de la connexion.
-export function verrouConsultatif(ouvrir: () => Promise<{ query(texte: string, valeurs: unknown[]): Promise<{ rows: { ok: boolean }[] }>; release(detruire?: boolean): void }>): Verrou {
+export function verrouConsultatif(ouvrir: () => Promise<{ query(texte: string, valeurs: unknown[]): Promise<{ rows: { ok: boolean }[] }>; release(detruire?: boolean): void }>, prefixe = "provision"): Verrou {
   return {
     async prendre(tenantId) {
       const c = await ouvrir();
       try {
-        const cle = `provision-${tenantId}`;
+        const cle = `${prefixe}-${tenantId}`;
         if ((await c.query("SELECT pg_try_advisory_lock(hashtextextended($1, 0)) AS ok", [cle])).rows[0]?.ok !== true) { c.release(); return undefined; }
         // Déverrouillage raté : la connexion garde peut-être le verrou, elle est détruite (release(true)) plutôt que rendue au pool.
         return async () => {

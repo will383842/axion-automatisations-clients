@@ -3,6 +3,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { cpSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { DOSSIER_CLI, lireEntrees, migrerBase } from "./migrer-base.ts";
@@ -11,6 +12,7 @@ import { sqlPg } from "../provisionnement/adaptateur-sql.js";
 import { adminPg, nomBaseDe, nomsRoles } from "../provisionnement/etapes-base.js";
 import { ecrireEchec, journalEchecs } from "../provisionnement/journal-echecs.js";
 import { grappePartagee } from "../provisionnement/verrou-grappe.js";
+import { deployerTablesModule, type DepsTablesModule, type LigneDeploiement } from "../instances/tables-module.ts";
 // Journal des échecs (CI) : le rapport JSON n'est pas publié ; la cause de chaque test rouge s'imprime ici, adresses de connexion masquées.
 journalEchecs(import.meta.url);
 
@@ -63,6 +65,8 @@ async function creerBaseFictive(i: number): Promise<BaseRegistre> {
   await migrerBase(base, lireEntrees(DOSSIER_CLI).length, { url: vers(base) });
   return { id: `id${i}`, tenantId: id, nomBase: base, versionStructure: lireEntrees(DOSSIER_CLI).length, etat: "active" };
 }
+
+const ESSAI_MODULE = fileURLToPath(new URL("../../../../tests/modules/essai/migrations", import.meta.url));
 
 describe("vagues sur des bases fictives (grappe jetable)", () => { // fiche: T2-38
   let dossierV2 = "";
@@ -155,4 +159,39 @@ describe("vagues sur des bases fictives (grappe jetable)", () => { // fiche: T2-
       if (avant === undefined) delete process.env["NODE_ENV"]; else process.env["NODE_ENV"] = avant;
     }
   }, 60_000);
+
+  // T4-28b2 (ADR 0125) : les tables d'un module passent par les vagues ; une base en échec reste sans la version et alerte, l'autre migre.
+  it("[A-228] la migration des tables d'un module passe par les vagues de T2-38 ; une base en quarantaine garde l'ancienne version", async () => {
+    const bonne = await creerBaseFictive(2000);
+    const piegee = await creerBaseFictive(2001);
+    // Piège : la table du module existe déjà dans la seconde base, sa migration échoue (42P07) et se défait.
+    await sousProprietaire(piegee.nomBase, async (c) => { await c.query("CREATE SCHEMA a_essai"); await c.query("CREATE TABLE a_essai.essai_notes (id int)"); });
+    const lignes: LigneDeploiement[] = [];
+    const alertes: { clientId: string }[] = [];
+    const appliquee = new Map<string, number>();
+    const d: DepsTablesModule = {
+      code: "essai",
+      versionCibleId: "v-cible",
+      versionCible: 1,
+      config: { recette: [], internes: [] },
+      async migrationsSql() { return [readFileSync(join(ESSAI_MODULE, "0000_essai.sql"), "utf8")]; },
+      async dossierMigrations() { return ESSAI_MODULE; },
+      async registre() { return [bonne, piegee]; },
+      async instances() { return [bonne, piegee].map((b) => ({ tenantId: b.tenantId, instanceId: `i-${b.id}`, versionDepartId: null, configurationId: null, etat: "pause" })); },
+      async versionAppliquee(nomBase) { return appliquee.get(nomBase) ?? 0; },
+      async migrerBase(nomBase, version, o) { await migrerBase(nomBase, version, { url: vers(nomBase), dossier: o.dossier, module: o.module }); appliquee.set(nomBase, version); },
+      async ecrireDeploiement(l) { lignes.push(l); },
+      async graine() { return undefined; },
+      async enregistrerGraine() {},
+      tirerGraine: () => 476,
+      alertes: { async alerter(a) { alertes.push(a); } },
+    };
+    const r = await deployerTablesModule(d, { seuilEchec: 1 });
+    expect(r.echecs).toEqual([piegee.nomBase]);
+    expect(lignes.map((l) => [l.tenantId, l.resultat, l.cause])).toEqual(expect.arrayContaining([[bonne.tenantId, "ok", null], [piegee.tenantId, "quarantaine", "tables"]]));
+    expect(alertes).toEqual([{ type: "migration_echec", clientId: piegee.tenantId }]);
+    expect(appliquee.get(piegee.nomBase)).toBeUndefined();
+    const notes = (base: string) => sousProprietaire(base, async (c) => (await c.query("SELECT count(*)::int AS n FROM pg_tables WHERE schemaname = 'a_essai' AND tablename = 'essai_notes'")).rows[0]?.n as number);
+    expect(await notes(bonne.nomBase)).toBe(1);
+  }, 300_000);
 });

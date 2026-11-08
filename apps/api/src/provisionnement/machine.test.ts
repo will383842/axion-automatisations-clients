@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { creerMachine, ErreurEtape, ESSAIS_MAX, OPTIONS_TACHE, idTacheProvisionnement, type Etape, type LigneBase, type Registre } from "./machine.js";
+import { creerMachine, ErreurEtape, ESSAIS_MAX, OPTIONS_TACHE, idTacheProvisionnement, verrouConsultatif, type Etape, type LigneBase, type Registre } from "./machine.js";
 
 const T = randomUUID();
 function monter(etat: LigneBase["etat"] = "en_creation", etape = 0) {
@@ -114,5 +114,14 @@ describe("machine de provisionnement", () => {
     const machine = creerMachine({ etapes: casse, registre: m.registre, alertes: { envoyer: async () => undefined }, contexte: (tenantId) => ({ tenantId }), verrou });
     await expect(machine.executer(T)).rejects.toThrow();
     expect(libre).toBe(true);
+  });
+});
+
+describe("verrou consultatif du provisionnement (T2-44b-b)", () => {
+  it("[C-035] sans préfixe, la clé du verrou reste provision-<tenantId>", async () => {
+    const cles: unknown[] = [];
+    const ouvrir = async () => ({ query: async (_s: string, v: unknown[]) => { cles.push(v[0]); return { rows: [{ ok: true }] }; }, release: () => undefined });
+    await (await verrouConsultatif(ouvrir).prendre(T))!();
+    expect(cles[0]).toBe(`provision-${T}`);
   });
 });

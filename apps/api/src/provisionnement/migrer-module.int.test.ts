@@ -271,4 +271,23 @@ describe("migrations d'un module (grappe jetable)", () => { // fiche: T2-35
     expect(numero(mods[0])).toBeLessThan(numero(refusLocal));
     expect(lignes.filter((l) => l.split("|")[1] === "host" && l.includes("_mod_"))).toEqual([]);
   }, 60_000);
+
+  // T4-28b2 (ADR 0125) : les tables d'un module n'existent que dans la base du client qui a une instance de ce module.
+  it("[A-300] @isolation les tables du module sont créées dans cli_<A> et absentes de cli_<B>", async () => {
+    const a = await clientNonFerme();
+    const b = await clientNonFerme();
+    await migrerBase(a.base, 1, { url: vers(a.base), dossier: ESSAI, module: "essai" });
+    const tables = async (c: { dans: pg.Pool }) => (await c.dans.query("SELECT count(*)::int AS n FROM pg_tables WHERE schemaname = 'a_essai' AND tablename = 'essai_notes'")).rows[0]?.n;
+    expect(await tables(a)).toBe(1);
+    expect(await tables(b)).toBe(0);
+    expect((await b.dans.query("SELECT count(*)::int AS n FROM pg_namespace WHERE nspname = 'a_essai'")).rows[0]?.n).toBe(0);
+  }, 120_000);
+
+  it("[A-300] une migration de module avec DROP est refusée avant toute exécution et ne laisse rien", async () => {
+    const c = await clientNonFerme();
+    const dossier = dossierAvec('CREATE TABLE "devis" ("id" uuid PRIMARY KEY);--> statement-breakpoint\nDROP TABLE "commun"."personnes";');
+    await expect(migrerBase(c.base, 1, { url: vers(c.base), dossier, module: "essai" })).rejects.toThrow(/refus/);
+    expect((await c.dans.query("SELECT count(*)::int AS n FROM pg_tables WHERE schemaname = 'a_essai'")).rows[0]?.n).toBe(0);
+    expect((await c.dans.query("SELECT count(*)::int AS n FROM pg_tables WHERE schemaname = 'commun' AND tablename = 'personnes'")).rows[0]?.n).toBe(1);
+  }, 60_000);
 });

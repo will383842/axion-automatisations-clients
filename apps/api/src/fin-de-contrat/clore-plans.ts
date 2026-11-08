@@ -6,7 +6,8 @@ import { echeance, type AlerteFin, type EtapeFin } from "./machine.js";
 // Un gel pour litige ne suspend PAS cette étape : clore un plan ne détruit rien, et la facturation d'abonnement doit s'arrêter à la date de fin (C-609 ne vise que les préavis et les retraits).
 // Un brouillon non émis signalé par le Hub reste en alerte (hub/reponses.ts) ; rien n'est supprimé ici, les factures restent.
 // reponseRecue : le Hub a répondu par un SUCCÈS à la clôture de ce plan (une erreur, un délai dépassé ou une absence de réponse restent false : le plan peut encore facturer).
-export interface PlanHub { idPlan: string | null; reponseRecue: boolean }
+// enEchec : la ligne de clôture est en échec définitif (boîte d'envoi) ; le plan n'est pas clos et l'équipe est alertée (cloture_en_echec).
+export interface PlanHub { idPlan: string | null; reponseRecue: boolean; enEchec?: boolean }
 export interface PortsClore {
   plans(tenantId: string): Promise<PlanHub[]>;
   // Dépôt dans la boîte d'envoi, intention stable `clore:<idPlan>` : redéposer ne crée rien de plus.
@@ -26,6 +27,7 @@ export function etapeClore(d: PortsClore): EtapeFin {
       if (await d.gel.gelActif(t)) await d.alerter({ type: "clore_plans", clientId: t, code: "cloture_sous_gel" });
       for (const p of await d.plans(t)) {
         if (p.idPlan === null) await d.alerter({ type: "clore_plans", clientId: t, code: "plan_non_lie" });
+        else if (p.enEchec && !p.reponseRecue) await d.alerter({ type: "clore_plans", clientId: t, code: "cloture_en_echec" });
         else if (!p.reponseRecue) await d.deposerClore(t, p.idPlan, dossier.dateFin);
       }
     },

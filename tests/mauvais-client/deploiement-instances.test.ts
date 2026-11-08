@@ -54,4 +54,5 @@ describe("mauvais client : routes de déploiement d'une instance", () => {
   it("[C-536] @isolation POST /api/console/v1/clients/:tenantId/instances", async () => expect(await verifier("/api/console/v1/clients/:tenantId/instances")).toEqual(REFUS));
   it("[C-536] @isolation POST /api/console/v1/clients/:tenantId/instances/:id/tests-a-blanc", async () => expect(await verifier("/api/console/v1/clients/:tenantId/instances/:id/tests-a-blanc")).toEqual(REFUS));
   it("[C-536] @isolation POST /api/console/v1/clients/:tenantId/instances/:id/activation", async () => expect(await verifier("/api/console/v1/clients/:tenantId/instances/:id/activation")).toEqual(REFUS));
+  it("[C-536] @isolation POST /api/console/v1/clients/:tenantId/instances/:id/mises-a-jour", async () => expect(await verifier("/api/console/v1/clients/:tenantId/instances/:id/mises-a-jour")).toEqual(REFUS));
 });

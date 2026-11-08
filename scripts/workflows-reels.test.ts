@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 const lire = (chemin: string) => readFileSync(fileURLToPath(new URL(`../${chemin}`, import.meta.url)), "utf8");
 
 describe("workflows réels", () => {
-  it("[C-530] securite.yml existe, se déclenche sur pull_request et push, et ses actions sont épinglées par SHA", () => {
+  it("[C-530] securite.yml existe, se déclenche sur push ET pull_request (garde conservée malgré E1 : Gitleaks de PR ignore les commits de fusion), et ses actions sont épinglées par SHA", () => {
     expect(existsSync(fileURLToPath(new URL("../.github/workflows/securite.yml", import.meta.url)))).toBe(true);
     const t = lire(".github/workflows/securite.yml");
     expect(t).toMatch(/^\s+pull_request:/m);

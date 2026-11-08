@@ -67,7 +67,7 @@ export const versionsStructure = tableClient(
   { contraintes: (t) => [lien("versions_structure_base_fk", t, "baseId", basesClient)] },
 );
 
-// Préavis J+1, J+20, J+27 : date d'envoi et preuve d'accusé de chacun (six colonnes, pas de table hors liste).
+// Préavis J+1, J+20, J+27 : date d'envoi et preuve d'accusé de chacun (six colonnes, pas de table hors liste). UNE seule fin par client (T2-44b-a) : sert d'arbitre à INSERT … ON CONFLICT (tenant_id).
 export const finsDeContrat = tableClient(
   "fins_de_contrat",
   {
@@ -85,7 +85,7 @@ export const finsDeContrat = tableClient(
     exportTelechargeLe: instant("export_telecharge_le"),
     etat: etatFinDeContrat("etat").notNull().default("preavis"),
   },
-  { contraintes: (t) => [lien("fins_de_contrat_organisation_fk", t, "organisationId", organisations)] },
+  { contraintes: (t) => [lien("fins_de_contrat_organisation_fk", t, "organisationId", organisations), unique("fins_de_contrat_une_par_client").on(t["tenantId"] as never)] },
 );
 
 export const confirmationsMiseAEcart = tableClient(

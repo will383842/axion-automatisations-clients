@@ -237,3 +237,126 @@ describe("migration 0021 : conformité, avec le socle", { timeout: 120_000 }, ()
     expect(publics).toEqual([]);
   });
 });
+
+// T3-31a1 (ADR 0135) : grille de prix, écrite par le vrai service et le vrai SQL, sous le rôle console_equipe. Aucun résultat n'est connu hors de la CI socle-integration.
+// Chaque échec est journalisé (journal-echecs.ts, sans secret). Les essais de concurrence ouvrent leurs connexions directement, SANS commeEquipe (son rejeu masquerait la course).
+type RequeteSql = (sql: string, valeurs: unknown[]) => Promise<Record<string, unknown>[]>;
+const CORPS_GRILLE = { formules: ["abonnement"], frais_mise_en_place_ht_centimes: "12345", prix_mensuel_ht_centimes: "6789", maintenance_ensuite_ht_centimes: "1500", maintenance_incluse_mois: 3, motif: "Essai de grille" };
+async function journaliserGrille<T>(nom: string, fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (e) {
+    (await import("../provisionnement/journal-echecs.js")).ecrireEchec("conformite.int.test.ts", nom, e instanceof Error ? `${e.name} ${(e as { code?: string }).code ?? ""} ${e.message}` : "échec");
+    throw e;
+  }
+}
+// Transaction sur une connexion déjà prise (BEGIN déjà fait ou non), avec un point d'attente avant COMMIT.
+function transactionSur(c: pg.PoolClient, o: { dejaOuverte?: boolean; avantCommit?: () => Promise<void> } = {}) {
+  return async <T>(acteur: string, fn: (q: RequeteSql) => Promise<T>): Promise<T> => {
+    try {
+      if (!o.dejaOuverte) await c.query("BEGIN");
+      await c.query("SELECT set_config('app.acteur', $1, true), set_config('lock_timeout', '5s', true)", [acteur]);
+      const r = await fn(async (sql, v) => (await c.query(sql, v)).rows as Record<string, unknown>[]);
+      if (o.avantCommit) await o.avantCommit();
+      await c.query("COMMIT");
+      return r;
+    } catch (e) {
+      await c.query("ROLLBACK").catch(() => undefined);
+      throw e;
+    } finally {
+      c.release();
+    }
+  };
+}
+const lectureEquipe = async <T>(fn: (q: RequeteSql) => Promise<T>): Promise<T> => {
+  const c = await equipe.connect();
+  try {
+    await c.query("BEGIN READ ONLY");
+    const r = await fn(async (sql, v) => (await c.query(sql, v)).rows as Record<string, unknown>[]);
+    await c.query("COMMIT");
+    return r;
+  } catch (e) {
+    await c.query("ROLLBACK").catch(() => undefined);
+    throw e;
+  } finally {
+    c.release();
+  }
+};
+async function serviceGrilles(transaction?: <T>(acteur: string, fn: (q: RequeteSql) => Promise<T>) => Promise<T>) {
+  const { creerServiceGrilles, depotSqlGrilles } = await import("../catalogue/grille.js");
+  return creerServiceGrilles(depotSqlGrilles({ transaction: transaction ?? ((acteur, fn) => commeEquipe(acteur, (c) => fn(async (sql, v) => (await c.query(sql, v)).rows as Record<string, unknown>[]))), lecture: lectureEquipe }));
+}
+const grillesDe = async (auto: string) => (await su.query("SELECT * FROM grilles_prix WHERE automatisation_id = $1 ORDER BY cree_le, id", [auto])).rows as Record<string, unknown>[];
+const historiqueDe = async (auto: string) => (await su.query("SELECT h.* FROM historique_grilles_prix h JOIN grilles_prix g ON g.id = h.grille_id WHERE g.automatisation_id = $1", [auto])).rows as Record<string, unknown>[];
+const empreinte = async (table: string) => String((await su.query(`SELECT md5(coalesce(string_agg(t::text, ',' ORDER BY t::text), '')) AS e FROM ${table} t`)).rows[0]?.["e"]);
+
+describe("T3-31a1 grille de prix en vraie base", () => {
+  it("[LOT3-prix] @argent changer un prix crée l'historique exact et ne touche aucun plan ni échéance existants", () => journaliserGrille("historique exact", async () => {
+    const auto = await creerAutomatisation();
+    const service = await serviceGrilles();
+    const avant = [await empreinte("plans_commerciaux"), await empreinte("echeances"), await empreinte("conditions_commerciales")];
+    const g1 = await service.ecrire(auto, APPELANT.acteur, { ...CORPS_GRILLE, grille_precedente_id: null });
+    const g2 = await service.ecrire(auto, APPELANT.acteur, { ...CORPS_GRILLE, prix_mensuel_ht_centimes: "7000", grille_precedente_id: g1.grille.id });
+    expect([await empreinte("plans_commerciaux"), await empreinte("echeances"), await empreinte("conditions_commerciales")]).toEqual(avant);
+    // Contre-calcul : relire les deux grilles en base et recalculer l'historique de la seconde.
+    const lignes = await grillesDe(auto);
+    expect(lignes).toHaveLength(2);
+    const [r1, r2] = lignes as [Record<string, unknown>, Record<string, unknown>];
+    expect(r2["id"]).toBe(g2.grille.id);
+    const colonne = { installation: "montant_installation_centimes", mensuel: "montant_mensuel_centimes", maintenance_ensuite: "maintenance_ensuite_centimes", maintenance_incluse_mois: "maintenance_incluse_mois" } as const;
+    const attendues = Object.entries(colonne).filter(([, col]) => String(r1[col]) !== String(r2[col])).map(([champ]) => champ);
+    expect(attendues).toEqual(["mensuel"]);
+    const h2 = (await historiqueDe(auto)).filter((h) => h["grille_id"] === g2.grille.id);
+    expect(h2.map((h) => h["champ"])).toEqual(attendues);
+    expect(h2[0]).toMatchObject({ grille_precedente_id: r1["id"], ancienne_valeur_centimes: "6789", nouvelle_valeur_centimes: "7000", auteur: APPELANT.acteur });
+    // Première grille : quatre lignes sans ancienne valeur.
+    expect((await historiqueDe(auto)).filter((h) => h["grille_id"] === g1.grille.id && h["ancienne_valeur_centimes"] === null)).toHaveLength(4);
+  }));
+
+  it("[LOT3-prix] @argent deux changements simultanés : un seul passe et l'historique reste complet", () => journaliserGrille("deux changements", async () => {
+    const auto = await creerAutomatisation();
+    const g0 = await (await serviceGrilles()).ecrire(auto, APPELANT.acteur, { ...CORPS_GRILLE, grille_precedente_id: null });
+    // A pose le verrou et attend ; B arrive pendant ce temps et attend à son tour ; A valide ; B voit la grille changée et est refusé.
+    let liberer!: () => void;
+    const feu = new Promise<void>((r) => { liberer = r; });
+    let aPret!: () => void;
+    const pret = new Promise<void>((r) => { aPret = r; });
+    const cA = await equipe.connect();
+    const cB = await equipe.connect();
+    const sA = await serviceGrilles(transactionSur(cA, { avantCommit: async () => { aPret(); await feu; } }));
+    const sB = await serviceGrilles(transactionSur(cB));
+    const pA = sA.ecrire(auto, APPELANT.acteur, { ...CORPS_GRILLE, prix_mensuel_ht_centimes: "7000", grille_precedente_id: g0.grille.id });
+    await pret;
+    const pB = sB.ecrire(auto, APPELANT.acteur, { ...CORPS_GRILLE, prix_mensuel_ht_centimes: "8000", grille_precedente_id: g0.grille.id });
+    const issueB = pB.then(() => "passe", (e: unknown) => e);
+    await new Promise((r) => setTimeout(r, 300));
+    liberer();
+    expect((await pA).grille.prix_mensuel_ht_centimes).toBe("7000");
+    expect(await issueB).toMatchObject({ code: "regle_metier", message: "La grille a changé entre-temps : rechargez-la." });
+    const grilles = await grillesDe(auto);
+    expect(grilles).toHaveLength(2);
+    const historique = await historiqueDe(auto);
+    const ids = new Set(grilles.map((g) => g["id"]));
+    expect(historique.every((h) => ids.has(h["grille_id"]))).toBe(true);
+    expect(historique.filter((h) => h["grille_id"] !== g0.grille.id).map((h) => [h["champ"], h["nouvelle_valeur_centimes"]])).toEqual([["mensuel", "7000"]]);
+  }));
+
+  it("[LOT3-prix] une transaction ouverte avant la dernière grille ne peut pas en écrire une plus ancienne", () => journaliserGrille("transaction plus ancienne", async () => {
+    const auto = await creerAutomatisation();
+    const g0 = await (await serviceGrilles()).ecrire(auto, APPELANT.acteur, { ...CORPS_GRILLE, grille_precedente_id: null });
+    const cB = await equipe.connect();
+    await cB.query("BEGIN");
+    await cB.query("SELECT 1");
+    // A écrit et valide APRÈS l'ouverture de la transaction de B : sa grille porte un cree_le postérieur au now() de B.
+    const gA = await (await serviceGrilles()).ecrire(auto, APPELANT.acteur, { ...CORPS_GRILLE, prix_mensuel_ht_centimes: "7000", grille_precedente_id: g0.grille.id });
+    const sB = await serviceGrilles(transactionSur(cB, { dejaOuverte: true }));
+    await expect(sB.ecrire(auto, APPELANT.acteur, { ...CORPS_GRILLE, prix_mensuel_ht_centimes: "8000", grille_precedente_id: gA.grille.id })).rejects.toMatchObject({ code: "regle_metier", message: "La grille a changé entre-temps : rechargez-la." });
+    expect(await grillesDe(auto)).toHaveLength(2);
+  }));
+
+  it("[LOT3-prix] console_equipe pose le verrou FOR NO KEY UPDATE sur automatisations", () => journaliserGrille("verrou", async () => {
+    const auto = await creerAutomatisation();
+    const r = await commeEquipe(APPELANT.acteur, (c) => c.query("SELECT statut FROM automatisations WHERE id = $1 FOR NO KEY UPDATE", [auto]));
+    expect(r.rows).toHaveLength(1);
+  }));
+});

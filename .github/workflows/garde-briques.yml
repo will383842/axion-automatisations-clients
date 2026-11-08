@@ -1,5 +1,5 @@
 name: garde-briques
-# Sur chaque PR et chaque nuit : la garde des fichiers de briques (empreintes, licences, redis, verrou).
+# Sur chaque PR et chaque nuit : la garde des fichiers de briques (empreintes, licences, redis, verrou), puis les gardes des données réelles, des couleurs et des migrations (ADR 0137).
 # Une image dérivée (ADR 0016) doit porter une attestation de provenance signée par images-derivees.yml de ce dépôt, sur l'empreinte inscrite. Aucun secret.
 on:
   pull_request:
@@ -25,6 +25,8 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
+      - name: Refuser toute donnée réelle (extrait Sirene, e-mail réel, API de registre public)
+        run: node scripts/garde-donnees-reelles.ts
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
       - name: Garde des briques (fichiers, empreintes, licences, redis, verrou)
@@ -41,3 +43,9 @@ jobs:
             node scripts/garde-briques.ts --attestation "$fichier" "$ref" && echo "attestation vérifiée : $ref" || statut=1
           done
           exit "$statut"
+      - name: Garde des couleurs
+        if: always()
+        run: node scripts/garde-couleurs.ts
+      - name: Refuser DROP, RENAME, ALTER … TYPE, TRUNCATE, SET SCHEMA, DO, fonctions et SQL dynamique dans apps/*/drizzle
+        if: always()
+        run: node scripts/garde-migrations.ts

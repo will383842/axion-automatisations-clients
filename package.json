@@ -12,7 +12,7 @@
     "lint": "eslint .",
     "prepare": "git rev-parse --git-dir >/dev/null 2>&1 && git config core.hooksPath .githooks || true",
     "test": "vitest run",
-    "test:compter": "vitest run --reporter=json --outputFile=rapport-tests.json"
+    "test:compter": "vitest run --reporter=default --reporter=json --outputFile.json=rapport-tests.json"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",

@@ -4,6 +4,7 @@ import { readFileSync, writeSync } from "node:fs";
 import { createRemoteJWKSet, decodeJwt } from "jose";
 import Fastify from "fastify";
 import { beforeAll, beforeEach, describe, expect, it, onTestFailed } from "vitest";
+import { creerKeycloakAdmin } from "../equipe/keycloak-admin.ts";
 import { exigerReauthentification } from "./exiger-reauthentification.ts";
 import { creerVerificateur, exigerJeton } from "./oidc.ts";
 
@@ -339,5 +340,78 @@ describe("Keycloak réel : en-têtes de sécurité et essais répétés (C-681)"
       jeton = (await verdict(await direct(u.nom, u.motDePasse, { totp: code(u.secret, pasCourant()) }))).jeton;
     }
     expect(jeton, "le blocage devait se lever seul").toBeTypeOf("string");
+  });
+});
+
+// T3-07a : compte de service console-sessions du royaume equipe (droits minimaux). Le secret vient de l'environnement du conteneur, jamais affiché.
+describe("Keycloak réel : compte de service console-sessions (LOT3-securite)", { timeout: 60_000 }, () => {
+  // Le jeton d'administration du socle dure une minute : l'obtenir de nouveau avant ce bloc.
+  beforeAll(async () => {
+    admin = await jetonAdmin();
+  });
+  async function jetonService(): Promise<string> {
+    const r = await fetch(`${OIDC("equipe")}/token`, {
+      method: "POST",
+      body: formulaire({ grant_type: "client_credentials", client_id: "console-sessions", client_secret: lireEnv("KC_SECRET_CONSOLE_SESSIONS") }),
+    });
+    expect(r.status, "client_credentials du compte de service").toBe(200);
+    return ((await r.json()) as { access_token: string }).access_token;
+  }
+  const avec = (jeton: string, chemin: string, init: RequestInit & { json?: unknown } = {}) =>
+    fetch(`${BASE}/admin/realms${chemin}`, {
+      method: init.method ?? "GET",
+      headers: { authorization: `Bearer ${jeton}`, ...(init.json === undefined ? {} : { "content-type": "application/json" }) },
+      ...(init.json === undefined ? {} : { body: JSON.stringify(init.json) }),
+    });
+
+  it("[LOT3-securite] le compte de service obtient un jeton par client_credentials malgré minimum.acr.value", async () => {
+    const jeton = await jetonService();
+    const roles = (decodeJwt(jeton) as { resource_access?: Record<string, { roles?: string[] }> }).resource_access?.["realm-management"]?.roles ?? [];
+    // query-users et query-groups sont les rôles composites de view-users et manage-users : Keycloak les ajoute au jeton. Aucun rôle d'administration.
+    expect([...roles].sort()).toEqual(["manage-users", "query-groups", "query-users", "view-users"]);
+    expect((await avec(jeton, "/equipe/users?max=1")).status).toBe(200);
+  });
+  it("[LOT3-securite] le compte de service n'a aucun droit sur le royaume clients", async () => {
+    const jeton = await jetonService();
+    expect((await avec(jeton, "/clients/users")).status).toBe(403);
+    expect((await avec(jeton, "/clients")).status).toBe(403);
+  });
+  it("[LOT3-securite] le compte de service ne peut ni attribuer un rôle d'administration ni usurper ni lire les clients", async () => {
+    const jeton = await jetonService();
+    const u = await creerUtilisateur();
+    const gestion = ((await (await api("/equipe/clients?clientId=realm-management")).json()) as { id: string }[])[0]!.id;
+    const role = (await (await api(`/equipe/clients/${gestion}/roles/realm-admin`)).json()) as Json;
+    expect((await avec(jeton, `/equipe/users/${u.id}/role-mappings/clients/${gestion}`, { method: "POST", json: [role] })).status).toBe(403);
+    expect((await avec(jeton, `/equipe/users/${u.id}/impersonation`, { method: "POST" })).status).toBe(403);
+    expect((await avec(jeton, "/equipe/clients")).status).toBe(403);
+  });
+});
+
+describe("Keycloak réel : invitation d'un membre par l'adaptateur (T3-07c)", { timeout: 60_000 }, () => {
+  beforeAll(async () => {
+    admin = await jetonAdmin();
+  });
+  it("[B-028] inviter un membre impose le double facteur à sa première connexion", async () => {
+    const kc = creerKeycloakAdmin({ base: BASE, secrets: { lire: async (nom) => lireEnv(nom) } });
+    const email = `invite.${randomBytes(4).toString("hex")}@exemple.fr`;
+    const { id } = await kc.creerUtilisateur({ email });
+    // Créé désactivé, avec le mot de passe et le double facteur en actions requises.
+    const brut = (await (await api(`/equipe/users/${id}`)).json()) as { enabled: boolean; requiredActions: string[] };
+    expect(brut.enabled).toBe(false);
+    // Le royaume ajoute lui-même son action par défaut (webauthn-register) : on exige la présence des deux actions de l'invitation, pas l'égalité.
+    expect(brut.requiredActions).toEqual(expect.arrayContaining(["CONFIGURE_TOTP", "UPDATE_PASSWORD"]));
+    expect(await kc.chercherParEmail(email)).toEqual({ id, actif: false });
+    // L'essai pose un mot de passe généré, jamais affiché, par le compte d'administration du socle (l'API, elle, n'en fixe jamais).
+    const motDePasse = randomBytes(12).toString("hex");
+    expect((await api(`/equipe/users/${id}/reset-password`, { method: "PUT", json: { type: "password", value: motDePasse, temporary: false } })).status).toBe(204);
+    await kc.activer(id);
+    const r = await fetch(`${OIDC("equipe")}/token`, { method: "POST", body: formulaire({ grant_type: "password", client_id: "essai-direct", username: email, password: motDePasse }) });
+    expect(r.status).toBeGreaterThanOrEqual(400);
+    const corps = (await r.json()) as Json;
+    expect(corps["access_token"]).toBeUndefined();
+    expect(corps["error"]).toBe("invalid_grant");
+    // Désactiver coupe le compte sans le supprimer.
+    await kc.desactiver(id);
+    expect(((await (await api(`/equipe/users/${id}`)).json()) as { enabled: boolean }).enabled).toBe(false);
   });
 });

@@ -32,5 +32,7 @@ export const ECRANS: readonly Ecran[] = [
   // Fiche client (T3-13) : pages de passage tant que l'appel à l'API de la fiche n'est pas câblé ; le bandeau et le résumé sont recettés par leurs tests.
   { route: "/clients/[id]", page: "(equipe)/clients/[id]/page.tsx", maquette: "F-Console-Fiche", etats: [] },
   { route: "/clients/[id]/notes", page: "(equipe)/clients/[id]/notes/page.tsx", maquette: "F-Console-Fiche", etats: [] },
-  ...["accueil", "clients", "alertes", "demandes", "facturation", "catalogue", "conformite", "securite", "plus"].map(coquille),
+  // Sécurité et accès (T3-07d) : lit un port de données ; le pont vers l'API d'équipe est une dette.
+  { route: "/securite", page: "(equipe)/securite/page.tsx", maquette: "F-Console-Securite", etats: ["normal", "vide", "chargement", "erreur", "acces-refuse"] },
+  ...["accueil", "clients", "alertes", "demandes", "facturation", "catalogue", "conformite", "plus"].map(coquille),
 ];

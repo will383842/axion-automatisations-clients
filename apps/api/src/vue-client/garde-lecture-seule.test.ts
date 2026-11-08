@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import Fastify, { type FastifyRequest } from "fastify";
 import { describe, expect, it } from "vitest";
 import { ErreurApi, brancherErreurs } from "../plugins/erreurs.js";
@@ -15,6 +14,7 @@ import { routeReglages } from "../routes/reglages.js";
 import { routeVueClient } from "../routes/equipe/vue-client.js";
 import { brancherGardeLectureSeule, PERMISES_EN_VUE } from "./garde-lecture-seule.js";
 import { creerRegistreVues } from "./ouvrir.js";
+import { construireServeur } from "../serveur.js";
 
 // Lecture seule imposée par le serveur (B-067) : crochet racine posé AVANT toute route, liste blanche fermée, route identifiée par son motif.
 const A = "11111111-1111-4111-8111-111111111111";
@@ -109,12 +109,19 @@ describe("garde de lecture seule", () => {
     expect((await s.inject({ method: "GET", url: "/x" })).statusCode).toBe(200);
   });
 
-  it("[B-067] @isolation serveur.ts pose la garde avant toute route, juste après la base", () => {
-    const src = readFileSync(new URL("../serveur.ts", import.meta.url), "utf8");
-    const garde = src.indexOf("brancherGardeLectureSeule(serveur");
-    expect(garde).toBeGreaterThan(src.indexOf("brancherBase(serveur"));
-    expect(garde).toBeLessThan(src.indexOf("routeSante(serveur"));
-    expect(garde).toBeLessThan(src.indexOf("routeProvisionnement(serveur"));
-    expect(garde).toBeLessThan(src.indexOf("routeDonnees(serveur"));
+  it("[B-067] @isolation construireServeur pose la garde sur les routes branchées par le registre, même celles déclarées avant elle", async () => {
+    const registre = creerRegistreVues(() => T0);
+    registre.ranger({ acteur: "e1", tenantId: A, expireLe: new Date(T0.getTime() + 60_000) });
+    const acteur = async (req: FastifyRequest) => /sid=(e\d)/.exec(String(req.headers.cookie ?? ""))?.[1];
+    const s = construireServeur({ vueClient: { garde: { registre, acteur }, exigerDroit: passe } as never });
+    await s.ready();
+    // /sante (branchement « sante », trié avant « vue-client ») est refusé pendant une vue vivante ; sans vue, il répond.
+    expect((await s.inject({ method: "GET", url: "/sante", headers: { cookie: "sid=e1" } })).statusCode).toBe(403);
+    expect((await s.inject({ method: "GET", url: "/sante", headers: { cookie: "sid=e2" } })).statusCode).toBe(200);
+    // Sans `vueClient`, ni la garde ni les routes n'existent (fermé par défaut).
+    const ferme = construireServeur();
+    await ferme.ready();
+    expect((await ferme.inject({ method: "GET", url: "/sante", headers: { cookie: "sid=e1" } })).statusCode).toBe(200);
+    expect((await ferme.inject({ method: "GET", url: `/api/console/v1/clients/${A}/vue-client` })).statusCode).toBe(404);
   });
 });

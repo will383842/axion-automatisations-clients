@@ -43,7 +43,7 @@ describe("piège Mailpit", () => {
         .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"))
         .map((f) => join(racine, "packages/harnais/src", f)),
       join(racine, "ops/compose.test.yml"),
-      join(racine, ".github/workflows/harnais.yml"),
+      join(racine, ".github/workflows/ci.yml"),
     ];
     const hotes = fichiers.flatMap((f) => hotesSmtpDeclares(readFileSync(f, "utf8")));
     expect(hotes.length).toBeGreaterThan(0);

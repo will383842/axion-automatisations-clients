@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { ACTIONS, ACTION_PAR_ROUTE } from "../apps/api/src/droits/matrice.js";
+import { ACTIONS } from "../apps/api/src/droits/matrice.js";
+import { ACTION_PAR_ROUTE } from "../apps/api/src/droits/actions-par-route.js";
 import { EXEMPTEES_DROITS, actionsInvalides, routesDeLaConsole, routesSansAction } from "./garde-droits.js";
 import { listerRoutes } from "./liste-routes.js";
 

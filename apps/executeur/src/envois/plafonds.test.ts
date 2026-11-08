@@ -11,6 +11,13 @@ const A = randomUUID();
 const B = randomUUID();
 class FauxValkey {
   cles = new Map<string, string>();
+  // Durée de vie restante (secondes) des clés qui en ont une ; `vieillir` fait passer le temps et expire les clés échues.
+  ttl = new Map<string, number>();
+  vieillir(secondes: number) {
+    for (const [cle, reste] of [...this.ttl]) {
+      if (reste <= secondes) { this.cles.delete(cle); this.ttl.delete(cle); } else this.ttl.set(cle, reste - secondes);
+    }
+  }
   async mget(...cles: string[]) { return cles.map((c) => this.cles.get(c) ?? null); }
   async call(commande: string, ...args: string[]): Promise<unknown> {
     const [cle = "", valeur = "", ...options] = args;
@@ -20,11 +27,13 @@ class FauxValkey {
       this.cles.set(cle, String(n));
       return n;
     }
-    if (commande === "EXPIRE") return 1;
+    if (commande === "EXPIRE") { this.ttl.set(cle, Number(valeur)); return 1; }
     if (commande === "SET") {
       const ancien = this.cles.get(cle) ?? null;
       if (options.includes("NX") && ancien !== null) return null;
       this.cles.set(cle, valeur);
+      const i = options.indexOf("EX");
+      if (i >= 0) this.ttl.set(cle, Number(options[i + 1])); else this.ttl.delete(cle);
       return "OK";
     }
     throw new Error(`commande ${commande}`);
@@ -152,6 +161,29 @@ describe("limites et plafond du client", () => {
     expect(reportes).toBe(10);
     expect(connecteur.appels).toHaveLength(50);
     await expect(envoyer(garde("inst-9", B))).resolves.toBeDefined();
+  });
+
+  it("[B-193] un plafond du client à 0 bloque tous les envois (0 n'est pas « pas de plafond »)", async () => {
+    const b = banc({ plafondClient: 0 });
+    expect(await b.envoyer(5)).toMatchObject({ partis: 0, reportes: 5 });
+  });
+
+  it("[A-274] après plus de 90 jours d'envois continus, la boîte garde son rang dans la montée (la date du premier envoi n'expire pas)", async () => {
+    const b = banc();
+    // Un envoi par jour pendant 95 jours : la clé du premier envoi a dépassé ses 90 jours de vie si elle n'est jamais rafraîchie.
+    for (let j = 0; j < 95; j++) {
+      b.horloge.t = plus(JOUR1, j);
+      expect((await b.envoyer(1)).partis).toBe(1);
+      b.valkey.vieillir(86_400);
+    }
+    b.horloge.t = plus(JOUR1, 95);
+    expect((await b.envoyer(120)).partis).toBe(120);
+  });
+
+  it("[A-206] un identifiant de boîte contenant « : » est refusé (aucune clé forgée vers la boîte d'un autre)", async () => {
+    const b = banc();
+    await expect(b.envoyer(1, b.ctx(A, "boite-1:j:2026-03-10"))).rejects.toBeDefined();
+    expect(b.valkey.cles.size).toBe(0);
   });
 
   it("[C-085] un envoi refusé par le connecteur rend sa place ; une limite atteinte (quota) n'en rend aucune", async () => {

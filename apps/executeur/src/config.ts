@@ -18,6 +18,8 @@ export interface ConfigExecuteur {
   // « production » par défaut. Les clés acceptées en découlent : la liste épinglée du dépôt, jamais une valeur lue d'une requête ou d'une variable (T4-26).
   environnement: Environnement;
   clesAcceptees: readonly ClePublique[];
+  // Limites d'envoi des fournisseurs (T4-45, A-275) relevées par T4-00 ; absente = aucune limite connue, jamais une valeur devinée. La marge de 20 % est appliquée par les plafonds.
+  limitesFournisseur: Partial<Record<"microsoft365" | "gmail" | "imap", { parJour?: number; parMinute?: number }>>;
 }
 
 // Entier strictement positif ou refus au démarrage : une valeur non numérique ne passe jamais en silence.
@@ -36,6 +38,21 @@ function entierOuZero(env: Record<string, string | undefined>, cle: string): num
   const n = Number(brut);
   if (brut.trim() === "" || !Number.isInteger(n) || n < 0) throw new Error(`${cle} doit être un entier positif ou nul (reçu « ${brut} »)`);
   return n;
+}
+
+// Entier strictement positif ou absent (aucune valeur par défaut).
+function entierOuAbsent(env: Record<string, string | undefined>, cle: string): number | undefined {
+  return env[cle] === undefined ? undefined : entier(env, cle, 1);
+}
+
+function limitesFournisseur(env: Record<string, string | undefined>): ConfigExecuteur["limitesFournisseur"] {
+  const sortie: ConfigExecuteur["limitesFournisseur"] = {};
+  for (const f of ["microsoft365", "gmail", "imap"] as const) {
+    const jour = entierOuAbsent(env, `EXECUTEUR_LIMITE_${f.toUpperCase()}_JOUR`);
+    const minute = entierOuAbsent(env, `EXECUTEUR_LIMITE_${f.toUpperCase()}_MINUTE`);
+    if (jour !== undefined || minute !== undefined) sortie[f] = { ...(jour === undefined ? {} : { parJour: jour }), ...(minute === undefined ? {} : { parMinute: minute }) };
+  }
+  return sortie;
 }
 
 export function chargerConfig(env: Record<string, string | undefined>, listes: ListesEpinglees = EPINGLEES): ConfigExecuteur {
@@ -57,5 +74,6 @@ export function chargerConfig(env: Record<string, string | undefined>, listes: L
     concurrence: entier(env, "EXECUTEUR_CONCURRENCE", 16),
     environnement: brut,
     clesAcceptees: clesAcceptees(brut, listes),
+    limitesFournisseur: limitesFournisseur(env),
   };
 }

@@ -5,6 +5,9 @@ import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { controlerInvariants, EXCEPTIONS_UNICITE, type Requete } from "../../../../packages/contrats/src/c5/invariants.js";
+import { cleDIntention } from "../../../../packages/contrats/src/commun/idempotence.js";
+import { deposerCloreEnBase, plansEnBase, type Avec } from "../fin-de-contrat/adaptateurs-pg.js";
+import { ecrireEchec } from "../provisionnement/journal-echecs.js";
 import { avecClient } from "./client-actif.js";
 import { migrer } from "./migrer.js";
 
@@ -482,5 +485,34 @@ describe("plan commercial, avec le socle", { timeout: 60_000 }, () => {
     const { rows } = await migration.query("SELECT relname FROM pg_class WHERE relkind = 'r' AND relnamespace = 'public'::regnamespace AND relname = ANY($1) ORDER BY 1", [["abonnements", "plans_commerciaux", "phases_plan", "echeances", "conditions_commerciales"]]);
     expect(rows).toHaveLength(5);
     expect(EXCEPTIONS_UNICITE).toEqual([{ table: "instances", index: "instances_id_unique", raison: "ADR 0111" }]);
+  });
+});
+
+// Essai pour la CI socle-integration (aucun démon Docker sur le poste de rédaction : jamais lancé ici). Échecs journalisés par journal-echecs.ts.
+describe("clôture réelle des plans (T2-44b-b)", { timeout: 40_000 }, () => {
+  afterEach((contexte) => {
+    if (contexte.task.result?.state === "fail") ecrireEchec("commercial.int.test.ts", contexte.task.name, contexte.task.result.errors?.[0]?.message);
+  });
+  const avec: Avec = (t, fn, a) => ecrire(app, t, fn, a);
+
+  it("[A-250] @argent clôture réelle : la clé calculée par plansEnBase est celle écrite par deposer ; après reporter (comme un 5xx) le plan n'est pas clos ; après conclure envoye il l'est", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    const p = await nouveauPlan(A);
+    const idPlanHub = `plan-essai-${randomUUID().slice(0, 8)}`;
+    await inserer(A, "phases_plan", { plan_id: p["id"], ordre: 1, debut: "2026-01-01", nature: "recurrente", montant_ht_centimes: 200, periode_facturation_mois: 1, auteur: "agent-essai", id_plan_hub: idPlanHub });
+    const plans = plansEnBase(avec);
+    expect(await plans(A)).toEqual([{ idPlan: idPlanHub, reponseRecue: false, enEchec: false }]);
+    await deposerCloreEnBase(avec)(A, idPlanHub, "2027-03-31");
+    const lignes = await ecrire(app, A, async (c) => (await c.query("SELECT cle_anti_doublon::text AS cle FROM boite_envoi WHERE tenant_id = $1 AND route LIKE '%/clore'", [A])).rows, APPELANT);
+    expect(lignes).toEqual([{ cle: cleDIntention("hub", JSON.stringify([A, `clore:${idPlanHub}`])) }]);
+    const etat = (e: string) => ecrire(app, A, (c) => c.query("UPDATE boite_envoi SET etat = $2 WHERE tenant_id = $1 AND route LIKE '%/clore'", [A, e]), APPELANT);
+    // Un 5xx : retour à envoyer, le plan n'est pas clos.
+    await etat("a_envoyer");
+    expect((await plans(A))[0]).toMatchObject({ reponseRecue: false, enEchec: false });
+    await etat("echec");
+    expect((await plans(A))[0]).toMatchObject({ reponseRecue: false, enEchec: true });
+    await etat("envoye");
+    expect((await plans(A))[0]).toMatchObject({ reponseRecue: true, enEchec: false });
   });
 });

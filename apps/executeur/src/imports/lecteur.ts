@@ -1,7 +1,7 @@
 // Lecture en flux d'un fichier CSV (A-271, A-273) : jamais le fichier entier en mémoire, jamais de formule interprétée.
 export const MAX_OCTETS = 200 * 1024 * 1024;
-export type CodeImport = "trop_gros" | "fichier_illisible" | "colonne_adresse_absente";
-const MESSAGES: Record<CodeImport, string> = { trop_gros: "Fichier trop gros : 200 Mo au plus.", fichier_illisible: "Fichier illisible.", colonne_adresse_absente: "Aucune colonne d'adresse e-mail reconnue (Email, E-mail ou Courriel)." };
+export type CodeImport = "trop_gros" | "fichier_illisible" | "colonne_adresse_absente" | "colonne_adresse_multiple";
+const MESSAGES: Record<CodeImport, string> = { trop_gros: "Fichier trop gros : 200 Mo au plus.", fichier_illisible: "Fichier illisible.", colonne_adresse_absente: "Aucune colonne d'adresse e-mail reconnue (Email, E-mail ou Courriel).", colonne_adresse_multiple: "Plus d'une colonne d'adresse e-mail reconnue : gardez une seule colonne." };
 export class ErreurImport extends Error {
   constructor(readonly code: CodeImport) { super(MESSAGES[code]); this.name = "ErreurImport"; }
 }
@@ -55,4 +55,13 @@ export async function* lireLignes(source: AsyncIterable<Uint8Array | string>): A
   }
   if (guillemets) throw new ErreurImport("fichier_illisible");
   if (champ !== "" || cellules.length > 0) yield* finLigne();
+}
+
+// Colonne d'adresse partagée par l'exclusion et le dédoublonnage : Email, E-mail, Email 2, courriel (sans casse, accents ni tirets). Absente = undefined ; plus d'une = refus (échec fermé).
+const ENTETE_ADRESSE = /^(email|courriel)[0-9]*$/;
+const normaliserEntete = (e: string): string => e.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+export function colonneAdresseOptionnelle(ligne: Ligne): string | undefined {
+  const cles = Object.keys(ligne).filter((k) => ENTETE_ADRESSE.test(normaliserEntete(k)));
+  if (cles.length > 1) throw new ErreurImport("colonne_adresse_multiple");
+  return cles[0];
 }

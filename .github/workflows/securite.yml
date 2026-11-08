@@ -1,5 +1,7 @@
 name: Sécurité
 on:
+  push:
+    branches: [main]
   pull_request:
 permissions:
   contents: read

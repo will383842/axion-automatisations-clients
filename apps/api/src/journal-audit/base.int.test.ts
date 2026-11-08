@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { migrer } from "../db/migrer.js";
+import { avecClient } from "../db/client-actif.js";
+import { traceSql } from "../vue-client/trace.js";
 import { creerJournalAuditBase } from "./base.js";
 
 // Le rapport de la CI est un JSON hors du journal : un essai en échec est écrit par writeSync(2, …), lisible dans le journal du job.
@@ -68,5 +70,19 @@ describe("journal d'audit en base", { timeout: 30_000 }, () => {
     await expect(creerJournalAuditBase(app).ecrire({ action: "blocage_cle", tenantId: randomUUID(), parQui: "systeme", motif, montantConsommeMicroCentimes: 12.5 })).rejects.toThrow(/entier/);
     const { rows } = await migration.query("SELECT count(*)::int AS n FROM public.journal_audit WHERE nouvelle->>'motif' = $1", [motif]);
     expect(rows[0]?.["n"]).toBe(0);
+  });
+});
+
+// Trace de la vue « comme le client » (T3-08a) : écrite par public.audit_ajouter dans le client actif, jamais pour un autre client. À jouer par le job socle-integration (pas de Docker dans la routine).
+describe("trace de la vue « comme le client » en base", { timeout: 30_000 }, () => {
+  it("[C-009] traceSql écrit une ligne « vue_client » pour le client actif, et audit_ajouter refuse un autre client", async () => {
+    const A = randomUUID();
+    const B = randomUUID();
+    const acteur = `essai-${randomUUID().slice(0, 8)}`;
+    await traceSql(app).ecrire({ tenantId: A, acteur, evenement: "page_consultee", page: "fiche", le: new Date() });
+    const { rows } = await migration.query("SELECT tenant_id, acteur, entite, nouvelle FROM public.journal_audit WHERE acteur = $1 AND entite = 'vue_client'", [acteur]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ tenant_id: A, acteur, entite: "vue_client", nouvelle: { evenement: "page_consultee", page: "fiche" } });
+    await expect(avecClient(app, A, (c) => c.query("SELECT public.audit_ajouter($1::uuid, $2, 'insertion'::public.action_audit, 'vue_client', NULL, NULL, '{}'::jsonb)", [B, acteur]), { acteur })).rejects.toThrow(/client actif/);
   });
 });

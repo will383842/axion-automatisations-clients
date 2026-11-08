@@ -2,7 +2,7 @@ import { ENVOIS_COMMERCIAUX } from "./exclusions.js";
 
 // Port des e-mails de SERVICE de la console (jamais commerciaux : aucune exclusion ne les coupe). L'envoi réel est branché au lot 3 ou 6 ;
 // le texte vient du catalogue (modèle T2-00), ici seulement le type, le client et une clé anti-doublon qui inclut le client.
-export const TYPES_SERVICE = ["avis_gel_pose", "avis_gel_leve"] as const;
+export const TYPES_SERVICE = ["avis_gel_pose", "avis_gel_leve", "avis_vue_client_ouverte", "demande_accord_vue_client"] as const;
 export type TypeService = (typeof TYPES_SERVICE)[number];
 export interface MessageService {
   type: TypeService;

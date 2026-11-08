@@ -10,7 +10,7 @@ const INSTANCE = "66666666-6666-4666-8666-666666666666";
 const CREATION = `/api/console/v1/clients/${A}/instances`;
 const CORPS = { organisation_id: "33333333-3333-4333-8333-333333333333", version_id: "44444444-4444-4444-8444-444444444444", formule: "abonnement", reglages: {} };
 
-function deps(o: { ouvert?: boolean; equipe?: boolean; activation?: Error } = {}) {
+function deps(o: { ouvert?: boolean; equipe?: boolean; activation?: Error; miseAJour?: { etat: "echec" | "quarantaine"; cause: string } } = {}) {
   const appels: string[] = [];
   const d: DepsDeploiementInstances = {
     ouvert: o.ouvert ?? true,
@@ -31,6 +31,10 @@ function deps(o: { ouvert?: boolean; equipe?: boolean; activation?: Error } = {}
       appels.push(`activer:${tenantId}:${acteur}:${instanceId}`);
       if (o.activation) throw o.activation;
     },
+    async mettreAJour(tenantId, acteur, instanceId, versionId) {
+      appels.push(`mettre-a-jour:${tenantId}:${acteur}:${instanceId}:${versionId}`);
+      return o.miseAJour ?? { etat: "ok" };
+    },
   };
   return { d, appels };
 }
@@ -42,7 +46,7 @@ describe("route de déploiement d'une instance", () => {
     expect((await poster(construireServeur(), CREATION)).statusCode).toBe(404);
     const fermee = deps({ ouvert: false });
     const s = construireServeur({ deploiementInstances: fermee.d });
-    for (const url of [CREATION, `${CREATION}/${INSTANCE}/tests-a-blanc`, `${CREATION}/${INSTANCE}/activation`]) {
+    for (const url of [CREATION, `${CREATION}/${INSTANCE}/tests-a-blanc`, `${CREATION}/${INSTANCE}/activation`, `${CREATION}/${INSTANCE}/mises-a-jour`]) {
       const r = await poster(s, url, { corps: "n'importe quoi" });
       expect(r.statusCode, url).toBe(503);
       expect(r.json().erreur.code, url).toBe("porte_fermee");
@@ -88,5 +92,22 @@ describe("route de déploiement d'une instance", () => {
     const ok = await poster(construireServeur({ deploiementInstances: bon.d }), `${CREATION}/${INSTANCE}/activation`, {});
     expect(ok.statusCode).toBe(200);
     expect(ok.json()).toEqual({ instance_id: INSTANCE, etat: "active" });
+  });
+
+  it("[A-171] la route de mise à jour prend le client du chemin, refuse un corps étranger et rend l'issue sans détail", async () => {
+    const VERSION = "88888888-8888-4888-8888-888888888888";
+    const ok = deps();
+    const s = construireServeur({ deploiementInstances: ok.d });
+    const r = await poster(s, `${CREATION}/${INSTANCE}/mises-a-jour`, { version_id: VERSION });
+    expect(r.statusCode).toBe(200);
+    expect(r.json()).toEqual({ instance_id: INSTANCE, etat: "ok" });
+    expect(ok.appels[1]).toBe(`mettre-a-jour:${A}:equipe-essai:${INSTANCE}:${VERSION}`);
+    for (const corps of [{}, { version_id: VERSION, tenant_id: A }, { version_id: "pas-un-uuid" }]) expect((await poster(s, `${CREATION}/${INSTANCE}/mises-a-jour`, corps)).statusCode).toBe(400);
+    const echec = deps({ miseAJour: { etat: "quarantaine", cause: "tables" } });
+    const e = await poster(construireServeur({ deploiementInstances: echec.d }), `${CREATION}/${INSTANCE}/mises-a-jour`, { version_id: VERSION });
+    expect(e.statusCode).toBe(200);
+    expect(e.json()).toEqual({ instance_id: INSTANCE, etat: "quarantaine", cause: "tables" });
+    const client = await poster(s, `${CREATION}/${INSTANCE}/mises-a-jour`, { version_id: VERSION }, false);
+    expect(client.statusCode).toBe(403);
   });
 });

@@ -1,4 +1,4 @@
-import type { Ligne } from "./lecteur.ts";
+import { colonneAdresseOptionnelle, type Ligne } from "./lecteur.ts";
 
 // Normalisation et dédoublonnage (A-273) : dans le fichier (mémoire) puis contre la base du client (port).
 export const normaliserEmail = (v: string): string => v.trim().toLowerCase();
@@ -9,7 +9,8 @@ export const normaliserTelephone = (v: string): string => {
 
 // Clé d'une ligne : l'adresse e-mail, à défaut le téléphone ; sans l'un ni l'autre, pas de clé (la ligne n'est pas dédoublonnée).
 export function cleDe(ligne: Ligne): string | undefined {
-  const e = normaliserEmail(ligne["email"] ?? "");
+  const colonne = colonneAdresseOptionnelle(ligne);
+  const e = normaliserEmail(colonne === undefined ? "" : (ligne[colonne] ?? ""));
   if (e) return e;
   const t = normaliserTelephone(ligne["telephone"] ?? "");
   return t ? `tel:${t}` : undefined;

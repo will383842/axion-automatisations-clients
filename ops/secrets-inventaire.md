@@ -19,6 +19,11 @@ Les secrets de l'équipe vivent dans Bitwarden ou sous `technique/` d'OpenBao, J
 | `CONSOLE_CLIENT_OIDC` | aucun | environnement cloud | sans objet |
 | `CONSOLE_SECRET_OIDC` | equipe | OpenBao `technique/` (secret du client `console` de Keycloak) | chaque trimestre |
 | `CONSOLE_ORIGINE` | aucun | environnement cloud (origine publique de la console) | sans objet |
+| `PORTAIL_CONNEXION_OUVERTE` | aucun | environnement cloud (interrupteur de la connexion du portail, fermé par défaut) | sans objet |
+| `PORTAIL_EMETTEUR_OIDC` | aucun | environnement cloud (adresse du royaume des clients) | sans objet |
+| `PORTAIL_CLIENT_OIDC` | aucun | environnement cloud | sans objet |
+| `PORTAIL_SECRET_OIDC` | equipe | OpenBao `technique/` (secret du client `portail` de Keycloak) | chaque trimestre |
+| `PORTAIL_ORIGINE` | aucun | environnement cloud (origine publique du portail ; en production https://client.axion-ia.com, en CI des noms `.test`) | sans objet |
 | `BACKOFFICE_URL` | aucun | environnement cloud (A-104) | sans objet |
 | `MIGRATION_DATABASE_URL` | production | environnement cloud, le temps d'une migration (le mot de passe du rôle qui modifie le schéma vient d'OpenBao) | à chaque départ d'un administrateur |
 | `APP_VERSION` | aucun | environnement de construction | sans objet |
@@ -74,6 +79,7 @@ Les secrets de l'équipe vivent dans Bitwarden ou sous `technique/` d'OpenBao, J
 | `KC_SECRET_CONSOLE_SESSIONS` | production | OpenBao `technique/` ; lu par l'API seule (compte de service `console-sessions` du royaume de l'équipe) et substitué dans le fichier de royaume de l'équipe ; en essai, valeur de `SOCLE_KEYCLOAK_SECRET_CONSOLE_SESSIONS` | à chaque départ d'un administrateur |
 | `KC_SECRET_PORTAIL` | production | environnement du conteneur Keycloak (substitué dans le fichier de royaume des clients ; en essai, valeur de `SOCLE_KEYCLOAK_SECRET_PORTAIL`) | à chaque départ d'un administrateur |
 | `KC_ORIGINE_CONSOLE` | aucun | environnement du conteneur Keycloak (origine publique de la console, substituée dans les adresses de rappel et de fin de session du client `console` ; en essai, l'adresse fictive https://console.exemple.test) | sans objet |
+| `KC_ORIGINE_PORTAIL` | aucun | environnement du conteneur Keycloak (origine publique du portail, substituée dans les adresses de rappel et de fin de session du client `portail` ; en essai, l'adresse fictive https://portail.exemple.test) | sans objet |
 | `SOCLE_STOCKAGE_MOT_DE_PASSE` | construction | environnement de construction | généré à chaque lancement |
 
 ## Secrets rangés dans OpenBao

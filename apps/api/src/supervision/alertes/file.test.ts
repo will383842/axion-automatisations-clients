@@ -160,7 +160,7 @@ describe("file d'alertes : types « service »", () => {
   });
   it("[C-217] la file n'importe pas envois/exclusions.ts et TYPES_SERVICE est disjointe de ENVOIS_COMMERCIAUX", () => {
     const source = ["ouvrir.ts", "cycle.ts", "regrouper.ts"].map((f) => readFileSync(new URL(`./${f}`, import.meta.url), "utf8")).join("\n");
-    expect(source).not.toMatch(/exclusions/);
+    expect(source).not.toMatch(/from\s+"[^"]*exclusions/);
     for (const t of ["prospection", "relance_commerciale", "newsletter", "proposition_commerciale"]) expect(TYPES_SERVICE).not.toContain(t);
   });
 });

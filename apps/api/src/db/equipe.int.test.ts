@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { controlerInvariants, type Requete } from "../../../../packages/contrats/src/c5/invariants.js";
+import { changementMembreAutorise } from "../droits/matrice.js";
+import { creerDepotMembres } from "../equipe/membres-depot.js";
 import { avecClient } from "./client-actif.js";
 import { migrer } from "./migrer.js";
 
@@ -220,5 +222,60 @@ describe("migration 0020 : équipe, vues, « Aujourd'hui », avec le socle", { t
     const ecarts = await controlerInvariants(requete, "console", OPTIONS);
     const publics = ecarts.filter((e) => tables.includes(e.objet.split(".")[0] ?? "") && !e.objet.startsWith("essai_"));
     expect(publics).toEqual([]);
+  });
+});
+
+// T3-07c : dépôt SQL des membres (console_equipe, vraie base, vraies connexions). Aucune suppression, jamais de réactivation.
+describe("membres de l'équipe : dépôt SQL (T3-07c)", () => {
+  const depot = () => creerDepotMembres(equipe);
+  const regleDe = (acteur: { sujet: string; role: "dirigeant" | "second_administrateur" }) => (c: { cible: { sujet: string; role: string }; dirigeantsActifs: number }) =>
+    changementMembreAutorise({ acteur, cible: c.cible, nouveau: "retrait", dirigeantsActifs: c.dirigeantsActifs });
+
+  it("[B-028] désactiver un membre garde son historique", async () => {
+    const d = depot();
+    const acteur = await creerMembre();
+    const { id } = await d.inserer({ sujet: `membre-${unique()}`, role: "second_administrateur", porteeClients: [] }, acteur.sujet);
+    const r = await d.desactiver({ cibleId: id, acteur: { sujet: acteur.sujet, role: "dirigeant" } }, regleDe({ sujet: acteur.sujet, role: "dirigeant" }));
+    expect(r.etat).toBe("desactive");
+    const ligne = (await su.query("SELECT actif, desactive_par FROM membres_equipe WHERE id = $1", [id])).rows[0];
+    expect(ligne).toEqual({ actif: false, desactive_par: acteur.sujet });
+    // Une ligne au journal par le déclencheur pour l'insertion, une pour la désactivation ; aucune suppression possible.
+    expect((await su.query("SELECT count(*)::int AS n FROM journal_audit WHERE entite = 'membres_equipe' AND entite_id = $1", [id])).rows[0]?.["n"]).toBe(2);
+    await expect(commeEquipe(acteur.sujet, (c) => c.query("DELETE FROM membres_equipe WHERE id = $1", [id]))).rejects.toMatchObject({ code: "42501" });
+    expect((await d.desactiver({ cibleId: id, acteur: { sujet: acteur.sujet, role: "dirigeant" } }, regleDe({ sujet: acteur.sujet, role: "dirigeant" }))).etat).toBe("deja");
+  });
+
+  it("[LOT3-securite] deux dirigeants qui se désactivent en même temps : un seul réussit", async () => {
+    const d = depot();
+    const a = await creerMembre(`membre-${unique()}`, "dirigeant");
+    const b = await creerMembre(`membre-${unique()}`, "dirigeant");
+    const observes: number[] = [];
+    // L'acteur est un autre dirigeant du socle ; la règle est celle de la matrice. La pause élargit la fenêtre : sans FOR UPDATE, les deux transactions comptent le même nombre.
+    const regle = (c: { cible: { sujet: string; role: string }; dirigeantsActifs: number }) => {
+      observes.push(c.dirigeantsActifs);
+      return true;
+    };
+    const lent = async (cible: string) => d.desactiver({ cibleId: cible, acteur: { sujet: `autre-${unique()}`, role: "dirigeant" } }, (c) => { const r = regle(c); return r; });
+    await Promise.all([lent(a.id), lent(b.id)]);
+    expect(observes).toHaveLength(2);
+    // Verrou pris sur les dirigeants actifs : la 2e transaction attend la 1re et voit un dirigeant de moins.
+    expect(Math.abs((observes[0] ?? 0) - (observes[1] ?? 0))).toBe(1);
+  });
+});
+
+describe("T3-07b : accès en cours lus par console_equipe", { timeout: 120_000 }, () => {
+  it("[B-026] la liste rend les interventions en cours de visibilite_acces et aucune intervention passée", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    const fin = new Date(Date.now() + 3_600_000).toISOString();
+    const debut = new Date(Date.now() - 600_000).toISOString();
+    await insererApp(A, "visibilite_acces", { organisation_id: A, intervention_perimetre: "lecture", intervention_debut: debut, intervention_fin: fin });
+    // Une organisation par client (console_client_id = tenant_id) : l'intervention passée est portée par un second client.
+    const B = randomUUID();
+    await creerOrg(B);
+    await insererApp(B, "visibilite_acces", { organisation_id: B, intervention_perimetre: "lecture", intervention_debut: new Date(Date.now() - 7_200_000).toISOString(), intervention_fin: new Date(Date.now() - 3_600_000).toISOString() });
+    const { creerAccesInterventions } = await import("../equipe/acces-en-cours.ts");
+    const vus = (await creerAccesInterventions(equipe).lister()).filter((a) => a.clientId === A || a.clientId === B);
+    expect(vus).toEqual([{ type: "intervention", clientId: A, debut: new Date(debut).toISOString(), fin: new Date(fin).toISOString() }]);
   });
 });

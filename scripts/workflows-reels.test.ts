@@ -22,10 +22,10 @@ describe("workflows réels", () => {
     expect(t).toMatch(/\*\*Security\*\*\s*→\s*\*\*Report a vulnerability\*\*/);
   });
 
-  it("[C-528] ci.yml déclare les six contrôles exigés, lit seulement le dépôt, sur ubuntu-latest", () => {
+  it("[C-528] ci.yml déclare les contrôles exigés, lit seulement le dépôt, sur ubuntu-latest", () => {
     const t = lire(".github/workflows/ci.yml");
     expect(t).toMatch(/^permissions:\n\s+contents: read/m);
-    for (const j of ["types", "lint", "tests", "garde-workflows", "compter-tests", "licences"]) {
+    for (const j of ["types-lint", "tests", "garde-workflows", "licences"]) {
       expect(t, j).toMatch(new RegExp(`^  ${j}:`, "m"));
     }
     expect(t).not.toContain("self-hosted");

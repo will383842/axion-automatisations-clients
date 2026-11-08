@@ -14,7 +14,7 @@ const lire = () => {
   return { nom, texte: readFileSync(new URL(nom, dossier), "utf8") };
 };
 const code = () => lire().texte.replace(/--[^\n]*/g, "");
-const instructions = () => code().split(/-->\s*statement-breakpoint/).map((s) => s.trim().replace(/;$/, "")).filter((s) => s !== "");
+const instructions = () => lire().texte.split(/-->\s*statement-breakpoint/).map((s) => s.replace(/--[^\n]*/g, "").trim().replace(/;$/, "")).filter((s) => s !== "");
 
 describe("écriture des rapports mensuels : migration de droits", () => {
   it("[B-406] la migration « rapports_mensuels_ecriture » passe la garde des migrations et n'ajoute que des droits et deux politiques restrictives", () => {

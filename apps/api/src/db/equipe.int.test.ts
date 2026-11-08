@@ -222,3 +222,20 @@ describe("migration 0020 : équipe, vues, « Aujourd'hui », avec le socle", { t
     expect(publics).toEqual([]);
   });
 });
+
+describe("T3-07b : accès en cours lus par console_equipe", { timeout: 120_000 }, () => {
+  it("[B-026] la liste rend les interventions en cours de visibilite_acces et aucune intervention passée", async () => {
+    const A = randomUUID();
+    await creerOrg(A);
+    const fin = new Date(Date.now() + 3_600_000).toISOString();
+    const debut = new Date(Date.now() - 600_000).toISOString();
+    await insererApp(A, "visibilite_acces", { organisation_id: A, intervention_perimetre: "lecture", intervention_debut: debut, intervention_fin: fin });
+    // Une organisation par client (console_client_id = tenant_id) : l'intervention passée est portée par un second client.
+    const B = randomUUID();
+    await creerOrg(B);
+    await insererApp(B, "visibilite_acces", { organisation_id: B, intervention_perimetre: "lecture", intervention_debut: new Date(Date.now() - 7_200_000).toISOString(), intervention_fin: new Date(Date.now() - 3_600_000).toISOString() });
+    const { creerAccesInterventions } = await import("../equipe/acces-en-cours.ts");
+    const vus = (await creerAccesInterventions(equipe).lister()).filter((a) => a.clientId === A || a.clientId === B);
+    expect(vus).toEqual([{ type: "intervention", clientId: A, debut: new Date(debut).toISOString(), fin: new Date(fin).toISOString() }]);
+  });
+});

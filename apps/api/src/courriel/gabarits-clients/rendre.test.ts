@@ -29,7 +29,6 @@ describe("rendu des e-mails des clients", () => {
     expect(() => rendreClient(TEXTE, { ...OK, nomAutomatisation: "" }, o)).toThrow();
     expect(() => rendreClient(TEXTE, { ...OK, nomAutomatisation: "x".repeat(201) }, o)).toThrow();
     expect(() => rendreClient(TEXTE, { ...OK, enPlus: "x" }, o)).toThrow();
-    const { adresseSupport: _a, ...manquante } = OK;
-    expect(() => rendreClient(TEXTE, manquante, o)).toThrow();
+    expect(() => rendreClient(TEXTE, { nomAutomatisation: OK.nomAutomatisation, lienEspace: OK.lienEspace }, o)).toThrow();
   });
 });

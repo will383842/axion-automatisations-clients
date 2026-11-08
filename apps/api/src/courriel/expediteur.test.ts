@@ -198,6 +198,7 @@ describe("expéditeur des clients", () => {
       cleTrace: CLE_TRACE_TEST,
       textes,
       originePortail: ORIGINE,
+      preferences: { async coupee() { return false; } },
       ...(o.domainesRefuses ? { domainesRefuses: o.domainesRefuses } : {}),
       ...(adresses ? { annuaire: { async destinataires() { appels.push("annuaire"); return adresses; } } } : {}),
       ...(o.conditions === null ? {} : { conditions: { async verifier() { return o.conditions ?? true; } } }),

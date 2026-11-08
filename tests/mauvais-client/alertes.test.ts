@@ -22,6 +22,12 @@ beforeAll(async () => {
       if (!s || s.role === "client") throw new ErreurApi("action_interdite", "Action interdite.");
       return s;
     }) as never,
+    droits: {
+      membre: async (requete: { headers: Record<string, unknown> }) =>
+        /(?:^|;\s*)sid=sid-equipe(?:;|$)/.test(String(requete.headers["cookie"] ?? "")) ? { sujet: "membre-1", role: "dirigeant", actif: true, portee: { clients: [], automatisations: [] } } : undefined,
+      absenceOuverte: async () => false,
+      tracer: async () => undefined,
+    } as never,
     lire: espion(),
     cycle: espion(),
     regles: espion(),

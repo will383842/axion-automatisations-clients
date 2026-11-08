@@ -3,13 +3,27 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { ErreurApi, brancherErreurs } from "../../plugins/erreurs.js";
 import { routeFileAlertes, type DepsFileAlertes, type LigneAlerte } from "./routes.js";
 import { ErreurCycle, type DepotCycle } from "./cycle.js";
+import type { DepsDroits, MembreDroits } from "../../droits/exiger-droit.js";
 
 const T1 = "11111111-1111-4111-8111-111111111111";
 const T2 = "22222222-2222-4222-8222-222222222222";
+// Membres de la matrice (T3-06) : le rôle « lecteur » n'y existe pas. Le second administrateur est limité au client A (T1).
+const MEMBRES: Record<string, MembreDroits> = {
+  equipe: { sujet: "membre-1", role: "dirigeant", actif: true, portee: { clients: [], automatisations: [] } },
+  second_a: { sujet: "membre-2", role: "second_administrateur", actif: true, portee: { clients: [T1], automatisations: [] } },
+};
+const refusTraces: string[] = [];
+const droits: DepsDroits = {
+  async membre(r) { return MEMBRES[String(r.headers["x-essai"] ?? "")]; },
+  async absenceOuverte() { return false; },
+  async tracer(e) { refusTraces.push(`${e.action}:${e.motif}`); },
+};
+
 const id = (n: number) => `aaaaaaaa-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const SESSIONS: Record<string, { acteur: string; role: string }> = {
   equipe: { acteur: "membre-1", role: "dirigeant" },
-  lecteur: { acteur: "membre-2", role: "lecteur" },
+  second_a: { acteur: "membre-2", role: "second_administrateur" },
+  inconnu: { acteur: "membre-3", role: "lecteur" },
   client: { acteur: "client-1", role: "client" },
 };
 
@@ -42,7 +56,7 @@ async function monter(ouvert = true, lignes = [ligne(1), ligne(2, { gravite: "cr
     async retablir() { return null; },
     async attribuer(t, a, ac) { appels.push(`attribuer:${t}:${a}:${ac}`); return true; },
     async commenter(t, a, texte, ac) { appels.push(`commenter:${t}:${a}:${ac}:${texte.length}`); },
-    async clore(t, a, raison, ac) { appels.push(`clore:${t}:${a}:${raison}:${ac}`); return true; },
+    async clore(t, a, raison, ac) { appels.push(`clore:${t}:${a}:${raison}:${ac}`); return lignes.find((l) => l.id === a)?.etat !== "close"; }, // comme la base : rien n'est écrit sur une alerte déjà close
   };
   const deps: DepsFileAlertes = {
     ouvert,
@@ -51,6 +65,7 @@ async function monter(ouvert = true, lignes = [ligne(1), ligne(2, { gravite: "cr
       if (!s || s.role === "client") throw new ErreurApi("action_interdite", "Action interdite.");
       return s;
     },
+    droits,
     lire: lectureEnMemoire(lignes),
     cycle,
     regles: {
@@ -133,10 +148,16 @@ describe("file d'alertes : routes d'équipe (T5-04c)", () => {
     expect(appels).toEqual([]);
   });
 
-  it("[B-031] une alerte déjà close → 422 ; une alerte inconnue ou d'identifiant mal formé", async () => {
+  it("[B-031] une alerte déjà close → 422 ; une alerte inconnue → 404 ; un identifiant mal formé → 400", async () => {
+    await monter(true, [ligne(1, { etat: "close" })]);
+    const url = `/api/console/v1/alertes/${id(1)}`;
+    // Le dépôt refuse de clore une alerte déjà close : la route rend 422 « regle_metier » avec le message dédié.
+    const r = await appli.inject({ method: "POST", url: `${url}/clore`, headers: h("equipe"), payload: { raison: "traitee" } });
+    expect(r.statusCode).toBe(422);
+    expect(r.json().erreur.code).toBe("regle_metier");
+    expect(r.json().erreur.message).toBe("Alerte déjà close.");
     expect((await appli.inject({ method: "POST", url: `/api/console/v1/alertes/${id(77)}/clore`, headers: h("equipe"), payload: { raison: "traitee" } })).statusCode).toBe(404);
     expect((await appli.inject({ method: "POST", url: "/api/console/v1/alertes/pas-un-uuid/clore", headers: h("equipe"), payload: { raison: "traitee" } })).statusCode).toBe(400);
-    expect(new ErreurCycle("alerte_close").code).toBe("alerte_close");
   });
 
   it("[B-031] PUT regles-alertes/:id règle gravité, seuil, fenêtre ou activation, avec l'acteur ; un autre champ → 400 ; une valeur négative → 422", async () => {
@@ -151,13 +172,31 @@ describe("file d'alertes : routes d'équipe (T5-04c)", () => {
     expect((await appli.inject({ method: "PUT", url: `/api/console/v1/regles-alertes/${id(901)}`, headers: h("equipe"), payload: { seuil: 1 } })).statusCode).toBe(404);
   });
 
-  it("[B-031] un membre de l'équipe au rôle lecteur lit la file mais ne peut ni attribuer, ni commenter, ni clore, ni régler (403)", async () => {
-    expect((await appli.inject({ method: "GET", url: "/api/console/v1/alertes", headers: h("lecteur") })).statusCode).toBe(200);
+  it("[B-031] un rôle absent de la matrice (« lecteur ») est refusé partout (403, refus tracé), lecture comprise", async () => {
     const b = `/api/console/v1/alertes/${id(1)}`;
+    expect((await appli.inject({ method: "GET", url: "/api/console/v1/alertes", headers: h("inconnu") })).statusCode).toBe(403);
     for (const [m, u, p] of [["POST", `${b}/attribuer`, {}], ["POST", `${b}/commenter`, { texte: "a" }], ["POST", `${b}/clore`, { raison: "traitee" }], ["PUT", `/api/console/v1/regles-alertes/${id(900)}`, { seuil: 1 }]] as const) {
-      expect((await appli.inject({ method: m, url: u, headers: h("lecteur"), payload: p })).statusCode).toBe(403);
+      expect((await appli.inject({ method: m, url: u, headers: h("inconnu"), payload: p })).statusCode).toBe(403);
     }
     expect(appels).toEqual([]);
+    expect(refusTraces).toContain("lire:droit_refuse");
+    expect(refusTraces).toContain("modifier_reglages:droit_refuse");
+  });
+
+  it("[B-031] @isolation un second administrateur limité au client A ne voit ni ne clôt les alertes du client B", async () => {
+    const liste = (await appli.inject({ method: "GET", url: "/api/console/v1/alertes", headers: h("second_a") })).json();
+    expect(liste.alertes.map((a: LigneAlerte) => a.id)).toEqual([id(1), id(2)]); // aucune alerte du client B (id 3)
+    expect((await appli.inject({ method: "GET", url: `/api/console/v1/alertes?client=${T2}`, headers: h("second_a") })).statusCode).toBe(404);
+    const b = `/api/console/v1/alertes/${id(3)}`; // alerte du client B
+    for (const [u, p] of [[`${b}/attribuer`, {}], [`${b}/commenter`, { texte: "a" }], [`${b}/clore`, { raison: "traitee" }]] as const) {
+      const r = await appli.inject({ method: "POST", url: u, headers: h("second_a"), payload: p });
+      expect(r.statusCode).toBe(404); // même réponse qu'une alerte inconnue
+    }
+    expect(appels).toEqual([]);
+    // témoin : sur une alerte du client A, il agit
+    expect((await appli.inject({ method: "POST", url: `/api/console/v1/alertes/${id(1)}/clore`, headers: h("second_a"), payload: { raison: "traitee" } })).statusCode).toBe(200);
+    // les règles sont globales : refusées au second administrateur dont la portée ne couvre pas tous les clients
+    expect((await appli.inject({ method: "PUT", url: `/api/console/v1/regles-alertes/${id(900)}`, headers: h("second_a"), payload: { seuil: 1 } })).statusCode).toBe(404);
   });
 
   it("[B-031] @isolation une session client reçoit 403 sur toutes les routes d'alertes", async () => {

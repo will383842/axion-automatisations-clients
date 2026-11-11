@@ -36,7 +36,11 @@ export function routesGraph(app: FastifyInstance, etat: EtatGraph, mailpit: Clie
     if (exige) {
       return rep.code(400).send({ error: "invalid_grant", error_description: "AADSTS65001: L'administrateur n'a pas donné son consentement à l'application." });
     }
-    return { token_type: "Bearer", expires_in: 3599, access_token: `faux.${client}` };
+    const base = { token_type: "Bearer", expires_in: 3599, access_token: `faux.${client}` };
+    if (corps["grant_type"] !== "authorization_code") return base;
+    // id_token factice (en-tête et signature sans valeur) : le courtier y lit le locataire reçu.
+    const b64 = (o: object) => Buffer.from(JSON.stringify(o)).toString("base64url");
+    return { ...base, id_token: `${b64({ alg: "none" })}.${b64({ tid: locataire, oid: randomUUID(), preferred_username: client })}.faux` };
   };
   app.post("/oauth2/v2.0/token", jeton);
   app.post("/:tenant/oauth2/v2.0/token", jeton);
